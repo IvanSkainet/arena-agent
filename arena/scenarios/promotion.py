@@ -35,7 +35,7 @@ def scenario_from_run(run: dict[str, Any], *, name: str, title: str | None = Non
             n += 1
         seen.add(sid)
         args = step.get("arguments") if isinstance(step.get("arguments"), dict) else {}
-        promoted = {"id": sid, "tool": tool, "arguments": args}
+        promoted: dict[str, Any] = {"id": sid, "tool": tool, "arguments": args}
         if step.get("ok") is False:
             promoted["continue_on_error"] = True
         steps.append(promoted)

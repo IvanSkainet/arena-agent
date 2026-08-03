@@ -10,17 +10,29 @@ _WORD_RE = re.compile(r"[0-9A-Za-z]+")
 _GEOM_RE = re.compile(r"Position:\s*(-?\d+),(-?\d+).*?Geometry:\s*(\d+)x(\d+)", re.S)
 
 
-def normalize_text(text: str) -> str:
+def normalize_text(text: Any) -> str:
+    """Fold arbitrary window metadata into a comparable token string.
+
+    Typed `Any` on purpose: callers pass `window.get("title")` straight in,
+    which may be absent (None) or a non-string, and the body already coerces
+    with `str(text or "")`.
+    """
     return " ".join(_WORD_RE.findall(str(text or "").casefold()))
 
 
 def coerce_geometry(value: Any) -> dict[str, int] | None:
     if isinstance(value, dict):
         try:
-            x = int(value.get("x"))
-            y = int(value.get("y"))
-            width = int(value.get("width"))
-            height = int(value.get("height"))
+            # A missing key must stay a rejection, not a silent 0: the
+            # original code relied on `int(None)` raising TypeError into the
+            # handler below. Made explicit so the contract survives edits.
+            for _key in ("x", "y", "width", "height"):
+                if value.get(_key) is None:
+                    return None
+            x = int(value["x"])
+            y = int(value["y"])
+            width = int(value["width"])
+            height = int(value["height"])
         except (TypeError, ValueError):
             return None
         if width <= 0 or height <= 0:

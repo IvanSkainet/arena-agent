@@ -149,6 +149,7 @@ def make_observability_handlers(ctx: ObservabilityHandlerContext) -> Observabili
         cfg, err = ctx.normalize_webhooks_config(data)
         if err:
             return ctx.cors_json_response({"ok": False, "error": err}, status=400)
+        assert cfg is not None  # pyrefly 1.2: no union-of-tuple narrowing
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(ctx.executor, ctx.save_webhooks, cfg)
         ctx.audit({"type": "webhooks_updated", "urls_count": len(cfg["urls"])})

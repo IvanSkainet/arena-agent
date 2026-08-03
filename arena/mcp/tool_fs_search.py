@@ -43,7 +43,7 @@ def handle_fs_search_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, 
 
     path_str = os.path.expanduser(args.get("path") or "")
     pattern = args.get("pattern", args.get("query", ""))
-    glob_filter = args.get("glob", args.get("file_pattern", ""))
+    glob_filter = str(args.get("glob") or args.get("file_pattern") or "")
     max_results = min(int(args.get("max_results", 50)), _MAX_RESULTS)
     context_lines = int(args.get("context", 0))
     case_insensitive = bool(args.get("ignore_case", False))
@@ -54,6 +54,7 @@ def handle_fs_search_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, 
     path, err = _validate_search_path(path_str, ctx)
     if err:
         return err
+    assert path is not None  # pyrefly 1.2: no union-of-tuple narrowing
 
     # Compile regex
     flags = re.IGNORECASE if case_insensitive else 0
@@ -133,7 +134,7 @@ def _search_file(fpath: Path, regex: re.Pattern, context_lines: int) -> list[dic
     lines = content.split("\n")
     for i, line in enumerate(lines, start=1):
         if regex.search(line):
-            match = {"file": str(fpath), "line": i, "text": line.rstrip()}
+            match: dict[str, Any] = {"file": str(fpath), "line": i, "text": line.rstrip()}
             if context_lines > 0:
                 match["context_before"] = [
                     {"line": j, "text": lines[j - 1].rstrip()}

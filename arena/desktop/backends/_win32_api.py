@@ -39,11 +39,20 @@ kernel32: Any
 dwmapi: Any
 EnumWindowsProc: Any
 
+# `ctypes.windll` only exists in the Windows build of the stdlib, so every
+# reference to it reads as a missing attribute when the checker runs on Linux
+# (which CI does). Routing through an `Any`-typed alias keeps the guarded code
+# honest without pretending the attribute is portable.
+_ct: Any = ctypes
+# Assigning the None sentinels through an `Any` binding stops the checker from
+# collapsing the declared `Any` back to `NoneType` for the whole module.
+_UNAVAILABLE: Any = None
+
 if _IS_WINDOWS:
-    user32 = ctypes.windll.user32
-    gdi32 = ctypes.windll.gdi32
-    kernel32 = ctypes.windll.kernel32
-    dwmapi = ctypes.windll.dwmapi
+    user32 = _ct.windll.user32
+    gdi32 = _ct.windll.gdi32
+    kernel32 = _ct.windll.kernel32
+    dwmapi = _ct.windll.dwmapi
 
     user32.GetForegroundWindow.restype = wt.HWND
     user32.SetForegroundWindow.argtypes = [wt.HWND]
@@ -107,18 +116,18 @@ if _IS_WINDOWS:
     gdi32.DeleteDC.argtypes = [wt.HDC]
     gdi32.DeleteDC.restype = wt.BOOL
 
-    EnumWindowsProc = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+    EnumWindowsProc = _ct.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
     user32.EnumWindows.argtypes = [EnumWindowsProc, wt.LPARAM]
     user32.EnumWindows.restype = wt.BOOL
     user32.EnumChildWindows.argtypes = [wt.HWND, EnumWindowsProc, wt.LPARAM]
     user32.EnumChildWindows.restype = wt.BOOL
 else:
     # Stubs so tests can import the module on Linux.
-    user32 = None
-    gdi32 = None
-    kernel32 = None
-    dwmapi = None
-    EnumWindowsProc = None
+    user32 = _UNAVAILABLE
+    gdi32 = _UNAVAILABLE
+    kernel32 = _UNAVAILABLE
+    dwmapi = _UNAVAILABLE
+    EnumWindowsProc = _UNAVAILABLE
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +227,7 @@ def hbitmap_to_png_bytes(hbmp: int, width: int, height: int) -> bytes:
     hwnd_desktop = user32.GetDesktopWindow()
     hdc_screen = user32.GetDC(hwnd_desktop)
     try:
-        gdi32.GetDIBits = ctypes.windll.gdi32.GetDIBits
+        gdi32.GetDIBits = _ct.windll.gdi32.GetDIBits
         gdi32.GetDIBits.argtypes = [wt.HDC, wt.HBITMAP, wt.UINT, wt.UINT, ctypes.c_void_p, ctypes.POINTER(BITMAPINFO), wt.UINT]
         gdi32.GetDIBits.restype = ctypes.c_int
         got = gdi32.GetDIBits(hdc_screen, hbmp, 0, height, buf, ctypes.byref(bmi), 0)

@@ -100,7 +100,9 @@ async def run_browseract_browse(
 
         err = stderr.decode("utf-8", errors="replace") if stderr else "unknown error"
         ctx.record_request(is_error=True, count_request=False)
-        return _browseract_error_response(ctx, err, proc.returncode)
+        # returncode is None only while the process is still running; we are
+        # past `communicate()` here, so -1 stands in for "unknown exit".
+        return _browseract_error_response(ctx, err, proc.returncode if proc.returncode is not None else -1)
     except asyncio.TimeoutError:
         ctx.record_request(is_error=True, count_request=False)
         return ctx.cors_json_response({"ok": False, "error": f"BrowserAct timed out ({timeout}s)"}, status=408)

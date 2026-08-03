@@ -53,7 +53,11 @@ from aiohttp import web
 _LOG = logging.getLogger(__name__)
 
 
-HandlerFn = Callable[[web.Request], Awaitable[web.Response]]
+# StreamResponse, not Response: aiohttp's own handler contract is
+# `-> StreamResponse`, and several handlers here legitimately return a
+# FileResponse / streamed NDJSON tail, which are StreamResponse subclasses but
+# not Response. Narrowing this alias to Response rejected those handlers.
+HandlerFn = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
 
 def authed(
@@ -91,7 +95,7 @@ def authed(
     """
     def _wrap(fn: HandlerFn) -> HandlerFn:
         @functools.wraps(fn)
-        async def wrapper(request: web.Request) -> web.Response:
+        async def wrapper(request: web.Request) -> web.StreamResponse:
             r = ctx.require_auth(request)
             if r:
                 return r
@@ -141,7 +145,7 @@ def controlled(ctx: Any) -> Callable[[HandlerFn], HandlerFn]:
     """
     def _wrap(fn: HandlerFn) -> HandlerFn:
         @functools.wraps(fn)
-        async def wrapper(request: web.Request) -> web.Response:
+        async def wrapper(request: web.Request) -> web.StreamResponse:
             r = ctx.require_auth(request)
             if r:
                 return r
@@ -175,7 +179,7 @@ def public(ctx: Any) -> Callable[[HandlerFn], HandlerFn]:
     """
     def _wrap(fn: HandlerFn) -> HandlerFn:
         @functools.wraps(fn)
-        async def wrapper(request: web.Request) -> web.Response:
+        async def wrapper(request: web.Request) -> web.StreamResponse:
             ctx.record_request()
             try:
                 return await fn(request)

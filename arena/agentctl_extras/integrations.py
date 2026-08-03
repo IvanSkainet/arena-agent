@@ -1,6 +1,8 @@
 """agentctl extras MCP/beep integration commands."""
 from __future__ import annotations
 
+from typing import Any
+
 from arena.agentctl_extras.common import ROOT, json, shutil, subprocess, sys
 
 
@@ -79,7 +81,12 @@ def cmd_beep(args: list[str]) -> int:
                     pass
 
         if platform.system() == "Windows":
-            import winsound
+            # Windows-only stdlib module: on a Linux checkout the checker sees
+            # the stub as empty, so every winsound.Beep below reads as a
+            # missing attribute. The Any alias keeps the guarded branch quiet
+            # without claiming the module is portable.
+            import winsound as _winsound_mod
+            winsound: Any = _winsound_mod
             if custom_freq and custom_dur:
                 winsound.Beep(custom_freq, custom_dur)
             else:

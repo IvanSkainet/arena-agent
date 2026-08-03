@@ -57,6 +57,7 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
         )
         if err:
             return _err(ctx, err, status)
+        assert target_path is not None  # pyrefly 1.2: no union-of-tuple narrowing
         try:
             content = target_path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
@@ -129,6 +130,7 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
         )
         if err:
             return _err(ctx, err, status)
+        assert target_path is not None  # pyrefly 1.2: no union-of-tuple narrowing
 
         encoding = str(data.get("encoding", "")).strip().lower()
         if encoding == "base64":

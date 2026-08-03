@@ -151,7 +151,8 @@ def get_memory() -> dict:
                             ("ullAvailExtendedVirtual", ctypes.c_uint64)]
             stat = MEMORYSTATUSEX()
             stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
-            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+            _ct: Any = ctypes  # windll exists only in the Windows build
+            _ct.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
             info["total_gb"] = round(stat.ullTotalPhys / (1024**3), 2)
             info["available_gb"] = round(stat.ullAvailPhys / (1024**3), 2)
             info["used_gb"] = round((stat.ullTotalPhys - stat.ullAvailPhys) / (1024**3), 2)

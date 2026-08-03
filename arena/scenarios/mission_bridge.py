@@ -89,6 +89,12 @@ def _find_by_name(missions_dir: Path, scenario_name: str) -> Path | None:
     return None
 
 
+# Module-level alias: inside the class body the name `list` is taken by the
+# `list()` method, so a bare `list[...]` annotation on a later method resolves
+# to that method instead of the builtin.
+_Records = list[dict[str, Any]]
+
+
 class ScenarioMissionStore:
     """CRUD for scenario missions in ``<agent_home>/missions/``."""
 
@@ -102,7 +108,7 @@ class ScenarioMissionStore:
     def ensure_dir(self) -> None:
         self._dir.mkdir(parents=True, exist_ok=True)
 
-    def list(self) -> list[dict[str, Any]]:
+    def list(self) -> _Records:
         self.ensure_dir()
         out: list[dict[str, Any]] = []
         for p in sorted(self._dir.iterdir(), key=lambda x: x.name):
@@ -239,7 +245,7 @@ class ScenarioMissionStore:
         obj["finished_at"] = _now_iso()
         mj.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    def load_history(self, scenario_name: str) -> list[dict[str, Any]]:
+    def load_history(self, scenario_name: str) -> _Records:
         n = validate_name(scenario_name)
         d = _find_by_name(self._dir, n)
         if d is None:

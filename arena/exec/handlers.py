@@ -163,8 +163,8 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return err_json(ctx, f"cwd does not exist: {cwd}", status=400, request_id=request_id)
 
-        timeout = min(int(data.get("timeout", cfg["timeout"])), cfg["max_timeout"])
-        max_output = min(int(data.get("max_output", ctx.default_max_output)), cfg["max_output"])
+        timeout = min(int(data.get("timeout") or cfg["timeout"]), cfg["max_timeout"])
+        max_output = min(int(data.get("max_output") or ctx.default_max_output), cfg["max_output"])
         env_extra = data.get("env") if isinstance(data.get("env"), dict) else {}
         env = os.environ.copy()
         for key in list(env_extra.keys()):
@@ -465,8 +465,8 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return err_json(ctx, f"cwd does not exist: {cwd}", status=400, request_id=request_id)
 
-        timeout = min(int(data.get("timeout", cfg["timeout"])), cfg["max_timeout"])
-        max_output = min(int(data.get("max_output", ctx.default_max_output)), cfg["max_output"])
+        timeout = min(int(data.get("timeout") or cfg["timeout"]), cfg["max_timeout"])
+        max_output = min(int(data.get("max_output") or ctx.default_max_output), cfg["max_output"])
         env_extra = data.get("env") if isinstance(data.get("env"), dict) else {}
         env = os.environ.copy()
         for key in list(env_extra.keys()):

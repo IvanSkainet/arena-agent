@@ -31,16 +31,20 @@ def mark_pending(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def status() -> dict[str, Any]:
-    pending = None
-    last = None
+    # Declared: both are either None or a decoded JSON object, and the reads
+    # below (`last.get("smoke")`) only make sense for the dict case.
+    pending: dict[str, Any] | None = None
+    last: dict[str, Any] | None = None
     if pending_path().exists():
         try:
-            pending = json.loads(pending_path().read_text(encoding="utf-8"))
+            loaded_pending = json.loads(pending_path().read_text(encoding="utf-8"))
+            pending = loaded_pending if isinstance(loaded_pending, dict) else {"ok": False, "error": "pending record is not an object"}
         except Exception as e:
             pending = {"ok": False, "error": str(e)}
     if last_path().exists():
         try:
-            last = json.loads(last_path().read_text(encoding="utf-8"))
+            loaded_last = json.loads(last_path().read_text(encoding="utf-8"))
+            last = loaded_last if isinstance(loaded_last, dict) else {"ok": False, "error": "last record is not an object"}
         except Exception as e:
             last = {"ok": False, "error": str(e)}
     if pending is not None:

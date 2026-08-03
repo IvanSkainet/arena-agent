@@ -12,7 +12,10 @@ from typing import Any, Callable
 
 
 def winsound_melody() -> None:
-    import winsound
+    # Windows-only stdlib module; the Any alias keeps the guarded call honest
+    # on platforms whose typeshed stub for it is empty.
+    import winsound as _winsound_mod
+    winsound: Any = _winsound_mod
     for freq, dur in [(523, 150), (659, 150), (784, 150), (1047, 300)]:
         winsound.Beep(freq, dur)
 

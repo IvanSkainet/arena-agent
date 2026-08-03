@@ -43,7 +43,9 @@ class Section:
     name: str
     label: str
     category: str
-    collector: Callable[[], dict]
+    # Some sections (pci/usb/storage device enumerations) return a list of
+    # records rather than a keyed dict; both are rendered the same way.
+    collector: Callable[[], dict | list]
     format_lines: Optional[LineFn] = None
     # Whether this section is included in the default Cards grid on
     # the Doctor tab (some are only interesting in Full Inventory).

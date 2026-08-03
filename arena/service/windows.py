@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from typing import Any
 
 from arena.util import _subprocess_kwargs
 
@@ -34,8 +35,8 @@ def _windows_scheduled_task_info(task_name: str) -> dict:
       * running = literal running/выполня/... substring   -- OR --
                   (exists AND last_result_code == 0)  -- successful launcher
     """
-    info = {"exists": False, "running": False, "raw": "",
-            "last_result_code": None}
+    info: dict[str, Any] = {"exists": False, "running": False, "raw": "",
+                            "last_result_code": None}
     try:
         r = subprocess.run(
             ["schtasks", "/Query", "/TN", task_name, "/FO", "LIST", "/V"],

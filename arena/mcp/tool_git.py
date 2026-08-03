@@ -54,6 +54,7 @@ def handle_git_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] |
     path, err = _validate_repo_path(path_str, ctx)
     if err:
         return err
+    assert path is not None  # pyrefly 1.2: no union-of-tuple narrowing
 
     if not path.exists():
         return {"isError": True, "content": [{"type": "text", "text": f"ERROR: path not found: {path}"}]}

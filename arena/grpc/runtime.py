@@ -99,7 +99,10 @@ async def grpc_server_loop(
     app = web.Application(client_max_size=10 * 1024 * 1024)
     app["_bridge_cfg"] = cfg
     app.router.add_post("/call", grpc_handler)
-    app.router.add_get("/health", lambda r: web.json_response({"ok": True, "service": "arena-bridge-grpc"}))
+    async def _health(_request: web.Request) -> web.StreamResponse:
+        return web.json_response({"ok": True, "service": "arena-bridge-grpc"})
+
+    app.router.add_get("/health", _health)
 
     runner: web.AppRunner | None = None
     try:

@@ -17,7 +17,11 @@ class CDPTabOpsMixin:
         # hide among the noise it generates.
         _browser: Optional[CDPBrowser]
         _connected: bool
-        connected: bool
+
+        # A read-only property on the concrete CDPTab, so declared the same
+        # way here: a bare `connected: bool` made the override inconsistent.
+        @property
+        def connected(self) -> bool: ...
         target_id: str
         title: str
         ws_url: str

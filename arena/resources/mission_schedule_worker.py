@@ -27,7 +27,7 @@ class MissionScheduleWorkerRuntime:
 
 
 def make_mission_schedule_worker_runtime(ctx: MissionScheduleWorkerContext) -> MissionScheduleWorkerRuntime:
-    state = {
+    state: dict[str, Any] = {
         "enabled": True,
         "interval_seconds": int(ctx.interval_seconds or 60),
         "started_at": "",

@@ -36,27 +36,40 @@ def _register(name: str):
     return deco
 
 
+def _raw(step: dict[str, Any], key: str, default: Any = None) -> Any:
+    """Read a step field as-is, untyped on purpose.
+
+    Batch steps arrive as free-form JSON, and every `arena.mobile.*`
+    entry point validates its own arguments and returns a structured
+    error for bad input (see `input.tap`'s isinstance checks). Passing
+    `step.get("x")` straight into an `x: int` parameter is therefore
+    correct at runtime but a lie to the checker; routing through this
+    helper keeps the delegation explicit instead of silencing it.
+    """
+    return step.get(key, default)
+
+
 @_register("tap")
 def _step_tap(serial: str, step: dict[str, Any]) -> dict[str, Any]:
-    return _input.tap(serial, step.get("x"), step.get("y"))
+    return _input.tap(serial, _raw(step, "x"), _raw(step, "y"))
 
 
 @_register("swipe")
 def _step_swipe(serial: str, step: dict[str, Any]) -> dict[str, Any]:
     return _input.swipe(
         serial,
-        step.get("x1"), step.get("y1"),
-        step.get("x2"), step.get("y2"),
-        duration_ms=step.get("duration_ms", 300),
+        _raw(step, "x1"), _raw(step, "y1"),
+        _raw(step, "x2"), _raw(step, "y2"),
+        duration_ms=_raw(step, "duration_ms", 300),
     )
 
 
 @_register("scroll")
 def _step_scroll(serial: str, step: dict[str, Any]) -> dict[str, Any]:
     return _input.scroll(
-        serial, step.get("x"), step.get("y"),
-        vscroll=step.get("vscroll", 0),
-        hscroll=step.get("hscroll", 0),
+        serial, _raw(step, "x"), _raw(step, "y"),
+        vscroll=_raw(step, "vscroll", 0),
+        hscroll=_raw(step, "hscroll", 0),
     )
 
 

@@ -23,11 +23,14 @@ def propose_mission_bundle(
     overwrite: bool = False,
     run_now: bool = False,
     timeout: int = 180,
-    react_sync: Callable[..., dict[str, Any]] = None,
-    reflect_sync: Callable[..., dict[str, Any]] = None,
-    compose_sync: Callable[[dict[str, Any]], dict[str, Any]] = None,
-    create_sync: Callable[[dict[str, Any]], dict[str, Any]] = None,
-    run_sync: Callable[[dict[str, Any]], dict[str, Any]] = None,
+    # Required, not defaulted: the body calls all five unconditionally, so a
+    # `None` default only moved the failure from the call site to a
+    # TypeError halfway through the bundle.
+    react_sync: Callable[..., dict[str, Any]],
+    reflect_sync: Callable[..., dict[str, Any]],
+    compose_sync: Callable[[dict[str, Any]], dict[str, Any]],
+    create_sync: Callable[[dict[str, Any]], dict[str, Any]],
+    run_sync: Callable[[dict[str, Any]], dict[str, Any]],
 ) -> dict[str, Any]:
     goal = str(goal or "").strip()
     if not goal:
@@ -57,6 +60,7 @@ def propose_mission_bundle(
                 result["ok"] = False
                 result["status"] = int(created.get("status", 400))
                 return result
+        assert created is not None  # both branches above assign it
         run = run_sync({"mission_id": created.get("mission_id"), "timeout": timeout})
         result["mission"]["run"] = run
         if not run.get("ok"):

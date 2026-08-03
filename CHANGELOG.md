@@ -1,5 +1,59 @@
 ## Unreleased
 
+### Debt visibility goes green: ruff 0, pyrefly 0, vulture 0
+
+The non-blocking **Debt visibility** job existed to own a red X for residual
+static-analysis debt. There is none left. `ruff check arena tests` reports
+nothing, `pyrefly check arena` reports nothing, `vulture` reports nothing, and
+both ratchets now guard a floor of zero -- any new finding is growth and blocks.
+
+Starting point of this pass: 35 ruff (F405) + 213 pyrefly.
+
+**ruff 35 -> 0.** The last star imports were the two CLI dispatchers,
+`chat_cli/repl.py` and `missions_cli/cli.py`. Their names are now imported
+explicitly, so the allowlist in `tests/test_star_import_policy.py` is down to
+the two genuine re-export facades and `MAX_F405` is 0.
+
+**pyrefly 213 -> 0.** Six techniques covered essentially all of it:
+
+* `assert x is not None` after an error guard, at the ~15 sites hit by the
+  union-of-tuple limitation documented in `docs/pyrefly_debt.md`;
+* `dict[str, Any]` on heterogeneous payload dicts whose element type had been
+  inferred from the first literal (`_yolo_state`, `_control_state`, MCP_TOOLS,
+  the schedule-worker state, the schtasks report, ...);
+* `Any` aliases for Windows-only stdlib surfaces (`ctypes.windll`,
+  `ctypes.get_last_error`, `winsound`) whose stubs are empty on the Linux CI
+  runner, keeping the `sys.platform` guard as the real gate;
+* `TYPE_CHECKING` interface declarations for mixin-supplied attributes
+  (`port`, `ws_diagnostics`, `send`, and `connected` as a property);
+* `HandlerFn` widened to `Awaitable[web.StreamResponse]`, which is aiohttp's
+  actual handler contract -- `FileResponse` and the streamed NDJSON tails are
+  StreamResponse subclasses, not `Response`;
+* `Image.Resampling.LANCZOS`, the alias modern Pillow actually ships.
+
+Two more live defects surfaced on the way, both now gated:
+
+* **A corrupt schedule file turned an update into a crash.** `_load()` returns
+  None for unreadable JSON, and `save_schedule_def`'s guard was
+  `if current and not isinstance(current, dict)` -- which short-circuits on the
+  falsy None, leaving `current = None` for fourteen `current.get(...)` calls.
+  `_load` now rejects non-dict payloads outright.
+  (`tests/test_mission_schedule_corrupt_file.py`)
+* **The three fs-edit routes returned an opaque 500 when unwired.**
+  `create_edit_preview` / `apply_edit_preview` / `rollback_edit_change` are
+  optional on `FileHandlerContext`; calling them unwired raised
+  `TypeError: 'NoneType' object is not callable` inside the handler. They now
+  fail closed with 501 and name the missing hooks.
+  (`tests/test_fs_edit_unwired_hooks.py`)
+
+Smaller truths corrected along the way: `security_ssrf` annotated against
+`ipaddress._BaseAddress`, a private base that does not declare `is_private` and
+friends; `FileHandlerContext` declared its three edit hooks twice, once
+defaulted and once required, so readers and the dataclass disagreed;
+`batch/handlers` caught only `Exception` from `gather(return_exceptions=True)`,
+letting a `BaseException` reach `.get()`; `propose_mission_bundle` defaulted
+five callables it always calls to None.
+
 ### The "call cannot succeed" bucket reaches zero
 
 Every finding that describes a call which physically cannot work is gone: 61 at

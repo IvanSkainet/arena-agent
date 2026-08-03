@@ -142,7 +142,7 @@ def make_zerotier_central_handlers(ctx: AdminHandlerContext) -> ZerotierCentralH
         if jerr is not None:
             return jerr
         assert data is not None  # the guard above already proved this
-        kwargs = {}
+        kwargs: dict[str, Any] = {}
         if "authorized" in data:
             kwargs["authorized"] = bool(data["authorized"])
         if isinstance(data.get("name"), str):

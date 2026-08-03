@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.browser.cdp_client.common import (
     DEFAULT_PORT,
+    Any,
     Dict,
     Optional,
     base64,
@@ -133,7 +134,7 @@ class SyncCDPBrowser:
 
     def call(self, method: str, params: Optional[Dict] = None) -> Optional[Dict]:
         msg_id = next(self._req_id)
-        msg = {"id": msg_id, "method": method}
+        msg: Dict[str, Any] = {"id": msg_id, "method": method}
         if params:
             msg["params"] = params
         self._send_frame(self.sock, json.dumps(msg))

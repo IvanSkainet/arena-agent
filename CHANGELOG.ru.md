@@ -1,5 +1,61 @@
 ## Unreleased
 
+### Debt visibility зелёный: ruff 0, pyrefly 0, vulture 0
+
+Неблокирующий джоб **Debt visibility** существовал, чтобы держать красный крест
+за остаточный долг статического анализа. Остатка больше нет. `ruff check arena
+tests` молчит, `pyrefly check arena` молчит, `vulture` молчит, и оба ратчета
+теперь стерегут ноль: любая новая находка — рост, и он блокирует.
+
+Стартовая точка захода: 35 ruff (F405) + 213 pyrefly.
+
+**ruff 35 -> 0.** Последние star-импорты жили в двух CLI-диспетчерах,
+`chat_cli/repl.py` и `missions_cli/cli.py`. Имена импортированы явно, поэтому в
+allowlist `tests/test_star_import_policy.py` остались только два настоящих
+фасада ре-экспорта, а `MAX_F405` равен 0.
+
+**pyrefly 213 -> 0.** Практически всё закрылось шестью приёмами:
+
+* `assert x is not None` после error-guard — в ~15 местах, куда попадает
+  ограничение чекера на распаковку union-кортежей (описано в
+  `docs/pyrefly_debt.md`);
+* `dict[str, Any]` на разнородных payload-словарях, тип элементов которых
+  выводился по первому литералу (`_yolo_state`, `_control_state`, MCP_TOOLS,
+  состояние воркера расписаний, отчёт schtasks, ...);
+* `Any`-алиасы для Windows-only частей stdlib (`ctypes.windll`,
+  `ctypes.get_last_error`, `winsound`), у которых на Linux-раннере пустые
+  заглушки — настоящим гейтом остаётся проверка `sys.platform`;
+* объявления интерфейса под `TYPE_CHECKING` для атрибутов, приходящих из
+  конкретного класса (`port`, `ws_diagnostics`, `send`, `connected` как
+  property);
+* `HandlerFn` расширен до `Awaitable[web.StreamResponse]` — это и есть реальный
+  контракт aiohttp: `FileResponse` и потоковые NDJSON-хвосты наследуют
+  StreamResponse, а не `Response`;
+* `Image.Resampling.LANCZOS` — алиас, который действительно есть в Pillow.
+
+По дороге всплыли ещё два живых дефекта, оба закрыты воротами:
+
+* **Битый файл расписания превращал обновление в падение.** `_load()` отдаёт
+  None для нечитаемого JSON, а guard в `save_schedule_def` был
+  `if current and not isinstance(current, dict)` — он коротко замыкается на
+  ложном None, оставляя `current = None` для четырнадцати вызовов
+  `current.get(...)`. Теперь `_load` сразу отвергает не-словари.
+  (`tests/test_mission_schedule_corrupt_file.py`)
+* **Три fs-edit маршрута отдавали невнятный 500 без проводки.** Хуки
+  `create_edit_preview` / `apply_edit_preview` / `rollback_edit_change`
+  опциональны на `FileHandlerContext`; вызов неподключённого хука бросал
+  `TypeError: 'NoneType' object is not callable` внутри обработчика. Теперь это
+  fail closed: 501 и перечисление недостающих хуков.
+  (`tests/test_fs_edit_unwired_hooks.py`)
+
+Мелкие исправленные неправды: `security_ssrf` был аннотирован через
+`ipaddress._BaseAddress` — приватную базу, у которой нет ни `is_private`, ни
+соседей; `FileHandlerContext` объявлял три edit-хука дважды, один раз с
+умолчанием и один раз обязательными, так что читатель и dataclass видели разное;
+`batch/handlers` ловил только `Exception` от `gather(return_exceptions=True)`,
+пропуская `BaseException` до `.get()`; `propose_mission_bundle` держал None
+умолчанием у пяти callable, которые вызывает всегда.
+
 ### Группа «вызов не может выполниться» доведена до нуля
 
 Все находки, описывающие физически невыполнимый вызов, устранены: 61 в начале

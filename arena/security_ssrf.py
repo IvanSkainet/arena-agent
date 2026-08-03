@@ -6,6 +6,12 @@ import re
 import socket
 from urllib.parse import urlparse
 
+# The private base `ipaddress._BaseAddress` does NOT declare is_private /
+# is_loopback / ... -- those live on the concrete classes. Annotating against
+# it made the checker right and the code merely lucky; the public union says
+# exactly what `ip_address()` returns.
+IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+
 _BLOCKED_HOSTNAMES = {
     "localhost",
     "localhost.localdomain",
@@ -14,7 +20,7 @@ _BLOCKED_HOSTNAMES = {
 }
 
 
-def _ip_is_blocked(addr: ipaddress._BaseAddress) -> bool:
+def _ip_is_blocked(addr: IPAddress) -> bool:
     if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
         addr = addr.ipv4_mapped
     return (
@@ -27,7 +33,7 @@ def _ip_is_blocked(addr: ipaddress._BaseAddress) -> bool:
     )
 
 
-def _coerce_ip(host: str) -> ipaddress._BaseAddress | None:
+def _coerce_ip(host: str) -> IPAddress | None:
     try:
         return ipaddress.ip_address(host)
     except ValueError:

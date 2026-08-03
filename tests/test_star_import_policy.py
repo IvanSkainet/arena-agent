@@ -38,17 +38,13 @@ ALLOWED: dict[str, str] = {
     "arena/runtime_deps/__init__.py":
         "Same facade role for runtime dependencies, assembled from four "
         "submodules; already carries a per-file F401 ignore in pyproject.",
-    "arena/chat_cli/repl.py":
-        "Two bundle modules; splitting them is a refactor of the chat CLI's "
-        "module layout, not an import cleanup.",
-    "arena/missions_cli/cli.py":
-        "Two bundle modules (common + templates) whose contents overlap; "
-        "separating them means deciding which module owns each shared name, "
-        "which is a missions-CLI refactor rather than an import cleanup.",
 }
 
 # Recorded floor. Lower it when the number drops; it must never rise.
-MAX_F405 = 35
+# 0 since v4.156.0: the two CLI dispatchers now import their names explicitly,
+# and the two remaining facades re-export via `__all__` rather than bare use,
+# so ruff reports no F405 at all.
+MAX_F405 = 0
 
 
 def _star_import_files() -> dict[str, int]:

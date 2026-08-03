@@ -1,8 +1,19 @@
 """CLI dispatcher for mission_manager.py."""
 from __future__ import annotations
 
-from arena.missions_cli.commands import *  # noqa: F401,F403
-from arena.missions_cli.common import *  # noqa: F401,F403
+import argparse
+
+from arena.missions_cli.commands import (
+    check_cmd,
+    list_cmd,
+    new_cmd,
+    report_cmd,
+    roadmap_cmd,
+    run_cmd_mission,
+    show_cmd,
+    status_cmd,
+    stress_cmd,
+)
 
 
 def main():

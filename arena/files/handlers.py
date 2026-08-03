@@ -48,6 +48,15 @@ def _json_error(ctx: FileHandlerContext, message: str, status: int) -> web.Respo
     return err_json(ctx, message, status=status)
 
 
+@dataclass(frozen=True)
+class EditHooks:
+    """The three fs-edit callables, proven present at request time."""
+
+    create: Callable[..., dict[str, Any]]
+    apply: Callable[[str], dict[str, Any]]
+    rollback: Callable[..., dict[str, Any]]
+
+
 def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
     @authed(ctx, auto_record=False)
     async def handle_v1_upload(request: web.Request) -> web.Response:
@@ -61,6 +70,7 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
         )
         if err:
             return _json_error(ctx, err, status)
+        assert target_path is not None  # pyrefly 1.2: no union-of-tuple narrowing
         if "multipart" in request.headers.get("Content-Type", "").lower():
             return _json_error(
                 ctx, "multipart/form-data not supported; use --data-binary", 400,
@@ -89,6 +99,7 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
         )
         if err:
             return _json_error(ctx, err, status)
+        assert target_path is not None  # pyrefly 1.2: no union-of-tuple narrowing
         try:
             ctx.audit({"type": "file_download",
                        "path": str(target_path),
@@ -105,6 +116,30 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
         except Exception:
             return _json_error(ctx, "Internal error", 500)
 
+    def _edit_hooks() -> tuple[EditHooks | None, web.Response | None]:
+        """Return the wired fs-edit hooks, or a refusal response.
+
+        The three hooks default to None on FileHandlerContext. Calling them
+        unwired raised `TypeError: 'NoneType' object is not callable` inside
+        the handler, which the auth wrapper turned into an opaque 500.
+        """
+        create = ctx.create_edit_preview
+        apply_ = ctx.apply_edit_preview
+        rollback = ctx.rollback_edit_change
+        missing = [
+            name for name, fn in (
+                ("create_edit_preview", create),
+                ("apply_edit_preview", apply_),
+                ("rollback_edit_change", rollback),
+            )
+            if not callable(fn)
+        ]
+        if missing or create is None or apply_ is None or rollback is None:
+            return None, _json_error(
+                ctx, "fs edit is not available: unwired " + ", ".join(missing), 501,
+            )
+        return EditHooks(create=create, apply=apply_, rollback=rollback), None
+
     @authed(ctx, auto_record=False)
     async def handle_v1_fs_edit(request: web.Request) -> web.Response:
         data, jerr = await parse_json_body(request, ctx)
@@ -112,6 +147,10 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return jerr
         assert data is not None  # the guard above already proved this
+        hooks, unwired = _edit_hooks()
+        if unwired is not None:
+            return unwired
+        assert hooks is not None
         target = str(data.get("path", ""))
         old_text = str(data.get("old_text", ""))
         new_text = str(data.get("new_text", ""))
@@ -124,8 +163,9 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
         )
         if err:
             return _json_error(ctx, err, status)
+        assert target_path is not None  # pyrefly 1.2: no union-of-tuple narrowing
         if bool(data.get("preview", False)):
-            result = ctx.create_edit_preview(
+            result = hooks.create(
                 target_path, old_text, new_text, replace_all=replace_all,
             )
             status = int(result.pop("status", 200))
@@ -134,7 +174,7 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
             else:
                 ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response(result, status=status)
-        preview = ctx.create_edit_preview(
+        preview = hooks.create(
             target_path, old_text, new_text, replace_all=replace_all,
         )
         if not preview.get("ok"):
@@ -148,7 +188,7 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
             preview.pop("new_content", None)
             preview.pop("preview_id", None)
             return ctx.cors_json_response(preview)
-        result = ctx.apply_edit_preview(preview["preview_id"])
+        result = hooks.apply(preview["preview_id"])
         status = int(result.pop("status", 200))
         if not result.get("ok"):
             return _json_error(ctx, result.get("error", "apply failed"), status)
@@ -167,10 +207,14 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return jerr
         assert data is not None  # the guard above already proved this
+        hooks, unwired = _edit_hooks()
+        if unwired is not None:
+            return unwired
+        assert hooks is not None
         preview_id = str(data.get("preview_id", "")).strip()
         if not preview_id:
             return _json_error(ctx, "missing preview_id", 400)
-        result = ctx.apply_edit_preview(preview_id)
+        result = hooks.apply(preview_id)
         status = int(result.pop("status", 200))
         if not result.get("ok"):
             return _json_error(ctx, result.get("error", "apply failed"), status)
@@ -189,10 +233,14 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return jerr
         assert data is not None  # the guard above already proved this
+        hooks, unwired = _edit_hooks()
+        if unwired is not None:
+            return unwired
+        assert hooks is not None
         rollback_id = str(data.get("rollback_id", "")).strip()
         if not rollback_id:
             return _json_error(ctx, "missing rollback_id", 400)
-        result = ctx.rollback_edit_change(
+        result = hooks.rollback(
             rollback_id, force=bool(data.get("force", False)),
         )
         status = int(result.pop("status", 200))

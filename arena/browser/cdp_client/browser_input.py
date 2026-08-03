@@ -12,7 +12,10 @@ class CDPBrowserInputMixin:
         # assigned: annotations only, so runtime behaviour is unchanged.
         # Written down because an undeclared interface lets a real typo
         # hide among the noise it generates.
+        timeout: float
+
         async def eval_js(self, expression: str, timeout: Optional[float] = None) -> Any: ...
+        async def send(self, method: str, params: Optional[dict] = None, timeout: Optional[float] = None) -> dict: ...
 
     async def click(self, selector: str, timeout: Optional[float] = None) -> bool:
         """Click an element matching a CSS selector.

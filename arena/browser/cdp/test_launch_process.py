@@ -4,6 +4,7 @@ from __future__ import annotations
 import subprocess
 import threading
 import time
+from typing import Any
 
 from arena.browser.cdp.test_launch_probe import attach_tabs_if_available, fetch_version_info, is_port_open
 
@@ -34,7 +35,10 @@ def start_stderr_drain(proc, stderr_lines: list[str]) -> None:
 
 def run_launch_mode(*, cmd: list[str], env: dict, port: int, mode_name: str, user_data: str) -> dict:
     """Launch Chromium in one mode and probe the debug port while it runs."""
-    mode_result = {
+    # Annotated: the first three literals are strings, so inference pinned the
+    # dict to dict[str, str] and every later bool/int/list field read as a type
+    # error rather than the report payload it is.
+    mode_result: dict[str, Any] = {
         "mode": mode_name,
         "cmd": " ".join(cmd),
         "user_data_dir": user_data,

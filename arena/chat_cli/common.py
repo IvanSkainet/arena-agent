@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from pathlib import Path
+from typing import Any
 
 os.umask(0o077)
 HOME = Path(os.environ.get("ARENA_AGENT_HOME", Path.home() / "arena-bridge"))
@@ -50,7 +51,7 @@ def open_session(name: str | None) -> Path:
     return path
 
 def write_event(path: Path, role: str, kind: str, content: str, **meta) -> None:
-    rec = {"ts": now_iso(), "role": role, "kind": kind, "content": content}
+    rec: dict[str, Any] = {"ts": now_iso(), "role": role, "kind": kind, "content": content}
     if meta:
         rec["meta"] = meta
     line = json.dumps(rec, ensure_ascii=False) + "\n"

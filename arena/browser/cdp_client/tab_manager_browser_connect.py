@@ -1,7 +1,7 @@
 """CDP tab manager component."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from arena.browser.cdp_client.common import (
     HAS_WEBSOCKETS,
@@ -24,6 +24,9 @@ class CDPTabManagerBrowserConnectMixin:
         # assigned: annotations only, so runtime behaviour is unchanged.
         # Written down because an undeclared interface lets a real typo
         # hide among the noise it generates.
+        port: int
+        ws_diagnostics: Dict[str, Any]
+
         async def _browser_listen_loop(self) -> None: ...
         async def _browser_send(self, method: str, params: Optional[Dict] = None, timeout: Optional[float] = None) -> Dict: ...
 

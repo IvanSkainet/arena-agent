@@ -138,7 +138,7 @@ def make_hardware_handlers(ctx: HandlerContext) -> HardwareHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
-    async def handle_v1_hwinfo(request: web.Request) -> web.Response:
+    async def handle_v1_hwinfo(request: web.Request) -> web.StreamResponse:
         """GET /v1/hwinfo — Backwards-compatible alias for /v1/hardware."""
         return await handle_v1_hardware(request)
 

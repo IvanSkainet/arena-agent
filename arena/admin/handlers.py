@@ -145,7 +145,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         # Marker is best-effort -- never blocks a successful start
         # on a filesystem hiccup. See persist_after_action docstring
         # for the full contract.
-        _autostart_persist("tailscale", action, result.get("ok"), port, result)
+        _autostart_persist("tailscale", action, bool(result.get("ok")), port, result)
         ctx.audit({"type": "tailscale_funnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)
 
@@ -170,7 +170,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         # failed start doesn't leave a stale intent behind. Since
         # v4.38.0 this delegates to the shared helper in
         # handlers_autostart.persist_after_action.
-        _autostart_persist("cloudflared", action, result.get("ok"), port, result)
+        _autostart_persist("cloudflared", action, bool(result.get("ok")), port, result)
         ctx.audit({"type": "cloudflared_tunnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)
 
@@ -205,7 +205,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         # start, removed on successful stop. See
         # persist_after_action docstring for the "no-op on
         # ok=False, swallow FS errors" contract.
-        _autostart_persist("ngrok", action, result.get("ok"), port, result)
+        _autostart_persist("ngrok", action, bool(result.get("ok")), port, result)
         ctx.audit({"type": "ngrok_tunnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)
 
@@ -233,7 +233,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 subprocess_kwargs=ctx.subprocess_kwargs,
             ),
         )
-        _autostart_persist("bore", action, result.get("ok"), port, result)
+        _autostart_persist("bore", action, bool(result.get("ok")), port, result)
         ctx.audit({"type": "bore_tunnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)
 
@@ -265,7 +265,10 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         action = request.match_info.get("action", "status")
 
         # 1) Always allow ?network_id=... regardless of method.
-        network_id = request.query.get("network_id")
+        # Declared: the form-urlencoded branch below reads through
+        # `request.post()`, whose values may be file uploads or bytes, and
+        # `zerotier_network_action` wants a plain string or None.
+        network_id: str | None = request.query.get("network_id")
 
         # 2) POST body: JSON or form-urlencoded.
         if request.method == "POST" and not network_id:
@@ -276,7 +279,8 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                     network_id = body.get("network_id")
                 elif "application/x-www-form-urlencoded" in ctype:
                     form = await request.post()
-                    network_id = form.get("network_id")
+                    field = form.get("network_id")
+                    network_id = field if isinstance(field, str) else None
                 else:
                     # Best-effort: try JSON first, fall back to raw text.
                     raw = await request.text()

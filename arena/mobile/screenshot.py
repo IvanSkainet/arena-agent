@@ -293,7 +293,7 @@ def _postprocess(
     fmt = (format or "png").lower()
     started = time.monotonic()
     if (target_w, target_h) != (src_w, src_h):
-        img = img.resize((target_w, target_h), Image.LANCZOS)
+        img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
         downscaled = True
     else:
         downscaled = False
@@ -334,10 +334,15 @@ def _postprocess(
 # makes every later `Image.X` read as an attribute on None, even where Pillow is
 # installed. Call sites check `Image is not None` first.
 Image: Any
+# The sentinel is assigned through an `Any` binding: writing `Image = None`
+# directly collapses the declared `Any` back to NoneType for the whole module.
+_PIL_UNAVAILABLE: Any = None
 try:
-    from PIL import Image  # type: ignore[no-redef]  # noqa: E402
+    from PIL import Image as _pil_image_mod  # noqa: E402
+
+    Image = _pil_image_mod
 except Exception:
-    Image = None
+    Image = _PIL_UNAVAILABLE
 
 
 def _png_dimensions(png: bytes) -> tuple[int, int]:

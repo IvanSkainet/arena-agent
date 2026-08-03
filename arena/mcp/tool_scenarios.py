@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import threading
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from arena.mcp.tool_utils import text_content
 from arena.scenarios import (
@@ -84,10 +84,17 @@ def handle_scenario_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, A
     if not name.startswith("scenario."):
         return None
 
-    call_tool = getattr(ctx, "call_tool", None)
-    if not callable(call_tool):
-        def call_tool(_t, _a):
-            return {"ok": False, "error": "no call_tool on ctx"}
+    def _no_call_tool(_tool: str, _args: dict[str, Any]) -> dict[str, Any]:
+        return {"ok": False, "error": "no call_tool on ctx"}
+
+    # Rebinding the same name for the fallback made the union of the two
+    # shapes -- an untyped attribute and a 2-arg closure -- the argument type.
+    ctx_call_tool = getattr(ctx, "call_tool", None)
+    call_tool: Callable[[str, dict[str, Any]], dict[str, Any]] = _no_call_tool
+    if callable(ctx_call_tool):
+        # `ctx` is untyped, so the attribute arrives as a bare callable; the
+        # cast records the contract every scenario handler relies on.
+        call_tool = cast("Callable[[str, dict[str, Any]], dict[str, Any]]", ctx_call_tool)
 
     runtime = _build_runtime(call_tool)
     storage: ScenarioMissionStore = runtime.storage

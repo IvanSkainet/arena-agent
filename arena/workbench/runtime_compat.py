@@ -24,7 +24,7 @@ def _available(rt: dict[str, Any], name: str) -> bool:
 
 def _entry(runtime: str, sandbox: str, status: str, reason: str, *, suggested_posture: dict[str, Any] | None = None,
            next_action: str | None = None) -> dict[str, Any]:
-    out = {"runtime": runtime, "sandbox": sandbox, "status": status, "reason": reason}
+    out: dict[str, Any] = {"runtime": runtime, "sandbox": sandbox, "status": status, "reason": reason}
     if suggested_posture:
         out["suggested_posture"] = suggested_posture
     if next_action:

@@ -104,7 +104,9 @@ def get_browsers() -> dict:
     return found
 
 def get_env() -> dict:
-    env: dict[str, str] = {}
+    # Values are mostly strings, but PATH is also summarised as a count and a
+    # list of directories -- so the map is genuinely heterogeneous.
+    env: dict[str, Any] = {}
     for k in ENV_KEYS_OF_INTEREST:
         v = os.environ.get(k)
         if v is not None:

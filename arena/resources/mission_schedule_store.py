@@ -35,9 +35,12 @@ def _slug(text: str) -> str:
 
 def _load(path: Path) -> dict[str, Any] | None:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
+    # A schedule file holding a list/str/number is corrupt, not a schedule.
+    # Returning it anyway used to leak a non-dict past the annotation.
+    return data if isinstance(data, dict) else None
 
 
 
@@ -67,9 +70,12 @@ def save_schedule_def(schedules_dir: Path, data: dict[str, Any]) -> dict[str, An
         path = _schedule_path(schedules_dir, schedule_id)
     except ValueError as exc:
         return {"ok": False, "error": str(exc), "status": 400}
-    current = _load(path) if path.exists() else {}
-    if current and not isinstance(current, dict):
-        current = {}
+    # `_load` returns None on unreadable/corrupt JSON. The previous guard was
+    # `if current and not isinstance(...)`, which let None through (falsy) and
+    # made every `current.get(...)` below raise AttributeError -- a corrupt
+    # schedule file turned an update into a 500 instead of a rewrite.
+    loaded = _load(path) if path.exists() else {}
+    current: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
     next_run_at = str(data.get("next_run_at", "") or current.get("next_run_at", "") or _iso(now + dt.timedelta(minutes=every_minutes)))
     schedule = {
         "id": schedule_id,

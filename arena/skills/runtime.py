@@ -61,7 +61,7 @@ def make_skill_runtime(ctx: SkillRuntimeContext) -> SkillRuntime:
             args,
             skills_dir=_skills_dir(),
             root_agent=_root_agent(),
-            bin_dir=_bin_dir(),
+            bin_dir=Path(_bin_dir()),
             subprocess_kwargs_fn=ctx.subprocess_kwargs,
             env_extra=env_extra,
         )

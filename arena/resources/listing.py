@@ -36,7 +36,7 @@ def show_mission(missions_dir: Path, name: str) -> dict[str, Any]:
         files = []
         for item in sorted(directory.iterdir()):
             files.append({"name": item.name, "size": item.stat().st_size if item.is_file() else 0, "is_dir": item.is_dir()})
-        payload = {"ok": True, "name": name, "is_dir": True, "files": files}
+        payload: dict[str, Any] = {"ok": True, "name": name, "is_dir": True, "files": files}
         if (directory / "mission.json").exists():
             payload["mission"] = summarize_mission_dir(directory)
         return payload

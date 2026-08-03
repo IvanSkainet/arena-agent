@@ -32,6 +32,20 @@ from arena.inventory.probe_common import (
 
 # ------------------------------------------------------------------ battery
 
+def _opt_celsius(value: Any) -> float | None:
+    """Round a psutil threshold, treating absent/zero as "not reported".
+
+    Inlined twice as a conditional whose `not in (None, 0)` test does not
+    narrow the value for the `float()` call in the same expression.
+    """
+    if value is None or value == 0:
+        return None
+    try:
+        return round(float(value), 1)
+    except (TypeError, ValueError):
+        return None
+
+
 def get_battery() -> dict:
     """Battery state for laptops. available=False on most desktops."""
     try:
@@ -475,16 +489,8 @@ def get_thermal_detail() -> dict:
                     "label": label,
                     "class": cls,
                     "celsius": round(float(getattr(entry, "current", 0) or 0), 1),
-                    "high_c": (
-                        round(float(entry.high), 1)
-                        if getattr(entry, "high", None) not in (None, 0)
-                        else None
-                    ),
-                    "critical_c": (
-                        round(float(entry.critical), 1)
-                        if getattr(entry, "critical", None) not in (None, 0)
-                        else None
-                    ),
+                    "high_c": _opt_celsius(getattr(entry, "high", None)),
+                    "critical_c": _opt_celsius(getattr(entry, "critical", None)),
                 })
         if info["sensors"]:
             info["available"] = True

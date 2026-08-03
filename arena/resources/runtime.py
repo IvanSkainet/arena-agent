@@ -82,7 +82,7 @@ def make_resource_runtime(ctx: ResourceRuntimeContext) -> ResourceRuntime:
         return list_subagents(ctx.subagents_dir)
 
     def _subagents_spawn_sync(data: dict[str, Any]) -> dict[str, Any]:
-        return spawn_subagent(data, bin_dir=ctx.bin_dir, subprocess_kwargs_fn=ctx.subprocess_kwargs)
+        return spawn_subagent(data, bin_dir=Path(ctx.bin_dir), subprocess_kwargs_fn=ctx.subprocess_kwargs)
 
     def _mission_show_sync(name: str) -> dict[str, Any]:
         return show_mission(ctx.missions_dir, name)

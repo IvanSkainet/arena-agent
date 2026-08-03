@@ -47,6 +47,10 @@ from typing import Any
 
 from arena.desktop.backends import _win32_api as _api
 
+# `ctypes.get_last_error` is Windows-only; alias through Any so the guarded
+# call does not read as a missing attribute on Linux checkouts.
+_ct: Any = ctypes
+
 _IS_WINDOWS = sys.platform == "win32"
 
 # Re-exported for callers/tests that historically imported these
@@ -145,7 +149,7 @@ def capture_screenshot(
         gdi32.SelectObject(hdc_mem, hbmp)
         ok = gdi32.BitBlt(hdc_mem, 0, 0, w, h, hdc_screen, x, y, SRCCOPY)
         if not ok:
-            raise OSError(f"BitBlt failed: LastError={ctypes.get_last_error()}")
+            raise OSError(f"BitBlt failed: LastError={_ct.get_last_error()}")
         return _api.hbitmap_to_png_bytes(hbmp, w, h)
     finally:
         gdi32.DeleteObject(hbmp)

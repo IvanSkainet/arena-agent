@@ -96,7 +96,11 @@ def make_batch_handlers(ctx: BatchHandlerContext) -> BatchHandlers:
         batch_results = []
         errors = 0
         for r in results:
-            if isinstance(r, Exception):
+            # `gather(return_exceptions=True)` can also hand back a
+            # BaseException (CancelledError is one) -- catching only Exception
+            # let that fall through to `r.get(...)` and raise AttributeError
+            # inside the aggregator.
+            if isinstance(r, BaseException):
                 batch_results.append({"ok": False, "error": str(r), "status": 500})
                 errors += 1
             else:

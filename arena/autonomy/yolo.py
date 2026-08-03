@@ -25,6 +25,7 @@ hard to flip and fail-safe):
 from __future__ import annotations
 
 import threading as _threading
+from typing import Any
 
 from arena.util import utc_now
 
@@ -33,10 +34,10 @@ from arena.util import utc_now
 YOLO_ACK_TOKEN = "I_ACCEPT_FULL_RESPONSIBILITY"
 
 _yolo_lock = _threading.Lock()
-_yolo_state = {
+_yolo_state: dict[str, Any] = {
     "enabled": False,
-    "enabled_at": None,
-    "enabled_by": None,
+    "enabled_at": None,   # ISO timestamp, set while enabled
+    "enabled_by": None,   # caller identity, set while enabled
 }
 
 

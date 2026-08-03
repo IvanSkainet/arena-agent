@@ -170,7 +170,7 @@ def dump_ui(
         if interactive_only and not _is_interactive(elem):
             continue
 
-        node = {k: elem.get(k, "") for k in _INTERACTIVE_ATTRS}
+        node: dict[str, Any] = {k: elem.get(k, "") for k in _INTERACTIVE_ATTRS}
         b = _parse_bounds(node.get("bounds", ""))
         if b:
             x1, y1, x2, y2 = b

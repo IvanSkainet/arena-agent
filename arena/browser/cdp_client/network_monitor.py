@@ -120,7 +120,7 @@ class CDPNetworkMonitor(CDPNetworkHarMixin):
             req.error_blocked_reason = params.get("blockedReason")
             self._finalize_request(request_id, params.get("timestamp"))
 
-    def _finalize_request(self, request_id: str, finish_timestamp: float = None) -> None:
+    def _finalize_request(self, request_id: str, finish_timestamp: float | None = None) -> None:
         """Move a request from active to finished list."""
         req = self._requests.pop(request_id, None)
         if req:

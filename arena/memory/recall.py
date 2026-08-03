@@ -13,7 +13,7 @@ def recall(query: str, *, facts: list[dict[str, Any]], top: int) -> dict[str, An
     query_terms = set(re.findall(r'\w+', query.lower()))
     if not query_terms:
         return {"ok": True, "query": query, "count": min(top, len(facts)), "facts": [{"fact": f, "score": 0.0} for f in facts[-top:]]}
-    scored = []
+    scored: list[dict[str, Any]] = []
     for fact in facts:
         fact_text = json.dumps(fact, ensure_ascii=False).lower()
         fact_terms = re.findall(r'\w+', fact_text)
@@ -27,7 +27,7 @@ def recall(query: str, *, facts: list[dict[str, Any]], top: int) -> dict[str, An
                 score += term_counts[qt] / len(fact_terms)
         scored.append({"fact": fact, "score": round(score, 6)})
     scored.sort(key=lambda x: x["score"], reverse=True)
-    non_zero = [s for s in scored if s["score"] > 0]
+    non_zero = [s for s in scored if float(s["score"]) > 0]
     result_facts = non_zero[:top] if non_zero else scored[:top]
     return {"ok": True, "query": query, "count": len(result_facts), "facts": result_facts}
 

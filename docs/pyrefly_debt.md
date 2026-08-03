@@ -1,5 +1,29 @@
 # pyrefly debt: what is real, what is the checker
 
+> **Status: zero.** As of v4.156.0 both gates report nothing: `ruff` 0 across
+> `arena` + `tests`, `pyrefly` 0 across `arena`, `vulture` 0. The **Debt
+> visibility** CI job is green. Everything below is kept as the record of how
+> the number came down from 742 and what must never be done to reproduce it --
+> notably the `preset = "basic"` trap, which is still wrong even at zero.
+>
+> The ratchet now guards a floor of zero: any new finding is growth and blocks.
+>
+> ### How the last 213 were closed
+>
+> | technique | effect |
+> | --- | --- |
+> | `assert x is not None` after an error guard | the union-of-tuple limitation below, admitted at the ~15 sites that hit it |
+> | `dict[str, Any]` on heterogeneous payload dicts | inference had pinned them to the first literal's type |
+> | `Any` aliases for Windows-only stdlib (`ctypes.windll`, `winsound`) | the module is guarded by `sys.platform`; the stub is empty on Linux |
+> | `TYPE_CHECKING` interface declarations on mixins | `port`, `ws_diagnostics`, `send` supplied by the concrete class |
+> | `HandlerFn -> Awaitable[StreamResponse]` | aiohttp's real contract; FileResponse and streamed tails are not `Response` |
+> | `Image.Resampling.LANCZOS` | the top-level alias is gone from modern Pillow's stubs |
+>
+> Two more live defects fell out of that pass -- a corrupt schedule file
+> crashing `save_schedule_def`, and the fs-edit routes returning an opaque 500
+> when their optional hooks were unwired. Both now have gates.
+
+
 `quality_ratchet.py` reports ~742 pyrefly findings. That number is the reason
 the **Debt visibility** CI job is red, so it is worth knowing exactly what it
 is made of before anyone tries to make it zero.

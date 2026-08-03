@@ -328,8 +328,9 @@ def _handle_admin_run(args: dict[str, Any], *, ctx) -> dict[str, Any]:
     if sysname == "Windows":
         # Check if we're already elevated. If yes, no UAC needed.
         try:
-            import ctypes
-            is_admin = bool(ctypes.windll.shell32.IsUserAnAdmin())
+            import ctypes as _ctypes_mod
+            _ct: Any = _ctypes_mod  # windll exists only in the Windows build
+            is_admin = bool(_ct.windll.shell32.IsUserAnAdmin())
         except Exception:
             is_admin = False
         if is_admin:

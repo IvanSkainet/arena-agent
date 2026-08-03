@@ -163,6 +163,7 @@ def uninstall_skill(name: str, *, skills_dir: Path) -> dict[str, Any]:
     safe_name, err = normalize_third_party_skill_name(name)
     if err:
         return {"ok": False, "error": err}
+    assert safe_name is not None  # pyrefly 1.2: no union-of-tuple narrowing
 
     target_dir = (skills_dir / "third_party" / safe_name).resolve()
     allowed_root = (skills_dir / "third_party").resolve()

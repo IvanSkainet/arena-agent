@@ -24,6 +24,20 @@ DetectEnv = Callable[[], dict[str, Any]]
 AuditFn = Callable[[dict[str, Any]], None]
 
 
+def _crop_region(
+    x: int | None, y: int | None, width: int | None, height: int | None,
+) -> dict[str, int] | None:
+    """Report the applied crop, or None when any bound is absent.
+
+    Previously inlined as `None if None in (...) else {"x": int(x), ...}`,
+    which is correct but opaque: the `None in tuple` test does not narrow the
+    individual names, so every `int(...)` below read as `int(int | None)`.
+    """
+    if x is None or y is None or width is None or height is None:
+        return None
+    return {"x": int(x), "y": int(y), "width": int(width), "height": int(height)}
+
+
 def _rm_tmp_dir(path: str) -> None:
     """Remove a per-invocation temp directory best-effort.
 
@@ -94,7 +108,7 @@ async def capture_desktop_screenshot(
             region_width=region_width,
             region_height=region_height,
             audit_fn=audit_fn,
-            already_cropped=(region_x is not None and region_y is not None and region_width and region_height),
+            already_cropped=bool(region_x is not None and region_y is not None and region_width and region_height),
         )
 
     # v4.42.0: tempfile.mktemp() is TOCTOU-racy and predictable
@@ -162,7 +176,7 @@ async def capture_desktop_screenshot(
                 target_w = min(target_w, max_width)
             if target_w != w and target_w > 0:
                 target_h = max(1, int(h * (target_w / w)))
-                im = im.resize((target_w, target_h), _PILImage.LANCZOS)
+                im = im.resize((target_w, target_h), _PILImage.Resampling.LANCZOS)
             buf = _io.BytesIO()
             if fmt in ("jpeg", "jpg"):
                 im.convert("RGB").save(buf, format="JPEG", quality=quality)
@@ -186,7 +200,7 @@ async def capture_desktop_screenshot(
         "encoding": out_format,
         "transformed": transformed,
         "tool": tool,
-        "crop_region": None if None in (region_x, region_y, region_width, region_height) else {"x": int(region_x), "y": int(region_y), "width": int(region_width), "height": int(region_height)},
+        "crop_region": _crop_region(region_x, region_y, region_width, region_height),
     }
 
 
@@ -248,7 +262,7 @@ def _finalize_screenshot(
                 target_w = min(target_w, max_width)
             if target_w != w and target_w > 0:
                 target_h = max(1, int(h * (target_w / w)))
-                im = im.resize((target_w, target_h), _PILImage.LANCZOS)
+                im = im.resize((target_w, target_h), _PILImage.Resampling.LANCZOS)
                 transformed = True
             buf = _io.BytesIO()
             if fmt in ("jpeg", "jpg"):
@@ -274,8 +288,5 @@ def _finalize_screenshot(
         "encoding": out_format,
         "transformed": transformed,
         "tool": tool,
-        "crop_region": None if None in (region_x, region_y, region_width, region_height) else {
-            "x": int(region_x), "y": int(region_y),
-            "width": int(region_width), "height": int(region_height),
-        },
+        "crop_region": _crop_region(region_x, region_y, region_width, region_height),
     }

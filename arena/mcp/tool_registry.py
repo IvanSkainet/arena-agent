@@ -1,6 +1,8 @@
 """MCP tool metadata registry."""
 from __future__ import annotations
 
+from typing import Any
+
 from arena.mcp.custom_tools import MGMT_DEFS as CUSTOM_TOOL_MGMT_DEFS
 from arena.mcp.tool_audit import AUDIT_TOOLS
 from arena.mcp.tool_browser_headed import BROWSER_HEADED_MCP_TOOLS
@@ -31,7 +33,10 @@ from arena.mcp.tool_service import SERVICE_TOOLS
 from arena.mcp.tool_ship import SHIP_TOOLS
 from arena.mcp.tool_workbench import WORKBENCH_TOOLS
 
-MCP_TOOLS = [
+# Annotated: without it the element type is inferred from the first few
+# literals, and later tool definitions with differently-shaped inputSchema
+# nesting stop being assignable to that accidental shape.
+MCP_TOOLS: list[dict[str, Any]] = [
     # v4.75.0: bare names (ping / echo / exec) removed.
     # The v4.69.0 deprecation window has expired. Use
     # exec.ping / exec.echo / exec.exec instead.

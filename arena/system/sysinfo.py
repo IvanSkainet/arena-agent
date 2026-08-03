@@ -61,7 +61,8 @@ def _windows_memory() -> tuple[int, int]:
             ]
         stat = MEMORYSTATUSEX()
         stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
-        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+        _ct: Any = ctypes  # windll exists only in the Windows build
+        _ct.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
         return int(stat.ullTotalPhys), int(stat.ullAvailPhys)
     except Exception:
         return 0, 0

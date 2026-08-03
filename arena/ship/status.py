@@ -288,7 +288,7 @@ def preflight() -> dict[str, Any]:
         _check("workbench.status", bool(workbench.get("ok")), detail=f"projects={(workbench.get('projects') or {}).get('count')} sessions={(workbench.get('sessions') or {}).get('count')}"),
         _check("mcp.registry", bool(mcp.get("ok")), severity="warn", detail=f"servers={mcp.get('count') if isinstance(mcp, dict) else 'unknown'}"),
         _check("service.autostart", autostart.get("healthy") is not False, severity="warn", detail=f"trigger={autostart.get('trigger')} healthy={autostart.get('healthy')}" if isinstance(autostart, dict) else "unknown"),
-        _check("post_update_smoke.last", not (isinstance(last_post_smoke, dict) and last_post_smoke.get("attempted") and not last_post_smoke.get("ok")), severity="warn", detail=(last_post_smoke or {}).get("smoke", {}).get("mode") if isinstance(last_post_smoke, dict) else None),
+        _check("post_update_smoke.last", not (isinstance(last_post_smoke, dict) and last_post_smoke.get("attempted") and not last_post_smoke.get("ok")), severity="warn", detail=str(((last_post_smoke or {}).get("smoke") or {}).get("mode") or "") if isinstance(last_post_smoke, dict) else "unknown"),
         _check("browser.cdp_or_browseract_visible", bool(((browser.get("cdp") or {}).get("browser_binary")) or ((browser.get("browseract") or {}).get("installed"))), severity="warn"),
         _check("mobile.adb_device_visible", bool(((mobile.get("devices") or {}).get("devices") or [])), severity="warn"),
     ]

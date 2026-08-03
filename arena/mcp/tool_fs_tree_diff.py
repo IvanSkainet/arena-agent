@@ -59,6 +59,7 @@ def _handle_fs_tree(args: dict[str, Any], ctx) -> dict[str, Any]:
     path, err = _validate_path(path_str, ctx)
     if err:
         return err
+    assert path is not None  # pyrefly 1.2 does not narrow union-of-tuples
 
     if not path.exists():
         return {"isError": True, "content": [{"type": "text", "text": f"ERROR: path not found: {path}"}]}
@@ -141,6 +142,7 @@ def _handle_fs_diff(args: dict[str, Any], ctx) -> dict[str, Any]:
     path_b, err_b = _validate_path(path_b_str, ctx)
     if err_b:
         return err_b
+    assert path_a is not None and path_b is not None
 
     # Read both files
     try:

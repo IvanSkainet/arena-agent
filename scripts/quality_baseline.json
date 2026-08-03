@@ -3,14 +3,6 @@
     "TOTAL": 0
   },
   "pyrefly": {
-    "bad-argument-type": 65,
-    "bad-assignment": 17,
-    "bad-function-definition": 6,
-    "bad-override": 1,
-    "invalid-argument": 3,
-    "missing-attribute": 96,
-    "redefinition": 3,
-    "unsupported-operation": 22,
-    "TOTAL": 213
+    "TOTAL": 0
   }
 }

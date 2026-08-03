@@ -119,6 +119,7 @@ def followup_mission_bundle(
                 result["ok"] = False
                 result["status"] = int(created.get("status", 400))
                 return result
+        assert created is not None  # both branches above assign it
         run = run_sync({"mission_id": created.get("mission_id"), "timeout": timeout})
         result["followup"]["run"] = run
         if not run.get("ok"):

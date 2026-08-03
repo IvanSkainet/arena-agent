@@ -354,7 +354,7 @@ def pull_photo(serial: str, path: str, *,
                 if long_side > int(max_size):
                     ratio = int(max_size) / long_side
                     tw, th = max(1, int(width * ratio)), max(1, int(height * ratio))
-                    img = img.resize((tw, th), Image.LANCZOS)
+                    img = img.resize((tw, th), Image.Resampling.LANCZOS)
                     width, height = tw, th
             buf = io.BytesIO()
             if format == "webp":

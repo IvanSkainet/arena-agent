@@ -140,8 +140,8 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
         # skip the fast raw path so testers can compare paths side-by-side
         # straight from the browser).
         try:
-            max_width = int(request.query.get("max_width")) if request.query.get("max_width") else None
-            max_size = int(request.query.get("max_size")) if request.query.get("max_size") else None
+            max_width = int(request.query["max_width"]) if request.query.get("max_width") else None
+            max_size = int(request.query["max_size"]) if request.query.get("max_size") else None
             quality = int(request.query.get("quality", "85"))
         except ValueError as e:
             return err_json(ctx, f"invalid query param: {e}", status=400)

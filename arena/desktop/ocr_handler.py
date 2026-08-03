@@ -127,6 +127,7 @@ def make_desktop_ocr_handlers(ctx: DesktopHandlerContext) -> DesktopOcrHandlers:
         result, error = await _run_ocr(data, query_required=True)
         if error:
             return error
+        assert result is not None  # pyrefly 1.2: no union-of-tuple narrowing
         if not result.get("matches"):
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({**result, "error": f"no matches for query: {result['query']}"}, status=404)
@@ -143,6 +144,7 @@ def make_desktop_ocr_handlers(ctx: DesktopHandlerContext) -> DesktopOcrHandlers:
         result, error = await _run_ocr(data, query_required=True)
         if error:
             return error
+        assert result is not None  # pyrefly 1.2: no union-of-tuple narrowing
         if not result.get("matches"):
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({**result, "error": f"no matches for query: {result['query']}"}, status=404)

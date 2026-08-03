@@ -9,10 +9,11 @@ Re-exported by ``unified_bridge.py`` for backward compatibility.
 from __future__ import annotations
 
 import threading as _threading
+from typing import Any
 
 from arena.util import utc_now
 
-_control_state = {
+_control_state: dict[str, Any] = {
     "status": "active",          # "active" | "paused" | "revoked"
     "reason": None,              # optional reason string
     "paused_at": None,           # ISO timestamp when paused

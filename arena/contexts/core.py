@@ -49,12 +49,13 @@ class FileHandlerContext:
     audit: Callable[[dict[str, Any]], None]
     home: Any
     bridge_py: Any
-    create_edit_preview: Any = None
-    apply_edit_preview: Any = None
-    rollback_edit_change: Any = None
-    create_edit_preview: Callable[..., dict[str, Any]]
-    apply_edit_preview: Callable[[str], dict[str, Any]]
-    rollback_edit_change: Callable[..., dict[str, Any]]
+    # Optional edit-preview hooks. These were declared twice -- once as
+    # `Any = None`, then re-annotated as required callables -- which the
+    # dataclass machinery resolved to the first (defaulted) pair while readers
+    # and checkers saw the second. One declaration, defaults included.
+    create_edit_preview: Callable[..., dict[str, Any]] | None = None
+    apply_edit_preview: Callable[[str], dict[str, Any]] | None = None
+    rollback_edit_change: Callable[..., dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True)
