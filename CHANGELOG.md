@@ -1,4 +1,16 @@
-## Unreleased
+## v4.155.0 — 2026-08-03
+
+**Six live bugs, found by paying off lint debt.** Ruff debt went 1980 -> 35 and
+type debt 1035 -> 769, but the number is not the story: `from X import *` never
+binds underscore-prefixed names, so several call sites had been referencing
+nothing for years, in paths whose exceptions were swallowed. WebSocket push
+delivered zero bytes while reporting success. The WS server could not accept a
+connection. `skill run` raised before doing anything. A path-injection hole in
+the standalone MCP dispatcher let `/etc/hostname` be read in one line. None of
+this was visible until the names became resolvable.
+
+Also: the vendor-locked `mumu.*` namespace is gone, replaced by a
+provider-agnostic `emulator.*` built on a data table.
 
 ### `mumu.*` is gone: emulator control is provider-agnostic
 
@@ -275,6 +287,24 @@ Net effect on the type debt: **pyrefly 905 -> 843**, with `unknown-name` going
 regenerated against a locally installed pyrefly -- the previous "0" recorded in
 this sandbox was an artifact of the tool being absent, and is now a real
 measurement.
+
+### Handler dataclass fields carry a real type
+
+Fifty `@dataclass` containers declared their fields as `object` while holding
+aiohttp handler coroutines -- not a description but the absence of one. The
+checker could not verify any call routed through them, which is where most of
+the `bad-assignment` volume came from (101 in `arena/wiring/platform.py` alone).
+
+`scripts/typed_handler_fields.py` retypes them to `Callable[..., Any]`, but only
+where every construction site repo-wide passes something callable. 255 of 285
+qualified; the remaining 30 are never constructed by keyword anywhere, so the
+tool refused to guess and named each one.
+
+One test asserted the literal string `"update_token_set: object"` -- it was
+pinning the *absence* of a type and would have blocked exactly this improvement.
+It now checks that the field exists, not how it is annotated.
+
+pyrefly 843 -> 769.
 
 ### Verification
 Fourteen new tests, four of them proven by deliberate sabotage before being
