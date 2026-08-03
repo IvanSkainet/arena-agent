@@ -1,4 +1,25 @@
-## Unreleased
+## v4.157.0 — 2026-08-03
+
+Every static gate in this repository now reports zero, and the dashboard is
+verified by executing it rather than by reading its source.
+
+| gate | scope | before this cycle | now |
+|---|---|---|---|
+| ruff | the whole tree | 35 | **0** |
+| pyrefly | `arena`, `scripts`, `bin` | 213 | **0** |
+| vulture | `arena` | 0 | 0 |
+| oxlint | `dashboard/assets`, `chat_extension` | (no linter existed) | **0** |
+
+Six live defects were found on the way, each one now behind a gate that was
+sabotage-checked before being trusted: a corrupt schedule file crashing
+`save_schedule_def`, the fs-edit routes answering an opaque 500 when unwired,
+`bridgeFetch` handing `fetch()` a body on a GET, `.ruff_cache/` shipping
+inside every release zip, `smoke_mobile.py` reporting a refused WebSocket
+handshake as a success, and `_check()` recording `None` instead of `False`.
+
+The dashboard turned out healthy — the point of the new browser E2E is that
+"healthy" is now measured on every push instead of assumed across 58 files no
+test had ever run.
 
 ### The gate now covers the whole tree, and pre-commit knows about it
 
