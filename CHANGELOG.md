@@ -1,3 +1,62 @@
+## Unreleased
+
+### The vulture gate had never actually run
+
+`quality_ratchet.py` filtered vulture's output with `": (" in ln`. Vulture
+prints `path.py:12: unused import 'x' (90% confidence)` — there is no `: (`
+anywhere in that string. The filter matched nothing, `vulture_count()`
+returned 0 unconditionally, and every "vulture=0" this repository has ever
+reported meant *"not counting"* rather than *"clean"*.
+
+It surfaced only because the gate was widened to `scripts/` and `bin/` and the
+new scope was sabotage-checked: a dead import in `bin/` left the ratchet green
+while `python -m vulture` reported the finding one line above. A gate that
+always says zero is indistinguishable from a gate that is passing — which is
+exactly the failure mode AGENTS.md calls the green-checkmark fallacy, this
+time in our own tooling.
+
+Fixed with a real parser, plus fail-closed behaviour: if vulture exits 3
+("dead code found") and no line parses, the ratchet aborts instead of
+reporting a clean tree. Pinned by `tests/test_quality_ratchet_counts.py`,
+which feeds the counter real vulture output — on a clean tree the broken
+filter and the correct one both return 0, so only synthetic findings can prove
+the difference.
+
+The ratchet also stopped passing paths on the command line, so it and a bare
+`python -m vulture` now read the same `[tool.vulture]` scope.
+
+### vulture now covers scripts/ and bin/
+
+Same reason as the other gates: `make_release_zip.py` ships both, so the user
+executes that code. 28 findings, of which 27 were `scripts/cdp_browser.py` —
+the shim whose imports *are* its contract, now excluded by construction — and
+one was `complete_event`, a parameter required by prompt_toolkit's `Completer`
+interface. Zero real dead code; the value is the scope, not the cleanup.
+
+### SSRF validator gets an adversarial corpus (mutation testing, declined)
+
+Evaluating mutation testing for the nightly slot ended in a measurement rather
+than a tool. `mutmut` 3.7 will not run here without a second, unverified
+`pyproject.toml` (it drives pytest with its own arguments and trips over the
+coverage gate), and its score answers "how many synthetic edits did the suite
+survive" when the useful question is "would it survive an edit a human
+actually makes" — which the deliberate-sabotage doctrine already asks, per
+gate, with the reason written down.
+
+The evaluation did find something: `arena/security_ssrf.py`, the guard behind
+**21 modules**, had no direct test at all. `tests/test_security_ssrf_bypass_corpus.py`
+now throws the standard bypass set at it — decimal/hex/octal spellings of
+127.0.0.1, `127.1`, IPv4-mapped IPv6, trailing dots, case, userinfo prefixes,
+cloud metadata IPs, non-HTTP schemes — plus legitimate URLs that must pass.
+All 26 were already blocked.
+
+Sabotage then taught something worth writing down: deleting the integer
+decoder leaves every URL-level assertion green, because `getaddrinfo` resolves
+`http://2130706433/` and the result is re-checked. The defence is three
+layers deep (`ip_address` → `inet_aton` → DNS), and a corpus that only asserts
+outcomes would let a silent removal of layer one through. Each layer now has
+its own unit test.
+
 ## v4.157.0 — 2026-08-03
 
 Every static gate in this repository now reports zero, and the dashboard is

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from collections import Counter
@@ -38,11 +39,37 @@ def run(cmd: list[str], ok_rc: set[int]) -> subprocess.CompletedProcess:
     return proc
 
 
+# vulture prints one finding per line, shaped:
+#   path/to/file.py:123: unused import 'x' (90% confidence)
+_VULTURE_FINDING = re.compile(r"^.+?:\d+: .+ \(\d+% confidence\)$")
+
+
 def vulture_count() -> int:
-    # rc 0 = clean, 3 = dead code found
-    proc = run([sys.executable, "-m", "vulture", "arena",
-                "--min-confidence", "80"], {0, 3})
-    return sum(1 for ln in proc.stdout.splitlines() if ": (" in ln)
+    """Count vulture findings.
+
+    rc 0 = clean, 3 = dead code found.
+
+    No paths on the command line: vulture then reads `paths`, `ignore_names`
+    and `exclude` from [tool.vulture] in pyproject.toml, so the ratchet and a
+    bare `python -m vulture` cannot disagree about what is in scope.
+
+    The line filter was `": (" in ln`, which matches NOTHING vulture emits --
+    its format is `file.py:12: unused import 'x' (90% confidence)`, with no
+    `: (` anywhere. So this function returned 0 unconditionally and the
+    vulture half of the gate had never actually run. Found in v4.157.0 by
+    sabotaging bin/ and watching the ratchet stay green while vulture itself
+    reported the finding. Regression-tested in
+    tests/test_quality_ratchet_counts.py.
+    """
+    proc = run([sys.executable, "-m", "vulture", "--min-confidence", "80"], {0, 3})
+    lines = [ln for ln in proc.stdout.splitlines() if _VULTURE_FINDING.match(ln)]
+    if proc.returncode == 3 and not lines:
+        # rc=3 means "dead code found"; zero parsed lines means the output
+        # format changed under us. Fail closed rather than report "clean".
+        print("FAIL-CLOSED: vulture reported findings but none could be "
+              f"parsed. First lines:\n{proc.stdout[:500]}", file=sys.stderr)
+        raise SystemExit(2)
+    return len(lines)
 
 
 def pyrefly_errors() -> list[dict]:

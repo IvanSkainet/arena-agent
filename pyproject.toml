@@ -198,23 +198,36 @@ disallow_any_generics = true
 warn_unused_ignores = true
 
 # ---------------------------------------------------------------------------
-# vulture: dead-code detection (informational report in CI for now; the
-# finding list is small enough to become a ratchet later, like lint).
+# vulture: dead-code detection. Ratcheted at zero since v4.156.0; scope grew
+# to scripts/ and bin/ in v4.157.0 for the same reason the other gates did --
+# make_release_zip.py ships them, so the user executes that code.
 # ---------------------------------------------------------------------------
 [tool.vulture]
-paths = ["arena"]
+paths = ["arena", "scripts", "bin"]
 min_confidence = 80
 # exc_type/exc_val/exc_tb: protocol-required __aexit__/__exit__ parameters.
 # install_timeout_s (mobile/audio_capture.capture_mic_audio): public kwarg
 # currently not wired into the adb install call — kept for API stability;
 # the wiring TODO is the honest state, deletion would silently shrink the
 # public signature.
-ignore_names = ["exc_*", "install_timeout_s"]
-# arena/runtime_deps is a re-export facade whose consumers (unified_bridge.py)
-# resolve names dynamically (_runtime_namespace[...] contracts checked by
-# tests/test_unified_bridge_compat_surface.py). Static "unused" verdicts are
-# false positives by construction there. Everything else stays scanned.
-exclude = ["*/runtime_deps/*"]
+# complete_event: required by prompt_toolkit's Completer.get_completions
+# interface (bin/agentctl_tui.py). The parameter is the contract; the
+# implementation simply has no use for it.
+# _SENSITIVE_KEY_SUBSTRINGS: a backward-compat alias re-exported from
+# arena.observability.redact; tests/test_observability_redact.py asserts the
+# identity, so it is a contract rather than a leftover.
+ignore_names = ["exc_*", "install_timeout_s", "complete_event",
+                "_SENSITIVE_KEY_SUBSTRINGS"]
+# Two re-export facades where a static "unused" verdict is wrong by
+# construction:
+#   * arena/runtime_deps -- unified_bridge.py resolves names dynamically
+#     (_runtime_namespace[...], asserted by test_unified_bridge_compat_surface).
+#   * scripts/cdp_browser.py -- the runtime imports this file BY NAME
+#     (arena/browser/cdp/loader.py puts scripts/ on sys.path, then reads
+#     CDPTabManager and list_tabs off the module), so its imports ARE the
+#     module's surface. 27 of the 28 findings in scripts+bin were this file.
+# Everything else stays scanned.
+exclude = ["*/runtime_deps/*", "*/cdp_browser.py"]
 
 [tool.ruff.lint.per-file-ignores]
 # arena/runtime_deps is a re-export facade: unified_bridge.py assembles its
