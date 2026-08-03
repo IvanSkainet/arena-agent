@@ -1,6 +1,8 @@
 """CDP cookie manager components."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from arena.browser.cdp_client.common import (
     Any,
     Dict,
@@ -13,6 +15,18 @@ from arena.browser.cdp_client.common import (
 
 
 class CDPCookieProfileMixin:
+    if TYPE_CHECKING:  # pragma: no cover - typing only
+        # Supplied by the concrete class that mixes this in. Declared, not
+        # assigned: annotations only, so runtime behaviour is unchanged.
+        # Written down because an undeclared interface lets a real typo
+        # hide among the noise it generates.
+        def _ensure_active(self) -> None: ...
+        _profiles: Dict[str, List[Dict]]
+        async def clear_cookies(self) -> None: ...
+        async def get_all_cookies(self) -> List[Dict]: ...
+        async def get_cookies_for_url(self, url: str) -> List[Dict]: ...
+        async def set_cookie(self, name: str, value: str, domain: str = "", path: str = "/", secure: bool = False, http_only: bool = False, same_site: str = "", expires: Optional[float] = None, priority: str = "Medium", same_party: bool = False, source_scheme: str = "NonSecure") -> bool: ...
+
     async def export_cookies(self, domain_filter: Optional[str] = None) -> List[Dict]:
         """Export cookies, optionally filtered by domain.
 

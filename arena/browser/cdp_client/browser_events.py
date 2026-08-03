@@ -1,11 +1,14 @@
 """Extracted CDP browser component."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from arena.browser.cdp_client.common import (
     HAS_AIOHTTP,
     Any,
     Callable,
     Dict,
+    List,
     Optional,
     aiohttp,
     asyncio,
@@ -15,6 +18,18 @@ from arena.browser.cdp_client.common import (
 
 
 class CDPBrowserEventsMixin:
+    if TYPE_CHECKING:  # pragma: no cover - typing only
+        # Supplied by the concrete class that mixes this in. Declared, not
+        # assigned: annotations only, so runtime behaviour is unchanged.
+        # Written down because an undeclared interface lets a real typo
+        # hide among the noise it generates.
+        _closing: bool
+        _event_handlers: Dict[str, List[Callable]]
+        _pending: Dict[int, asyncio.Future]
+        _ws: Optional[aiohttp.ClientWebSocketResponse]
+        async def reconnect(self) -> None: ...
+        timeout: float
+
     async def send(self, method: str, params: Optional[Dict] = None,
                    timeout: Optional[float] = None) -> Dict:
         """Send a CDP command and wait for its response.

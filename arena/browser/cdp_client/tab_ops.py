@@ -1,10 +1,27 @@
 """Extracted CDP browser component."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from arena.browser.cdp_client.browser import CDPBrowser
+
 from arena.browser.cdp_client.common import Any, Dict, List, Optional
 
 
 class CDPTabOpsMixin:
+    if TYPE_CHECKING:  # pragma: no cover - typing only
+        # Supplied by the concrete class that mixes this in. Declared, not
+        # assigned: annotations only, so runtime behaviour is unchanged.
+        # Written down because an undeclared interface lets a real typo
+        # hide among the noise it generates.
+        _browser: Optional[CDPBrowser]
+        _connected: bool
+        def connected(self) -> bool: ...
+        target_id: str
+        title: str
+        ws_url: str
+
     async def navigate(self, url: str, wait: bool = True,
                        timeout: Optional[float] = None) -> Dict:
         """Navigate this tab to a URL."""

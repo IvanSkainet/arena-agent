@@ -1,3 +1,43 @@
+## Unreleased
+
+### An eighth and ninth bug, in the function meant to report bugs
+
+Declaring the CDP mixin interfaces let pyrefly see a call shape it had never
+been able to resolve, and it landed on
+`CDPTabManagerCallbackMixin._log_callback_error` -- the handler passed to
+`Task.add_done_callback` from three sites. Two independent defects in four
+lines, both confirmed by running it:
+
+* It was a plain method whose first parameter is named `task`. Accessed as
+  `self._log_callback_error` it binds, so `self` occupied the task slot and the
+  real Task had nowhere to go: every invocation raised TypeError, which asyncio
+  swallowed into the loop exception handler. Now a `@staticmethod`.
+* `Task.exception()` **returns** the exception; it only raises for a cancelled
+  or pending task. The `try: task.exception() / except Exception` therefore
+  never entered its handler -- so even after the binding was fixed, nothing was
+  logged. Now checks the returned value.
+
+Net effect: errors from fire-and-forget CDP callback tasks were never reported,
+by the one function whose entire job that was. `tests/test_cdp_callback_error_logging.py`
+asserts the message reaches the log, not merely that nothing raised -- "nothing
+raised" was the broken state.
+
+### Mixin interfaces are written down
+
+`arena/browser/cdp_client/` is built from mixins that freely read `self._tabs`,
+`self.port`, `self._browser_ws` -- state the concrete class owns, declared
+nowhere. 251 of the 520 `missing-attribute` findings were that single omission,
+and the noise is what let the callback bug sit unnoticed.
+
+`scripts/mixin_interface_decls.py` writes the contract into each mixin under
+`TYPE_CHECKING` (annotations only; runtime untouched). Types are never
+invented: each attribute is resolved from the concrete class that defines it --
+a real annotation, an annotated `__init__` assignment, an annotated parameter,
+or an unambiguous literal. 56 attributes across 13 mixins qualified; everything
+else was skipped and named, because an approximate stub is worse than none.
+
+pyrefly **742 -> 558**, and `invalid-annotation` reached zero.
+
 ## v4.155.0 — 2026-08-03
 
 **Six live bugs, found by paying off lint debt.** Ruff debt went 1980 -> 35 and

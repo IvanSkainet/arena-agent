@@ -1,10 +1,27 @@
 """CDP network interception components."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from arena.browser.cdp_client.intercept_rule import InterceptRule
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from arena.browser.cdp_client.browser import CDPBrowser
+
 from arena.browser.cdp_client.common import Dict, List, Optional, base64, logger
 
 
 class CDPNetworkInterceptRuntimeMixin:
+    if TYPE_CHECKING:  # pragma: no cover - typing only
+        # Supplied by the concrete class that mixes this in. Declared, not
+        # assigned: annotations only, so runtime behaviour is unchanged.
+        # Written down because an undeclared interface lets a real typo
+        # hide among the noise it generates.
+        _browser: CDPBrowser
+        _paused_requests: Dict[str, Dict]
+        _rules: List[InterceptRule]
+
     async def start(self, patterns: Optional[List[Dict]] = None) -> None:
         """Enable network interception.
 

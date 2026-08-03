@@ -1,6 +1,13 @@
 """CDP tab manager component."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from arena.browser.cdp_client.common import List, Optional, aiohttp
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from arena.browser.cdp_client.tab import CDPTab
+
 from arena.browser.cdp_client.common import (
     Any,
     Callable,
@@ -12,6 +19,24 @@ from arena.browser.cdp_client.common import (
 
 
 class CDPTabManagerCallbackMixin:
+    if TYPE_CHECKING:  # pragma: no cover - typing only
+        # Supplied by the concrete class that mixes this in. Declared, not
+        # assigned: annotations only, so runtime behaviour is unchanged.
+        # Written down because an undeclared interface lets a real typo
+        # hide among the noise it generates.
+        _active_tab_id: Optional[str]
+        _browser_listener_task: Optional[asyncio.Task]
+        _browser_pending: Dict[int, asyncio.Future]
+        _browser_proc: Optional[subprocess.Popen]
+        _browser_session: Optional[aiohttp.ClientSession]
+        _browser_ws: Optional[aiohttp.ClientWebSocketResponse]
+        _callback_tasks: List[asyncio.Task]
+        _tab_created_callbacks: List[Callable]
+        _tab_destroyed_callbacks: List[Callable]
+        _tab_navigated_callbacks: List[Callable]
+        _tabs: Dict[str, CDPTab]
+        port: int
+
     def on_tab_created(self, callback: Callable) -> None:
         """Register a callback for tab creation events.
 
@@ -48,13 +73,32 @@ class CDPTabManagerCallbackMixin:
         if callback in self._tab_navigated_callbacks:
             self._tab_navigated_callbacks.remove(callback)
 
+    @staticmethod
     def _log_callback_error(task: asyncio.Task) -> None:
-        """Log exceptions from fire-and-forget callback tasks."""
-        if not task.cancelled():
-            try:
-                task.exception()
-            except Exception as e:
-                logger.error("[CDPTabManager] Async callback task error: %s", e)
+        """Log exceptions from fire-and-forget callback tasks.
+
+        v4.155.x: this was a plain method whose first parameter is named
+        ``task``. Call sites pass it as ``task.add_done_callback(
+        self._log_callback_error)``, which binds ``self`` into that slot and
+        leaves the real Task with nowhere to go -- so the callback raised
+        TypeError every time and asyncio swallowed it into the loop exception
+        handler. The result: errors from fire-and-forget CDP callback tasks
+        were never logged, by the very function whose job that was. Confirmed
+        by running it against a real Task before and after.
+        """
+        if task.cancelled():
+            return
+        # `Task.exception()` RETURNS the exception; it only raises when the
+        # task was cancelled or is still running. The original
+        # `try: task.exception() / except Exception` therefore never entered
+        # the handler, so nothing was ever logged even once the binding bug
+        # above was fixed. Two defects, same four lines.
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:  # pragma: no cover - raced cancellation
+            return
+        if exc is not None:
+            logger.error("[CDPTabManager] Async callback task error: %s", exc)
 
     async def close(self) -> None:
         """Close all tab connections and the browser-level WebSocket."""

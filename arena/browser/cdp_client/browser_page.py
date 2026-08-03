@@ -1,6 +1,8 @@
 """Extracted CDP browser component."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from arena.browser.cdp_client.browser_input import CDPBrowserInputMixin
 from arena.browser.cdp_client.common import (
     Any,
@@ -15,6 +17,16 @@ from arena.browser.cdp_client.tabs_http import close_tab, get_new_tab_url, list_
 
 
 class CDPBrowserPageMixin(CDPBrowserInputMixin):
+    if TYPE_CHECKING:  # pragma: no cover - typing only
+        # Supplied by the concrete class that mixes this in. Declared, not
+        # assigned: annotations only, so runtime behaviour is unchanged.
+        # Written down because an undeclared interface lets a real typo
+        # hide among the noise it generates.
+        port: int
+        async def send(self, method: str, params: Optional[Dict] = None, timeout: Optional[float] = None) -> Dict: ...
+        timeout: float
+        async def wait_for_event(self, event_name: str, timeout: Optional[float] = None) -> Dict: ...
+
     async def navigate(self, url: str, wait: bool = True,
                        timeout: Optional[float] = None) -> Dict:
         """Navigate to a URL. Optionally wait for the page to fully load.

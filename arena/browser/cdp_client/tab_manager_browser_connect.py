@@ -1,8 +1,11 @@
 """CDP tab manager component."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from arena.browser.cdp_client.common import (
     HAS_WEBSOCKETS,
+    Dict,
     Optional,
     _websockets_mod,
     aiohttp,
@@ -16,6 +19,14 @@ from arena.browser.cdp_client.websocket_adapter import WebsocketsCDPAdapter
 
 
 class CDPTabManagerBrowserConnectMixin:
+    if TYPE_CHECKING:  # pragma: no cover - typing only
+        # Supplied by the concrete class that mixes this in. Declared, not
+        # assigned: annotations only, so runtime behaviour is unchanged.
+        # Written down because an undeclared interface lets a real typo
+        # hide among the noise it generates.
+        async def _browser_listen_loop(self) -> None: ...
+        async def _browser_send(self, method: str, params: Optional[Dict] = None, timeout: Optional[float] = None) -> Dict: ...
+
     async def _connect_browser_ws(self) -> None:
         """Connect to the browser-level WebSocket for Target domain events.
 

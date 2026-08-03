@@ -1,12 +1,31 @@
 """CDP tab manager component."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.common import Dict, Optional, asyncio, logger
+from typing import TYPE_CHECKING
+
+from arena.browser.cdp_client.common import Callable, Dict, List, Optional, aiohttp, asyncio, logger
 from arena.browser.cdp_client.tab import CDPTab
 from arena.browser.cdp_client.tabs_http import list_tabs
 
 
 class CDPTabManagerTargetMixin:
+    if TYPE_CHECKING:  # pragma: no cover - typing only
+        # Supplied by the concrete class that mixes this in. Declared, not
+        # assigned: annotations only, so runtime behaviour is unchanged.
+        # Written down because an undeclared interface lets a real typo
+        # hide among the noise it generates.
+        async def _browser_send(self, method: str, params: Optional[Dict] = None, timeout: Optional[float] = None) -> Dict: ...
+        _browser_ws: Optional[aiohttp.ClientWebSocketResponse]
+        _callback_tasks: List[asyncio.Task]
+        @staticmethod
+        def _log_callback_error(task: asyncio.Task) -> None: ...
+        _tab_created_callbacks: List[Callable]
+        _tab_destroyed_callbacks: List[Callable]
+        _tab_navigated_callbacks: List[Callable]
+        _tabs: Dict[str, CDPTab]
+        port: int
+        timeout: float
+
     async def _handle_target_created(self, params: Dict) -> None:
         """Handle Target.targetCreated event."""
         target_info = params.get("targetInfo", {})

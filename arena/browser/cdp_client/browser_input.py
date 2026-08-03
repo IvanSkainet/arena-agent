@@ -1,10 +1,19 @@
 """Extracted CDP browser component."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.common import Optional, asyncio, json, logger
+from typing import TYPE_CHECKING
+
+from arena.browser.cdp_client.common import Any, Optional, asyncio, json, logger
 
 
 class CDPBrowserInputMixin:
+    if TYPE_CHECKING:  # pragma: no cover - typing only
+        # Supplied by the concrete class that mixes this in. Declared, not
+        # assigned: annotations only, so runtime behaviour is unchanged.
+        # Written down because an undeclared interface lets a real typo
+        # hide among the noise it generates.
+        async def eval_js(self, expression: str, timeout: Optional[float] = None) -> Any: ...
+
     async def click(self, selector: str, timeout: Optional[float] = None) -> bool:
         """Click an element matching a CSS selector.
 

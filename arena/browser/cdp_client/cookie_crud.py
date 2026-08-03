@@ -1,10 +1,23 @@
 """CDP cookie manager components."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from arena.browser.cdp_client.browser import CDPBrowser
+
 from arena.browser.cdp_client.common import Dict, List, Optional
 
 
 class CDPCookieCrudMixin:
+    if TYPE_CHECKING:  # pragma: no cover - typing only
+        # Supplied by the concrete class that mixes this in. Declared, not
+        # assigned: annotations only, so runtime behaviour is unchanged.
+        # Written down because an undeclared interface lets a real typo
+        # hide among the noise it generates.
+        _active: bool
+        _browser: CDPBrowser
+
     def _ensure_active(self) -> None:
         """Raise RuntimeError if cookie manager is not started."""
         if not self._active:
