@@ -22,9 +22,22 @@ import ctypes
 import ctypes.wintypes as wt
 import io
 import sys
+from typing import Any
 
 _IS_WINDOWS = sys.platform == "win32"
 
+
+# Declared `Any` rather than left to inference. On a non-Windows checkout the
+# `else` branch below binds these to None, which would otherwise make every
+# `user32.GetForegroundWindow(...)` in the backend read as an attribute access
+# on None -- 59 findings in windows.py alone, none of them real: the module is
+# only ever reached behind `_IS_WINDOWS`. ctypes.windll has no useful static
+# type anyway, so nothing is lost by saying so explicitly.
+user32: Any
+gdi32: Any
+kernel32: Any
+dwmapi: Any
+EnumWindowsProc: Any
 
 if _IS_WINDOWS:
     user32 = ctypes.windll.user32
@@ -101,11 +114,11 @@ if _IS_WINDOWS:
     user32.EnumChildWindows.restype = wt.BOOL
 else:
     # Stubs so tests can import the module on Linux.
-    user32 = None  # type: ignore[assignment]
-    gdi32 = None  # type: ignore[assignment]
-    kernel32 = None  # type: ignore[assignment]
-    dwmapi = None  # type: ignore[assignment]
-    EnumWindowsProc = None  # type: ignore[assignment]
+    user32 = None
+    gdi32 = None
+    kernel32 = None
+    dwmapi = None
+    EnumWindowsProc = None
 
 
 # ---------------------------------------------------------------------------

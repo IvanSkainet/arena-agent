@@ -84,12 +84,19 @@ from typing import Any
 
 # psutil is optional. We import lazily so the module can still be
 # collected even in a minimal install without it.
+# The import binds a module type, the fallback binds None, and the union of the
+# two makes every later `psutil.cpu_percent(...)` read as an attribute access on
+# None. Importing under a private name and re-exposing it as `Any` keeps both
+# arms working at runtime while telling the checker what the guarded call sites
+# already guarantee.
 try:
-    import psutil  # type: ignore[import-not-found]
+    import psutil as _psutil_mod  # type: ignore[import-not-found]
     _HAS_PSUTIL = True
 except Exception:  # pragma: no cover - psutil widely available
-    psutil = None  # type: ignore[assignment]
+    _psutil_mod = None
     _HAS_PSUTIL = False
+
+psutil: Any = _psutil_mod
 
 
 _LOCK = threading.Lock()

@@ -28,6 +28,7 @@ import subprocess
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Windows input constants
@@ -49,7 +50,11 @@ WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
 WM_CHAR = 0x0102
 
-user32 = ctypes.windll.user32 if sys.platform == "win32" else None
+# Declared `Any`: on a non-Windows checkout this is None, which would make
+# every later `user32.PostMessageW(...)` read as an attribute access on
+# None. The helper only runs on Windows, and ctypes.windll has no useful
+# static type regardless.
+user32: Any = ctypes.windll.user32 if sys.platform == "win32" else None
 
 VK_MAP = {
     "return": 0x0D, "enter": 0x0D, "escape": 0x1B, "esc": 0x1B,

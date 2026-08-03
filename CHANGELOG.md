@@ -1,5 +1,26 @@
 ## Unreleased
 
+### Platform and optional-dependency stubs stop poisoning their callers
+
+Same root cause as the aiohttp fix, three more places. `user32 = None` in the
+non-Windows branch makes the name `Module | None` forever, so every
+`user32.GetForegroundWindow(...)` in the backend reads as an attribute access on
+None -- 59 findings in `desktop/backends/windows.py` alone, none of them real:
+the module is only reached behind `_IS_WINDOWS`, and `ctypes.windll` has no
+useful static type anyway.
+
+* `_win32_api.py`: `user32` / `gdi32` / `kernel32` / `dwmapi` /
+  `EnumWindowsProc` declared `Any` before the platform branch.
+  **windows.py 61 -> 1.**
+* `input_helper/helper_server.py`: same one-liner form.
+* `observability/live_metrics.py`: needed a different shape -- `import psutil`
+  binds a module type while the fallback binds None, and declaring the name
+  `Any` up front does not override that. Importing under a private name and
+  re-exposing it as `psutil: Any` does. Verified by calling
+  `live_metrics_snapshot()` afterwards, which still returns real CPU data.
+
+pyrefly **558 -> 485**.
+
 ### An eighth and ninth bug, in the function meant to report bugs
 
 Declaring the CDP mixin interfaces let pyrefly see a call shape it had never
