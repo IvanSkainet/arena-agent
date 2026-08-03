@@ -105,6 +105,51 @@ def _all_construction_kwargs(class_name: str) -> dict[str, list[ast.expr]]:
     return found
 
 
+def _spread_sources(class_name: str) -> set[str]:
+    """Field names supplied through `**{...}` at a construction site.
+
+    Syntax alone cannot say what those keys are, so the class is built at
+    runtime with a permissive stub context and every resulting field is
+    checked with `callable()`. A field only qualifies if the real object
+    actually holds something callable there.
+    """
+    import dataclasses
+    import importlib
+
+    for module_name in (
+        "arena.mobile.handlers", "arena.admin.handlers", "arena.desktop.handlers",
+        "arena.resources.handlers", "arena.system.handlers", "arena.mcp.handlers",
+    ):
+        try:
+            mod = importlib.import_module(module_name)
+        except Exception:
+            continue
+        cls = getattr(mod, class_name, None)
+        if cls is None or not dataclasses.is_dataclass(cls):
+            continue
+        factory = next(
+            (getattr(mod, n) for n in dir(mod)
+             if n.startswith("make_") and callable(getattr(mod, n))),
+            None,
+        )
+        if factory is None:
+            return set()
+
+        class _Stub:
+            def __getattr__(self, _name):
+                return lambda *a, **k: None
+
+        try:
+            built = factory(_Stub())
+        except Exception:
+            return set()
+        return {
+            f.name for f in dataclasses.fields(built)
+            if callable(getattr(built, f.name, None))
+        }
+    return set()
+
+
 def plan_file(path: Path) -> tuple[dict[str, list[str]], list[str]]:
     """Return (class -> fields safe to retype, notes)."""
     try:
@@ -117,10 +162,18 @@ def plan_file(path: Path) -> tuple[dict[str, list[str]], list[str]]:
     for cls, fields in _dataclass_object_fields(tree).items():
         kwargs = _all_construction_kwargs(cls)
         keep: list[str] = []
+        spread = _spread_sources(cls)
         for field in fields:
             values = kwargs.get(field)
             if not values:
-                # Never constructed by keyword anywhere -- do not guess.
+                # A field can also arrive via `**{k: _media[k] for k in (...)}`.
+                # That is still a callable being passed in -- MobileHandlers
+                # builds 26 of its 52 fields that way -- but there is no
+                # keyword node to inspect, so verify it at runtime instead of
+                # guessing from syntax.
+                if field in spread:
+                    keep.append(field)
+                    continue
                 notes.append(f"{path.name}:{cls}.{field}: skipped (no constructor kwarg found)")
                 continue
             bad = [v for v in values if not isinstance(v, CALLABLE_EXPRS)]

@@ -62,44 +62,44 @@ class MobileHandlers:
     scroll: Callable[..., Any]
     key_combo: Callable[..., Any]
     # v3.83.5 additions.
-    pair: object
-    connect: object
-    disconnect: object
-    apk_prepare: object
-    apk_install: object
+    pair: Callable[..., Any]
+    connect: Callable[..., Any]
+    disconnect: Callable[..., Any]
+    apk_prepare: Callable[..., Any]
+    apk_install: Callable[..., Any]
     # v3.84.0 additions.
     batch: Callable[..., Any]
     # v3.84.1: camera & media
-    camera_launch: object
-    camera_shutter: object
-    camera_photos: object
-    camera_pull: object
-    camera_capture: object
+    camera_launch: Callable[..., Any]
+    camera_shutter: Callable[..., Any]
+    camera_photos: Callable[..., Any]
+    camera_pull: Callable[..., Any]
+    camera_capture: Callable[..., Any]
     # v3.84.2: apk upload + screen recording
-    apk_upload: object
-    record_sync: object
-    record_start: object
-    record_stop: object
-    record_list: object
-    record_pull: object
-    record_purge: object
+    apk_upload: Callable[..., Any]
+    record_sync: Callable[..., Any]
+    record_start: Callable[..., Any]
+    record_stop: Callable[..., Any]
+    record_list: Callable[..., Any]
+    record_pull: Callable[..., Any]
+    record_purge: Callable[..., Any]
     # v3.84.3: live H.264 screen mirror over WebSocket
-    mirror_ws: object
-    mirror_stats: object
-    mirror_stop: object
+    mirror_ws: Callable[..., Any]
+    mirror_stats: Callable[..., Any]
+    mirror_stop: Callable[..., Any]
     # v3.84.4: full camera control surface (mode/lens/zoom/flash +
     # video record via camera app UI + raw controls dump).
-    camera_controls: object
-    camera_mode: object
-    camera_lens: object
-    camera_zoom: object
-    camera_flash: object
-    camera_record_start: object
-    camera_record_stop: object
+    camera_controls: Callable[..., Any]
+    camera_mode: Callable[..., Any]
+    camera_lens: Callable[..., Any]
+    camera_zoom: Callable[..., Any]
+    camera_flash: Callable[..., Any]
+    camera_record_start: Callable[..., Any]
+    camera_record_stop: Callable[..., Any]
     # v3.84.5: transport fallback (USB <-> wireless ADB) for flaky USB.
-    transport_status: object
-    transport_tcp_enable: object
-    transport_tcp_disable: object
+    transport_status: Callable[..., Any]
+    transport_tcp_enable: Callable[..., Any]
+    transport_tcp_disable: Callable[..., Any]
 
 
 def make_mobile_handlers(ctx) -> MobileHandlers:
