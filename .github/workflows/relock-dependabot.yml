@@ -73,10 +73,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Pinned: the resolver decides what every later job installs, so a
-      # floating uv would make the lock non-reproducible.
-      - name: Install uv (pinned)
-        run: python -m pip install "uv==0.12.1"
+      # Hash-locked, not merely version-pinned: the resolver decides what
+      # every other job installs, so it gets the same treatment as the
+      # dependencies it resolves (Scorecard PinnedDependenciesID).
+      - name: Install uv (hash-locked)
+        run: python -m pip install --require-hashes -r requirements-relock.lock
 
       # --python-version 3.10 is REQUIRED, not cosmetic: without it uv resolves
       # for the interpreter it happens to run on and every marker-guarded pin
@@ -86,6 +87,9 @@ jobs:
         run: |
           set -euo pipefail
           for in_file in requirements-*.in; do
+            # Skip our own resolver lock: regenerating the tool with itself
+            # mid-run is self-referential and would mask a bad uv release.
+            [ "$in_file" = "requirements-relock.in" ] && continue
             lock_file="${in_file%.in}.lock"
             echo "::group::$in_file -> $lock_file"
             uv pip compile --universal --generate-hashes --strip-extras \
