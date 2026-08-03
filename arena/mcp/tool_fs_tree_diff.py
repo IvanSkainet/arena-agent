@@ -50,7 +50,7 @@ def handle_fs_tree_diff_tool(name: str, args: dict[str, Any], *, ctx) -> dict[st
 
 def _handle_fs_tree(args: dict[str, Any], ctx) -> dict[str, Any]:
     """Show directory tree structure."""
-    path_str = os.path.expanduser(args.get("path", ""))
+    path_str = os.path.expanduser(args.get("path") or "")
     max_depth = int(args.get("max_depth", 3))
     max_depth = min(max(max_depth, 1), 10)  # clamp 1-10
     show_files = bool(args.get("show_files", True))
@@ -125,8 +125,12 @@ def _format_size(size: int) -> str:
 
 def _handle_fs_diff(args: dict[str, Any], ctx) -> dict[str, Any]:
     """Compare two files and return unified diff."""
-    path_a_str = os.path.expanduser(args.get("path_a", args.get("old_path", "")))
-    path_b_str = os.path.expanduser(args.get("path_b", args.get("new_path", "")))
+    # `args.get(k, default)` returns None when the key EXISTS and holds null --
+    # the default does not apply. A JSON body of {"path_a": null} therefore
+    # reached expanduser() and raised TypeError from inside the handler
+    # instead of the "missing path" answer below. `or` covers both shapes.
+    path_a_str = os.path.expanduser(args.get("path_a") or args.get("old_path") or "")
+    path_b_str = os.path.expanduser(args.get("path_b") or args.get("new_path") or "")
 
     if not path_a_str or not path_b_str:
         return {"isError": True, "content": [{"type": "text", "text": "ERROR: both 'path_a' and 'path_b' are required"}]}

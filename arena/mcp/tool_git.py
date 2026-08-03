@@ -50,7 +50,7 @@ def handle_git_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] |
     if name not in {"git.status", "git.diff", "git.log", "git.commit"}:
         return None
 
-    path_str = os.path.expanduser(args.get("path", ""))
+    path_str = os.path.expanduser(args.get("path") or "")
     path, err = _validate_repo_path(path_str, ctx)
     if err:
         return err

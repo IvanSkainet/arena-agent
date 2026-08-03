@@ -63,7 +63,7 @@ def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | 
             return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'rollback_id' argument"}]}
         return _safe_edit_text_result(rollback_change(rollback_id, force=bool(args.get("force", False))))
 
-    p = os.path.expanduser(args.get("path", ""))
+    p = os.path.expanduser(args.get("path") or "")
     path, err = _validate_home_path(p, ctx)
     if err:
         if name == "fs.write" and p and Path(p).name in _MCP_BLOCKED_FILES:

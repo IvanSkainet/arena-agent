@@ -1,5 +1,33 @@
 ## Unreleased
 
+### Two more bugs: a null path crashed five tools, and an unfenced runtime crashed the sandbox
+
+**`{"path": null}` raised TypeError instead of returning an error.**
+`args.get("path", "")` looks like it defaults to `""`, but the default only
+applies when the key is *absent*. A JSON body with an explicit null returned
+None, which flowed into `os.path.expanduser` and raised
+
+    TypeError: expected str, bytes or os.PathLike object, not NoneType
+
+from inside the handler. Five call sites had the shape -- fs.read / fs.write /
+fs.list, fs.search, the tree diff and the git tools -- every one reachable from
+an MCP client. Fixed with `or`, and a gate now scans the whole tree for
+`.get(k, default)` piped into a None-rejecting sink.
+
+**A missing runtime crashed instead of refusing.** `_resolve_win32_runtime`
+returns None when the host has only the WindowsApps alias shim. The
+AppContainer branch already refused that case, but it is only reached for
+fenced postures -- on a loose posture the None went into `argv[0]` and
+`subprocess.run` raised the same TypeError. The refusal now happens before
+argv is built, reusing the existing message rather than inventing a second one.
+
+Worth recording: my first attempt at this one duplicated the existing refusal
+and broke `test_build_win32_missing_runtime_refused_fail_closed`, which was
+right to fail -- the fenced path already said something more specific. The
+duplicate was removed and the real gap fixed where it actually was.
+
+pyrefly **233 -> 229**; the "call cannot succeed" bucket **12 -> 9**.
+
 ### An eleventh bug: every disconnected tab claimed to be connected
 
 `CDPTab.connected` was a plain method, but six call sites read it as a value --

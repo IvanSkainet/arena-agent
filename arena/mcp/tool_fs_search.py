@@ -41,7 +41,7 @@ def handle_fs_search_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, 
     if name not in {"fs.search", "fs.grep"}:
         return None
 
-    path_str = os.path.expanduser(args.get("path", ""))
+    path_str = os.path.expanduser(args.get("path") or "")
     pattern = args.get("pattern", args.get("query", ""))
     glob_filter = args.get("glob", args.get("file_pattern", ""))
     max_results = min(int(args.get("max_results", 50)), _MAX_RESULTS)

@@ -3,17 +3,17 @@
     "TOTAL": 0
   },
   "pyrefly": {
-    "bad-argument-type": 66,
+    "bad-argument-type": 65,
     "bad-assignment": 20,
     "bad-function-definition": 6,
     "bad-override": 1,
     "bad-return": 4,
     "invalid-argument": 3,
     "missing-attribute": 100,
-    "no-matching-overload": 6,
+    "no-matching-overload": 3,
     "not-iterable": 2,
     "redefinition": 3,
     "unsupported-operation": 22,
-    "TOTAL": 233
+    "TOTAL": 229
   }
 }

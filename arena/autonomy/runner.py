@@ -220,8 +220,20 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
     res = resolve(platform, posture)
     default_runtime = "wasmtime" if lang in {"wasm", "wasmtime"} else lang
     runtime_cmd = _managed_runtime_path(lang) or (_resolve_win32_runtime(lang) if platform == "win32" and lang in {"python", "python3"} else default_runtime)
-    base = _runtime_invocation(lang, runtime_cmd, code_path, runtime_args)
     always = _always_enforced()
+    if runtime_cmd is None:
+        # The AppContainer branch below has its own, more specific refusal for
+        # a missing runtime ("not found on PATH"), but it is only reached for
+        # fenced postures. On a loose posture the None flowed into argv[0] and
+        # surfaced as `TypeError: expected str, bytes or os.PathLike object,
+        # not NoneType` from inside subprocess.run -- a crash where a refusal
+        # belongs. Fail closed here too, without shadowing the fenced message.
+        return None, {"refused": True, "sandbox_action": res["sandbox_action"],
+                      "enforced": {**always, "network": False, "privilege": False,
+                                   "filesystem_confined": False, "memory": False},
+                      "note": f"runtime '{lang}' was allowed by posture but was "
+                              "not found on PATH. Refusing to run unfenced."}
+    base = _runtime_invocation(lang, runtime_cmd, code_path, runtime_args)
     if not res["supported"]:
         return None, {"refused": True, "sandbox_action": res["sandbox_action"],
                       "enforced": {**always, "network": False, "privilege": False,
@@ -471,6 +483,11 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
         )
         if info.get("refused"):
             return {"ok": False, **info}
+        # build_command returns (None, info) only together with refused=True --
+        # an invariant checked by tests/test_build_command_refusal_invariant.py,
+        # which walks every return in that function. Past this point argv is a
+        # real list, so subprocess.run below cannot be handed None.
+        assert argv_cmd is not None
         max_out = int(effective_posture.get("resources", DEFAULT_RESOURCES)
                       .get("output_bytes", 100 * 1024))
         run_env = env if env is not None else _scrub_env()
