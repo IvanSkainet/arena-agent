@@ -76,6 +76,7 @@ import ast
 import re
 import sys
 from pathlib import Path
+from typing import TypeGuard
 
 # v4.69.0: bare names are in the catalogue and in the
 # dispatcher. They are exempt from the per-namespace
@@ -111,7 +112,12 @@ _WHITELISTED_MIXED: frozenset[tuple[str, str, str]] = frozenset({
 })
 
 
-def _is_handle_tool_func(node: ast.AST) -> bool:
+def _is_handle_tool_func(node: ast.AST) -> TypeGuard[ast.FunctionDef | ast.AsyncFunctionDef]:
+    """True for a `handle_*_tool` definition.
+
+    TypeGuard, not bool: the caller reads `node.name` right after, which only
+    exists on the two function node types this actually admits.
+    """
     return isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("handle_") and node.name.endswith("_tool")
 
 

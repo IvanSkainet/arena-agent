@@ -19,4 +19,5 @@ def main():
         r=c.request(args.method, args.url)
     body=r.text[:10000]
     print(json.dumps({'ok': True, 'url': str(r.url), 'status_code': r.status_code, 'http_version': r.http_version, 'elapsed_sec': round(time.time()-t,3), 'headers': dict(r.headers), 'body_preview': body}, ensure_ascii=False, indent=2))
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    main()

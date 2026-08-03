@@ -55,10 +55,8 @@ from __future__ import annotations
 
 import argparse
 import ast
-import re
 import sys
 from pathlib import Path
-from typing import Optional, Union, get_args, get_origin
 
 # Whitelisted keyword-only parameter suffixes. A function
 # may have zero or more of these (in addition to ``ctx``)
@@ -81,7 +79,7 @@ def _arg_kind(arg: ast.arg, args: ast.arguments) -> str:
     return "unknown"
 
 
-def _return_is_dict_or_none(node: ast.AST) -> tuple[bool, str]:
+def _return_is_dict_or_none(node: ast.AST | None) -> tuple[bool, str]:
     """Return (ok, detail). ``ok`` is True if the return
     annotation is acceptable (None, dict, dict[str, Any],
     or a Union of those). ``detail`` is a human-readable

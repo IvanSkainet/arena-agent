@@ -19,8 +19,10 @@ def read_events(limit: int | None = None):
         lines = lines[-limit:]
     events=[]
     for line in lines:
-        try: events.append(json.loads(line))
-        except Exception: events.append({'raw': line})
+        try:
+            events.append(json.loads(line))
+        except Exception:
+            events.append({'raw': line})
     return events
 
 def tail(args):
@@ -67,8 +69,16 @@ def rotate(args):
 def main():
     p=argparse.ArgumentParser()
     sub=p.add_subparsers(dest='cmd', required=True)
-    s=sub.add_parser('tail'); s.add_argument('--lines', type=int, default=50); s.add_argument('--json', action='store_true'); s.add_argument('--cmd-chars', type=int, default=240); s.set_defaults(func=tail)
-    s=sub.add_parser('stats'); s.set_defaults(func=stats)
-    s=sub.add_parser('rotate'); s.set_defaults(func=rotate)
-    args=p.parse_args(); args.func(args)
-if __name__=='__main__': main()
+    s=sub.add_parser('tail')
+    s.add_argument('--lines', type=int, default=50)
+    s.add_argument('--json', action='store_true')
+    s.add_argument('--cmd-chars', type=int, default=240)
+    s.set_defaults(func=tail)
+    s=sub.add_parser('stats')
+    s.set_defaults(func=stats)
+    s=sub.add_parser('rotate')
+    s.set_defaults(func=rotate)
+    args=p.parse_args()
+    args.func(args)
+if __name__=='__main__':
+    main()

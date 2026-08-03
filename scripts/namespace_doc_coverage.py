@@ -136,11 +136,11 @@ def _run(repo_root: Path, enforce: bool) -> int:
     prefix = "FAIL" if enforce else "WARN"
     print(f"[namespace-doc-coverage] {prefix}: {len(missing)} of {len(namespaces)} namespaces lack a README example", file=sys.stderr)
     print("", file=sys.stderr)
-    print(f"--- namespaces WITHOUT an example ---", file=sys.stderr)
+    print("--- namespaces WITHOUT an example ---", file=sys.stderr)
     for ns in sorted(missing):
         print(f"  {ns}", file=sys.stderr)
     print("", file=sys.stderr)
-    print(f"--- namespaces WITH an example ---", file=sys.stderr)
+    print("--- namespaces WITH an example ---", file=sys.stderr)
     for ns in sorted(covered):
         readme, line = satisfying[ns]
         short = line if len(line) <= 80 else line[:77] + "..."

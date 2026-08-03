@@ -221,6 +221,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="write changes")
     ap.add_argument("--check", action="store_true", help="report only (default)")
+    ap.add_argument("--paths", nargs="*", default=list(TARGETS),
+                    help="directories to walk (default: the ratchet TARGETS)")
     args = ap.parse_args()
     apply = args.apply and not args.check
 
@@ -228,7 +230,7 @@ def main() -> int:
     rejected: list[str] = []
     touched: list[str] = []
 
-    for target in TARGETS:
+    for target in args.paths:
         for path in sorted((ROOT / target).rglob("*.py")):
             split_count, skipped, ok = process(path, apply)
             total_split += split_count

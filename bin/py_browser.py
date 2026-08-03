@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import argparse
-import html
 import json
 import sys
 
@@ -35,7 +34,9 @@ def _get(url: str, timeout: int = 20) -> requests.Response:
     return requests.get(url, headers=H, timeout=timeout, allow_redirects=True)
 
 def cmd_fetch(url: str) -> int:
-    r = _get(url); sys.stdout.write(r.text); return 0
+    r = _get(url)
+    sys.stdout.write(r.text)
+    return 0
 
 def cmd_head(url: str) -> int:
     r = requests.head(url, headers=H, timeout=15, allow_redirects=True)
@@ -59,7 +60,8 @@ def cmd_read(url: str) -> int:
     return 0
 
 def cmd_dump(url: str, save: str|None) -> int:
-    r = _get(url); s = _soup(r.text)
+    r = _get(url)
+    s = _soup(r.text)
     title = (s.title.string.strip() if s.title and s.title.string else "")
     text = s.get_text("\n", strip=True)
     links = [{"text": a.get_text(strip=True)[:120], "href": a.get("href","")}
@@ -68,7 +70,8 @@ def cmd_dump(url: str, save: str|None) -> int:
            "text": text[:50000], "links": links}
     data = json.dumps(out, ensure_ascii=False, indent=2)
     if save:
-        with open(save, "w", encoding="utf-8") as f: f.write(data)
+        with open(save, "w", encoding="utf-8") as f:
+            f.write(data)
         print(f"saved: {save} ({len(data)} bytes)")
     else:
         print(data)
@@ -93,16 +96,26 @@ def main() -> int:
     p = argparse.ArgumentParser(prog="py_browser", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
     for name in ("fetch","read","head"):
-        sp = sub.add_parser(name); sp.add_argument("url")
-    sp = sub.add_parser("dump"); sp.add_argument("url"); sp.add_argument("--save")
-    sp = sub.add_parser("search"); sp.add_argument("query"); sp.add_argument("--n", type=int, default=5)
+        sp = sub.add_parser(name)
+        sp.add_argument("url")
+    sp = sub.add_parser("dump")
+    sp.add_argument("url")
+    sp.add_argument("--save")
+    sp = sub.add_parser("search")
+    sp.add_argument("query")
+    sp.add_argument("--n", type=int, default=5)
     args = p.parse_args()
     try:
-        if args.cmd == "fetch":  return cmd_fetch(args.url)
-        if args.cmd == "head":   return cmd_head(args.url)
-        if args.cmd == "read":   return cmd_read(args.url)
-        if args.cmd == "dump":   return cmd_dump(args.url, args.save)
-        if args.cmd == "search": return cmd_search(args.query, args.n)
+        if args.cmd == "fetch":
+            return cmd_fetch(args.url)
+        if args.cmd == "head":
+            return cmd_head(args.url)
+        if args.cmd == "read":
+            return cmd_read(args.url)
+        if args.cmd == "dump":
+            return cmd_dump(args.url, args.save)
+        if args.cmd == "search":
+            return cmd_search(args.query, args.n)
     except Exception as e:
         print(json.dumps({"ok": False, "error": str(e), "cmd": args.cmd}), file=sys.stderr)
         return 1

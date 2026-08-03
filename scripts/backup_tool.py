@@ -16,7 +16,7 @@ def main():
     B.mkdir(parents=True, exist_ok=True)
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_zip = B / f'arena-bridge-backup-{timestamp}.zip'
-    
+
     with zipfile.ZipFile(out_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
         # 1. Archive the entire arena-bridge folder
         for root, dirs, files in os.walk(ROOT):
@@ -28,7 +28,7 @@ def main():
                 file_path = os.path.join(root, file)
                 rel_path = os.path.join('arena-bridge', os.path.relpath(file_path, ROOT))
                 zipf.write(file_path, rel_path)
-                
+
         # 2. Archive the arena-bridge folder if it exists
         bridge_root = ROOT.parent / 'arena-bridge'
         if bridge_root.exists():
@@ -40,7 +40,7 @@ def main():
                     file_path = os.path.join(root, file)
                     rel_path = os.path.join('arena-bridge', os.path.relpath(file_path, bridge_root))
                     zipf.write(file_path, rel_path)
-                    
+
     print(out_zip)
 
 if __name__ == '__main__':

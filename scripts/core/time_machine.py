@@ -15,10 +15,11 @@ def make_snapshot(cwd: str):
     os.makedirs(CACHE_DIR, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     bname = os.path.basename(os.path.abspath(cwd))
-    if not bname: bname = "root"
-    
+    if not bname:
+        bname = "root"
+
     arc_name = os.path.join(CACHE_DIR, f"{bname}_{ts}.tar.gz")
-    
+
     print(f"Creating snapshot of {cwd}...")
     try:
         with tarfile.open(arc_name, "w:gz") as tar:
@@ -35,12 +36,13 @@ def make_snapshot(cwd: str):
 
 def list_snapshots(cwd: str):
     bname = os.path.basename(os.path.abspath(cwd))
-    if not bname: bname = "root"
+    if not bname:
+        bname = "root"
     files = glob.glob(os.path.join(CACHE_DIR, f"{bname}_*.tar.gz"))
     if not files:
         print(f"No snapshots found for '{bname}' in {CACHE_DIR}")
         return
-    
+
     files.sort(reverse=True)
     print("Available snapshots:")
     for i, f in enumerate(files):
@@ -49,17 +51,18 @@ def list_snapshots(cwd: str):
 
 def rollback(cwd: str, index: int = 0):
     bname = os.path.basename(os.path.abspath(cwd))
-    if not bname: bname = "root"
+    if not bname:
+        bname = "root"
     files = glob.glob(os.path.join(CACHE_DIR, f"{bname}_*.tar.gz"))
     files.sort(reverse=True)
-    
+
     if index >= len(files):
         print(f"Invalid snapshot index. Max index is {len(files)-1}")
         return
-        
+
     arc_name = files[index]
     print(f"Rolling back to {arc_name}...")
-    
+
     try:
         # Dangerous operation: usually requires care. We'll extract over existing files.
         with tarfile.open(arc_name, "r:gz") as tar:
@@ -72,10 +75,10 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: time_machine.py [snapshot|list|rollback <idx>]")
         sys.exit(1)
-        
+
     cmd = sys.argv[1]
     cwd = os.getcwd()
-    
+
     if cmd == "snapshot":
         make_snapshot(cwd)
     elif cmd == "list":

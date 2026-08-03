@@ -2,7 +2,6 @@ import json
 import os
 import platform
 import subprocess
-import sys
 
 
 def get_cim_data(class_name, properties):
@@ -38,7 +37,7 @@ def collect_all():
         "storage": {},
         "network": {}
     }
-    
+
     # OS Version override for Windows 11
     if info["os"]["name"] == "Windows":
         try:
@@ -60,7 +59,7 @@ def collect_all():
             if mb_list:
                 for k, v in mb_list[0].items():
                     info["motherboard"][k.strip().lower()] = v
-                    
+
             bios_list = get_cim_data("Win32_BIOS", "Manufacturer,Name,Version")
             if bios_list:
                 for k, v in bios_list[0].items():
@@ -79,7 +78,7 @@ def collect_all():
                     info["cpu"][k.strip().lower()] = val
         except Exception:
             pass
-        
+
         # 3. GPU Details (Wmi -> Cim)
         try:
             gpu_list = get_cim_data("Win32_VideoController", "Name,DriverVersion,AdapterRAM,VideoProcessor,VideoModeDescription")
@@ -92,7 +91,7 @@ def collect_all():
                         val = int(val)
                     gpu_dict[k.strip().lower()] = val
                 gpus.append(gpu_dict)
-                
+
             for g in gpus:
                 if "adapterram" in g and isinstance(g["adapterram"], (int, float)):
                     g["vram_mb"] = round(abs(g["adapterram"]) / (1024**2), 1)
@@ -109,7 +108,7 @@ def collect_all():
                     if isinstance(val, str) and val.isdigit():
                         val = int(val)
                     info["ram"][k.strip().lower()] = val
-                    
+
             if "totalvisiblememorysize" in info["ram"]:
                 total = info["ram"]["totalvisiblememorysize"]
                 free = info["ram"].get("freephysicalmemory", 0)
@@ -159,7 +158,7 @@ def collect_all():
         # Simple generic fallback for Linux/macOS
         info["cpu"]["logical_processors"] = os.cpu_count()
         info["ram"]["total_gb"] = "N/A (Linux/macOS fallback)"
-        
+
     return info
 
 if __name__ == "__main__":

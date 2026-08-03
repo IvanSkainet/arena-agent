@@ -18,7 +18,11 @@ from pathlib import Path
 
 try:
     from prompt_toolkit import PromptSession
-    from prompt_toolkit.completion import Completer, Completion, WordCompleter
+    from prompt_toolkit.completion import (  # noqa: F401  # WordCompleter re-exported for callers
+        Completer,
+        Completion,
+        WordCompleter,
+    )
     from prompt_toolkit.formatted_text import HTML
     from prompt_toolkit.history import FileHistory
     from prompt_toolkit.key_binding import KeyBindings
@@ -107,6 +111,10 @@ def run_shell(cmd: str) -> int:
     try:
         p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True, bufsize=1)
+        # `.stdout` is Optional in the stubs (it is None when stdout was not
+        # piped); asserting states the branch this call always takes instead
+        # of iterating a possible None.
+        assert p.stdout is not None
         for line in p.stdout:
             sys.stdout.write(line)
             sys.stdout.flush()

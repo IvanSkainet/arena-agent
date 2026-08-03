@@ -231,6 +231,16 @@ exclude = ["*/runtime_deps/*"]
 # quietly weaken the only evidence that the parser survives real input.
 "tests/test_mobile_v83_3.py" = ["W291"]
 
+# scripts/cdp_browser.py is a load-bearing shim, not dead code: the CDP
+# implementation moved into arena/browser/cdp_client/*, but the runtime still
+# imports this file BY NAME (arena/browser/cdp/loader.py inserts scripts/ on
+# sys.path and does `import cdp_browser`), then reads CDPTabManager and
+# list_tabs off the returned module. So the "unused" from-imports ARE the
+# module's contract, and the sys.path bootstrap has to run before them, which
+# is what E402 objects to. Twelve genuinely dead stdlib imports were removed
+# separately (AST-proven); these are the ones that must stay.
+"scripts/cdp_browser.py" = ["F401", "E402"]
+
 # ---------------------------------------------------------------------------
 # import-linter: architecture contracts. BLOCKING in CI — both contracts were
 # verified to hold before being declared. Additions must be verified against

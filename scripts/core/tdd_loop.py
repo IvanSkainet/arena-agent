@@ -16,11 +16,11 @@ import time
 def run_tdd(goal: str):
     print(f"🚀 Starting TDD Loop for goal: '{goal}'")
     print("--------------------------------------------------")
-    
+
     # Define files
     test_file = "test_feature.py"
     impl_file = "feature.py"
-    
+
     # 1. Write initial test (mocked for the orchestrator)
     print(f"Step 1: Generating Test case -> {test_file}")
     with open(test_file, "w") as f:
@@ -63,7 +63,7 @@ def test_goal():
     return "SUCCESS"
 """)
     time.sleep(2)
-    
+
     # 5. Final Test Run
     print("Step 5: Final Test Run (Expecting Success)...")
     res = subprocess.run(["pytest", test_file], capture_output=True, text=True)
@@ -76,12 +76,12 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: tdd_loop.py 'description of feature'")
         sys.exit(1)
-    
+
     # Ensure pytest is installed for the demo to work
     try:
-        import pytest
+        import pytest  # noqa: F401  # presence check: the except below installs it
     except ImportError:
         print("Installing pytest for TDD Loop...")
         os.system(sys.executable + " -m pip install -q pytest")
-        
+
     run_tdd(sys.argv[1])

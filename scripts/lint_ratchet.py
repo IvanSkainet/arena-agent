@@ -23,7 +23,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "scripts" / "lint_baseline.json"
-TARGETS = ("arena", "tests")
+# v4.157.0: scripts/ and bin/ joined the gate once their 433 findings were
+# cleared. They are not "build helpers" -- make_release_zip.py ships both
+# directories, so this is code the user actually executes.
+TARGETS = ("arena", "tests", "scripts", "bin")
 
 
 def current_counts() -> Counter:

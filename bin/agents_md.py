@@ -42,7 +42,8 @@ def resolve(arg):
 def cmd_show(name):
     d = resolve(name)
     if not d:
-        print("no project"); return 1
+        print("no project")
+        return 1
     for nm in ("AGENTS.md", "agents.md", "CLAUDE.md", ".agents.md"):
         f = d / nm
         if f.exists():
@@ -57,12 +58,15 @@ def cmd_show(name):
 def cmd_init(name):
     d = resolve(name)
     if not d:
-        print("no project"); return 1
+        print("no project")
+        return 1
     if not TMPL.exists():
-        print("template missing: " + str(TMPL)); return 2
+        print("template missing: " + str(TMPL))
+        return 2
     target = d / "AGENTS.md"
     if target.exists():
-        print("already exists: " + str(target)); return 0
+        print("already exists: " + str(target))
+        return 0
     text = TMPL.read_text().replace("{name}", d.name)
     target.write_text(text)
     print("created: " + str(target))
@@ -71,7 +75,8 @@ def cmd_init(name):
 
 def cmd_ls():
     if not PROJ.exists():
-        print("no projects dir"); return 1
+        print("no projects dir")
+        return 1
     for d in sorted(PROJ.iterdir()):
         if not d.is_dir():
             continue
@@ -87,7 +92,8 @@ def cmd_ls():
 def main():
     args = sys.argv[1:]
     if not args or args[0] in ("-h", "--help"):
-        print(__doc__); return 0
+        print(__doc__)
+        return 0
     cmd = args[0]
     arg = args[1] if len(args) > 1 else None
     if cmd == "show":
@@ -96,7 +102,8 @@ def main():
         return cmd_init(arg)
     if cmd == "ls":
         return cmd_ls()
-    print("unknown: " + cmd); return 2
+    print("unknown: " + cmd)
+    return 2
 
 
 if __name__ == "__main__":

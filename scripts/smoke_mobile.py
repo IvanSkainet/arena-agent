@@ -39,10 +39,17 @@ TOKEN = os.environ.get("ARENA_BRIDGE_TOKEN", "")
 SERIAL = os.environ.get("ARENA_SMOKE_SERIAL", "")
 
 
-def _http(method: str, path: str,
-          body: dict | None = None,
-          timeout: int = 60) -> tuple[int, dict | bytes, dict]:
-    """Return (status, json-or-bytes, headers). Never raises."""
+def _http_raw(method: str, path: str,
+              body: dict | None = None,
+              timeout: int = 60) -> tuple[int, dict | bytes, dict]:
+    """Return (status, json-or-bytes, headers). Never raises.
+
+    Only the screenshot check wants the binary branch; every other caller
+    immediately does ``r.get(...)``. Splitting the two shapes -- ``_http`` for
+    JSON, this for binary -- is what makes that read honest instead of a
+    union the call sites silently assume away (62 checker findings, all one
+    symptom).
+    """
     url = BASE + path
     data = None
     headers = {"Accept": "application/json"}
@@ -70,13 +77,39 @@ def _http(method: str, path: str,
         return (0, {"error": f"connection: {e.reason}"}, {})
 
 
+def _http(method: str, path: str,
+          body: dict | None = None,
+          timeout: int = 60) -> tuple[int, dict, dict]:
+    """JSON-returning wrapper: the shape 25 of the 26 call sites expect.
+
+    A non-JSON reply here means the endpoint misbehaved, so it is reported as
+    an error payload rather than handed back as raw bytes.
+    """
+    status, payload, headers = _http_raw(method, path, body, timeout)
+    if isinstance(payload, bytes):
+        return status, {"error": "expected JSON, got binary",
+                        "bytes": len(payload)}, headers
+    return status, payload, headers
+
+
 CHECKS: list[tuple[str, bool, str]] = []
 
 
-def _check(name: str, cond: bool, detail: str = "") -> None:
-    marker = "✓" if cond else "✗"
-    print(f"  {marker} {name}" + (f"  — {detail}" if detail else ""))
-    CHECKS.append((name, cond, detail))
+def _check(name: str, cond: object, detail: object = "") -> None:
+    """Record one smoke assertion.
+
+    ``cond`` is typed ``object`` on purpose: call sites pass expressions like
+    ``s == 200 and (r or {}).get("ok")``, which yields None when the key is
+    absent -- falsy, so the check fails, but the recorded value was None
+    rather than False and the summary counted it as neither. Coerced here so
+    the stored tuple always says exactly pass or fail. Same for ``detail``,
+    which arrives as ``.get("error")`` and can be None.
+    """
+    passed = bool(cond)
+    text = "" if detail is None else str(detail)
+    marker = "✓" if passed else "✗"
+    print(f"  {marker} {name}" + (f"  — {text}" if text else ""))
+    CHECKS.append((name, passed, text))
 
 
 def section(title: str) -> None:
@@ -132,7 +165,7 @@ def smoke_screenshot() -> None:
     for source in ("raw", "png"):
         force_png = "&force_png_source=1" if source == "png" else ""
         started = time.monotonic()
-        s, body, hdrs = _http(
+        s, body, hdrs = _http_raw(
             "GET",
             f"/v1/mobile/{SERIAL}/screenshot?max_size=480&format=webp&quality=75{force_png}",
             timeout=30)
@@ -203,7 +236,7 @@ def smoke_batch() -> None:
     round_trip_ms = int((time.monotonic() - started) * 1000)
     _check("HTTP 200 + ok", s == 200 and (r or {}).get("ok"))
     executed = (r or {}).get("executed", 0)
-    _check(f"executed 6 steps", executed == 6)
+    _check("executed 6 steps", executed == 6)
     _check(f"total round-trip {round_trip_ms} ms",
            round_trip_ms < 10000,
            detail=f"batch = {(r or {}).get('total_duration_ms')}ms")
@@ -412,14 +445,18 @@ def _smoke_mirror_via_websockets() -> None:
                     else:
                         bytes_received += len(msg)
                         fragments += 1
-                return bytes_received, fragments, init_seen
-        except Exception as e:
-            return (-1, -1, False)
+                return bytes_received, fragments, init_seen, ""
+        except Exception as exc:
+            # The reason was captured and then thrown away, so a refused
+            # handshake reported the same bare "-1" as a DNS failure or a
+            # bad token -- in a diagnostic smoke test, of all places.
+            return -1, -1, False, f"{type(exc).__name__}: {exc}"
 
     result = asyncio.run(_run())
-    bytes_received, fragments, init_seen = result
+    bytes_received, fragments, init_seen, error = result
     _check("WebSocket connected + auth via ?token= worked",
-           bytes_received >= 0, detail="handshake completed")
+           bytes_received >= 0,
+           detail="handshake completed" if bytes_received >= 0 else error)
     _check("received init marker (pipeline started)",
            init_seen, detail="fMP4 __init__ signal from ffmpeg pipeline")
     if bytes_received > 0:

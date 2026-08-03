@@ -90,7 +90,8 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_OPTIONS(self):
-        self.send_response(204); self.end_headers()
+        self.send_response(204)
+        self.end_headers()
 
     def do_GET(self):
         if self.path == "/":
@@ -98,7 +99,8 @@ class H(BaseHTTPRequestHandler):
                                 "endpoints": ["/", "/tools", "/run (POST)", "/tool (POST)"],
                                 "mcp_proxy": MCP_URL, "auth_required": bool(TOKEN)})
         if self.path == "/tools":
-            if not self._check_auth(): return self._json({"ok": False, "error": "unauthorized"}, 401)
+            if not self._check_auth():
+                return self._json({"ok": False, "error": "unauthorized"}, 401)
             try:
                 mcp_tools = _post_mcp({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, timeout=10)
                 return self._json({"ok": True, "whitelist_prefixes": list(WHITELIST_PREFIXES),
@@ -108,7 +110,8 @@ class H(BaseHTTPRequestHandler):
         return self._json({"ok": False, "error": "not found"}, 404)
 
     def do_POST(self):
-        if not self._check_auth(): return self._json({"ok": False, "error": "unauthorized"}, 401)
+        if not self._check_auth():
+            return self._json({"ok": False, "error": "unauthorized"}, 401)
         n = int(self.headers.get("Content-Length", "0") or 0)
         try:
             data = json.loads(self.rfile.read(n).decode() or "{}")
@@ -117,15 +120,18 @@ class H(BaseHTTPRequestHandler):
 
         if self.path == "/run":
             cmd = (data.get("command") or "").strip()
-            if not cmd: return self._json({"ok": False, "error": "missing command"}, 400)
+            if not cmd:
+                return self._json({"ok": False, "error": "missing command"}, 400)
             if not _allowed(cmd):
                 return self._json({"ok": False, "error": "command not in whitelist",
                                     "allowed": list(WHITELIST_PREFIXES)}, 403)
             return self._json(_run_shell(cmd, timeout=int(data.get("timeout", 60))))
 
         if self.path == "/tool":
-            name = data.get("name"); args = data.get("arguments") or {}
-            if not name: return self._json({"ok": False, "error": "missing tool name"}, 400)
+            name = data.get("name")
+            args = data.get("arguments") or {}
+            if not name:
+                return self._json({"ok": False, "error": "missing tool name"}, 400)
             try:
                 resp = _post_mcp({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                                    "params": {"name": name, "arguments": args}},
@@ -144,8 +150,10 @@ def main() -> int:
     a = ap.parse_args()
     print(f"Arena Web Gateway v{VERSION} on http://{a.host}:{a.port} (auth={bool(TOKEN)})", flush=True)
     srv = ThreadingHTTPServer((a.host, a.port), H)
-    try: srv.serve_forever()
-    except KeyboardInterrupt: pass
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        pass
     return 0
 
 

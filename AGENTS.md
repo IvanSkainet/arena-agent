@@ -120,10 +120,11 @@ python scripts/quality_ratchet.py --fail-on-any  # must print QUALITY DEBT ZERO
 python scripts/js_lint_ratchet.py       # only if you touched .js
 ```
 
-Note the scope: the ruff ratchet covers `arena` and `tests` only (see
-`TARGETS` in `scripts/lint_ratchet.py`). `scripts/` still carries ~341 legacy
-findings and is deliberately outside the gate — do not "fix" that by widening
-the scope in passing; it is its own cleanup.
+Scope as of v4.157.0: the ruff ratchet covers `arena`, `tests`, `scripts` and
+`bin`; pyrefly covers `arena`, `scripts`, `bin`. All of them are at zero.
+`scripts/` and `bin/` joined the gate once their 433 ruff + 67 pyrefly
+findings were cleared — they are not build helpers, `make_release_zip.py`
+ships both directories and the user executes them.
 
 If anything is reported, fix ALL of it and run again to confirm zero. Do not
 finish the task on a non-zero count, and do not buy the number with

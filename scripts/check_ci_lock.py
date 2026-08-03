@@ -13,7 +13,6 @@ Checks are cheap and stdlib-only; run before every hash-mode install.
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 
 LOCK = Path(__file__).resolve().parent.parent / "requirements-ci.lock"

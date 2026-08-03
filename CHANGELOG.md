@@ -1,5 +1,52 @@
 ## Unreleased
 
+### scripts/ and bin/ join the gate: 433 ruff + 67 pyrefly findings to zero
+
+These two directories were never in scope for any checker, on the assumption
+that they are build helpers. They are not: `make_release_zip.py` ships both,
+so this is code the user downloads and executes. The ratchets now cover
+`arena`, `tests`, `scripts`, `bin` (ruff) and `arena`, `scripts`, `bin`
+(pyrefly), all at a floor of zero.
+
+Method, in the order that keeps a cleanup honest:
+
+1. **Behaviour captured first.** All 82 entry points under `scripts/` and
+   `bin/` were run with `--help` and their exit codes recorded, before and
+   after every step. Final diff: **0 of 82 changed.**
+2. **Mechanical layers via the AST-proven tools** already built for `arena/`:
+   167 E702 splits and 113 E701 splits, each file accepted only when its
+   parsed AST is byte-identical. `e702_split_statements.py` gained `--paths`
+   to match `e701_split_compounds.py`.
+3. **F401 by hand, never in bulk** (AGENTS.md forbids the sweep). Each name
+   was checked for real use before deletion; four turned out to be
+   availability probes where the import *is* the check (`prompt_toolkit`,
+   `pytest`, `requests`) and were annotated instead.
+
+Two findings worth naming:
+
+* **`scripts/cdp_browser.py` is a load-bearing shim, not dead code.** Its CDP
+  implementation moved into `arena/browser/cdp_client/*`, but the runtime
+  still imports the file *by name* — `arena/browser/cdp/loader.py` puts
+  `scripts/` on `sys.path`, does `import cdp_browser`, then reads
+  `CDPTabManager` and `list_tabs` off the module. So its "unused" imports are
+  the contract. Twelve genuinely dead stdlib imports were removed (AST-proven,
+  re-export surface verified intact at 43 names); the rest are now declared in
+  `per-file-ignores` with the reason.
+
+* **`smoke_mobile.py` reported a failed WebSocket handshake as a success.**
+  `except Exception as e` captured the reason and returned a bare `-1`, and
+  the check then printed "handshake completed" for it. The reason is now
+  carried out and shown. In the same file, `_check(cond)` received
+  `s == 200 and r.get("ok")` — which is `None`, not `False`, when the key is
+  missing — so a failed assertion was recorded as neither pass nor fail;
+  coerced at the boundary. Splitting `_http` (JSON) from `_http_raw` (binary)
+  removed 62 of the 67 pyrefly findings as one symptom: 25 of 26 call sites
+  never wanted the bytes branch.
+
+Also corrected: `Popen(stdout=PIPE).stdout` iterated without the Optional
+check, `cwd: str = None`, and two `-> bool` predicates that guard an attribute
+access and are now `TypeGuard`.
+
 ### The JavaScript surface gets a linter (and it immediately found a bug)
 
 `dashboard/assets` + `chat_extension` are 17 125 lines of JavaScript that no

@@ -22,7 +22,6 @@ import argparse
 import datetime as dt
 import json
 import os
-import shlex
 import subprocess
 import sys
 import time
@@ -74,14 +73,16 @@ def spawn(args) -> int:
                 rc = p.returncode
                 status = "ok" if rc == 0 else "fail"
             except subprocess.TimeoutExpired:
-                rc = -1; status = "timeout"
+                rc = -1
+                status = "timeout"
     else:
         # фоном через nohup; subagent сам пишет в свои файлы
         with open(out_path, "w") as fout, open(err_path, "w") as ferr:
             p = subprocess.Popen(args.cmd, shell=True, env=env,
                                  stdout=fout, stderr=ferr, cwd=str(ROOT),
                                  start_new_session=True)
-        rc = None; status = "spawned"
+        rc = None
+        status = "spawned"
         # сохраним pid для status checks
         (sd / "pid").write_text(str(p.pid))
 
@@ -93,7 +94,8 @@ def spawn(args) -> int:
     try:
         out_tail = "\n".join(open(out_path).read().splitlines()[-args.max_out:])
         err_tail = "\n".join(open(err_path).read().splitlines()[-30:])
-    except Exception: pass
+    except Exception:
+        pass
 
     summary = {
         "id": sid, "name": meta["name"], "status": status, "exit": rc,
@@ -102,7 +104,9 @@ def spawn(args) -> int:
     }
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2))
 
-    meta["status"] = status; meta["exit"] = rc; meta["duration_sec"] = dur
+    meta["status"] = status
+    meta["exit"] = rc
+    meta["duration_sec"] = dur
     (sd / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2))
 
     print(json.dumps(summary, ensure_ascii=False, indent=2))
@@ -113,12 +117,14 @@ def list_cmd(_args) -> int:
     items = []
     for sd in sorted(SUB_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)[:20]:
         meta_p = sd / "meta.json"
-        if not meta_p.exists(): continue
+        if not meta_p.exists():
+            continue
         try:
             m = json.loads(meta_p.read_text())
             items.append({"id": m.get("id"), "name": m.get("name"), "status": m.get("status"),
                           "exit": m.get("exit"), "dur": m.get("duration_sec"), "created": m.get("created")})
-        except Exception: pass
+        except Exception:
+            pass
     print(json.dumps(items, ensure_ascii=False, indent=2))
     return 0
 
@@ -127,7 +133,8 @@ def show_cmd(args) -> int:
     sd = SUB_DIR / args.id
     s = sd / "summary.json"
     if not s.exists():
-        print(f"no such subagent: {args.id}", file=sys.stderr); return 1
+        print(f"no such subagent: {args.id}", file=sys.stderr)
+        return 1
     print(s.read_text())
     return 0
 
@@ -135,7 +142,8 @@ def show_cmd(args) -> int:
 def rm_cmd(args) -> int:
     sd = SUB_DIR / args.id
     if not sd.exists():
-        print(f"no such subagent: {args.id}", file=sys.stderr); return 1
+        print(f"no such subagent: {args.id}", file=sys.stderr)
+        return 1
     import shutil
     shutil.rmtree(sd)
     print(f"removed: {sd}")
@@ -165,9 +173,15 @@ def main() -> int:
     sp.set_defaults(func=spawn)
 
     sub.add_parser("list").set_defaults(func=list_cmd)
-    sh = sub.add_parser("show"); sh.add_argument("id"); sh.set_defaults(func=show_cmd)
-    rm = sub.add_parser("rm");   rm.add_argument("id"); rm.set_defaults(func=rm_cmd)
-    pr = sub.add_parser("prune"); pr.add_argument("--keep", type=int, default=10); pr.set_defaults(func=prune_cmd)
+    sh = sub.add_parser("show")
+    sh.add_argument("id")
+    sh.set_defaults(func=show_cmd)
+    rm = sub.add_parser("rm")
+    rm.add_argument("id")
+    rm.set_defaults(func=rm_cmd)
+    pr = sub.add_parser("prune")
+    pr.add_argument("--keep", type=int, default=10)
+    pr.set_defaults(func=prune_cmd)
 
     args = ap.parse_args()
     return args.func(args) or 0

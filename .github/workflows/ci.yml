@@ -667,9 +667,10 @@ jobs:
   # ----------------------------------------------------------------
   # Quality scan. import-linter contracts are BLOCKING (both verified to
   # hold when declared — a contract that holds is a wall). pyrefly and
-  # vulture are informational for now: their finding volume is legacy
-  # debt, tracked here so the numbers are visible on every run; promote
-  # to ratchets once floors are baselined (same pattern as lint).
+  # vulture reached zero in v4.156.0/v4.157.0 and are now ratcheted at a
+  # floor of zero, so the informational print here is a cross-check, not
+  # the gate: the gate is scripts/quality_ratchet.py. Scope grew to
+  # arena + scripts + bin once the latter two were cleared.
   # ----------------------------------------------------------------
   quality-scan:
     name: Quality scan (types/dead-code info, architecture contracts blocking)

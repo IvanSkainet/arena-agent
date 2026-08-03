@@ -22,6 +22,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "scripts" / "quality_baseline.json"
+# scripts/ and bin/ ship inside the release zip and are executed by the user,
+# so they are checked like the package itself (v4.157.0, after clearing 67
+# findings there). vulture stays on `arena` only: the CLI entry points are
+# invoked by name from shells and skills, which it cannot see.
+PYREFLY_TARGETS = ("arena", "scripts", "bin")
 
 
 def run(cmd: list[str], ok_rc: set[int]) -> subprocess.CompletedProcess:
@@ -42,7 +47,7 @@ def vulture_count() -> int:
 
 def pyrefly_errors() -> list[dict]:
     # rc 0 = clean, 1 = errors found
-    proc = run([sys.executable, "-m", "pyrefly", "check", "arena",
+    proc = run([sys.executable, "-m", "pyrefly", "check", *PYREFLY_TARGETS,
                 "--output-format=json"], {0, 1})
     return json.loads(proc.stdout or "{}").get("errors", [])
 

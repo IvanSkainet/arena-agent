@@ -25,20 +25,8 @@ CLI (backward-compatible):
   python3 cdp_browser.py multitab          # Interactive multi-tab demo
 """
 
-import asyncio
-import base64
-import itertools
-import json
 import logging
-import os
-import platform
-import shutil
-import subprocess
 import sys
-import tempfile
-import time
-import traceback
-import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 

@@ -42,20 +42,21 @@ if cmd == "sync":
             print(f"[ERROR] Failed to download zip: {e}", file=sys.stderr)
             sys.exit(1)
 elif cmd == "list":
-    if not REPO_DIR.exists(): 
+    if not REPO_DIR.exists():
         print("Run 'agentctl sp sync' first.")
         sys.exit(0)
     for f in sorted(REPO_DIR.rglob("*.md")):
         if ".github" not in str(f) and ".git" not in str(f):
             print(f.relative_to(REPO_DIR))
 elif cmd == "show":
-    if len(sys.argv) < 3: 
+    if len(sys.argv) < 3:
         print("Provide a skill name")
         sys.exit(1)
     target = sys.argv[2]
-    if not target.endswith(".md"): target += ".md"
+    if not target.endswith(".md"):
+        target += ".md"
     p = REPO_DIR / target
-    if p.exists(): 
+    if p.exists():
         print(p.read_text())
-    else: 
+    else:
         print(f"Not found: {target}")

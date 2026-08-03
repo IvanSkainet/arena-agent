@@ -53,7 +53,6 @@ import argparse
 import re
 import sys
 from pathlib import Path
-from typing import Iterable
 
 # v4.69.0: bare names are deprecated but still dispatched. The
 # plan in the CHANGELOG is to remove them in v4.75.0. Until

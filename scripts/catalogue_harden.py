@@ -60,7 +60,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, List
+from typing import Any, TypeGuard
 
 # A list of legacy pre-MCP tool names that predate the
 # ``namespace.action`` convention. v4.67.0 namespaces them as
@@ -69,7 +69,13 @@ from typing import Any, List
 LEGACY_BARE_NAMES = frozenset({"ping", "echo", "exec", "snapshot"})
 
 
-def _is_object_schema(schema: Any) -> bool:
+def _is_object_schema(schema: Any) -> TypeGuard[dict]:
+    """True for an object-typed JSON schema.
+
+    Declared as a TypeGuard so the caller's `schema.get(...)` after the check
+    is provably safe: a plain `-> bool` leaves `schema` as `Any | None` and
+    the guard buys the reader nothing the checker can see.
+    """
     return isinstance(schema, dict) and schema.get("type") == "object"
 
 

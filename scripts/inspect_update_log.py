@@ -28,7 +28,6 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
 
 # Lines emitted by arena/admin/auto_update_windows.py:_write_windows_installer.
 # The phase ordering is part of the protocol -- if a phase is missing the
@@ -171,7 +170,7 @@ def _print_report(rep: LogReport, *, verbose: bool = False) -> None:
         for err in rep.parse_errors:
             print(f"  WARN: {err}", file=sys.stderr)
     if not rep.entries:
-        print(f"  (no parseable entries)")
+        print("  (no parseable entries)")
         return
     if verbose:
         for e in rep.entries:
@@ -194,7 +193,7 @@ def _print_report(rep: LogReport, *, verbose: bool = False) -> None:
     if via:
         print(f"  relaunch:       {via}")
     if rep.finished_cleanly:
-        print(f"  status:         OK (mover-done present)")
+        print("  status:         OK (mover-done present)")
     else:
         print(
             f"  status:         INCOMPLETE -- last phase was "

@@ -18,11 +18,19 @@ GROUPS={
  'desktop':[('info','desktop info'),('shot','screenshot'),('click/type/key','input')],
 }
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument('group', nargs='?'); ap.add_argument('--json', action='store_true'); a=ap.parse_args()
+    ap=argparse.ArgumentParser()
+    ap.add_argument('group', nargs='?')
+    ap.add_argument('--json', action='store_true')
+    a=ap.parse_args()
     data={k:[{'cmd':c,'desc':d} for c,d in v] for k,v in GROUPS.items()}
-    if a.group: data={a.group:data.get(a.group,[])}
-    if a.json: print(json.dumps(data,indent=2)); return
+    if a.group:
+        data={a.group:data.get(a.group,[])}
+    if a.json:
+        print(json.dumps(data,indent=2))
+        return
     for g,items in data.items():
         print(f'[{g}]')
-        for x in items: print(f'  agentctl {g} {x["cmd"]:<28} # {x["desc"]}')
-if __name__=='__main__': main()
+        for x in items:
+            print(f'  agentctl {g} {x["cmd"]:<28} # {x["desc"]}')
+if __name__=='__main__':
+    main()

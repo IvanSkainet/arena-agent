@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 """
-Local RAG (Semantic Search Proxy) 
+Local RAG (Semantic Search Proxy)
 A lightweight wrapper that allows querying codebase or text via fast FTS5 SQLite index.
 If no index exists, it creates one by scanning text files.
 """
 from __future__ import annotations
 
-import glob
 import os
-import re
 import sqlite3
 import sys
-from pathlib import Path
 
 DB_PATH = os.path.expanduser("~/.arena-snapshots/rag_index.db")
 
@@ -25,7 +22,7 @@ def init_db():
 
 def build_index(cwd: str):
     conn = init_db()
-    
+
     try:
         conn.execute("DELETE FROM codebase;") # clear old
     except sqlite3.OperationalError as e:
@@ -34,7 +31,7 @@ def build_index(cwd: str):
         conn.close()
         conn = sqlite3.connect(DB_PATH, isolation_level=None, timeout=30.0)
         conn.execute("DELETE FROM codebase;")
-    
+
     print(f"Indexing {cwd}...")
     count = 0
     # Avoid scanning the entire home directory if user accidentally runs it from ~
@@ -46,7 +43,7 @@ def build_index(cwd: str):
         if not os.path.exists(scan_dir):
             print("arena-bridge not found in home. Please run inside a specific project.")
             sys.exit(1)
-            
+
     for root, dirs, files in os.walk(scan_dir):
         # Exclude common heavy directories and hidden ones
         dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ('node_modules', '__pycache__', 'build', 'dist', 'coverage', 'venv', '.venv')]
@@ -63,7 +60,7 @@ def build_index(cwd: str):
                         count += 1
                 except Exception:
                     pass
-                    
+
     conn.commit()
     conn.close()
     print(f"Indexed {count} text files into Local RAG.")
@@ -72,22 +69,22 @@ def search(query: str):
     if not os.path.exists(DB_PATH):
         print("Index not found. Run 'agentctl rag index' first.")
         return
-        
+
     conn = sqlite3.connect(DB_PATH, timeout=30.0)
     cur = conn.cursor()
     # Simple MATCH query using FTS5 trigram tokenizer.
     # We must sanitize the query for FTS5 parser: wrap in double quotes to prevent syntax errors with single quotes.
     safe_query = '"' + query.replace('"', '""') + '"'
-    
+
     try:
         cur.execute("SELECT filepath, snippet(codebase, -1, '>>>', '<<<', '...', 10) FROM codebase WHERE codebase MATCH ? ORDER BY rank LIMIT 8", (safe_query,))
         results = cur.fetchall()
-        
+
         if not results:
             print(f"No results found for {safe_query}")
             conn.close()
             return
-            
+
         print(f"Top results for '{query}':\n")
         for filepath, snippet in results:
             print(f"📄 {filepath}")
@@ -101,7 +98,7 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: local_rag.py [index|search] [query]")
         sys.exit(1)
-        
+
     cmd = sys.argv[1]
     if cmd == "index":
         build_index(os.getcwd())

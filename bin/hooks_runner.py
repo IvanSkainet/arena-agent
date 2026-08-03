@@ -31,7 +31,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import stat
 import subprocess
 import sys
 import time
@@ -118,10 +117,12 @@ def add_hook(event: str, name: str, cmd: str) -> int:
 def rm_hook(event: str, name: str) -> int:
     d = event_dir(event)
     if not d.exists():
-        print(f"no such event dir: {d}", file=sys.stderr); return 1
+        print(f"no such event dir: {d}", file=sys.stderr)
+        return 1
     matched = [f for f in d.iterdir() if name in f.name]
     if not matched:
-        print(f"no hook matching '{name}' in {event}", file=sys.stderr); return 1
+        print(f"no hook matching '{name}' in {event}", file=sys.stderr)
+        return 1
     for f in matched:
         f.unlink()
         print(f"removed: {f}")
@@ -133,16 +134,26 @@ def main() -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("list")
     r = sub.add_parser("run")
-    r.add_argument("event"); r.add_argument("--target", default="")
-    r.add_argument("--args", default="{}"); r.add_argument("--exit", type=int, default=0)
+    r.add_argument("event")
+    r.add_argument("--target", default="")
+    r.add_argument("--args", default="{}")
+    r.add_argument("--exit", type=int, default=0)
     a = sub.add_parser("add")
-    a.add_argument("event"); a.add_argument("name"); a.add_argument("--cmd", required=True)
-    rm = sub.add_parser("rm"); rm.add_argument("event"); rm.add_argument("name")
+    a.add_argument("event")
+    a.add_argument("name")
+    a.add_argument("--cmd", required=True)
+    rm = sub.add_parser("rm")
+    rm.add_argument("event")
+    rm.add_argument("name")
     args = ap.parse_args()
-    if args.cmd == "list": return list_hooks()
-    if args.cmd == "run":  return run_event(args.event, args.target, args.args, getattr(args,"exit",0))
-    if args.cmd == "add":  return add_hook(args.event, args.name, args.cmd)
-    if args.cmd == "rm":   return rm_hook(args.event, args.name)
+    if args.cmd == "list":
+        return list_hooks()
+    if args.cmd == "run":
+        return run_event(args.event, args.target, args.args, getattr(args,"exit",0))
+    if args.cmd == "add":
+        return add_hook(args.event, args.name, args.cmd)
+    if args.cmd == "rm":
+        return rm_hook(args.event, args.name)
     return 2
 
 

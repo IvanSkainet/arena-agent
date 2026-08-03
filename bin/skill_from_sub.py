@@ -35,18 +35,21 @@ def main() -> int:
     meta_p = sub_dir / "meta.json"
     summary_p = sub_dir / "summary.json"
     if not meta_p.exists():
-        print(f"ERR: no such subagent: {a.sub_id}", file=sys.stderr); return 1
+        print(f"ERR: no such subagent: {a.sub_id}", file=sys.stderr)
+        return 1
     meta = json.loads(meta_p.read_text())
     summary = json.loads(summary_p.read_text()) if summary_p.exists() else {}
     cmd = meta.get("cmd", "")
     if not cmd:
-        print("ERR: subagent has no cmd", file=sys.stderr); return 1
+        print("ERR: subagent has no cmd", file=sys.stderr)
+        return 1
     if summary.get("status") not in ("ok", "spawned"):
         print(f"WARN: subagent status={summary.get('status')}; saving anyway", file=sys.stderr)
 
     target = SK / a.name
     if target.exists():
-        print(f"ERR: skill already exists: {target}", file=sys.stderr); return 1
+        print(f"ERR: skill already exists: {target}", file=sys.stderr)
+        return 1
     target.mkdir(parents=True, exist_ok=False)
 
     desc = a.desc or f"Auto-generated from subagent {a.sub_id} ({meta.get('name','')})"

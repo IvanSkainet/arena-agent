@@ -134,7 +134,7 @@ def pack(out_zip: Path) -> int:
         return 2
 
     size_mb = out_zip.stat().st_size / (1024 * 1024)
-    print(f"\n=== DONE ===")
+    print("\n=== DONE ===")
     print(f"Release ZIP: {out_zip}")
     print(f"Files: {len(written)}  |  Size: {size_mb:.2f} MB")
     return 0
