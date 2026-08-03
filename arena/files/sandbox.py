@@ -69,7 +69,17 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def resolve_home_path(target: str, *, root: Path, home: Path) -> tuple[Path | None, str | None, int]:
+def resolve_home_path(
+    target: str, *, root: Path, home: Path,
+) -> tuple[Path, None, int] | tuple[None, str, int]:
+    """Resolve a caller-supplied path inside the home jail.
+
+    The return type is a union of two tuples rather than
+    ``tuple[Path | None, str | None, int]`` because the states are mutually
+    exclusive: a caller that has checked the error holds a real Path. The
+    looser form made every following ``target_path.<attr>`` read as an
+    attribute access on None -- 16 of the 71 bad-argument-type findings.
+    """
     if not target:
         return None, "missing path", 400
     if ".." in Path(target).parts:
