@@ -1,3 +1,57 @@
+## Unreleased
+
+### The JavaScript surface gets a linter (and it immediately found a bug)
+
+`dashboard/assets` + `chat_extension` are 17 125 lines of JavaScript that no
+tool was looking at: semgrep runs on `arena/` only, and CodeQL is a SAST
+engine, not a linter — neither reports `no-func-assign` or a body on a GET
+request. oxlint now runs over both trees in CI (~40 ms for 72 files) behind
+the same ratchet pattern as ruff/pyrefly: `scripts/js_lint_ratchet.py` with
+the floor in `scripts/js_lint_baseline.json`.
+
+The first run paid for itself:
+
+* **`bridgeFetch` could hand fetch() a body on a GET.** The signature is
+  `bridgeFetch(path, {method = 'GET', body})` and `bridgeFetchOnce`
+  serialised `body` whenever it was truthy. Per spec that throws
+  `TypeError: Request with GET/HEAD method cannot have body`, which inside a
+  service worker surfaces as an opaque "network error". All four current
+  callers pass `method: 'POST'` explicitly, so this was a loaded gun rather
+  than a firing one — the guard now excludes GET/HEAD, verified by executing
+  the real function against a spec-enforcing `fetch` stub.
+  (`tests/test_extension_fetch_body_guard.py`)
+
+* **`.ruff_cache/` shipped inside every release zip.**
+  `scripts/make_release_zip.py` excluded caches by enumerating them
+  (`__pycache__`, `.pytest_cache`, `node_modules`, `.mypy_cache`), so each new
+  tool's cache was excluded only if someone remembered to add it. ruff's was
+  not: v4.156.0 carried 17 files / 316 KB of hashed blobs. The rule is now
+  shaped rather than enumerated — any dot-directory ending in `_cache` or
+  `-cache` is build residue. The archive drops 1040 → 1023 files.
+  (`tests/test_make_release_zip_exclude.py`)
+
+The linter is hash-locked like everything else: `npm ci` from a committed
+`package-lock.json` (every entry carries an integrity hash), not
+`npm install oxlint@x` — zizmor flagged the ad-hoc form and it was right.
+
+### AGENTS.md: run the checks before you finish
+
+Both debt gates are at zero, which is a state that has to be actively kept —
+the Debt visibility job turns red on the first new finding. AGENTS.md now
+carries the explicit pre-completion ritual (ruff + both ratchets + the JS one
+when `.js` was touched), adopted from Pyrefly's "Adding Pyrefly Type Checking
+to Your Agentic Loop". Their observation matches what happened here: having
+the tool installed is not the same as having the habit of running it.
+
+### Market survey refreshed
+
+`docs/github_apps_actions_survey.md` now records the measured verdict on 20
+more Apps/Actions. Two were adopted (oxlint, the AGENTS.md directive); jscpd
+was run once and kept as a report rather than a gate (2.41 % duplication,
+below any sane threshold); aislop was measured and rejected — 3078 findings,
+zero confirmed defects, because it penalises exactly what this repo mandates
+(explanatory comments, re-export facades, fail-open handlers).
+
 ## v4.156.0 — 2026-08-03
 
 ### Debt visibility goes green: ruff 0, pyrefly 0, vulture 0

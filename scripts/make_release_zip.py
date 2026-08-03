@@ -31,6 +31,12 @@ EXCLUDE_TOP = {
 }
 EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
 EXCLUDE_SUBDIRS = {"__pycache__", ".pytest_cache", "node_modules", ".mypy_cache"}
+# Tool caches are named per tool and the set keeps growing (.ruff_cache
+# arrived with ruff, .pyrefly_cache with pyrefly). Enumerating them by hand
+# is how `.ruff_cache/` — 17 files, 316 KB of hashed blobs — shipped inside
+# every release zip from v4.15.x onward. Any dot-directory ending in
+# `_cache` or `-cache` is build residue, never a runtime asset.
+CACHE_DIR_SUFFIXES = ("_cache", "-cache")
 EXCLUDE_FILES = {
     "token.txt", "audit.jsonl", "bridge.log", "requests.jsonl",
     "facts.jsonl", "history.jsonl",
@@ -57,6 +63,11 @@ def detect_version() -> str:
     return m.group(1)
 
 
+def _is_cache_dir(name: str) -> bool:
+    """True for dot-prefixed tool caches (.ruff_cache, .pyrefly_cache, ...)."""
+    return name.startswith(".") and name.endswith(CACHE_DIR_SUFFIXES)
+
+
 def should_exclude(rel_path: str) -> bool:
     parts = rel_path.split("/")
     if not parts:
@@ -64,7 +75,7 @@ def should_exclude(rel_path: str) -> bool:
     if parts[0] in EXCLUDE_TOP:
         return True
     for p in parts:
-        if p in EXCLUDE_SUBDIRS:
+        if p in EXCLUDE_SUBDIRS or _is_cache_dir(p):
             return True
     basename = parts[-1]
     if basename in EXCLUDE_FILES or basename in EXCLUDE_EXTRA:
@@ -94,6 +105,7 @@ def main(argv: list[str]) -> int:
             dirnames[:] = [
                 d for d in dirnames
                 if d not in EXCLUDE_SUBDIRS and d not in EXCLUDE_EXTRA
+                and not _is_cache_dir(d)
             ]
             for fn in filenames:
                 abs_path = Path(dirpath) / fn

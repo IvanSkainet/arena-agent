@@ -51,7 +51,16 @@ function bridgeFallbackBase(base) {
 }
 async function bridgeFetchOnce(base, path, headers, method, body) {
   const url = `${base}${path}`;
-  const res = await fetch(url, {method, headers, body: body ? JSON.stringify(body) : undefined});
+  // A GET/HEAD request may not carry a body: fetch() throws TypeError, which
+  // here would surface as an opaque network failure. Every current caller
+  // that passes a body also passes method:'POST', so this only guards the
+  // next one. Caught by oxlint(unicorn/no-invalid-fetch-options).
+  const sendsBody = body !== undefined && method !== 'GET' && method !== 'HEAD';
+  // The linter cannot see that `sendsBody` already excludes GET/HEAD; the
+  // runtime contract is proven by executing this function in
+  // tests/test_extension_fetch_body_guard.py.
+  // oxlint-disable-next-line unicorn/no-invalid-fetch-options
+  const res = await fetch(url, {method, headers, body: sendsBody ? JSON.stringify(body) : undefined});
   const text = await res.text();
   let parsed; try { parsed = JSON.parse(text); } catch { parsed = {ok: false, error: text || `HTTP ${res.status}`, raw: text}; }
   if (!res.ok) return {ok: false, status: res.status, error: parsed.error || parsed.raw || `HTTP ${res.status}`, bridge_url: base, path, ...parsed};

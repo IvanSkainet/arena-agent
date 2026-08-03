@@ -1,0 +1,8 @@
+{
+  "name": "arena-agent-js-lint",
+  "private": true,
+  "description": "Pinned JS linter for dashboard/assets + chat_extension (see scripts/js_lint_ratchet.py)",
+  "devDependencies": {
+    "oxlint": "1.76.0"
+  }
+}

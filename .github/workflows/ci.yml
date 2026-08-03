@@ -557,6 +557,54 @@ jobs:
           python -m pytest tests/e2e/ --no-cov -q --timeout=300
 
   # ----------------------------------------------------------------
+  # v4.157.0: the JavaScript surface (dashboard/assets + chat_extension,
+  # ~17k lines) was linted by NOTHING. semgrep runs on arena/ only and
+  # CodeQL is a SAST engine, not a linter -- neither reports
+  # no-func-assign or a body on a GET request. The first oxlint run found
+  # a real defect: fetch() carried a body on the default GET, which throws
+  # TypeError inside the extension service worker. Chosen over
+  # Super-Linter / MegaLinter (wrappers) after measuring: 72 files in
+  # ~40 ms, see docs/github_apps_actions_survey.md.
+  # ----------------------------------------------------------------
+  js-lint:
+    name: JS lint (oxlint, ratcheted)
+    runs-on: ubuntu-latest
+    steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # packages from npm, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: "22"
+          cache: npm
+
+      # `npm ci` from the committed package-lock.json, not an ad-hoc
+      # `npm install oxlint@x`: every entry in that lock carries an integrity
+      # hash, which is the same contract the Python side gets from
+      # `pip install --require-hashes`. A floating linter would also silently
+      # move the floor it is supposed to be guarding.
+      - name: Install oxlint (hash-locked)
+        run: npm ci --no-audit --no-fund
+
+      - name: JS lint debt ratchet (blocking)
+        run: python3 scripts/js_lint_ratchet.py
+
+      - name: Full JS lint (informational)
+        run: npx --no-install oxlint -c .oxlintrc.json dashboard/assets chat_extension || true
+
+  # ----------------------------------------------------------------
   # Debt visibility gate (NON-blocking, red BY DESIGN while any legacy
   # debt remains). Why this exists: the blocking ratchets above gate
   # GROWTH, so their checkmark is green even with the full legacy

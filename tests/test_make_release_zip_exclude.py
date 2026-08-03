@@ -54,3 +54,36 @@ def test_tests_and_vcs_dirs_still_excluded():
     assert _mod.should_exclude("tests/test_foo.py") is True
     assert _mod.should_exclude(".git/config") is True
     assert _mod.should_exclude("arena/__pycache__/x.pyc") is True
+
+
+def test_tool_cache_directories_never_ship():
+    """v4.157.0 — `.ruff_cache/` shipped inside every release zip.
+
+    EXCLUDE_SUBDIRS enumerated caches by name (`__pycache__`, `.pytest_cache`,
+    `node_modules`, `.mypy_cache`), so each new tool's cache was excluded only
+    if someone remembered to add it. ruff's was not: the v4.156.0 archive
+    carried 17 files / 316 KB of hashed cache blobs. The rule is now shaped
+    ("dot-prefixed directory ending in _cache/-cache"), not enumerated.
+    """
+    for path in (
+        ".ruff_cache/CACHEDIR.TAG",
+        ".ruff_cache/0.16.1/15276370199070142989",
+        "arena/.ruff_cache/nested",
+        ".pyrefly_cache/anything",       # not yet emitted here; must not regress
+        ".hypothesis-cache/x",
+        ".mypy_cache/x",
+        "__pycache__/x.pyc",
+    ):
+        assert _mod.should_exclude(path) is True, path
+
+
+def test_real_sources_are_not_mistaken_for_caches():
+    """The cache rule must not swallow shipped files that merely say 'cache'."""
+    for path in (
+        "arena/util.py",
+        "dashboard/assets/00-core.js",
+        "docs/cache_notes.md",
+        "arena/my_cache/data.json",      # no dot prefix -> a real package dir
+        "arena/cache_manager.py",
+    ):
+        assert _mod.should_exclude(path) is False, path

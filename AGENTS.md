@@ -104,6 +104,38 @@ an observer sees the real thing work.
   execution on the real environment matrix — that is why the blocking
   `Packaging E2E` CI job and the pre-flight install ritual exist.
 
+## Static analysis before you finish (v4.157.0+)
+
+Both debt gates are at **zero** as of v4.156.0. Zero is a state that has to
+be actively kept: the Debt visibility CI job turns red on the FIRST new
+finding, so a single unchecked commit undoes the whole cleanup.
+
+Before completing any task that creates or modifies files, run the checks
+that apply to what you touched:
+
+```bash
+ruff check arena tests                  # must print "All checks passed!"
+python scripts/lint_ratchet.py --fail-on-any     # must print LINT DEBT ZERO
+python scripts/quality_ratchet.py --fail-on-any  # must print QUALITY DEBT ZERO
+python scripts/js_lint_ratchet.py       # only if you touched .js
+```
+
+Note the scope: the ruff ratchet covers `arena` and `tests` only (see
+`TARGETS` in `scripts/lint_ratchet.py`). `scripts/` still carries ~341 legacy
+findings and is deliberately outside the gate — do not "fix" that by widening
+the scope in passing; it is its own cleanup.
+
+If anything is reported, fix ALL of it and run again to confirm zero. Do not
+finish the task on a non-zero count, and do not buy the number with
+`# type: ignore`, `# noqa` or a looser preset — see `docs/pyrefly_debt.md`
+for why `preset = "basic"` is forbidden even though it would show fewer
+findings.
+
+Adopted from Pyrefly's "Adding Pyrefly Type Checking to Your Agentic Loop"
+(2026-08). Their point applies exactly here: the tool being installed is not
+the same thing as the habit of running it, and only the second one keeps the
+count at zero.
+
 ## Ratchets and reproducibility (v4.153.3+)
 
 - **Lint ratchet**: `python scripts/lint_ratchet.py` blocks growth of
