@@ -54,7 +54,7 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
                 status=500,
             )
 
-    async def handle_gui_asset(request: web.Request) -> web.Response:
+    async def handle_gui_asset(request: web.Request) -> web.StreamResponse:
         """GET /gui/assets/{path} — static dashboard assets."""
         rel = request.match_info.get("path", "")
         asset_root = (Path(ctx.bridge_dir) / "dashboard" / "assets").resolve()
@@ -88,7 +88,7 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
             },
         )
 
-    async def handle_gui_docs(request: web.Request) -> web.Response:
+    async def handle_gui_docs(request: web.Request) -> web.StreamResponse:
         """GET /gui/docs/{path} — expose the repo's docs/ directory
         so Dashboard links like ``docs/MULTIAGENT.md`` actually
         resolve. Read-only, path-traversal guarded.

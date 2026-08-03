@@ -17,7 +17,7 @@ class CDPTabOpsMixin:
         # hide among the noise it generates.
         _browser: Optional[CDPBrowser]
         _connected: bool
-        def connected(self) -> bool: ...
+        connected: bool
         target_id: str
         title: str
         ws_url: str

@@ -79,7 +79,7 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
             return _json_error(ctx, "Internal error", 500)
 
     @authed(ctx, auto_record=False)
-    async def handle_v1_download(request: web.Request) -> web.Response:
+    async def handle_v1_download(request: web.Request) -> web.StreamResponse:
         qs = parse_qs(request.query_string)
         target = qs.get("path", [""])[0]
         target_path, err, status = validate_download_target(

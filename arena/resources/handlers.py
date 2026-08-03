@@ -213,7 +213,7 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         return ctx.cors_json_response(result, status=200 if result.get("ok") else 404)
 
     @authed(ctx)
-    async def handle_v1_code_artifact_download(request: web.Request) -> web.Response:
+    async def handle_v1_code_artifact_download(request: web.Request) -> web.StreamResponse:
         from arena.workbench.artifacts import runs_root, safe_rel, safe_run_id
         run_id = safe_run_id(request.match_info.get("run_id", ""))
         rel = safe_rel(request.match_info.get("path", ""))

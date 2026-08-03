@@ -1,5 +1,25 @@
 ## Unreleased
 
+### An eleventh bug: every disconnected tab claimed to be connected
+
+`CDPTab.connected` was a plain method, but six call sites read it as a value --
+`if tab.connected:`, `return active_tab.connected`, `"●" if tab.connected`. A
+bound method object is always truthy, so a tab with `_connected = False` and no
+browser still reported itself as connected: the auto-connect path returned
+success without a connection, lifecycle cleanup treated every tab as live, and
+the CLI drew a filled dot for all of them.
+
+Nothing ever called `connected()`, which is exactly why it stayed invisible --
+there was no TypeError, just a boolean that was never False. Promoting it to
+`@property` fixes all six sites at once, and the tree was checked first for any
+`connected()` call that would break.
+
+Also corrected: three handlers annotated `-> web.Response` while returning
+`web.FileResponse`, which is a `StreamResponse` and **not** a `Response`
+subclass. aiohttp accepts it, the annotation was simply wrong.
+
+pyrefly **265 -> 263**.
+
 ### A tenth bug: `agentctl chat` raised on every run
 
 Sorting the type findings by "this call cannot succeed" rather than by count

@@ -39,8 +39,16 @@ class CDPTab(CDPTabConnectionMixin, CDPTabOpsMixin):
         self._browser: Optional[CDPBrowser] = None
         self._connected = False
 
+    @property
     def connected(self) -> bool:
-        """Whether this tab has an active CDP connection."""
+        """Whether this tab has an active CDP connection.
+
+        A @property, not a plain method. Six call sites read it as a value
+        (`if tab.connected:`, `return active_tab.connected`), and a bound
+        method object is always truthy -- so a disconnected tab reported
+        itself as connected everywhere. Nothing in the tree calls
+        `connected()`, so promoting it fixes all six at once.
+        """
         return self._connected and self._browser is not None
 
     async def __aenter__(self):
