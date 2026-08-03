@@ -525,7 +525,10 @@ def _fmt_displays(d: dict) -> list[str]:
             lines.append(f"  {k:<22} {v}")
     for s in d.get("screens", []) or []:
         if isinstance(s, dict):
-            parts = [s.get(k) for k in ("output", "geometry", "resolution", "name") if s.get(k)]
+            # str(): a probe that reports resolution as a number (some
+            # backends do) made ' · '.join() raise TypeError and took the
+            # whole inventory text report down with it.
+            parts = [str(s.get(k)) for k in ("output", "geometry", "resolution", "name") if s.get(k)]
             lines.append(f"  screen                 {' · '.join(parts)}")
         else:
             lines.append(f"  screen                 {s}")

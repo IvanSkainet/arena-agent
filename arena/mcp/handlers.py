@@ -80,7 +80,9 @@ def make_mcp_handlers(ctx: McpHandlerContext) -> McpHandlers:
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
-    async def handle_sse(request: web.Request) -> web.Response:
+    # SSE: this returns the StreamResponse it prepared, which is not a
+    # web.Response subclass. aiohttp accepts any StreamResponse.
+    async def handle_sse(request: web.Request) -> web.StreamResponse:
         """SSE transport — open event stream."""
         session = sid()
         request.app[APP_MCP_SESSIONS][session] = {"created": now_ms()}

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote, urlencode
 
 from arena import mission_autopilot as _autopilot
@@ -25,7 +25,14 @@ def _bridge_call(ctx, path: str, payload: dict[str, Any] | None = None, *, metho
         try:
             parsed = json.loads(body)
         except Exception:
+            parsed = None
+        # json.loads happily returns a list, str or number; only a mapping can
+        # take the setdefault calls below.
+        if not isinstance(parsed, dict):
             parsed = {"ok": False, "error": body or str(e)}
+        # Values are mixed (bool/str/int status); without this the inferred
+        # value type from the literal above rejects the int below.
+        parsed = cast("dict[str, Any]", parsed)
         parsed.setdefault("ok", False)
         parsed.setdefault("status", e.code)
         parsed.setdefault("error", str(e))

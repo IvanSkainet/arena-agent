@@ -1,6 +1,7 @@
 """Extracted CDP browser component."""
 from __future__ import annotations
 
+import itertools
 from typing import TYPE_CHECKING
 
 from arena.browser.cdp_client.common import (
@@ -23,6 +24,7 @@ class CDPBrowserEventsMixin:
         # assigned: annotations only, so runtime behaviour is unchanged.
         # Written down because an undeclared interface lets a real typo
         # hide among the noise it generates.
+        _req_id: itertools.count[int]
         _closing: bool
         _event_handlers: Dict[str, List[Callable]]
         _pending: Dict[int, asyncio.Future]
@@ -50,7 +52,8 @@ class CDPBrowserEventsMixin:
             raise ConnectionError("WebSocket is not connected")
 
         msg_id = next(self._req_id)
-        msg = {"id": msg_id, "method": method}
+        # int | str | dict: the params payload is added below.
+        msg: Dict[str, Any] = {"id": msg_id, "method": method}
         if params:
             msg["params"] = params
 
@@ -120,6 +123,11 @@ class CDPBrowserEventsMixin:
         CLOSED_TYPES.add(0x100)  # Our WebsocketsCDPAdapter sentinel
         CLOSED_TYPES.add(-1)    # Fallback sentinel
 
+        # _listen_loop is only ever started by connect(), immediately after
+        # `self._ws = await session.ws_connect(...)` succeeds -- a failed
+        # connect raises instead of scheduling the task, so the socket is
+        # always live here.
+        assert self._ws is not None
         try:
             async for msg in self._ws:
                 if msg.type == TEXT_TYPE:

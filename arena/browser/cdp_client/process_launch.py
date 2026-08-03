@@ -1,6 +1,8 @@
 """Extracted module from scripts/cdp_browser.py."""
 from __future__ import annotations
 
+from typing import Any
+
 from arena.browser.cdp_client.common import (
     DEFAULT_PORT,
     logger,
@@ -13,7 +15,11 @@ from arena.browser.cdp_client.process_discovery import _build_chromium_cmd, _bui
 from arena.browser.cdp_client.process_helpers import _drain_stderr, _kill_port_processes, _ts, _write_diag_file
 
 
-def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subprocess.Popen:
+def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subprocess.Popen | None:
+    # Returns None when the probe process could not be started at all;
+    # the declared `-> Popen` was simply untrue. The one caller
+    # (sync_browser) ignores the value, so widening costs nothing and
+    # stops the annotation from lying to the next reader.
     """Launch a browser with remote debugging enabled. Returns the Popen object.
 
     This function MUST be fast — it starts Chromium and returns immediately.
@@ -64,7 +70,9 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
                 session_env.get("HOME", ""),
                 bool(session_env.get("LD_LIBRARY_PATH")))
 
-    launch_diag = {
+    # Mixed value types (bool/int/str/float); annotated so the later
+    # `elapsed_s` float does not clash with the inferred literal type.
+    launch_diag: dict[str, Any] = {
         "exe": exe,
         "headless": headless,
         "port": port,
@@ -104,7 +112,10 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
         launch_diag["method"] = "direct"
         launch_diag["pid"] = proc.pid
         launch_diag["elapsed_s"] = round(elapsed, 1)
-        proc._cdp_launch_diag = launch_diag
+        # Deliberate dynamic attribute: browser.py reads it back with
+        # getattr(..., '_cdp_launch_diag', {}), so a Popen without it is
+        # a supported shape rather than an error.
+        proc._cdp_launch_diag = launch_diag  # type: ignore[attr-defined]
         _write_diag_file(launch_diag)
         return proc
 
@@ -124,5 +135,7 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
             proc = None
 
         if proc is not None:
-            proc._cdp_launch_diag = launch_diag
+            # Deliberate dynamic attribute (see the note on the other
+            # assignment above).
+            proc._cdp_launch_diag = launch_diag  # type: ignore[attr-defined]
         return proc

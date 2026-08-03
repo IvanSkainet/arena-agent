@@ -176,6 +176,7 @@ def handle_mobile_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any
         serial, err = _require_serial(args)
         if err is not None:
             return err
+        assert serial is not None  # the guard above already proved this
         path = path_tpl.format(serial=urllib.parse.quote(serial, safe=""))
     else:
         path = path_tpl

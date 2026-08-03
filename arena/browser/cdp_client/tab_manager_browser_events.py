@@ -1,10 +1,12 @@
 """CDP tab manager component."""
 from __future__ import annotations
 
+import itertools
 from typing import TYPE_CHECKING
 
 from arena.browser.cdp_client.common import (
     HAS_AIOHTTP,
+    Any,
     Dict,
     Optional,
     aiohttp,
@@ -21,6 +23,7 @@ class CDPTabManagerBrowserEventsMixin:
         # Written down because an undeclared interface lets a real typo
         # hide among the noise it generates.
         _browser_pending: Dict[int, asyncio.Future]
+        _browser_req_id: itertools.count[int]
         _browser_ws: Optional[aiohttp.ClientWebSocketResponse]
         async def _handle_target_created(self, params: Dict) -> None: ...
         async def _handle_target_destroyed(self, params: Dict) -> None: ...
@@ -34,7 +37,8 @@ class CDPTabManagerBrowserEventsMixin:
             raise ConnectionError("Browser WebSocket is not connected")
 
         msg_id = next(self._browser_req_id)
-        msg = {"id": msg_id, "method": method}
+        # int | str | dict: the params payload is added below.
+        msg: Dict[str, Any] = {"id": msg_id, "method": method}
         if params:
             msg["params"] = params
 
@@ -63,6 +67,9 @@ class CDPTabManagerBrowserEventsMixin:
         CLOSED_TYPES.add(0x100)  # WebsocketsCDPAdapter sentinel
         CLOSED_TYPES.add(-1)
 
+        # Same invariant as CDPBrowser._listen_loop: the task is scheduled
+        # only after the browser-level WebSocket has connected.
+        assert self._browser_ws is not None
         try:
             async for msg in self._browser_ws:
                 if msg.type == TEXT_TYPE:

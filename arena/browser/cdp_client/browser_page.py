@@ -143,7 +143,11 @@ class CDPBrowserPageMixin(CDPBrowserInputMixin):
         if domain:
             params["domain"] = domain
         res = await self.send("Network.setCookie", params, timeout=timeout)
-        return res and res.get("result", {}).get("success", False)
+        # bool(...) because `res and ...` yields res itself when res is
+        # falsy: a None reply made this -> bool function return None, and an
+        # empty dict made it return {}. Truthy checks hid it; `is False` and
+        # JSON serialisation would not.
+        return bool(res and res.get("result", {}).get("success", False))
 
     async def delete_cookie(self, name: str, domain: str = "",
                             timeout: Optional[float] = None) -> None:

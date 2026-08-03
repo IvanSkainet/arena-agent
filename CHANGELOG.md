@@ -1,5 +1,32 @@
 ## Unreleased
 
+### The "call cannot succeed" bucket reaches zero
+
+Every finding that describes a call which physically cannot work is gone: 61 at
+the start of this hunt, now **0**. That bucket produced five of the release's
+bugs, so it was worth emptying rather than tolerating.
+
+The last pass found one more real defect and corrected several annotations that
+were simply untrue:
+
+* **`_fmt_displays` crashed on a numeric resolution.** `' · '.join(parts)` over
+  values taken straight from a probe dict raises `TypeError: sequence item 1:
+  expected str instance, int found` -- and takes the whole inventory text
+  report down with it. Reproduced against the real function, fixed with `str()`.
+* **`res and res.get(...)` in two `-> bool` methods** returned `None` for a None
+  reply and `{}` for an empty dict. Truthy checks hid it; `is False` and JSON
+  serialisation would not.
+* `launch_browser` was annotated `-> subprocess.Popen` while returning None on
+  failure. The one caller ignores the value, so the annotation was the only
+  thing that was wrong.
+* `handle_sse` returns the StreamResponse it prepared, not a Response.
+* `json.loads` can return a list or a number; `tool_mission` now checks before
+  calling `setdefault` on it.
+* The two WebSocket listen loops assert what their scheduler guarantees: the
+  task is created only after `ws_connect` succeeded.
+
+pyrefly **229 -> 213**.
+
 ### Two more bugs: a null path crashed five tools, and an unfenced runtime crashed the sandbox
 
 **`{"path": null}` raised TypeError instead of returning an error.**

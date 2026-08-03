@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from arena.browser.cdp_client.browser import CDPBrowser
 
-from arena.browser.cdp_client.common import Dict, List, Optional
+from arena.browser.cdp_client.common import Any, Dict, List, Optional
 
 
 class CDPCookieCrudMixin:
@@ -90,7 +90,10 @@ class CDPCookieCrudMixin:
             raise ValueError("Cookie name must not be empty")
         if same_site and same_site not in ("Strict", "Lax", "None"):
             raise ValueError(f"Invalid sameSite value: {same_site!r}. Must be Strict, Lax, None, or empty.")
-        params = {
+        # Annotated: CDP cookie params mix str, bool and float (expires),
+        # but the literal below starts with strings, so the inferred value
+        # type rejected the float assignment a few lines down.
+        params: dict[str, Any] = {
             "name": name,
             "value": value,
             "path": path,
@@ -108,7 +111,11 @@ class CDPCookieCrudMixin:
             params["expires"] = expires
 
         res = await self._browser.send("Network.setCookie", params)
-        return res and res.get("result", {}).get("success", False)
+        # bool(...) because `res and ...` yields res itself when res is
+        # falsy: a None reply made this -> bool function return None, and an
+        # empty dict made it return {}. Truthy checks hid it; `is False` and
+        # JSON serialisation would not.
+        return bool(res and res.get("result", {}).get("success", False))
 
     async def delete_cookie(self, name: str, domain: str = "",
                             path: str = "/") -> None:
