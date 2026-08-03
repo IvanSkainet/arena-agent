@@ -12,4 +12,4 @@ if str(REPO_ROOT) not in sys.path:
 from arena.missions_cli.cli import main  # noqa: E402
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

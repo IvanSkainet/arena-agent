@@ -48,4 +48,7 @@ def main():
     s=sub.add_parser('roadmap')
     s.set_defaults(func=roadmap_cmd)
     a=ap.parse_args()
-    a.func(a)
+    # Propagate the subcommand's exit code. `a.func(a)` used to be called for
+    # its side effects only, so every subcommand exited 0 no matter what it
+    # reported in its own JSON output.
+    return a.func(a) or 0

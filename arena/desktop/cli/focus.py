@@ -8,6 +8,15 @@ from arena.desktop.cli.common import have, os, run, subprocess, time
 # below raised NameError at runtime. Found while replacing star imports.
 from arena.project_cli.common import shq
 
+# Module state for _ensure_wm(). It declares `global _wm_started` and then
+# reads it, but nothing ever created the name at module scope -- so the very
+# first call raised `NameError: name '_wm_started' is not defined`, taking
+# down click / key / type_text in arena/desktop/cli/input.py, which call it
+# before every input event. Same class as the v4.155.0 star-import findings
+# above: a name that looks bound but is not. Found by pylint
+# (used-before-assignment) and pyright (reportUnboundVariable) independently.
+_wm_started: bool = False
+
 
 def _detect_wm():
     """Detect if a window manager is currently running."""

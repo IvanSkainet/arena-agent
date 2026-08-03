@@ -4,7 +4,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from arena.browser.cdp_client.network_types import NetworkRequest
+    # network_types does not exist -- the class lives in network_request.
+    # Under TYPE_CHECKING a wrong module is invisible at runtime, so the
+    # annotation on `_finished` below was silently unresolvable. Found by
+    # pyright (reportMissingImports).
+    from arena.browser.cdp_client.network_request import NetworkRequest
 
 from arena.browser.cdp_client.common import Any, Dict, List
 

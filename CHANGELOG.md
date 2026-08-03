@@ -1,4 +1,59 @@
-## Unreleased
+## v4.158.0 — 2026-08-03
+
+Five live defects, all found by asking a tool a question and then checking the
+answer by execution rather than believing it.
+
+Three came out of evaluating MegaLinter (proposed as a ruff replacement; it
+turned out to *run* ruff internally). Two came out of the previous cycle's
+security work: an SSRF parser differential that only appeared on macOS, and a
+quality gate that had never actually run.
+
+Dependency PRs now regenerate their own hash-locked requirements, and `master`
+is protected against force-push and deletion.
+
+### Three live bugs from a one-off MegaLinter evaluation
+
+MegaLinter was proposed as a replacement for ruff. It cannot be one: it
+**runs ruff internally** — its Python descriptor is ten linters, of which we
+already have three, four are formatters or Jupyter tooling, and the wrapper
+would *lose* us `pyrefly`, `semgrep`, `vulture` and `import-linter`. So the
+question became "what do its two genuinely new linters see that ours do not",
+and the answer was worth the trip.
+
+* **`mission_manager.py run` exited 0 on a failed mission.** Three layers
+  dropped the outcome: the worker computed `ok` and returned nothing,
+  `cli.main()` called the subcommand for side effects, and the shim called
+  `main()` without `SystemExit`. The JSON on stdout always said
+  `"ok": false`, so a human reading the output saw the failure — only a
+  machine was misled, and machines are what this CLI is for. Reproduced by
+  running a mission with a failing step, then fixed at all three layers.
+  (pylint `assignment-from-no-return`)
+
+* **`_ensure_wm()` raised `NameError` on its first call.** It declares
+  `global _wm_started` and reads it, but nothing ever bound the name at
+  module scope — so `click`, `key` and `type_text` in the CLI desktop path
+  died before doing anything. Same shape as the v4.155.0 star-import
+  findings. (pylint `used-before-assignment` and pyright
+  `reportUnboundVariable`, independently)
+
+* **The CDP loop-blockage detector broke exactly when the loop blocked.**
+  `_cdp_loop_healthy_ts` is read only in the `TimeoutError` branch, and had
+  no module-level binding either, so the first timeout killed the detector
+  task with `NameError` — the alarm failed silently at the only moment it
+  mattered. This one was found not by a scanner but by the guard written for
+  the *class* after the previous bug.
+
+Both classes are now gated: `test_global_declarations_are_bound.py` walks
+every `global` declaration in `arena`/`scripts`/`bin` and fails when a name
+is read without a module-level binding, and
+`test_type_checking_imports_resolve.py` catches `TYPE_CHECKING` imports of
+modules that do not exist — which is how `network_har.py` had been importing
+`NetworkRequest` from a nonexistent `network_types`, leaving its annotation
+quietly dead.
+
+Neither pylint nor pyright is being adopted: 6852 findings for one real bug,
+and a second type checker means two triage queues for one class of signal.
+The measurement is written up in `docs/github_apps_actions_survey.md`.
 
 ### Dependabot PRs now regenerate their own lock files
 

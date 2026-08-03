@@ -9,6 +9,16 @@ from arena.browser.cdp.state import CDP_LOOP_CHECK_INTERVAL
 
 log = logging.getLogger("arena-bridge")
 
+# Last moment the event loop was observed responsive. The detector declares
+# `global _cdp_loop_healthy_ts` and assigns it on every healthy pass, but the
+# name had no module-level binding -- so if the FIRST wait_for() timed out,
+# the except branch read it before anything created it and the whole detector
+# task died with NameError. In other words the blocked-loop alarm broke
+# precisely when the loop was blocked, and silently: the task just vanished.
+# Seeded with the import time so "blocked for" is measured from process start
+# until the first healthy tick.
+_cdp_loop_healthy_ts: float = time.time()
+
 
 async def _cdp_loop_blockage_detector():
     """Detect when the asyncio event loop is blocked for too long (v2.3.0).

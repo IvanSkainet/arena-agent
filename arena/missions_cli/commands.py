@@ -108,6 +108,12 @@ def _run_cmd_mission_orig(a):
     (d/'mission.json').write_text(json.dumps(obj,ensure_ascii=False,indent=2)+'\n')
     report_cmd(argparse.Namespace(id=d.name))
     print(json.dumps({'ok':ok,'mission':d.name,'state':obj['state'],'steps':len(results)},ensure_ascii=False,indent=2))
+    # Return the outcome instead of dropping it. This function computed `ok`,
+    # wrote state='failed' to mission.json and printed "ok": false -- and then
+    # returned None, so `mission_manager.py run` exited 0 on a failed mission.
+    # Anything scripting this CLI (CI, a scheduler, another agent) read that as
+    # success. Found by pylint's assignment-from-no-return.
+    return 0 if ok else 1
 
 def report_cmd(a):
     d=find_mission(a.id)
