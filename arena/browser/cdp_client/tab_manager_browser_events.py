@@ -1,6 +1,8 @@
 """CDP tab manager component."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from arena.browser.cdp_client.common import (
     HAS_AIOHTTP,
     Dict,
@@ -13,6 +15,18 @@ from arena.browser.cdp_client.common import (
 
 
 class CDPTabManagerBrowserEventsMixin:
+    if TYPE_CHECKING:  # pragma: no cover - typing only
+        # Supplied by the concrete class that mixes this in. Declared, not
+        # assigned: annotations only, so runtime behaviour is unchanged.
+        # Written down because an undeclared interface lets a real typo
+        # hide among the noise it generates.
+        _browser_pending: Dict[int, asyncio.Future]
+        _browser_ws: Optional[aiohttp.ClientWebSocketResponse]
+        async def _handle_target_created(self, params: Dict) -> None: ...
+        async def _handle_target_destroyed(self, params: Dict) -> None: ...
+        async def _handle_target_info_changed(self, params: Dict) -> None: ...
+        timeout: float
+
     async def _browser_send(self, method: str, params: Optional[Dict] = None,
                             timeout: Optional[float] = None) -> Dict:
         """Send a CDP command on the browser-level WebSocket."""

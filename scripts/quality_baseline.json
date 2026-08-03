@@ -8,17 +8,17 @@
     "bad-assignment": 21,
     "bad-function-definition": 6,
     "bad-index": 1,
-    "bad-return": 8,
+    "bad-return": 9,
     "invalid-argument": 3,
     "missing-argument": 1,
-    "missing-attribute": 265,
-    "no-matching-overload": 13,
+    "missing-attribute": 190,
+    "no-matching-overload": 11,
     "not-async": 4,
     "not-callable": 6,
-    "not-iterable": 7,
+    "not-iterable": 8,
     "redefinition": 3,
     "unexpected-keyword": 11,
     "unsupported-operation": 24,
-    "TOTAL": 455
+    "TOTAL": 380
   }
 }

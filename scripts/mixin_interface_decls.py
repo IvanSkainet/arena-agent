@@ -94,14 +94,22 @@ def _class_defs() -> dict[str, tuple[Path, ast.ClassDef]]:
 
 
 def _concrete_users(mixin: str, classes: dict[str, tuple[Path, ast.ClassDef]]) -> list[str]:
-    """Concrete classes that inherit this mixin."""
-    users = []
+    """Classes that inherit this mixin, directly OR transitively.
+
+    The first version only looked at direct bases, which missed every mixin
+    behind an intermediate: CDPTabManager inherits CDPTabManagerConnectMixin,
+    which itself combines ConnectLaunch + ActiveConnect. Those two therefore
+    appeared to have no concrete user at all, and ~90 findings were reported as
+    "no owner declares it" when the owner was one level further up.
+    """
+    users: list[str] = []
     for name, (_, node) in classes.items():
         if name == mixin:
             continue
-        bases = [b.id for b in node.bases if isinstance(b, ast.Name)]
-        if mixin in bases:
+        if mixin in _mro_like(name, classes)[1:]:
             users.append(name)
+    # Prefer the most derived class: it is the one that actually owns __init__.
+    users.sort(key=lambda n: -len(_mro_like(n, classes)))
     return users
 
 

@@ -1,9 +1,14 @@
 """Active-tab connection fallbacks for CDPTabManager.connect()."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from arena.browser.cdp_client.browser import CDPBrowser
 from arena.browser.cdp_client.common import (
     HAS_WEBSOCKETS,
+    Any,
+    Dict,
+    Optional,
     _websockets_mod,
     aiohttp,
     asyncio,
@@ -13,8 +18,22 @@ from arena.browser.cdp_client.common import (
 )
 from arena.browser.cdp_client.websocket_adapter import WebsocketsCDPAdapter
 
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from arena.browser.cdp_client.tab import CDPTab
+
 
 class CDPTabManagerActiveConnectMixin:
+    if TYPE_CHECKING:  # pragma: no cover - typing only
+        # Supplied by the concrete class that mixes this in. Declared, not
+        # assigned: annotations only, so runtime behaviour is unchanged.
+        # Written down because an undeclared interface lets a real typo
+        # hide among the noise it generates.
+        _active_tab_id: Optional[str]
+        _tabs: Dict[str, CDPTab]
+        port: int
+        timeout: float
+        ws_diagnostics: Dict[str, Any]
+
     async def _wire_direct_browser(self, active_tab, ws, session, lib_name: str) -> bool:
         browser_inst = CDPBrowser(port=self.port, auto_launch=False, timeout=self.timeout)
         browser_inst._ws = WebsocketsCDPAdapter(ws) if lib_name == "websockets" else ws

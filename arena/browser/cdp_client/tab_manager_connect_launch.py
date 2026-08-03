@@ -1,13 +1,30 @@
 """Launch/discovery helpers for CDPTabManager.connect()."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.common import asyncio, logger, os, time
+from typing import TYPE_CHECKING
+
+from arena.browser.cdp_client.common import Any, Dict, Optional, aiohttp, asyncio, logger, os, time
 from arena.browser.cdp_client.process import _kill_port_processes, launch_browser
 from arena.browser.cdp_client.tab import CDPTab
 from arena.browser.cdp_client.tabs_http import list_tabs
 
 
 class CDPTabManagerConnectLaunchMixin:
+    if TYPE_CHECKING:  # pragma: no cover - typing only
+        # Supplied by the concrete class that mixes this in. Declared, not
+        # assigned: annotations only, so runtime behaviour is unchanged.
+        # Written down because an undeclared interface lets a real typo
+        # hide among the noise it generates.
+        _browser_ws: Optional[aiohttp.ClientWebSocketResponse]
+        async def _connect_browser_ws(self) -> None: ...
+        _tabs: Dict[str, CDPTab]
+        auto_discover_existing: bool
+        auto_launch: bool
+        headless: bool
+        port: int
+        timeout: float
+        ws_diagnostics: Dict[str, Any]
+
     async def _kill_stale_port_processes(self, loop) -> None:
         try:
             killed = await loop.run_in_executor(None, _kill_port_processes, self.port)

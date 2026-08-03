@@ -1,12 +1,23 @@
 """CDP tab manager component."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.common import asyncio, logger
+from typing import TYPE_CHECKING
+
+from arena.browser.cdp_client.common import Dict, asyncio, logger
 from arena.browser.cdp_client.tab import CDPTab
 from arena.browser.cdp_client.tabs_http import close_tab, get_new_tab_url
 
 
 class CDPTabManagerTabLifecycleMixin:
+    if TYPE_CHECKING:  # pragma: no cover - typing only
+        # Supplied by the concrete class that mixes this in. Declared, not
+        # assigned: annotations only, so runtime behaviour is unchanged.
+        # Written down because an undeclared interface lets a real typo
+        # hide among the noise it generates.
+        _tabs: Dict[str, CDPTab]
+        port: int
+        timeout: float
+
     async def new_tab(self, url: str = "about:blank", activate: bool = True) -> CDPTab:
         """Create a new browser tab and return a CDPTab for it.
 
