@@ -64,6 +64,14 @@ def followup_mission_bundle(
             "status": 500,
             "error": f"followup_mission_bundle requires: {', '.join(_missing)}",
         }
+    # Rebind through the check so the rest of the function works with
+    # non-Optional callables; the dict lookup above is the single source of
+    # truth for "these five are present".
+    assert react_sync is not None
+    assert reflect_sync is not None
+    assert compose_sync is not None
+    assert create_sync is not None
+    assert run_sync is not None
 
     if recovery is None:
         recovery = recover_mission_bundle(missions_dir=missions_dir, mission_id=mission_id, notes=notes, reflect_sync=reflect_sync)

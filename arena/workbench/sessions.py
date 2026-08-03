@@ -95,6 +95,9 @@ def _get_session(session_id: str) -> tuple[Session | None, dict[str, Any] | None
 
 def _reader(sess: Session) -> None:
     try:
+        # Both asserts state what the caller already guarantees: _reader is
+        # only started for a live session, i.e. one with a spawned process.
+        assert sess.proc is not None
         assert sess.proc.stdout is not None
         for line in sess.proc.stdout:
             sess._q.put(line)
@@ -287,6 +290,8 @@ def exec_code(session_id: str, code: str, *, timeout: float = 30, artifacts: lis
         with sess._lock:
             return _appcontainer_exec(sess, code, timeout=timeout, artifacts=artifacts)
     with sess._lock:
+        # The liveness check above returned unless a process is running.
+        assert sess.proc is not None
         assert sess.proc.stdin is not None
         sess.proc.stdin.write(json.dumps({"code": code}) + "\n")
         sess.proc.stdin.flush()

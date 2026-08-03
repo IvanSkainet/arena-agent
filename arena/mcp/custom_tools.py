@@ -384,6 +384,9 @@ def create_tool(name: str, description: str, input_schema: dict[str, Any],
 
     desc = str(description or "").strip()
     if has_call:
+        # `has_call` is exactly "call is a non-empty mapping"; the check above
+        # already returned when neither call nor steps was supplied.
+        assert call is not None
         wrapped = str(call.get("tool", "")).strip()
         cerr = _check_ref(wrapped, full, static, custom_names)
         if cerr:
@@ -400,6 +403,9 @@ def create_tool(name: str, description: str, input_schema: dict[str, Any],
         serr = validate_steps(steps, static, custom_names, self_name=full)
         if serr:
             return {"ok": False, "error": serr}
+        # validate_steps rejects anything that is not a non-empty list, so the
+        # comprehension below cannot meet None.
+        assert isinstance(steps, list)
         norm_steps = [{"id": str(s["id"]).strip(),
                        "tool": str(s["tool"]).strip(),
                        "args": s.get("args", {})} for s in steps]

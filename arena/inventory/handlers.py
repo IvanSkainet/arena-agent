@@ -25,7 +25,14 @@ _hw_cache: dict = {"at": 0.0, "result": None, "opts_key": None}
 _inv_cache: dict = {"at": 0.0, "result": None, "opts_key": None}
 
 
-def _cache_lookup(cache: dict, key, now_fn) -> object | None:
+def _cache_lookup(cache: dict, key, now_fn) -> dict[str, Any] | None:
+    """Return the cached payload, or None on miss/expiry.
+
+    Typed `dict` rather than `object`: both stores hold the result of
+    ``inventory_sync`` / ``hardware_sync``, which are dicts, and the callers
+    immediately do ``dict(cached)``. Declaring `object` made that copy read as
+    ``dict.__init__(object)`` -- unbuildable.
+    """
     if cache.get("opts_key") != key:
         return None
     if now_fn() - cache.get("at", 0.0) > _HW_CACHE_TTL_SEC:
@@ -33,7 +40,7 @@ def _cache_lookup(cache: dict, key, now_fn) -> object | None:
     return cache.get("result")
 
 
-def _cache_store(cache: dict, key, result, now_fn) -> None:
+def _cache_store(cache: dict, key, result: dict[str, Any], now_fn) -> None:
     cache["at"] = now_fn()
     cache["opts_key"] = key
     cache["result"] = result
