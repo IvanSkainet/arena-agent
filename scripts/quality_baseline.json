@@ -4,14 +4,14 @@
   },
   "pyrefly": {
     "bad-argument-count": 11,
-    "bad-argument-type": 73,
+    "bad-argument-type": 68,
     "bad-assignment": 21,
     "bad-function-definition": 6,
     "bad-index": 1,
     "bad-return": 9,
     "invalid-argument": 3,
     "missing-argument": 1,
-    "missing-attribute": 122,
+    "missing-attribute": 111,
     "no-matching-overload": 11,
     "not-async": 4,
     "not-callable": 6,
@@ -19,6 +19,6 @@
     "redefinition": 3,
     "unexpected-keyword": 11,
     "unsupported-operation": 22,
-    "TOTAL": 311
+    "TOTAL": 295
   }
 }

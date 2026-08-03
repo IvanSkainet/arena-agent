@@ -45,6 +45,7 @@ def make_file_watch_handlers(ctx: FileWatchHandlerContext) -> FileWatchHandlers:
         resolved, err, status = resolve_home_path(target, root=root, home=Path(ctx.home))
         if err:
             return ctx.cors_json_response({"ok": False, "error": err}, status=status)
+        assert resolved is not None  # the guard above already proved this
         result = ctx.add_sync(
             path=str(resolved),
             root=root,

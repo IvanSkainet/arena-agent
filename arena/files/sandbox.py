@@ -230,6 +230,7 @@ def validate_upload_target(target: str, *, root: Path, home: Path, bridge_py: Pa
         if err == "path outside home directory":
             return None, "upload path must be inside user home", status
         return None, err, status
+    assert target_path is not None  # the guard above already proved this
     if target_path.resolve() == bridge_py.resolve():
         return None, "cannot overwrite the bridge itself", 403
     # v4.42.0: upload now runs the same sensitivity check as
@@ -246,6 +247,7 @@ def validate_download_target(target: str, *, root: Path, home: Path) -> tuple[Pa
     target_path, err, status = resolve_home_path(target, root=root, home=home)
     if err:
         return None, err, status
+    assert target_path is not None  # the guard above already proved this
     # v4.42.0 critical fix: pre-v4.42.0 this function skipped
     # the sensitivity check that its sibling ``validate_view_target``
     # performed. Any authed caller could
@@ -274,6 +276,7 @@ def validate_edit_target(target: str, *, root: Path, home: Path, bridge_py: Path
     target_path, err, status = resolve_home_path(target, root=root, home=home)
     if err:
         return None, err, status
+    assert target_path is not None  # the guard above already proved this
     sens = _sensitivity_error(target_path, home, action="editing")
     if sens is not None:
         return None, sens[0], sens[1]
@@ -289,6 +292,7 @@ def validate_view_target(target: str, *, root: Path, home: Path) -> tuple[Path |
     target_path, err, status = resolve_home_path(target, root=root, home=home)
     if err:
         return None, err, status
+    assert target_path is not None  # the guard above already proved this
     sens = _sensitivity_error(target_path, home, action="viewing")
     if sens is not None:
         return None, sens[0], sens[1]
@@ -304,6 +308,7 @@ def validate_create_target(target: str, *, root: Path, home: Path, bridge_py: Pa
         if err == "path outside home directory":
             return None, "create path must be inside user home", status
         return None, err, status
+    assert target_path is not None  # the guard above already proved this
     sens = _sensitivity_error(target_path, home, action="creating")
     if sens is not None:
         return None, sens[0], sens[1]
