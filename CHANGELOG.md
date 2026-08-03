@@ -1,5 +1,34 @@
 ## Unreleased
 
+### A tenth bug: `agentctl chat` raised on every run
+
+Sorting the type findings by "this call cannot succeed" rather than by count
+put `bad-argument-count` / `unexpected-keyword` / `missing-argument` at the top
+-- the same shape that exposed the callback bug earlier. 61 findings, and the
+first one was real:
+
+    repl(args.session)          # repl(session_path: Path, mode: str)
+
+Two defects in one line: `mode` was never passed, and `--session` is a slug
+string while the REPL wants the Path that `open_session()` creates. Every
+invocation of `scripts/chat.py` died with TypeError. Now takes `--mode` with a
+`safe` default and routes the slug through `open_session()`; verified by
+running the CLI to a clean `/exit`.
+
+### One wrong type alias, 28 findings
+
+`DesktopExec = Callable[[str, float], Awaitable[...]]` makes `timeout`
+positional and mandatory, while all 35 call sites pass it as a keyword -- so
+each was reported twice against code that is called correctly. Replaced with a
+`Protocol` whose `__call__` matches the real `_desktop_exec(cmd, timeout=10)`.
+
+Also: `zerotier.py` reached zero. Its `payload` dict needed an annotation (the
+value type was being inferred from the first string entries, so a later list
+assignment read as indexing into `str`), and the argv builder now narrows the
+Optional `network_id` that the function's own guard has already rejected.
+
+pyrefly **295 -> 265**, and the "cannot succeed" bucket is down from 61 to 38.
+
 ### `assert` where the guard already proved it
 
 pyrefly cannot narrow a union of tuples through unpacking, so after

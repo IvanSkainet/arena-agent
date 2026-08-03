@@ -6,9 +6,21 @@ import os
 import shlex
 import shutil
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Protocol
 
-DesktopExec = Callable[[str, float], Awaitable[dict[str, Any]]]
+
+class DesktopExec(Protocol):
+    """Shape of :func:`arena.desktop.exec._desktop_exec`.
+
+    Written as a Protocol rather than
+    ``Callable[[str, float], Awaitable[...]]`` because that alias makes
+    ``timeout`` a *positional* parameter with no default, while every one of
+    the 35 call sites passes it as a keyword -- so each was reported twice
+    (unexpected-keyword + bad-argument-count) against a function that is in
+    fact called correctly. 28 findings from one wrong alias.
+    """
+
+    def __call__(self, cmd: str, timeout: float = ...) -> Awaitable[dict[str, Any]]: ...
 DetectEnv = Callable[[], dict[str, Any]]
 ActiveWindowFn = Callable[[], Awaitable[dict[str, Any] | None]]
 

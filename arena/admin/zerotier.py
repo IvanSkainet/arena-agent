@@ -534,9 +534,14 @@ def zerotier_network_action(action: str, network_id: str | None = None) -> dict[
     # useable for the current process — move on to the next (usually the
     # sudo wrapper on Linux, or a Program Files fallback on Windows).
     last_payload: dict[str, Any] | None = None
-    args_by_action = {
-        "join": ["join", network_id],
-        "leave": ["leave", network_id],
+    # `network_id` is Optional in the signature but cannot be None here: the
+    # guard at the top of this function returns early for join/leave without
+    # one, and `status` does not use it. Narrowed explicitly so the argv lists
+    # are list[str], which is what _run_cli takes.
+    nid = network_id or ""
+    args_by_action: dict[str, list[str]] = {
+        "join": ["join", nid],
+        "leave": ["leave", nid],
         "status": ["listnetworks"],
     }
     for cli in _cli_candidates():
@@ -544,7 +549,11 @@ def zerotier_network_action(action: str, network_id: str | None = None) -> dict[
             proc = _run_cli(cli, args_by_action[action], timeout=15)
         except (FileNotFoundError, subprocess.TimeoutExpired):
             continue
-        payload = {
+        # Annotated: without it the value type is inferred from the first few
+        # string entries, and the later `payload["networks"]` list assignment
+        # then reads as indexing into `str`. The code is correct -- verified by
+        # running _parse_listnetworks and the sum() over it.
+        payload: dict[str, Any] = {
             "ok": proc.returncode == 0,
             "action": action,
             "backend": "cli",

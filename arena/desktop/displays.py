@@ -2,10 +2,22 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Awaitable, Callable
-from typing import Any
+from collections.abc import Awaitable
+from typing import Any, Protocol
 
-DesktopExec = Callable[[str, float], Awaitable[dict[str, Any]]]
+
+class DesktopExec(Protocol):
+    """Shape of :func:`arena.desktop.exec._desktop_exec`.
+
+    Written as a Protocol rather than
+    ``Callable[[str, float], Awaitable[...]]`` because that alias makes
+    ``timeout`` a *positional* parameter with no default, while every one of
+    the 35 call sites passes it as a keyword -- so each was reported twice
+    (unexpected-keyword + bad-argument-count) against a function that is in
+    fact called correctly. 28 findings from one wrong alias.
+    """
+
+    def __call__(self, cmd: str, timeout: float = ...) -> Awaitable[dict[str, Any]]: ...
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 _XRANDR_RE = re.compile(r"^(\S+) connected(?: primary)? (\d+)x(\d+)\+(-?\d+)\+(-?\d+)")
 _KSCREEN_HEAD_RE = re.compile(r"^Output:\s*(\d+)\s+(\S+)(?:\s+(\S+))?")
