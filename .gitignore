@@ -1,5 +1,20 @@
 # Python
 __pycache__/
+
+# Tool state. These are not merely untracked -- they were the root cause of
+# two packaging bugs: `.ruff_cache` (v4.157.0) and `.hypothesis` (600 files,
+# v4.158.0) both rode into release archives because make_release_zip.py walks
+# the working tree, and a local test run leaves them behind. The zip builder
+# excludes them by shape now, but not littering the tree in the first place is
+# the cheaper half of the fix.
+.hypothesis/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.pyrefly_cache/
+.benchmarks/
+.tox/
+.nox/
 *.pyc
 *.pyo
 *.pyd
