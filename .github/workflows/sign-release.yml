@@ -73,7 +73,9 @@ jobs:
           mkdir -p dist && cd dist
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.zip'
           # Fail closed: signing nothing must not look like success.
-          count=$(ls -1 ./*.zip 2>/dev/null | wc -l)
+          # find, not ls -1 | wc -l -- shellcheck SC2012, and ls output is not
+          # safe to parse for filenames.
+          count=$(find . -maxdepth 1 -name '*.zip' -type f | wc -l)
           if [ "$count" -eq 0 ]; then
             echo "::error::no .zip assets found on $TAG"; exit 1
           fi
