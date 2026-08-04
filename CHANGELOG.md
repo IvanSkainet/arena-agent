@@ -8,6 +8,32 @@ The bridge also has its first published performance numbers, and the
 repository is now actually present in GitHub's topic hubs -- it had no
 description and no topics at all, so it was absent rather than ranked low.
 
+### Post-release fix: the badge gate could not pass on a release commit
+
+Cutting v4.159.0 turned the entire test matrix red -- 15 of 35 CI jobs -- on
+a repository where nothing was wrong. The cause was a gate added in v4.158.0.
+
+`test_badge_matches_the_shipped_version` asserted `badge >= VERSION`: that
+`docs/version.json` never lags `arena.constants.VERSION`. That assertion is
+unsatisfiable on the one commit that matters. The release commit bumps the
+version and is pushed *before* `version-badge.yml` can run, so at that commit
+the badge is still the previous release, by construction:
+
+    7041c57d  tree=4.159.0  badge=4.158.0
+    91ffb312  tree=4.154.0  badge=4.153.3
+    2cbfc6b4  tree=4.153.3  badge=4.153.2
+
+A gate that cannot pass when the system is healthy is not a gate, it is an
+alarm that has to be ignored -- and an ignored alarm is how a real one gets
+missed. The property is one-sided: the badge may trail the tree between the
+bump and the workflow run, but it must never *lead* it (announcing a release
+that was never cut, which is what the v4.158.0 race produced), and it must
+not trail by more than one minor (which would mean the badge workflow has
+been failing silently for several releases).
+
+Sabotage-checked three ways: a badge ahead of the tree, a badge several
+minors behind, and a `tag_name` disagreeing with `semver` all fail.
+
 ### Discoverability: measured, then fixed what was actually broken
 
 The repository had `description: null` and zero topics, so it was absent from
