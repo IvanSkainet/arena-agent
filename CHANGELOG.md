@@ -1,4 +1,15 @@
-## Unreleased
+## v4.161.0 — 2026-08-04
+
+Six live defects, all found the same way: pick the code that can act on the
+machine and is least covered, then drive it instead of reading it.
+
+Two of them were reachable by anyone who could talk to the bridge -- writing
+`~/.bashrc` through the upload endpoint, and a desktop key press that carried
+a shell command. One was invisible to all 406 test files until mutation
+testing pointed at it: a single flipped operator that inverted the bridge's
+own self-protection.
+
+Release artifacts are signed and verifiable for the first time.
 
 ### Release assets are now verifiable
 
