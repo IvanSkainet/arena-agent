@@ -34,6 +34,9 @@ def _off():
 
 def test_build_linux_systemd_strict_argv(tmp_path, monkeypatch):
     monkeypatch.setattr(R, "_have", lambda c: c == "systemd-run")
+    # v4.161.0: support is now proven by probing, not by presence; these
+    # tests are about the argv the fence builds, so state it works.
+    monkeypatch.setattr(R, "systemd_run_works", lambda: (True, ""))
     argv, info = R.build_command("linux", _strict(), "python3",
                                  tmp_path / "c.py", tmp_path)
     assert argv[0] == "systemd-run"
@@ -51,6 +54,7 @@ def test_build_linux_systemd_strict_argv(tmp_path, monkeypatch):
 
 def test_build_linux_network_open_drops_privatenetwork(tmp_path, monkeypatch):
     monkeypatch.setattr(R, "_have", lambda c: True)
+    monkeypatch.setattr(R, "systemd_run_works", lambda: (True, ""))
     p = {**_strict(), "network": "open"}
     argv, info = R.build_command("linux", p, "python3", tmp_path / "c.py", tmp_path)
     assert "--property=PrivateNetwork=yes" not in argv

@@ -1,5 +1,49 @@
 ## Unreleased
 
+### Scenario 1: can the agent grow its own toolset unaided?
+
+Not a feature request -- a test of the environment. The chain
+``code_project.create -> write -> run -> validate -> publish -> call it``
+was driven through the real dispatcher, the way a model drives it. Every
+piece already had unit tests. The chain had never been run end to end, and
+it did not work.
+
+**The loop was broken by vocabulary.** ``code_project.*`` identifies a
+project as ``name`` (7 tools); ``tool_foundry.validate/publish`` call the
+same project ``project``. An agent that said ``project`` to ``write`` got
+back *"project name must use only letters, digits, dot, underscore and
+dash"* -- a validation error about an argument it never sent, citing a rule
+its input did not break. Nothing was wrong inside either handler; the
+surface disagreed with itself. Measured across the whole surface, five
+namespaces carried the same split: ``code_project``, ``code_run``,
+``code_session`` (name|project), ``capability_gap`` (id|gap_id),
+``mission`` (q|query).
+
+Fixed once in the dispatcher rather than in nineteen handlers, because the
+next tool added would reintroduce it. ``_accept_synonyms`` copies whichever
+spelling the caller used to the others, only inside namespaces that actually
+disagree, and never overwrites a value the caller supplied.
+
+**The fence claimed to be engaged when it could not run.** Sandbox support
+was decided by ``shutil.which("systemd-run")`` -- which answers "is it
+installed", not "does it work". Without a D-Bus session bus the binary
+exists and fails on every call, so the refusal surfaced later as a confusing
+child-process error. Fail-closed has to mean the fence *works*: it is now
+probed by execution, once per process, and an unavailable fence refuses with
+both a reason and a remedy instead of a dead end.
+
+With both fixed the loop closes: **234 tools -> 235**, and the agent calls
+the tool it just wrote, tested and published, with no human in the path.
+
+Pinned by ``tests/test_self_extension_loop.py``, including that publish
+still refuses a tool whose declared tests fail (a gate that publishes
+anything would make the chain worthless), and that synonyms never rewrite
+explicit input. Sabotage-checked both ways.
+
+``arena/autonomy/runner.py`` crossed the 600-line architecture threshold
+while being fixed; the probe moved to ``arena/autonomy/fence_probe.py``
+(615 -> 572) rather than widening the limit.
+
 ### Security review: six false positives, and one real injection they missed
 
 A scanner reported "command injection from dynamic arguments" against six

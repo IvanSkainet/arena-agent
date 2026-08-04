@@ -23,6 +23,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from arena.autonomy.fence_probe import systemd_run_works
 from arena.autonomy.posture import DEFAULT_RESOURCES, DEFAULT_RUNTIMES
 
 _BLOCKED_ENV = ("ARENA_TOKEN", "TOKEN", "SECRET", "PASSWORD", "KEY", "CREDENTIAL")
@@ -199,6 +200,15 @@ def resolve(platform: str, posture: dict[str, Any]) -> dict[str, Any]:
         return {"sandbox_action": "systemd", "supported": False,
                 "note": "systemd-run is not available on this host. Refusing to "
                         "run unfenced."}
+    working, why = systemd_run_works()
+    if not working:
+        return {"sandbox_action": "systemd", "supported": False,
+                "note": f"systemd-run is installed but cannot start a unit here: {why} "
+                        "Refusing to run unfenced.",
+                "remedy": "Run the bridge inside a user session with a D-Bus "
+                          "session bus (loginctl enable-linger $USER), or set "
+                          "posture sandbox=off deliberately if you accept "
+                          "unfenced execution."}
     return {"sandbox_action": "systemd", "supported": True, "note": ""}
 
 

@@ -98,6 +98,52 @@ class McpToolRuntime:
     handle_rpc: Callable[[dict[str, Any]], dict[str, Any] | None]
 
 
+# One concept, one meaning -- whatever the handler happens to call it.
+#
+# The self-extension chain was broken by nothing more than vocabulary:
+# ``code_project.*`` identifies a project as ``name`` (7 tools), while
+# ``tool_foundry.validate/publish`` call the same project ``project``. An
+# agent that had just created a project with ``name`` got
+# "project name must use only letters..." from ``write`` when it reasonably
+# said ``project`` -- a validation error about an argument it never sent.
+# Measured across the surface: five namespaces carried the same kind of
+# split (code_project/code_run/code_session name|project,
+# capability_gap id|gap_id, mission q|query).
+#
+# Fixed once here rather than in nineteen handlers, because the next tool
+# added would reintroduce it. Each group is a set of names meaning the same
+# thing; on the way in, whichever the caller used is copied to the others so
+# every handler finds the key it expects. Never overwrites a value the
+# caller actually supplied.
+_ARG_SYNONYMS: tuple[frozenset[str], ...] = (
+    frozenset({"name", "project"}),
+    frozenset({"id", "gap_id"}),
+    frozenset({"q", "query"}),
+)
+
+
+def _accept_synonyms(tool: str, args: dict) -> dict:
+    """Let a caller name an argument any of the ways the surface names it."""
+    if not isinstance(args, dict) or not args:
+        return args
+    ns = tool.split(".", 1)[0]
+    # Only for namespaces that actually disagree with themselves; elsewhere a
+    # "name" and a "project" could legitimately be two different things.
+    if ns not in {"code_project", "code_run", "code_session",
+                  "tool_foundry", "capability_gap", "mission"}:
+        return args
+    out = dict(args)
+    for group in _ARG_SYNONYMS:
+        supplied = [k for k in group if out.get(k) not in (None, "")]
+        if len(supplied) != 1:
+            continue  # nothing given, or the caller was explicit about both
+        value = out[supplied[0]]
+        for key in group:
+            if out.get(key) in (None, ""):
+                out[key] = value
+    return out
+
+
 def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
     run_local = make_run_local(ctx.subprocess_kwargs)
     run_sd = make_run_sd(bin_dir=ctx.bin_dir, subprocess_kwargs=ctx.subprocess_kwargs)
@@ -113,6 +159,7 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
     def call_tool(name: str, args: dict) -> dict:
         """MCP tool dispatcher."""
         try:
+            args = _accept_synonyms(name, args)
             # v4.97.0: full agent stop (kill-switch). Read-only tools still
             # run; everything mutating is blocked while halted. This is the
             # authoritative gate for the agent, because every agent action --
