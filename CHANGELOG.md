@@ -1,5 +1,31 @@
 ## Unreleased
 
+### Inventory: 46 collectors, and a canary hunt through all of them
+
+`arena/inventory` was the next barely-covered block that touches the machine
+-- `registry.py` at 17.7%, several probes under 5%. It shells out, reads the
+environment, and its output goes to a model through `sys.inventory`, so a
+leaked value does not stay local: it lands in a conversation and possibly in
+a provider's logs.
+
+The redaction design turned out to be sound. `probe_agent_ctx` reports secret
+*names* and never values, with an allowlist so `*_TOKEN_FILE` paths do not
+clutter the report. Verified by planting a canary in twelve secret-shaped
+environment variables -- including the bridge's own token -- and running all
+46 collectors: 46 ran, none raised, none emitted the value.
+
+What was missing was anything keeping it that way.
+`tests/test_inventory_never_leaks_secret_values.py` runs the canary through
+every collector *and* every formatter, because a collector can redact
+correctly while its `format_lines` sibling interpolates the raw value into a
+display string. It also asserts secret names are still reported (a probe that
+hides everything is broken, not safe), that no collector raises (a raising
+probe would silently skip its own leak check), and that the canary is
+observable at all.
+
+Sabotage-checked: making the probe emit values alongside names fails two
+tests.
+
 ### One preflight command, because 12 minutes is the wrong feedback loop
 
 The operator's point about batching work into larger commits was right, and
