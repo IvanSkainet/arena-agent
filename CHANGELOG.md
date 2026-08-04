@@ -1,12 +1,8 @@
-## v4.159.0 — 2026-08-04
+## v4.160.0 — 2026-08-04
 
-Three live defects, all found by using the system instead of reading it:
-two by calling every MCP tool once, and one by trying to get a rate
-limiter out of the way long enough to measure latency.
-
-The bridge also has its first published performance numbers, and the
-repository is now actually present in GitHub's topic hubs -- it had no
-description and no topics at all, so it was absent rather than ranked low.
+Two corrections that only a real release could expose: the project
+shipped under someone else's trademark, and the gate meant to protect
+the version badge could not pass on a release commit.
 
 ### Renamed: Arena Unified Bridge -> Skainet Bridge
 
@@ -69,6 +65,17 @@ been failing silently for several releases).
 
 Sabotage-checked three ways: a badge ahead of the tree, a badge several
 minors behind, and a `tag_name` disagreeing with `semver` all fail.
+
+
+## v4.159.0 — 2026-08-04
+
+Three live defects, all found by using the system instead of reading it:
+two by calling every MCP tool once, and one by trying to get a rate
+limiter out of the way long enough to measure latency.
+
+The bridge also has its first published performance numbers, and the
+repository is now actually present in GitHub's topic hubs -- it had no
+description and no topics at all, so it was absent rather than ranked low.
 
 ### Discoverability: measured, then fixed what was actually broken
 
