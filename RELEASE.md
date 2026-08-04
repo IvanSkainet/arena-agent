@@ -96,6 +96,41 @@ breaks. So each release ships two byte-identical assets:
 - **`arena-agent-vX.Y.Z.zip`** — historical convention and explicit pinning.
 - **`arena-agent.zip`** — the version-agnostic alias the README relies on.
 
+## Verifying a download
+
+Every published release is signed automatically by
+`.github/workflows/sign-release.yml` using Sigstore keyless signing. Each zip
+gets a `.sig` and a `.pem`, and a `SHA256SUMS-vX.Y.Z.txt` is published (and
+itself signed) alongside them.
+
+Keyless means there is no private key anywhere: GitHub mints a short-lived
+OIDC token for the signing job, and the certificate binds the signature to
+*this workflow in this repository*. So verification proves the artifact came
+out of this pipeline — a stronger statement than "someone with a key signed
+it". The certificate is also recorded in a public transparency log.
+
+**With cosign** (proves origin, not just integrity):
+
+```bash
+TAG=v4.161.0
+cosign verify-blob arena-agent.zip \
+  --signature arena-agent.zip.sig \
+  --certificate arena-agent.zip.pem \
+  --certificate-identity-regexp \
+    '^https://github\.com/IvanSkainet/arena-agent/\.github/workflows/sign-release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+**Without cosign** (integrity only — use it if you trust the release page but
+want to catch a corrupted or truncated download):
+
+```bash
+sha256sum -c SHA256SUMS-v4.161.0.txt --ignore-missing
+```
+
+The digest file is signed too, so the cosign check above can be run against
+`SHA256SUMS-vX.Y.Z.txt` first and the plain `sha256sum -c` trusted afterwards.
+
 ## What goes into the release zip
 
 `scripts/make_release_zip.py` builds a runnable bridge that a user can extract and

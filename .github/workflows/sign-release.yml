@@ -1,0 +1,132 @@
+# .github/workflows/sign-release.yml
+#
+# Sign every published release asset, and publish the digests next to them.
+#
+# Why: until now a download could not be checked. The release page offered
+# two zips and nothing to verify them against -- no digest in the body, no
+# signature, nothing. Anyone who obtained write access, or intercepted the
+# download, could swap the archive and no user could tell. The project ships
+# a tool that executes commands on the operator's machine, so "you cannot
+# check what you downloaded" is a real gap rather than a formality.
+#
+# Keyless signing is used deliberately: no private key exists to leak, be
+# rotated, or be committed by accident. GitHub mints a short-lived OIDC token
+# for this job, Sigstore binds the signature to *this workflow in this
+# repository*, and the certificate is recorded in a public transparency log.
+# Verification therefore proves the artifact came from this workflow, which
+# is a stronger claim than "someone with the key signed it".
+#
+# This runs on `release: published`, which is what the manual release process
+# in RELEASE.md triggers when the assets are uploaded via the API.
+name: sign release assets
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to sign (e.g. v4.161.0)"
+        required: true
+        type: string
+
+# Scorecard Token-Permissions: nothing at the top level; the single job
+# declares exactly what it needs.
+permissions: {}
+
+jobs:
+  sign:
+    permissions:
+      contents: write   # attach signatures + digest file to the release
+      id-token: write   # OIDC token for keyless signing (the whole point)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+        with:
+          cosign-release: 'v2.4.1'
+
+      - name: Resolve tag
+        id: tag
+        env:
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${EVENT_TAG:-$INPUT_TAG}"
+          if [ -z "$TAG" ]; then
+            echo "::error::no tag to sign"; exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist && cd dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.zip'
+          # Fail closed: signing nothing must not look like success.
+          count=$(ls -1 ./*.zip 2>/dev/null | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no .zip assets found on $TAG"; exit 1
+          fi
+          echo "downloaded $count asset(s)"
+
+      - name: Publish digests
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum ./*.zip | sed 's# \./# #' > "SHA256SUMS-${TAG}.txt"
+          cat "SHA256SUMS-${TAG}.txt"
+
+      - name: Sign each asset and the digest file (keyless)
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          cd dist
+          for f in ./*.zip "SHA256SUMS-${TAG}.txt"; do
+            echo "signing $f"
+            cosign sign-blob "$f" \
+              --output-signature "${f}.sig" \
+              --output-certificate "${f}.pem"
+          done
+          ls -1
+
+      - name: Verify what we just signed
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cd dist
+          # A signing step that never verifies is a signing step nobody has
+          # seen work. Prove the bundle validates before it reaches users.
+          for f in ./*.zip "SHA256SUMS-${TAG}.txt"; do
+            cosign verify-blob "$f" \
+              --signature "${f}.sig" \
+              --certificate "${f}.pem" \
+              --certificate-identity-regexp \
+                "^https://github\.com/${GITHUB_REPOSITORY}/\.github/workflows/sign-release\.yml@" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+          done
+          echo "all signatures verified"
+
+      - name: Attach signatures to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cd dist
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            ./*.sig ./*.pem "SHA256SUMS-${TAG}.txt"

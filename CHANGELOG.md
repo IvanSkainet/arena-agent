@@ -1,5 +1,43 @@
 ## Unreleased
 
+### Release assets are now verifiable
+
+Measured on v4.160.0: the release page offered two zips and nothing to check
+them against -- no digest in the body, no signature, nothing. Anyone with
+write access, or able to intercept the download, could swap the archive and
+no user could tell. For a tool that executes commands on the operator's
+machine, "you cannot verify what you downloaded" is a real gap.
+
+`.github/workflows/sign-release.yml` signs every published asset with
+Sigstore keyless signing, and publishes `SHA256SUMS-vX.Y.Z.txt` (itself
+signed) for people who would rather not install cosign.
+
+Keyless on purpose: there is no private key to leak, rotate, or commit by
+accident. GitHub mints a short-lived OIDC token, Sigstore binds the signature
+to *this workflow in this repository*, and the certificate is recorded in a
+public transparency log. Verifying therefore proves the artifact came out of
+this pipeline -- a stronger claim than "somebody holding a key signed it".
+
+The workflow verifies its own output before attaching it, because a signing
+step nobody has watched succeed is a signing step that might not. It fails
+closed when the asset list is empty, so a release whose uploads failed cannot
+report a green signing job.
+
+`tests/test_release_signing_workflow.py` guards the properties that make the
+claim true, since a signing pipeline is easy to weaken by accident: the OIDC
+permission, the verify step, SHA-pinned actions, the identity regex bound to
+this workflow and repository, the pinned OIDC issuer, the digest fallback,
+strict mode in every run block, and that RELEASE.md actually documents the
+verification command. Sabotage-checked four ways -- removing `id-token`,
+removing the verify step, unpinning an action to a moving tag, and loosening
+the identity binding each fail a test.
+
+This was the one item worth taking from the "frontier checks" proposals. The
+rest -- AI red-teaming duels, embedding-space telemetry, cyber ranges,
+SPIFFE/SPIRE -- all need an external model, a network call and a threshold in
+CI, which means a non-deterministic verdict that cannot be sabotage-tested.
+Determinism is what makes a gate worth having.
+
 ### Live bug: a desktop key press could be a shell command
 
 `arena/desktop` was the largest remaining block of uncovered statements in
