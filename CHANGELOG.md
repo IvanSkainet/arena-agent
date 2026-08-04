@@ -1,5 +1,60 @@
 ## Unreleased
 
+### An upload that answered "no" wrote the file anyway
+
+`arena/mobile/handlers_devops.py` was at 29% coverage, so it was next.
+`POST /v1/mobile/apk/upload?filename=...` turned out to have the same shape
+as bug #37 (write == execute): it validated the destination *after* writing
+to it.
+
+    dest = STAGING_ROOT / filename
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+    return prepare(filename)      # containment check lives in here
+
+`prepare` does refuse paths outside the staging root, so the caller got a
+correct-looking refusal -- one step too late. Against a running bridge:
+
+    POST /v1/mobile/apk/upload?filename=/tmp/HTTP_PWNED.apk
+    -> 200 {"ok": false, "error": "apk_path must live under the staging
+            directory"}, and /tmp/HTTP_PWNED.apk exists, 504 bytes.
+
+An absolute filename reached that line because the only guard was
+`any(p in ("..", "") for p in Path(filename).parts)`, and
+`Path("/tmp/x").parts` is `("/", "tmp", "x")` -- no `..`, no empty segment.
+`STAGING_ROOT / "/tmp/x"` then evaluates to `/tmp/x`, because pathlib
+discards the left operand when the right one is absolute. Existing files
+were overwritten and missing parent directories were created on the way.
+The error text promised the opposite: "Arbitrary host paths are rejected on
+purpose so a hijacked token can't install anything on disk."
+
+Two more bugs fell out of writing the guard, both the same failure of
+totality. `Path.expanduser()` raises `RuntimeError` for a leading
+`~unknownuser`, so `prepare("~nosuchuser/x.apk")` returned an HTTP 500
+rather than an envelope; it was also simply wrong here, since `~` is a
+legal filename character and `~foo.apk` belongs in the staging root, not
+under `/home`. And `Path.exists()` is not total either -- a name over
+NAME_MAX raises `OSError(ENAMETOOLONG)`, an embedded NUL raises
+`ValueError`. An endpoint that fails closed has to do it for hostile input
+too, not just for the inputs someone thought of.
+
+Containment now happens before anything touches the filesystem, and it is
+re-checked on the *resolved* path so a symlink planted inside the staging
+tree cannot become a way out. The logic moved to `arena/mobile/apk_paths.py`
+because `apk_install.py` crossed the 600-line runtime cap while this was
+being fixed -- the architecture ratchet caught that, and the fix was to
+split at the natural seam rather than to raise the cap.
+
+Two things worth recording from the sabotage round, since both were my own
+mistakes rather than the code's. Deleting the `is_absolute()` guard broke
+nothing: the resolved-path check alone already blocks the escape, so the
+early guard only buys a clearer message, and the tests now pin that message
+specifically. And the symlink test passed even with the containment check
+removed, because it pointed the link at a *missing* directory -- `mkdir`
+then failed for unrelated reasons and hid the escape. With a real directory
+behind the link the write goes straight through. A guard test that passes
+for the wrong reason is worse than no guard test.
+
 ### `adb shell` was a remote code execution primitive
 
 `arena/mobile` was the last barely-covered block that acts on hardware, so it

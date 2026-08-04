@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.mobile.adb import AdbNotFoundError, find_adb, run
+from arena.mobile.apk_paths import ensure_within_staging, resolve_apk_path
 
 
 # The bridge's writable staging area for uploaded APKs. Anything the
@@ -107,41 +108,6 @@ def _consent_token(sha256_hex: str) -> str:
     return f"yes-install-{sha256_hex[:8]}"
 
 
-def _resolve_apk_path(client_path: str) -> Path | dict[str, Any]:
-    """Reject path traversal. `client_path` may be:
-      * absolute under STAGING_ROOT
-      * relative — treated as relative to STAGING_ROOT
-    Anything else is refused.
-    """
-    if not isinstance(client_path, str) or not client_path.strip():
-        return _err("apk_path is required")
-    _ensure_staging_root()
-    p = Path(client_path).expanduser()
-    if not p.is_absolute():
-        p = STAGING_ROOT / p
-    try:
-        resolved = p.resolve(strict=False)
-        STAGING_ROOT.resolve(strict=False)  # will raise if impossible
-    except Exception as e:
-        return _err(f"could not resolve apk_path: {e}")
-    root_resolved = STAGING_ROOT.resolve(strict=False)
-    if root_resolved not in resolved.parents and resolved != root_resolved:
-        return _err(
-            "apk_path must live under the staging directory",
-            hint=f"Uploaded APKs go under {STAGING_ROOT}. Arbitrary host paths "
-                 f"are rejected on purpose so a hijacked token can't install "
-                 f"anything on disk.",
-            staging_root=str(STAGING_ROOT),
-        )
-    if not resolved.exists():
-        return _err(
-            f"apk not found: {resolved}",
-            hint="Upload the APK first (POST it to STAGING_ROOT); then call "
-                 "prepare with the returned path.",
-        )
-    if not resolved.is_file():
-        return _err(f"apk_path is not a regular file: {resolved}")
-    return resolved
 
 
 def save_upload(filename: str, data: bytes) -> dict[str, Any]:
@@ -156,12 +122,39 @@ def save_upload(filename: str, data: bytes) -> dict[str, Any]:
     """
     if not isinstance(filename, str) or not filename.strip():
         return _err("filename required")
-    # Reject obvious traversal attempts. `_resolve_apk_path` already
-    # catches these, but a direct guard produces a clearer error
-    # message before we touch the filesystem.
-    parts = Path(filename).parts
-    if any(p in ("..", "") for p in parts):
+    # Reject obvious traversal attempts.
+    #
+    # v4.162.0 (bug #41): the comment that used to sit here claimed
+    # "`_resolve_apk_path` already catches these". It does -- but it runs
+    # inside `prepare()`, which this function only calls AFTER
+    # `dest.write_bytes()`. So the containment check happened one step too
+    # late: the caller got `{"ok": false, "error": "apk_path must live
+    # under the staging directory"}` and the file was on disk anyway.
+    #
+    # An ABSOLUTE filename slipped through because `Path("/tmp/x").parts`
+    # is `('/', 'tmp', 'x')` -- no `..`, no empty segment -- and
+    # `STAGING_ROOT / "/tmp/x"` discards the left operand entirely, which
+    # is documented pathlib behaviour. Reproduced over live HTTP:
+    #
+    #   POST /v1/mobile/apk/upload?filename=/tmp/HTTP_PWNED.apk
+    #   -> 200 {"ok": false, ...} and /tmp/HTTP_PWNED.apk exists.
+    #
+    # Existing files were overwritten and missing parent directories were
+    # created, because `dest.parent.mkdir(parents=True)` ran first. The
+    # error text even promised "Arbitrary host paths are rejected on
+    # purpose so a hijacked token can't install anything on disk."
+    #
+    # Fail closed: resolve the destination and prove containment BEFORE
+    # anything touches the filesystem.
+    if any(p in ("..", "") for p in Path(filename).parts):
         return _err("filename may not contain `..` or empty segments")
+    if Path(filename).is_absolute() or Path(filename).drive:
+        return _err(
+            "filename must be relative to the staging directory",
+            hint=f"Uploads land under {STAGING_ROOT}; pass a bare name like "
+                 f"`app.apk` or `vendor/app.apk`, not an absolute path.",
+            staging_root=str(STAGING_ROOT),
+        )
     if not isinstance(data, (bytes, bytearray)) or len(data) < 100:
         return _err("data missing or too small to be an APK")
     # Cheap magic check: real APKs start with the ZIP magic `PK\x03\x04`.
@@ -173,8 +166,17 @@ def save_upload(filename: str, data: bytes) -> dict[str, Any]:
         )
     _ensure_staging_root()
     dest = STAGING_ROOT / filename
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(bytes(data))
+    contain_err = ensure_within_staging(dest, STAGING_ROOT)
+    if contain_err is not None:
+        return contain_err
+    # Same total-failure discipline as `_resolve_apk_path` (bug #43): a
+    # name over NAME_MAX raises OSError(ENAMETOOLONG) and an embedded NUL
+    # raises ValueError. Both must come back as an envelope, not a 500.
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(bytes(data))
+    except (OSError, ValueError) as e:
+        return _err(f"could not write upload: {e}")
     # Chain into prepare so the caller gets sha + consent + package.
     prepared = prepare(filename)
     if prepared.get("ok"):
@@ -189,7 +191,7 @@ def prepare(apk_path: str) -> dict[str, Any]:
     "show me what I'm about to install" step for the UI to display
     before asking for consent.
     """
-    resolved = _resolve_apk_path(apk_path)
+    resolved = resolve_apk_path(apk_path)
     if isinstance(resolved, dict):
         return resolved
 
@@ -224,7 +226,7 @@ def install(
     if not isinstance(serial, str) or not serial.strip():
         return _err("serial required")
 
-    resolved = _resolve_apk_path(apk_path)
+    resolved = resolve_apk_path(apk_path)
     if isinstance(resolved, dict):
         return resolved
 
