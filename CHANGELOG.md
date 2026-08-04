@@ -31,8 +31,13 @@ being relied on as a security boundary -- and `$IFS` is a space the escaping
 never sees: `hi&touch$IFS/tmp/T3` created the file.
 
 The fix is one function in one place. `arena.mobile.adb.quote_shell_args`
-quotes the argv of every `shell` invocation for the DEVICE shell, and it lives
-inside `run()` so none of the 33 call sites can forget it. Non-`shell`
+quotes the argv of every device-shell invocation for the DEVICE shell, and it
+lives inside `run()` so none of the 39 call sites can forget it. That includes
+`exec-out`, which the first pass missed: it is `shell` with a raw binary
+stream instead of a pty -- the same code path on the phone -- and screenshot,
+camera, recording and ui all pull data with `exec-out cat <path>` where the
+path comes from the caller. `run(["exec-out", "cat", "/sdcard/x; touch /tmp/EO"])`
+was still a working exploit until it was covered. Non-`shell`
 invocations (`push`, `pull`, `install`, `forward`) never reach a device shell
 and are passed through untouched. The blocklist was widened too, as a
 fail-closed second layer, and the widening was checked against fifteen real

@@ -48,7 +48,7 @@ pytestmark = pytest.mark.skipif(
 # arrives as inert text; if not, the shell executes it.
 _FAKE_ADB = """#!/bin/sh
 while [ "$1" = "-s" ]; do shift 2; done
-if [ "$1" = "shell" ]; then shift; exec /bin/sh -c "$*"; fi
+if [ "$1" = "shell" ] || [ "$1" = "exec-out" ]; then shift; exec /bin/sh -c "$*"; fi
 exit 0
 """
 
@@ -85,6 +85,32 @@ def test_quote_shell_args_neutralises_metacharacters():
     # element as ONE token rather than an operator plus a command.
     import shlex
     assert shlex.split(" ".join(out[1:])) == ["ls", "/data & touch /tmp/x"]
+
+
+def test_exec_out_is_quoted_too(fake_adb, tmp_path):
+    """`exec-out` is `shell` with a raw stream: same device-side shell.
+
+    Missing it was the second half of bug #40 -- screenshot, camera,
+    recording and ui all pull data with `exec-out cat <path>`, and the
+    path comes from the caller.
+    """
+    from arena.mobile.adb import run
+
+    marker = tmp_path / "pwned_exec_out"
+    run(["exec-out", "cat", f"/sdcard/x; touch {marker}"], serial="s", timeout=5)
+    assert not marker.exists(), (
+        "exec-out reaches /system/bin/sh exactly like shell does and must "
+        "be quoted identically"
+    )
+
+
+@pytest.mark.parametrize("verb", ["shell", "exec-out"])
+def test_both_device_shell_verbs_are_quoted(verb):
+    from arena.mobile.adb import quote_shell_args
+
+    out = quote_shell_args([verb, "cat", "/a b; rm -rf /"])
+    import shlex
+    assert shlex.split(" ".join(out[1:])) == ["cat", "/a b; rm -rf /"]
 
 
 def test_quote_shell_args_leaves_non_shell_invocations_alone():

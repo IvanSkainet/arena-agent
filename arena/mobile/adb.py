@@ -27,6 +27,13 @@ from pathlib import Path
 from typing import Any
 
 # Same trick as arena/admin/zerotier.py — hide the console window on Windows.
+# adb verbs whose argv is joined by adbd and executed by the DEVICE shell.
+# `exec-out` is `shell` with a raw binary stream instead of a pty -- it is
+# the SAME code path on the phone, so it needs identical quoting. Missing
+# it was the second half of bug #40: `run(["exec-out", "cat", path])` with
+# an attacker-controlled path executed commands just as `shell` did.
+_DEVICE_SHELL_VERBS: frozenset[str] = frozenset({"shell", "exec-out"})
+
 _SUBPROCESS_KWARGS: dict[str, Any] = {}
 if platform.system().lower() == "windows":
     _SUBPROCESS_KWARGS["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
@@ -156,18 +163,24 @@ def quote_shell_args(args: list[str]) -> list[str]:
     bypassed with `$IFS`.
 
     Quoting here rather than in each caller is deliberate: there are 33
-    `run(["shell", ...])` sites across arena/mobile, and a per-caller fix
-    is one forgotten call away from regressing. Non-`shell` invocations
-    (`push`, `pull`, `install`, `forward`, ...) never reach a device shell
-    and are returned untouched so their semantics do not change.
+    `run(["shell", ...])` sites across arena/mobile plus 6 `exec-out`
+    ones, and a per-caller fix is one forgotten call away from
+    regressing. `exec-out` is covered because it is the same device-side
+    code path as `shell` (only the stream differs); it was missed on the
+    first pass and `run(["exec-out", "cat", "/sdcard/x; touch /tmp/EO"])`
+    was still a working exploit until it was added.
+
+    Verbs that never reach a device shell (`push`, `pull`, `install`,
+    `forward`, ...) are returned untouched so their semantics -- notably
+    host paths containing spaces -- do not change.
 
     `sh -c` payloads (recording.py builds one deliberately) are quoted as
     a single argument, which keeps them working exactly as intended while
     still preventing the wrapper argv from splitting.
     """
-    if not args or args[0] != "shell":
+    if not args or args[0] not in _DEVICE_SHELL_VERBS:
         return list(args)
-    return ["shell", *(shlex.quote(a) for a in args[1:])]
+    return [args[0], *(shlex.quote(a) for a in args[1:])]
 
 
 def run(
