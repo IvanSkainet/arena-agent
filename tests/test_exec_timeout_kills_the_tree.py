@@ -83,50 +83,71 @@ def test_timeout_returns_close_to_the_deadline(tmp_path, timeout):
         "grandchild is still holding the output pipe open")
 
 
+def _grandchild_pid_after_timeout(tmp_path, marker: str, nested: bool) -> int:
+    """Time out a shell whose grandchild is a python sleeper; return its pid.
+
+    The pid is reported by the grandchild itself into a file, rather than
+    read from /proc: /proc does not exist on macOS, and an earlier version of
+    this test asserted that Linux detail and reddened the whole macOS matrix
+    while the code under test was fine. Assert the portable property, not the
+    local mechanism for observing it.
+
+    The sleeper is a tiny script on disk, and its path travels in the
+    environment. Inlining it as ``python -c "..."`` meant nesting quotes
+    inside ``bash -c '...'`` inside another shell, and the quoting did not
+    survive the trip -- the probe silently reported nothing.
+    """
+    pidfile = tmp_path / f"{marker}.pid"
+    script = tmp_path / f"{marker}_sleeper.py"
+    script.write_text(
+        "import os, sys, time, pathlib\n"
+        "pathlib.Path(os.environ['ARENA_TEST_PIDFILE']).write_text(str(os.getpid()))\n"
+        "time.sleep(300)\n",
+        encoding="utf-8",
+    )
+    inner = f"{sys.executable} {script}"
+    cmd = f"bash -c '{inner}'" if not nested else f"bash -c 'bash -c \"{inner}\"'"
+
+    env = dict(os.environ, ARENA_TEST_PIDFILE=str(pidfile))
+    asyncio.run(R.run_shell_command(
+        request_id=f"probe-{marker}", cmd=cmd, cwd=tmp_path, env=env,
+        timeout=1, max_output=100_000,
+        decode_output_fn=lambda b: b.decode("utf-8", "replace"),
+    ))
+
+    for _ in range(40):
+        if pidfile.exists() and pidfile.read_text().strip():
+            break
+        time.sleep(0.05)
+    raw = pidfile.read_text().strip() if pidfile.exists() else ""
+    assert raw, "the grandchild never reported its pid; the probe is broken"
+    return int(raw)
+
+
+def _assert_dead(pid: int, why: str) -> None:
+    try:
+        assert not _alive(pid), why
+    finally:
+        if _alive(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+
 def test_timeout_kills_the_grandchild_not_just_the_shell(tmp_path):
     """A leaked process outlives the request that created it."""
-    marker = "arena-orphan-probe-8571"
-    asyncio.run(_run(f'bash -c "sleep 300 # {marker}"', 1, tmp_path))
+    pid = _grandchild_pid_after_timeout(tmp_path, "orphan", nested=False)
     time.sleep(0.5)
-
-    survivors = []
-    for entry in Path("/proc").iterdir():
-        if not entry.name.isdigit():
-            continue
-        try:
-            cmdline = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode()
-        except (OSError, UnicodeDecodeError):
-            continue
-        if marker in cmdline and "sleep" in cmdline:
-            survivors.append(int(entry.name))
-
-    for pid in survivors:  # never leave debris behind, even on failure
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except OSError:
-            pass
-    assert not survivors, (
-        f"{len(survivors)} process(es) survived the timeout and reparented to "
-        "init; killing the shell alone does not kill what it started")
+    _assert_dead(pid, f"pid {pid} survived the timeout and reparented to init; "
+                      "killing the shell alone does not kill what it started")
 
 
 def test_nested_shells_are_killed_too(tmp_path):
     """Depth is not a loophole -- the group covers the whole tree."""
-    marker = "arena-nested-probe-4412"
-    asyncio.run(_run(f'bash -c "bash -c \\"sleep 200 # {marker}\\""', 1, tmp_path))
+    pid = _grandchild_pid_after_timeout(tmp_path, "nested", nested=True)
     time.sleep(0.5)
-    found = [
-        p for p in Path("/proc").iterdir()
-        if p.name.isdigit()
-        and marker.encode() in p.joinpath("cmdline").read_bytes()
-        if p.joinpath("cmdline").exists()
-    ]
-    for p in found:
-        try:
-            os.kill(int(p.name), signal.SIGKILL)
-        except OSError:
-            pass
-    assert not found, "a nested shell escaped the process-group kill"
+    _assert_dead(pid, "a nested shell escaped the process-group kill")
 
 
 def test_the_child_really_is_in_its_own_group(tmp_path):
