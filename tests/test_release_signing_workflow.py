@@ -102,8 +102,13 @@ def test_verification_is_bound_to_this_workflow_and_repo(raw):
     assert "--certificate-identity-regexp" in raw
     assert "sign-release" in raw, "identity must name this workflow"
     assert "GITHUB_REPOSITORY" in raw, "identity must name this repository"
-    assert "https://token.actions.githubusercontent.com" in raw, (
-        "the OIDC issuer must be pinned, or another issuer could vouch")
+    # Match the whole flag-and-value, not a bare URL substring: CodeQL flags
+    # `"https://..." in text` as incomplete URL sanitization, and it is right
+    # about the shape even though this only greps a workflow file we own.
+    assert re.search(
+        r'--certificate-oidc-issuer\s+"?https://token\.actions\.githubusercontent\.com"?(?!\w)',
+        raw), ("the OIDC issuer must be pinned to GitHub's, or another issuer "
+               "could vouch for a signature")
 
 
 def test_it_publishes_digests_too(raw):

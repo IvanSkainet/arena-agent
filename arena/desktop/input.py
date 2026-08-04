@@ -117,7 +117,13 @@ def build_key_command(*, env: dict[str, Any], key: str | None = None, keys: list
             # only accepts numeric ``CODE:STATE`` pairs, so an unrecognised
             # name could never have worked. Saying so beats silently running
             # a command that does nothing.
-            if not _YDOTOOL_RAW_KEY_RE.fullmatch(key):
+            # Bound the input before the regex sees it. Measured, the pattern
+            # is linear (50k pairs match in 17ms, no backtracking blowup), so
+            # CodeQL's polynomial-redos finding is a false positive on the
+            # regex itself -- but a key press has no business being longer
+            # than a few pairs, and a cheap length cap is a better answer than
+            # arguing with the scanner.
+            if len(key) > 256 or not _YDOTOOL_RAW_KEY_RE.fullmatch(key):
                 return (None, "ydotool",
                         f"unknown key {key!r}: expected a known key name or "
                         "raw ydotool CODE:STATE pairs (e.g. '28:1 28:0')",
