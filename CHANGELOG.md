@@ -1,4 +1,12 @@
-## Unreleased
+## v4.159.0 — 2026-08-04
+
+Three live defects, all found by using the system instead of reading it:
+two by calling every MCP tool once, and one by trying to get a rate
+limiter out of the way long enough to measure latency.
+
+The bridge also has its first published performance numbers, and the
+repository is now actually present in GitHub's topic hubs -- it had no
+description and no topics at all, so it was absent rather than ranked low.
 
 ### Discoverability: measured, then fixed what was actually broken
 
