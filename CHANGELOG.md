@@ -1,5 +1,49 @@
 ## Unreleased
 
+### Coverage as a search, not a number: two lifecycle bugs in /v1/exec
+
+Coverage sat at 55.45%. The useful question is not "which lines are dark"
+but "which *dangerous* lines are dark", so the uncovered statements were
+ranked by whether the file can act on the machine.
+``arena/exec/handlers.py`` came out lowest of all of them: **11.3%**, with
+all four command-execution handlers essentially untested.
+
+Probed against a live bridge rather than read. Every policy gate held --
+auth (401), missing cmd (400), blocklist (403), cautious allowlist (403),
+cwd confinement (403), malformed JSON (400), and the output cap really does
+truncate a 99MB request to 2MB. The lifecycle did not hold.
+
+**A timed-out command leaked a process.** ``proc.kill()`` signals the shell
+only. For the ordinary shape ``bash -c "<something>"`` the real work is a
+grandchild, and it survived: ``bash -c "sleep 300"`` with ``timeout=2`` left
+``sleep 300`` running with PPID 1, minutes after the request was answered.
+On a user's machine that is a process they never started and cannot see.
+
+**And the timeout was not the timeout.** The surviving grandchild inherits
+the stdout pipe, so ``communicate()`` could not complete and the 5s drain
+always ran to full length. Measured overshoot was a flat five seconds:
+
+    timeout=1 -> 6.0s     timeout=3 -> 8.0s
+    timeout=2 -> 8.0s     timeout=5 -> 10.0s
+
+A caller asking for a one-second budget got six. After the fix all of them
+land within 3ms of the deadline.
+
+One cause behind both: the child was never started in its own process group,
+so there was no group to kill. Fixed for the buffered and streaming paths
+together -- separate code, same bug -- with a Windows equivalent
+(``CREATE_NEW_PROCESS_GROUP``) rather than a POSIX-only patch.
+
+Also confirmed along the way that the server's timeout ceiling does hold: a
+request asking for 999s against ``max_timeout=600`` was cut at 605s.
+
+Pinned by ``tests/test_exec_timeout_kills_the_tree.py``, which asserts
+timing and process survival -- what was actually wrong -- plus that nested
+shells cannot escape, that the child is genuinely in its own group (so the
+group kill cannot take the bridge down with it), that ordinary commands are
+unaffected, and that killing an already-dead process never raises.
+Sabotage-checked.
+
 ### Scenario 1: can the agent grow its own toolset unaided?
 
 Not a feature request -- a test of the environment. The chain

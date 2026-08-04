@@ -10,11 +10,44 @@ same truncation contract as :func:`run_shell_command`.
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable
 
 ACTIVE_PROCESSES: dict[str, dict[str, Any]] = {}
+
+
+def _process_group_kwargs() -> dict[str, Any]:
+    """Start the child as its own process group / job so it can be killed whole.
+
+    Without this, killing a timed-out command only signals the shell. Any
+    grandchild it spawned (the usual case: ``bash -c "<something>"``) survives,
+    reparents to init, and keeps running on the user's machine long after the
+    request that created it is gone.
+    """
+    if sys.platform == "win32":
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+    return {"start_new_session": True}
+
+
+def _kill_process_tree(proc: Any) -> None:
+    """Kill the child and everything it started. Never raises."""
+    pid = getattr(proc, "pid", None)
+    if sys.platform != "win32" and pid:
+        try:
+            # Negative pid = the whole process group created above.
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+            return
+        except (ProcessLookupError, PermissionError, OSError):
+            pass  # fall through to the single-process kill
+    try:
+        proc.kill()
+    except (ProcessLookupError, OSError):
+        pass
 
 
 async def run_shell_command(
@@ -37,6 +70,7 @@ async def run_shell_command(
             env=env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            **_process_group_kwargs(),
         )
         ACTIVE_PROCESSES[request_id] = {"cmd": cmd, "pid": proc.pid, "start": time.time()}
         try:
@@ -44,7 +78,14 @@ async def run_shell_command(
             exit_code = proc.returncode
         except asyncio.TimeoutError:
             timed_out = True
-            proc.kill()
+            # Kill the whole group, not just the shell. `proc.kill()` signals
+            # the shell alone, so `bash -c "sleep 300"` left the sleep running
+            # with PPID 1 -- a leaked process on the user's machine, outliving
+            # the request that asked for it. It also kept the stdout pipe
+            # open, so the 5s drain below always ran to full length: a
+            # timeout=1 request consistently took 6s. Measured before the fix
+            # (overshoot was a flat 5s at timeout=1,2,3,5) and after.
+            _kill_process_tree(proc)
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=5)
             except asyncio.TimeoutError:
@@ -120,6 +161,7 @@ async def run_shell_command_stream(
             env=env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            **_process_group_kwargs(),
         )
         ACTIVE_PROCESSES[request_id] = {"cmd": cmd, "pid": proc.pid, "start": time.time()}
         yield {"type": "start", "pid": proc.pid}
@@ -184,10 +226,9 @@ async def run_shell_command_stream(
                     truncated = True
 
         if timed_out:
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                pass
+            # Same reason as the buffered path: signalling only the shell
+            # leaves grandchildren running and holding the pipes open.
+            _kill_process_tree(proc)
             # Drain remaining pump output briefly so the tasks can exit.
             try:
                 await asyncio.wait_for(
