@@ -6,10 +6,17 @@ They do not execute commands and do not know about aiohttp/control leases.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 from typing import Any
 
 YDOTOOL_BUTTONS = {"left": "0x110", "middle": "0x112", "right": "0x111"}
+
+# The only shape `ydotool key` accepts beyond a name we already map:
+# space-separated CODE:STATE pairs, e.g. "29:1 30:1 30:0 29:0". Anything
+# else is either a typo or an injection attempt, and both deserve an error
+# rather than a shell.
+_YDOTOOL_RAW_KEY_RE = re.compile(r"\d+:[01](?:\s+\d+:[01])*")
 YDOTOOL_KEYS = {
     "Return": "28", "Enter": "28", "Escape": "1", "Tab": "15",
     "BackSpace": "14", "Delete": "111", "Space": "57",
@@ -99,6 +106,22 @@ def build_key_command(*, env: dict[str, Any], key: str | None = None, keys: list
             code = YDOTOOL_KEYS.get(key)
             if code:
                 return f'ydotool key {code}:1 {code}:0', "ydotool", None, key_label
+            # Refuse rather than interpolate. This line used to be
+            # ``f'ydotool key {key}'`` with no quoting, and the result is
+            # handed to ``create_subprocess_shell``: a key of
+            # ``x; touch /tmp/PWNED`` became two commands. Every sibling
+            # builder (xdotool/wtype key, all three type paths) already
+            # shlex.quote()s its input; this one path did not.
+            #
+            # Quoting would close the hole but ship a lie -- ``ydotool key``
+            # only accepts numeric ``CODE:STATE`` pairs, so an unrecognised
+            # name could never have worked. Saying so beats silently running
+            # a command that does nothing.
+            if not _YDOTOOL_RAW_KEY_RE.fullmatch(key):
+                return (None, "ydotool",
+                        f"unknown key {key!r}: expected a known key name or "
+                        "raw ydotool CODE:STATE pairs (e.g. '28:1 28:0')",
+                        key_label)
             return f'ydotool key {key}', "ydotool", None, key_label
         if keys:
             press = [f"{YDOTOOL_KEYS[k]}:1" for k in keys if k in YDOTOOL_KEYS]

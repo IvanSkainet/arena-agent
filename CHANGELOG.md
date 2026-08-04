@@ -1,5 +1,44 @@
 ## Unreleased
 
+### Live bug: a desktop key press could be a shell command
+
+`arena/desktop` was the largest remaining block of uncovered statements in
+code that acts on the machine (828), and it is the code that moves the mouse
+and presses keys on the operator's real desktop. Most of it needs X11/Wayland
+and cannot run in CI -- but the part that matters most can be tested
+anywhere: the pure functions that build the command string, whose output goes
+straight to `create_subprocess_shell`.
+
+Measured across all six builder/backend combinations. Exactly one leaked:
+
+    ydotool  key(key=)   ydotool key x; touch /tmp/PWNED     <- unescaped
+    ydotool  type        ydotool type --key-delay 50 '...'   <- quoted
+    xdotool  key(key=)   DISPLAY=:0 xdotool key '...'        <- quoted
+    xdotool  type        DISPLAY=:0 xdotool type ... '...'   <- quoted
+    wtype    type        wtype '...'                         <- quoted
+
+The ydotool fallback was `f'ydotool key {key}'` with no quoting, so
+`POST /v1/desktop/key` with `key="x; touch /tmp/PWNED"` ran two commands.
+Every sibling path already used `shlex.quote`; this one did not.
+
+Fixed by refusing rather than quoting. `ydotool key` only accepts a known key
+name or raw `CODE:STATE` pairs, so quoting an arbitrary string would close
+the hole while shipping a command that silently does nothing -- an honest
+error beats a working-looking no-op. Legitimate input is unaffected:
+`Return`, `ctrl+c` and raw `28:1 28:0` all still build.
+
+`tests/test_desktop_input_no_shell_injection.py` covers seven injection
+shapes across three backends and both key forms, plus coordinate builders,
+plus the regression string itself. Sabotage-checked: restoring the bug fails
+8 tests.
+
+The test's own detector had a false negative first: comparing against
+`payload.replace("'", ...)` matches the *raw* payload when the payload has no
+quote character, so the exact buggy string was reported safe. It asks
+`shlex.quote` now. A gate that cannot see the bug it was written for is
+worse than no gate, which is why the regression string is pinned as its own
+test.
+
 ### Mutation testing, because a convention is not enforcement
 
 The maintainer's objection to skipping MutMut was correct and is worth
