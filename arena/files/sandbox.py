@@ -158,6 +158,63 @@ SENSITIVE_DIR_PREFIXES: frozenset[str] = frozenset({
 _EDIT_BLOCKED_BASENAMES = SENSITIVE_FILE_BASENAMES
 
 
+# Files that grant code execution when *written*, though they are harmless to
+# read. The lists above answer "what must not leak"; this one answers "what
+# must not be replaced" -- a different question the threat model had not been
+# asked.
+#
+# Measured: an authed caller could
+# ``POST /v1/upload?path=/home/user/.bashrc`` and the next shell the operator
+# opened executed their content. That is not a file disclosure, it is code
+# execution on the next login, needing no privilege escalation at all.
+# ``.ssh/authorized_keys`` was already refused; ``.bashrc``, ``.profile``,
+# ``.zshrc``, XDG autostart entries and anything on PATH under
+# ``~/.local/bin`` were not.
+#
+# Read access is deliberately untouched: an agent legitimately inspects shell
+# configuration, and blocking that would break real work for no gain.
+EXECUTION_ON_WRITE_BASENAMES: frozenset[str] = frozenset({
+    # POSIX shells: sourced on interactive/login shells
+    ".bashrc", ".bash_profile", ".bash_login", ".bash_logout",
+    ".profile", ".zshrc", ".zprofile", ".zshenv", ".zlogin", ".zlogout",
+    ".kshrc", ".cshrc", ".tcshrc", ".login",
+    # Editors / multiplexers that execute their config on start
+    ".inputrc", ".vimrc", ".ideavimrc", ".tmux.conf", ".screenrc",
+    # Windows PowerShell profiles
+    "Microsoft.PowerShell_profile.ps1", "profile.ps1",
+})
+
+# Directory subtrees where anything written is executed or auto-started.
+EXECUTION_ON_WRITE_DIR_PREFIXES: frozenset[str] = frozenset({
+    ".config/autostart",   # XDG desktop autostart (.desktop runs at login)
+    ".config/fish",        # fish config.fish + conf.d
+    ".config/systemd",     # systemd --user units
+    ".local/bin",          # conventionally on PATH: replacing a binary hijacks it
+    ".bashrc.d", ".profile.d", ".zshrc.d",
+    "bin",                 # ~/bin, also conventionally on PATH
+})
+
+
+def _execution_on_write_error(target_path: Path, home: Path, *,
+                              action: str) -> tuple[str, int] | None:
+    """Refuse writes that would run code later. ``None`` when the path is clear."""
+    if target_path.name in EXECUTION_ON_WRITE_BASENAMES:
+        return (f"{action} {target_path.name} is not allowed: it is executed "
+                "on shell startup, so writing it would be code execution"), 403
+    try:
+        rel = target_path.resolve().relative_to(home.resolve())
+    except (ValueError, OSError):
+        return None  # outside home: the caller's own root check owns that
+    parts = rel.parts
+    for prefix in sorted(EXECUTION_ON_WRITE_DIR_PREFIXES):
+        want = tuple(prefix.split("/"))
+        for i in range(len(parts) - len(want) + 1):
+            if parts[i:i + len(want)] == want:
+                return (f"{action} files under {prefix}/ is not allowed: "
+                        "they are executed or auto-started"), 403
+    return None
+
+
 def _path_hits_sensitive_prefix(target_path: Path, home: Path) -> str | None:
     """Return the offending prefix when ``target_path`` lives
     inside one of the sensitive directory prefixes, or ``None``
@@ -240,6 +297,9 @@ def validate_upload_target(target: str, *, root: Path, home: Path, bridge_py: Pa
     sens = _sensitivity_error(target_path, home, action="uploading")
     if sens is not None:
         return None, sens[0], sens[1]
+    execw = _execution_on_write_error(target_path, home, action="uploading")
+    if execw is not None:
+        return None, execw[0], execw[1]
     return target_path, None, 200
 
 
@@ -280,6 +340,9 @@ def validate_edit_target(target: str, *, root: Path, home: Path, bridge_py: Path
     sens = _sensitivity_error(target_path, home, action="editing")
     if sens is not None:
         return None, sens[0], sens[1]
+    execw = _execution_on_write_error(target_path, home, action="editing")
+    if execw is not None:
+        return None, execw[0], execw[1]
     if target_path.resolve() == bridge_py.resolve():
         return None, "cannot edit the bridge itself", 403
     if not target_path.exists() or not target_path.is_file():
@@ -312,6 +375,9 @@ def validate_create_target(target: str, *, root: Path, home: Path, bridge_py: Pa
     sens = _sensitivity_error(target_path, home, action="creating")
     if sens is not None:
         return None, sens[0], sens[1]
+    execw = _execution_on_write_error(target_path, home, action="creating")
+    if execw is not None:
+        return None, execw[0], execw[1]
     if target_path.resolve() == bridge_py.resolve():
         return None, "cannot overwrite the bridge itself", 403
     if target_path.exists():

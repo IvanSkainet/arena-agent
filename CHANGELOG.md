@@ -1,5 +1,46 @@
 ## Unreleased
 
+### Live bug: uploading a file was a way to run code
+
+The coverage-as-a-search pass moved from ``arena/exec`` to ``arena/files``,
+the next lowest-covered code that can act on the machine. Probed against a
+live bridge rather than read.
+
+**The traversal defences are genuinely strong.** Absolute paths outside root,
+``../`` climbs, URL-encoded and double-encoded traversal, and symlinks living
+*inside* root but pointing outside it were all refused. ``token.txt``,
+``.ssh/``, ``.aws/``, ``.gitconfig`` and shell history are protected on both
+read and write.
+
+**But the sensitivity lists only answer "what must not leak".** Nobody had
+asked "what must not be *replaced*":
+
+    POST /v1/upload?path=/home/user/.bashrc   ->   200 OK
+
+That is not a file disclosure -- the next shell the operator opens executes
+the caller's content, with no privilege escalation anywhere in the chain. It
+was observed happening: after the probe wrote a marker there, the sandbox's
+own next command printed ``/home/user/.bashrc: line 1: PWNED: command not
+found``, because the poisoned file really was sourced.
+
+``.ssh/authorized_keys`` was already refused. ``.bashrc``, ``.bash_profile``,
+``.profile``, ``.zshrc``, ``~/.config/autostart/*.desktop`` and anything on
+PATH under ``~/.local/bin`` were not.
+
+The fix is a separate write-only list rather than an addition to the existing
+ones, because the two questions have different answers. Reading shell config
+is legitimate agent behaviour and stays allowed -- verified, not assumed.
+Only ``uploading``, ``editing`` and ``creating`` consult it; ``downloading``
+and ``viewing`` do not. Closing upload alone would have left the same
+execution path open through ``fs.edit`` and ``fs.create``.
+
+Pinned by ``tests/test_write_is_not_code_execution.py`` (36 cases): thirteen
+execute-on-write paths across all three write verbs, that reads are still
+permitted, that ordinary files stay writable, that the pre-existing secret
+protections survive, and a structural assertion that the rule is wired into
+the write verbs and *not* the read ones. Sabotage-checked in both directions
+-- removing the check fails 14 tests, over-applying it to reads fails 4.
+
 ### Coverage as a search, not a number: two lifecycle bugs in /v1/exec
 
 Coverage sat at 55.45%. The useful question is not "which lines are dark"
