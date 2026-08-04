@@ -8,6 +8,42 @@ The bridge also has its first published performance numbers, and the
 repository is now actually present in GitHub's topic hubs -- it had no
 description and no topics at all, so it was absent rather than ranked low.
 
+### Renamed: Arena Unified Bridge -> Skainet Bridge
+
+The project shipped under a name that is the trademark of the company whose
+service it can attach to. Their terms are explicit about it: "Arena, Arena
+Intelligence, and all related stylizations ... may not be used without
+permission in connection with your, or any third-party's, products or
+services." Nothing about publishing the code was a problem -- their terms
+disclaim ownership of Output -- but naming the product after them was.
+
+Renamed while the project is small: 4 stars and two open catalogue PRs cost a
+day, a year and a hundred forks would cost a lot more.
+
+Scope is deliberately the brand surface only, because that is the entire
+legal exposure:
+
+    README.md / README.ru.md    display name + a new affiliation disclaimer
+    pyproject.toml              arena-unified-bridge -> skainet-bridge
+    chat_extension/manifest.json  "Arena Chat Bridge MVP" -> "Skainet Chat Bridge"
+
+Internal identifiers are left alone on purpose -- the `arena` Python package
+(686 files import it), 119 `ARENA_*` environment variables, the
+`ArenaUnifiedBridge` Windows service name and the `arena-unified-bridge`
+string in `/health`. Those are implementation details rather than branding,
+they are not user-visible as a product name, and renaming them would break
+every existing installation's service registration and token path for no
+legal benefit. The README says so explicitly rather than leaving it to be
+discovered.
+
+Two things were deliberately *not* touched despite matching the search:
+`chat_extension/parser.js` contains "Arena Chat Bridge" inside protocol
+marker strings that the prompt contract matches on, and the extension still
+lists arena.ai among the chat sites it can attach to. The latter is
+nominative use -- describing compatibility -- and is now stated as such in
+the disclaimer alongside ChatGPT, Claude and Gemini.
+
+5251 tests still pass; no test asserted the display name.
 ### Post-release fix: the badge gate could not pass on a release commit
 
 Cutting v4.159.0 turned the entire test matrix red -- 15 of 35 CI jobs -- on

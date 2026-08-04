@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🌉 Arena Unified Bridge
+# 🌉 Skainet Bridge
 
 **Local automation bridge for AI agents — one process, one port, full control of your machine.**
 
@@ -24,7 +24,7 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 
 - [North star](#north-star)
 - [Mission: the flight computer](#mission-the-flight-computer)
-- [Why Arena Unified Bridge?](#why-arena-unified-bridge)
+- [Why Skainet Bridge?](#why-arena-unified-bridge)
 - [How it works](#how-it-works)
 - [What it can do](#what-it-can-do)
 - [Quick start](#quick-start)
@@ -67,7 +67,7 @@ loop, not a nuisance.
 
 ## Mission: the flight computer
 
-The framing that organizes this project: **Arena Unified Bridge is the onboard
+The framing that organizes this project: **Skainet Bridge is the onboard
 computer of a spacecraft.** The AI agent is the pilot; the machines it reaches
 — a PC, a phone, a browser, a network — are the ship's sensors, actuators and
 subsystems. The observer is mission control. This is not decoration; it sets the
@@ -111,10 +111,10 @@ good.
 
 ---
 
-## Why Arena Unified Bridge?
+## Why Skainet Bridge?
 
 Most "AI + your computer" setups mean juggling several servers: one for MCP, one
-for a REST API, one for browser control, one for the web UI. Arena Unified Bridge
+for a REST API, one for browser control, one for the web UI. Skainet Bridge
 folds all of that into **a single local process** that you start once and point
 your tools at.
 
@@ -328,7 +328,7 @@ More detail: [chat_extension/README.md](chat_extension/README.md).
 
 ## Remote access providers
 
-Arena Unified Bridge treats **Tailscale**, **Cloudflared**, and **ZeroTier** as
+Skainet Bridge treats **Tailscale**, **Cloudflared**, and **ZeroTier** as
 one pool of remote-access providers with a configurable priority and automatic
 failover. If your primary tunnel drops, the Bridge stays reachable through the
 next healthy provider — a single outage does not take the Bridge offline.
@@ -396,7 +396,7 @@ the Bridge — every optional feature degrades gracefully.
 
 ## Security model
 
-Arena Unified Bridge can take powerful actions on the host, so the security model
+Skainet Bridge can take powerful actions on the host, so the security model
 is intentionally explicit. The v4.40.0 → v4.46.0 sweep closed **31 findings** and
 locked in a continuous-security pipeline (see [`SECURITY.md`](SECURITY.md) for
 the full threat model, environment-variable reference, and audit history).
@@ -653,3 +653,23 @@ All calls go through `POST /v1/mcp/call` with JSON body `{"name": "<tool>", "arg
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Naming and affiliation
+
+Skainet Bridge is an independent, unaffiliated open-source project. It is not
+produced, endorsed, sponsored by, or connected with Arena Intelligence, Inc.
+(arena.ai / LMArena), Anthropic, OpenAI, Google, or any other company whose
+product it can talk to.
+
+The browser extension lists several chat sites — including arena.ai, ChatGPT,
+Claude, Gemini and others — purely as pages it can attach to. Those names are
+the trademarks of their respective owners and appear here only to describe
+compatibility, which is nominative use, not a claim of any relationship.
+
+The project was previously named "Arena Unified Bridge". It was renamed to
+avoid any implication of affiliation with Arena Intelligence, Inc. Internal
+identifiers (the `arena` Python package, `ARENA_*` environment variables, the
+`ArenaUnifiedBridge` Windows service name and the `arena-unified-bridge`
+service string in API responses) are deliberately left unchanged for now, so
+existing installations keep working; they are implementation details, not
+branding.
