@@ -71,15 +71,27 @@ def resolve_apk_path(client_path: str, staging_root: Path | None = None) -> Path
     # `~` is a legal filename character, and an uploaded file literally
     # named `~foo.apk` must resolve inside the staging root, not somewhere
     # under /home. Only expand it for paths the caller meant as absolute.
+    # Only `~` and `~/...` are home references. `~anything-else` is a
+    # FILENAME, and it must be treated as one on every platform.
+    #
+    # Deciding that by "did expanduser() raise?" was wrong and CI caught
+    # it: POSIX raises RuntimeError for an unknown user, but Windows
+    # happily expands `~literal-tilde.apk` to a path under C:\Users, so
+    # the same input was a staging file on Linux and an escape attempt on
+    # Windows. Matching on the shape of the string instead makes the
+    # behaviour identical everywhere -- which is the whole point, since
+    # the uploaded filename comes from the network, not from a shell.
     raw = Path(client_path)
-    if client_path.startswith("~"):
+    is_home_ref = client_path == "~" or client_path.startswith(("~/", "~\\"))
+    if is_home_ref:
         try:
             expanded = raw.expanduser()
         except RuntimeError:
-            # No such user -- so this was never a home-directory
-            # reference, just a filename that happens to start with `~`.
-            # Treat it as staging-relative rather than blowing up.
-            expanded = raw
+            return _err(
+                "could not determine the home directory for "
+                f"{client_path!r}",
+                hint="Pass a path relative to the staging directory.",
+            )
         p = expanded if expanded.is_absolute() else root / expanded
     else:
         p = raw

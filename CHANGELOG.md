@@ -55,6 +55,16 @@ then failed for unrelated reasons and hid the escape. With a real directory
 behind the link the write goes straight through. A guard test that passes
 for the wrong reason is worse than no guard test.
 
+Postscript: the first version of this fix went red on Windows only.
+`~literal-tilde.apk` is a filename on POSIX -- `expanduser()` raises for an
+unknown user -- but Windows expands it to a path under `C:\Users`, so the
+same upload was a staging file on one runner and a rejected escape on
+another. Deciding "is this a home reference?" by whether `expanduser()`
+threw was the mistake; the rule is now purely lexical (`~` and `~/...` are
+home references, everything else is a filename). The guard simulates both
+platforms' `expanduser()` so the disagreement fails locally in twelve
+seconds instead of on CI in twelve minutes.
+
 ### `adb shell` was a remote code execution primitive
 
 `arena/mobile` was the last barely-covered block that acts on hardware, so it

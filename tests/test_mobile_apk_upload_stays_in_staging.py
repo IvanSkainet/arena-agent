@@ -298,3 +298,60 @@ def test_absolute_filename_says_why_not_just_that_it_failed(staging, tmp_path):
         f"got {result['error']!r}"
     )
     assert result.get("staging_root")
+
+
+def test_tilde_handling_is_identical_on_posix_and_windows(staging, monkeypatch):
+    """The `~` rule must not depend on what `expanduser()` does locally.
+
+    This failed on CI and only on CI. POSIX `expanduser()` raises
+    RuntimeError for an unknown user, so `~literal-tilde.apk` fell through
+    to "it's just a filename". Windows expands it to a path under
+    C:\\Users instead -- so the identical upload was a staging file on one
+    runner and a rejected escape on another.
+
+    The classification is now purely lexical (`~` or `~/...` is a home
+    reference, anything else is a filename), which is the only way to get
+    one answer for input that arrives over the network. Both platforms'
+    expanduser behaviours are simulated here so the property is checked on
+    every runner rather than on whichever one happens to disagree.
+    """
+    import pathlib
+
+    from arena.mobile import apk_paths
+
+    real_expanduser = pathlib.Path.expanduser
+
+    def windows_like(self):
+        text = str(self)
+        if text.startswith("~"):
+            return pathlib.Path("/simulated/home") / text[1:].lstrip("/\\")
+        return self
+
+    def posix_like(self):
+        return real_expanduser(self)
+
+    verdicts = {}
+    for label, impl in (("posix", posix_like), ("windows", windows_like)):
+        monkeypatch.setattr(pathlib.Path, "expanduser", impl)
+        verdicts[label] = {}
+        for name in ("~literal-tilde.apk", "~nosuchuser-zzz/x.apk",
+                     "~/escape.apk", "~"):
+            result = apk_paths.resolve_apk_path(name, staging)
+            # A Path result or a plain "not found" both mean the name was
+            # accepted as staging-relative; only the containment refusal
+            # means the name was treated as pointing outside.
+            #
+            # Match the exact message, not the substring "staging": the
+            # "apk not found: <path>" text embeds the staging path itself,
+            # so a loose check reports every missing file as an escape.
+            escaped = (isinstance(result, dict)
+                       and str(result.get("error", "")).startswith(
+                           "apk_path must live under the staging directory"))
+            verdicts[label][name] = escaped
+
+    assert verdicts["posix"] == verdicts["windows"], (
+        "the same filename is classified differently depending on the "
+        f"platform's expanduser(): {verdicts}"
+    )
+    assert verdicts["posix"]["~literal-tilde.apk"] is False
+    assert verdicts["posix"]["~/escape.apk"] is True
