@@ -1,3 +1,43 @@
+## Unreleased
+
+### One preflight command, because 12 minutes is the wrong feedback loop
+
+The operator's point about batching work into larger commits was right, and
+measuring it made the underlying problem obvious. Over the last 25 CI runs:
+19 green, 3 failed, 3 cancelled -- a 12% failure rate, median runtime
+**12.3 minutes**. And half the recent commits on this branch are one-file,
+one-line follow-ups fixing exactly those failures.
+
+All three failures were catchable locally and were not, because the local
+checks were assembled from memory each time:
+
+    17cec54e  actionlint passed locally, failed in CI -- CI runs it *with*
+              shellcheck (SC2012); the local binary had none on PATH
+    6ba7b06a  a test read /proc, which macOS does not have
+    7041c57d  the badge gate asserted something unsatisfiable on a release commit
+
+`scripts/preflight.py` is one command that runs every gate that has actually
+reddened this project. It takes **12 seconds** (148s with `--full`), and it
+fails closed when a tool is missing -- "the check did not run" and "the check
+passed" must never look the same.
+
+Verified by reproducing the real failures rather than trusting the design:
+restoring the exact SC2012 line from 17cec54e makes preflight fail in 12
+seconds with the same message CI took 12.3 minutes to produce, and a badge
+ahead of the tree fails too.
+
+**Two heuristics were tried for the platform class and both were removed.**
+A substring scan flagged the word "systemd-run" inside a docstring that
+explains that very bug. An AST scan over string literals then flagged three
+files that are green on macOS in CI, because the strings were
+`monkeypatch.setattr(R, "_have", lambda c: c == "systemd-run")` and
+`restricted_shell("dummy", "cat /proc/version ...")` -- mocks and fixtures,
+not system access. Three false positives from three findings is not a
+checker, it is something you learn to skip. Telling "this string names a
+Linux path" from "this string reaches the OS" needs dataflow, not pattern
+matching. The reasoning is recorded in the function that now returns
+unconditionally, so the next person does not try it a third time.
+
 ## v4.161.0 — 2026-08-04
 
 Six live defects, all found the same way: pick the code that can act on the

@@ -262,6 +262,30 @@ Skill packages (vendored, cross-platform):
 
 ## Validation before pushing meaningful changes
 
+**Start here — one command, ~12 seconds:**
+
+```bash
+python scripts/preflight.py          # add --full before a release
+```
+
+It runs every gate that has actually reddened this project's CI, and fails
+closed when a tool is missing (a skipped check must never read as a pass).
+Measured over 25 CI runs: 12% failed, and all of them on things a local
+command could have caught. CI takes ~12 minutes to say the same thing, which
+is why half the recent commits here are one-line follow-ups.
+
+Notably it runs `actionlint -shellcheck shellcheck`. Plain `actionlint` is
+not enough: CI runs it *with* shellcheck, which is how SC2012 slipped through
+once and cost a build.
+
+One class it genuinely cannot catch: platform differences. A test that reads
+`/proc` passes everywhere locally and fails the whole macOS matrix. Two
+automated heuristics for this were tried and both produced only false
+positives (documented in `scripts/preflight.py`); the defence is the CI
+matrix plus writing tests against portable properties.
+
+The longer form, still valid:
+
 ```bash
 python -m py_compile scripts/*.py bin/*.py arena/**/*.py
 python -m ruff check . --select F821,F811
