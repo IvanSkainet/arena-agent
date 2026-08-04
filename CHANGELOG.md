@@ -1,5 +1,34 @@
 ## Unreleased
 
+### Discoverability: measured, then fixed what was actually broken
+
+The repository had `description: null` and zero topics, so it was absent from
+every GitHub topic hub -- not ranked low, absent. Sixteen topics and a
+description are now published via the API.
+
+Beyond that, the MCP catalogue landscape was checked against its own docs
+rather than assumed:
+
+- **`punkpeye/awesome-mcp-servers`** -- entry prepared on branch
+  `IvanSkainet:add-arena-unified-bridge` under *OS Automation*, one line, legend
+  followed, verified as exactly `1 insertion(+)` with the `### ` heading count
+  unchanged. Their CONTRIBUTING explicitly fast-tracks agent PRs marked
+  `🤖🤖🤖`. The PR itself needs a human click: a fine-grained PAT cannot open
+  pull requests against third-party repositories.
+- **`modelcontextprotocol/servers`** -- the third-party server list has been
+  *retired* in favour of the official MCP Registry, and that repo now states it
+  does not accept new server implementations. A PR there would have been
+  rejected by policy.
+- **Official MCP Registry** -- the canonical source other catalogues read from,
+  but it indexes packages, not repositories: publishing requires an artifact on
+  PyPI/npm/NuGet/OCI/MCPB plus an `mcp-name:` ownership token. Not a blocker,
+  a prerequisite -- package first, registry second.
+- **Glama** -- `glama.json` added and validated with `jsonschema` against the
+  live schema fetched from `glama.ai`, so the indexer uses our metadata when
+  the submission happens.
+
+Written up with the reasoning in `docs/github_apps_actions_survey.md`.
+
 ### Live bug: the rate limiter permanently banned any client that retried
 
 Measuring bridge latency needed the limiter out of the way, which is how it
