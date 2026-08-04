@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""Mutation gate: prove the security tests notice when the code changes.
+
+Why this exists, in one measurement. On 2026-08-04 this repository had 406
+test files. Six mentioned sabotage. AGENTS.md did not contain the word --
+the "sabotage every new gate" rule lived only in a conversation.
+
+The operator's argument settled it: a convention depends on an agent
+choosing to follow it, a red CI job does not. Agents skip conventions they
+were not forced into; they do not skip failing builds.
+
+Pointed at ``arena/files/sandbox.py``, mutmut found 216 mutants and 95
+survivors. Most were harmless -- error-message wording, or the second half
+of a defence-in-depth pair (breaking the ``..`` check still leaves the
+resolve-and-compare check; verified by applying that mutant and watching
+traversal stay refused). One was not:
+
+    -    if target_path.resolve() == bridge_py.resolve():
+    +    if target_path.resolve() != bridge_py.resolve():
+
+One flipped operator inverts the bridge's self-protection:
+
+    edit the bridge itself  ->  200  (allowed)
+    edit an ordinary file   ->  403  "cannot edit the bridge itself"
+
+An agent could rewrite ``unified_bridge.py`` -- every policy and audit call
+in it -- while ordinary work broke. All 406 test files passed, because
+nothing asserted that the bridge protects itself in *either* direction.
+``tests/test_bridge_self_protection.py`` now does; five of its tests catch
+that mutant.
+
+**Scope is narrow on purpose, and the number is measured.** Mutating one
+file takes ~2 minutes; the whole ``arena/`` tree (41,436 statements) would
+take ~13 hours and produce a figure nobody reads. This gate covers the file
+where a surviving mutant most directly means "a security decision can be
+silently wrong", and the baseline ratchets: the count may fall, never rise.
+
+Usage:
+    python scripts/mutation_gate.py                 # check against baseline
+    python scripts/mutation_gate.py --write-baseline
+    python scripts/mutation_gate.py --list          # show survivors
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+BASELINE = ROOT / "scripts" / "mutation_baseline.json"
+CACHE = ROOT / ".mutmut-cache"
+
+# source file -> tests that actually import and exercise it. Pointing this at
+# tests that do not touch the file produces a meaningless 100% survival rate;
+# that mistake was made once while building this and is why the check below
+# refuses a run where nothing dies.
+TARGETS: dict[str, tuple[str, ...]] = {
+    "arena/files/sandbox.py": (
+        "tests/test_write_is_not_code_execution.py",
+        "tests/test_bridge_self_protection.py",
+        "tests/test_files_sandbox_v442_hardening.py",
+    ),
+}
+
+
+def _run_one(source: str, tests: tuple[str, ...]) -> tuple[int, int]:
+    """Return (survived, total). Fails closed on any tooling problem."""
+    existing = [t for t in tests if (ROOT / t).exists()]
+    missing = [t for t in tests if not (ROOT / t).exists()]
+    if missing:
+        raise SystemExit(f"FAIL-CLOSED: guarding tests missing for {source}: {missing}")
+
+    CACHE.unlink(missing_ok=True)
+    runner = "python3 -m pytest -x -q --no-cov -p no:randomly " + " ".join(existing)
+    proc = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
+        ["mutmut", "run", "--paths-to-mutate", source,
+         "--runner", runner, "--no-progress"],
+        cwd=ROOT, capture_output=True, text=True, timeout=1800,
+    )
+    if not CACHE.exists():
+        sys.stderr.write((proc.stdout or "")[-2000:] + (proc.stderr or "")[-2000:])
+        raise SystemExit(f"FAIL-CLOSED: mutmut produced no results for {source}")
+
+    con = sqlite3.connect(CACHE)
+    try:
+        counts = dict(con.execute(
+            "select status, count(*) from Mutant group by status").fetchall())
+    finally:
+        con.close()
+
+    survived = int(counts.get("bad_survived", 0))
+    killed = int(counts.get("ok_killed", 0))
+    total = sum(int(v) for v in counts.values())
+    if total == 0:
+        raise SystemExit(f"FAIL-CLOSED: zero mutants generated for {source}")
+    if killed == 0:
+        raise SystemExit(
+            f"FAIL-CLOSED: nothing was killed in {source}. The listed tests "
+            "probably do not exercise this file, which makes the survival "
+            "count meaningless rather than alarming.")
+    return survived, total
+
+
+def _list_survivors() -> None:
+    if not CACHE.exists():
+        raise SystemExit("no .mutmut-cache; run the gate first")
+    con = sqlite3.connect(CACHE)
+    rows = con.execute(
+        "select m.id, l.line_number, l.line from Mutant m "
+        "join Line l on m.line = l.id where m.status='bad_survived' "
+        "order by l.line_number").fetchall()
+    con.close()
+    print(f"{len(rows)} surviving mutants (inspect one with: mutmut show <id>)")
+    for mid, lineno, line in rows:
+        print(f"  #{mid:<5} L{lineno:<5} {(line or '').strip()[:88]}")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--write-baseline", action="store_true")
+    ap.add_argument("--list", action="store_true")
+    args = ap.parse_args()
+
+    if args.list:
+        _list_survivors()
+        return 0
+
+    if shutil.which("mutmut") is None:
+        # Optional dependency: skipping is honest, silently passing is not.
+        print("SKIP: mutmut is not installed (pip install mutmut==2.5.1)")
+        return 1 if args.write_baseline else 0
+
+    results: dict[str, int] = {}
+    for source, tests in TARGETS.items():
+        if not (ROOT / source).exists():
+            raise SystemExit(f"FAIL-CLOSED: target {source} does not exist")
+        survived, total = _run_one(source, tests)
+        results[source] = survived
+        print(f"  {source:38s} survived {survived:4d} / {total}")
+
+    if args.write_baseline:
+        BASELINE.write_text(json.dumps(results, indent=1, sort_keys=True) + "\n",
+                            encoding="utf-8")
+        print(f"baseline written: {BASELINE.relative_to(ROOT)}")
+        return 0
+
+    if not BASELINE.exists():
+        raise SystemExit("FAIL-CLOSED: no baseline; run --write-baseline and "
+                         "review the number before committing it")
+    floor = json.loads(BASELINE.read_text(encoding="utf-8"))
+
+    grew = {k: (floor.get(k, 0), v) for k, v in results.items() if v > floor.get(k, 0)}
+    if grew:
+        print("\nMUTATION DEBT GREW (ratchet blocks this):")
+        for k, (was, now) in sorted(grew.items()):
+            print(f"  {k}: {was} -> {now} (+{now - was})")
+        print("\nA new surviving mutant means the tests cannot distinguish your "
+              "code from a broken version of it.\n"
+              "Inspect with: python scripts/mutation_gate.py --list")
+        return 1
+
+    for k, v in sorted(results.items()):
+        if k in floor and v < floor[k]:
+            print(f"  improved: {k} {floor[k]} -> {v}; lower the floor with "
+                  "--write-baseline")
+    print("OK: surviving mutants at/below baseline.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

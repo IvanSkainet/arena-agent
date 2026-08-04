@@ -98,6 +98,20 @@ an observer sees the real thing work.
 - **A gate that is always green is suspicious.** Ratchets and contracts
   exist to be occasionally red. Negative-test the gate itself when you
   build one.
+- **Sabotage every new gate before you claim it works.** Deliberately
+  reintroduce the bug the gate was written for, confirm the gate fails,
+  then restore. A gate that has never been observed failing is a
+  decoration. This is mandatory, not a suggestion.
+  - Restore with `git checkout --` or a fresh write, then delete
+    `__pycache__`: copying a backup file back with `cp` preserves its
+    mtime, so Python happily keeps serving the *mutant* `.pyc`. That
+    cost an hour once — the source read correctly while the imported
+    module was still the sabotaged one.
+  - Do not rely on this rule alone. Measured 2026-08-04: 406 test files
+    existed, six mentioned sabotage, and this document did not contain
+    the word. A rule that depends on remembering is not enforcement,
+    which is why `scripts/mutation_gate.py` now checks it mechanically.
+
 - Scanners check *pattern classes*, not *product invariants*. The worst
   historical bugs of this repo (broken `pip install` during a green CI,
   dropped Python-3.10 marker deps) were caught only by end-to-end

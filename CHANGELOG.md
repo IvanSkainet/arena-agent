@@ -1,5 +1,53 @@
 ## Unreleased
 
+### Mutation testing, because a convention is not enforcement
+
+The maintainer's objection to skipping MutMut was correct and is worth
+recording verbatim in effect: *not every agent will honour the mandatory
+sabotage rule without being forced; a red CI job they will not ignore.*
+
+Measured, and the numbers made the case. 406 test files existed. Six
+mentioned sabotage. `AGENTS.md` did not contain the word at all -- the rule
+that has caught real bugs in this project lived only in a conversation.
+
+Pointing mutmut at `arena/files/sandbox.py` produced 216 mutants, **95
+surviving**. Most are harmless: error-message wording, or the second half of
+a defence-in-depth pair -- applying the mutant that breaks the `..` check
+confirmed traversal is still refused by the resolve-and-compare check behind
+it. One was not harmless:
+
+    -    if target_path.resolve() == bridge_py.resolve():
+    +    if target_path.resolve() != bridge_py.resolve():
+
+One flipped operator inverts the bridge's self-protection. Applied and driven
+directly:
+
+    edit the bridge itself  ->  200  (allowed)
+    edit an ordinary file   ->  403  "cannot edit the bridge itself"
+
+An agent could rewrite `unified_bridge.py` -- every policy and every audit
+call inside it -- while ordinary work became impossible. **The entire suite
+passed**, because nothing asserted that the bridge protects itself in either
+direction. Asserting only the refusal would not have helped: the inverted
+form refuses too, just everything else.
+
+`tests/test_bridge_self_protection.py` asserts both halves, across all three
+write validators, plus that a same-named file elsewhere is not the bridge and
+that a symlink to it still is. Five of its tests catch the mutant.
+
+`scripts/mutation_gate.py` makes it mechanical. Scope is narrow and the
+number is measured rather than guessed: one file takes ~2 minutes, the whole
+`arena/` tree would take ~13 hours and produce a figure nobody reads. The
+baseline ratchets -- 89 survivors today, down from 95 because the new tests
+already killed six -- and it fails closed if nothing dies, which catches the
+mistake of pointing it at tests that never import the target (made once while
+building this).
+
+`AGENTS.md` now states the sabotage rule explicitly, including the trap that
+cost an hour here: restoring a sabotaged file with `cp` preserves its mtime,
+so Python keeps serving the *mutant* `.pyc` while the source reads correctly.
+Delete `__pycache__` after restoring.
+
 ### Live gap: a tool description is instruction text, and nothing guarded it
 
 Eight advanced checks were proposed (fuzzing, DAST, load testing, license
