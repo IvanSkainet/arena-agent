@@ -74,7 +74,17 @@ def restricted_shell(serial: str, command: str, *, timeout: int = 15) -> dict[st
     if len(command) > 2048:
         return _err(f"command too long ({len(command)} chars; max 2048)")
 
-    forbidden_chars = [";", "&&", "||", "|", "`", "$(", ">", "<", "\n", "\r"]
+    # v4.162.0: `&` (bare), glob characters and `~` were MISSING from this
+    # list. That was a live RCE, not a theoretical one: adbd joins the argv
+    # of `adb shell` with spaces and runs the result through the device's
+    # /system/bin/sh, so `ls /data & touch /tmp/PWNED` passed validation and
+    # then executed BOTH commands on the phone (reproduced end to end).
+    # `&` is checked before `&&`/`||` so it subsumes them; they stay listed
+    # for the clearer error message they produce is not worth losing.
+    forbidden_chars = [
+        ";", "&", "|", "`", "$(", "${", "$", ">", "<", "\n", "\r",
+        "*", "?", "~", "(", ")", "{", "}", "!", "#", "\\",
+    ]
     for ch in forbidden_chars:
         if ch in command:
             return _err(

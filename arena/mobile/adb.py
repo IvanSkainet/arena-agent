@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -133,6 +134,42 @@ class AdbNotFoundError(RuntimeError):
     """Raised when we cannot locate an adb binary on this host."""
 
 
+def quote_shell_args(args: list[str]) -> list[str]:
+    """Quote the argv of an `adb shell` invocation for the DEVICE shell.
+
+    This is the fix for a live RCE (bug #40, v4.162.0). `adb shell a b c`
+    does NOT exec an argv the way `subprocess.run([...])` does on the host:
+    adbd joins the arguments with spaces and hands the resulting STRING to
+    `/system/bin/sh` on the phone. So passing a Python list buys exactly
+    zero protection on the device side -- any metacharacter surviving in a
+    single element is interpreted by the device shell.
+
+    Verified by execution against an adbd stand-in that reproduces the
+    join-and-`sh -c` behaviour:
+
+        restricted_shell(serial, "ls /data & touch /tmp/PWNED")  -> file created
+
+    `restricted_shell` blocked `;`, `&&`, `||`, `|`, backticks and `$(`,
+    but a BARE `&` was not on that blocklist -- and neither were glob
+    characters or `~`, both of which the device shell expands. The same
+    hole existed in `input.type_text`, whose `%s` space-escaping was
+    bypassed with `$IFS`.
+
+    Quoting here rather than in each caller is deliberate: there are 33
+    `run(["shell", ...])` sites across arena/mobile, and a per-caller fix
+    is one forgotten call away from regressing. Non-`shell` invocations
+    (`push`, `pull`, `install`, `forward`, ...) never reach a device shell
+    and are returned untouched so their semantics do not change.
+
+    `sh -c` payloads (recording.py builds one deliberately) are quoted as
+    a single argument, which keeps them working exactly as intended while
+    still preventing the wrapper argv from splitting.
+    """
+    if not args or args[0] != "shell":
+        return list(args)
+    return ["shell", *(shlex.quote(a) for a in args[1:])]
+
+
 def run(
     args: list[str],
     *,
@@ -180,7 +217,7 @@ def run(
     cmd: list[str] = [adb]
     if effective:
         cmd += ["-s", effective]
-    cmd += args
+    cmd += quote_shell_args(args)
 
     kwargs: dict[str, Any] = {"timeout": timeout, **_SUBPROCESS_KWARGS}
     if capture_binary:

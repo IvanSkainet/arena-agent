@@ -1,5 +1,52 @@
 ## Unreleased
 
+### `adb shell` was a remote code execution primitive
+
+`arena/mobile` was the last barely-covered block that acts on hardware, so it
+got the same treatment as the others: rank by what can reach the device, then
+run it against a real adbd instead of reasoning about it. That found a live
+RCE, reproduced end to end.
+
+The mistake is subtle and it is easy to make. On the host,
+`subprocess.run(["ls", "a; rm -rf /"])` is safe -- the argv is passed to
+`execve`, and no shell ever sees the semicolon. `adb shell` looks identical in
+Python but is not: **adbd joins the arguments with spaces and hands the
+resulting string to `/system/bin/sh` on the phone.** Passing a list buys
+exactly zero protection on the device side.
+
+`restricted_shell` had a metacharacter blocklist and it looked thorough --
+`;`, `&&`, `||`, `|`, backticks, `$(`, redirects, newlines. It did not list a
+bare `&`. Against an adbd stand-in:
+
+    restricted_shell(serial, "ls /data & touch /tmp/PWNED")
+    -> {"ok": True, ...}, and /tmp/PWNED exists.
+
+The allowlist head-command check passed (`ls` is allowed), the blocklist saw
+nothing it knew, and the phone ran both commands. Glob characters and `~` got
+through the same way and are expanded by the device shell.
+
+`input.type_text` had the same hole through a different door. Its `%s`
+space-escaping is a real requirement of the `input text` CLI, but it was also
+being relied on as a security boundary -- and `$IFS` is a space the escaping
+never sees: `hi&touch$IFS/tmp/T3` created the file.
+
+The fix is one function in one place. `arena.mobile.adb.quote_shell_args`
+quotes the argv of every `shell` invocation for the DEVICE shell, and it lives
+inside `run()` so none of the 33 call sites can forget it. Non-`shell`
+invocations (`push`, `pull`, `install`, `forward`) never reach a device shell
+and are passed through untouched. The blocklist was widened too, as a
+fail-closed second layer, and the widening was checked against fifteen real
+diagnostic commands -- `dumpsys battery`, `settings get ...`, `logcat -d -t 50`
+and the rest -- because a validator that rejects legitimate input gets
+disabled, which is worse than no validator.
+
+`tests/test_mobile_adb_shell_injection.py` installs an adbd stand-in that
+reproduces the join-and-`sh -c` behaviour, so the guard tests the actual
+device semantics rather than a mock of our own assumptions. A ratchet also
+fails the build if any module under `arena/mobile` spawns adb outside
+`adb.run`. All three defences were sabotaged individually and each caught its
+own regression.
+
 ### Inventory: 46 collectors, and a canary hunt through all of them
 
 `arena/inventory` was the next barely-covered block that touches the machine

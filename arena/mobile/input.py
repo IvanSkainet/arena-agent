@@ -230,6 +230,14 @@ def type_text(serial: str, text: str) -> dict[str, Any]:
         return guard
 
     # `input text` treats spaces as separators — %s is the documented escape.
+    #
+    # v4.162.0: this substitution alone was NOT a security boundary. adbd
+    # joins the argv and runs it through the device shell, so `$IFS` served
+    # as a space and `hi&touch$IFS/tmp/T3` executed `touch` on the phone
+    # (reproduced end to end). The real quoting now happens centrally in
+    # `arena.mobile.adb.quote_shell_args`; the %s dance below stays because
+    # `input text` itself still needs it to receive spaces as literal
+    # characters rather than as argument separators.
     safe = text.replace("\\", "\\\\").replace(" ", "%s").replace("'", "\\'")
     try:
         r = run(["shell", "input", "text", safe], serial=serial, timeout=15)
