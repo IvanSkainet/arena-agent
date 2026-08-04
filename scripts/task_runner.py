@@ -90,7 +90,7 @@ def run_one_file(p: Path):
         env.update({str(k): str(v) for k,v in task['env'].items()})
     t0 = time.time()
     try:
-        proc = subprocess.run(task['cmd'], shell=True, cwd=str(cwd), env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+        proc = subprocess.run(task['cmd'], shell=True, cwd=str(cwd), env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)  # nosec B602 -- a task queue whose contract IS 'run this shell command'; the trust boundary is who may write to the queue dir, not this line
         duration = round(time.time() - t0, 3)
         out, err = proc.stdout, proc.stderr
         truncated = False

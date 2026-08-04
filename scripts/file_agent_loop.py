@@ -37,7 +37,7 @@ def main():
                         h.write(f"[{timestamp}] Q: {query}\n")
 
                     # Execute as command
-                    res = subprocess.run(query, shell=True, capture_output=True, text=True)
+                    res = subprocess.run(query, shell=True, capture_output=True, text=True)  # nosec B602 -- this loop's entire purpose is to execute the operator's own shell query dropped in a local file
                     response_text = f"=== COMMAND EXECUTION RESULT ===\nExit Code: {res.returncode}\n\nSTDOUT:\n{res.stdout}\n\nSTDERR:\n{res.stderr}"
 
                     RESPONSE.write_text(response_text, encoding="utf-8")

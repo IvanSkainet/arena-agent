@@ -14,10 +14,18 @@ if cmd == "sync":
     import shutil
     git_bin = shutil.which("git")
     if git_bin:
+        # argv form, no shell: REPO_DIR is derived from ARENA_AGENT_HOME, so
+        # interpolating it into a shell string let the path itself carry
+        # commands -- ARENA_AGENT_HOME="/tmp/x; touch /tmp/PWNED; echo "
+        # turned `cd {REPO_DIR} && git pull` into three commands. Verified by
+        # execution before the fix. `cd` becomes cwd= on the child instead.
         if not REPO_DIR.exists():
-            subprocess.run(f"git clone https://github.com/obra/superpowers.git {REPO_DIR}", shell=True)
+            subprocess.run([git_bin, "clone",  # nosec B603 -- argv form, fixed git binary from shutil.which
+                            "https://github.com/obra/superpowers.git", str(REPO_DIR)],
+                           check=False)
         else:
-            subprocess.run(f"cd {REPO_DIR} && git pull", shell=True)
+            subprocess.run([git_bin, "pull"],  # nosec B603 -- argv form, fixed git binary from shutil.which
+                           cwd=str(REPO_DIR), check=False)
     else:
         print("[NOTICE] Git not found. Downloading Superpowers zip directly from GitHub...")
         zip_url = "https://github.com/obra/superpowers/archive/refs/heads/main.zip"

@@ -147,7 +147,7 @@ def collect_all():
 
         # 6. Network details
         try:
-            net_res = subprocess.run("powershell -NoProfile -Command \"Get-NetIPAddress -AddressFamily IPv4 | Where-Object IPAddress -notmatch '127.0.0.1' | Select-Object IPAddress, InterfaceAlias | ConvertTo-Json\"", capture_output=True, text=True, shell=True)
+            net_res = subprocess.run("powershell -NoProfile -Command \"Get-NetIPAddress -AddressFamily IPv4 | Where-Object IPAddress -notmatch '127.0.0.1' | Select-Object IPAddress, InterfaceAlias | ConvertTo-Json\"", capture_output=True, text=True, shell=True)  # nosec B602 -- fixed PowerShell literal, nothing interpolated
             if net_res.stdout.strip():
                 net_data = json.loads(net_res.stdout)
                 info["network"]["adapters"] = net_data

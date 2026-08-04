@@ -10,7 +10,7 @@ import textwrap
 
 AURL=os.getenv('AURL') or os.getenv('ARENA_BRIDGE_URL') or ''
 ATOK=os.getenv('ATOK') or os.getenv('ARENA_BRIDGE_TOKEN') or ''
-def run(c): return subprocess.run(c,shell=True,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=20)
+def run(c): return subprocess.run(c,shell=True,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=20)  # nosec B602 -- operator-side CLI helper: `c` is a shell command literal composed in this file, not caller input
 def doctor(a):
     checks={'python':shutil.which('python3') or shutil.which('python'),'curl':shutil.which('curl'),'wget':shutil.which('wget'),'requests':False,'AURL':bool(AURL),'ATOK':bool(ATOK)}
     try:

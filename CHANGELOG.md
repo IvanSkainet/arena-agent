@@ -1,3 +1,51 @@
+## Unreleased
+
+### Security review: six false positives, and one real injection they missed
+
+A scanner reported "command injection from dynamic arguments" against six
+locations plus an RCE via `pull_request_target` in `.github/workflows/
+check-glama.yml`. Checked before fixing, per the rule that a security finding
+is a claim until measured.
+
+**The RCE report has no subject.** `check-glama.yml` does not exist in this
+repository. The one workflow that does take PRs, `relock-dependabot.yml`,
+already uses `pull_request` (not `_target`) with `permissions: {}` at the top
+level, and says why in a comment.
+
+**Five of the six Python locations contain no `shell=True` at all.** They
+build argv lists and run `sys.executable`. What tripped the scanner is
+`*paths` splatted into the list -- which is the recommended fix, not the bug:
+data arrives as separate argv entries, so no shell ever parses it.
+
+**The sixth was pointed at a stub.** `hwinfo_cim.py:145-148` constructs a
+`subprocess.CompletedProcess` returned when the pass budget is exhausted; it
+starts no process. The file's two textual `shell=True` matches are prose in
+comments, one of which literally asks that grepping for it return nothing.
+Verified by execution: legitimate class names reach `subprocess.run` with
+`shell=False`, while `;`, `&`, backtick and `$( )` payloads are rejected by
+the whitelist before anything spawns.
+
+**Then the gate written to pin all that down found a real one the scanner
+never reported.** `scripts/superpowers_manager.py` interpolated `REPO_DIR`
+-- derived from `ARENA_AGENT_HOME` -- into a shell string:
+
+    subprocess.run(f"cd {REPO_DIR} && git pull", shell=True)
+
+With `ARENA_AGENT_HOME="/tmp/x; touch /tmp/PWNED; echo "` that is three
+commands. Confirmed by running it and watching the marker file appear, then
+confirmed safe after the fix (argv form, `cd` becomes `cwd=`).
+
+Six other genuine `shell=True` call sites are deliberate -- a task queue whose
+contract is "run this shell command", operator-side CLI helpers, one fixed
+PowerShell literal. They keep the shell and now carry a written `nosec`
+justification instead of being silently present.
+
+`tests/test_subprocess_shell_policy.py` asserts the properties rather than
+the findings: the reported files stay argv-only, `argv[0]` is never computed,
+every `shell=True` in `arena/` and `scripts/` carries a justification, and
+the hwinfo whitelist rejects six injection payloads while still passing
+legitimate queries. Sabotage-checked both ways.
+
 ## v4.160.0 — 2026-08-04
 
 Two corrections that only a real release could expose: the project
