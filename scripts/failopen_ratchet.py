@@ -210,7 +210,12 @@ def scan_file(path: pathlib.Path) -> list[tuple[int, str, str]]:
 def collect() -> list[tuple[str, int, str, str]]:
     out: list[tuple[str, int, str, str]] = []
     for path in sorted((ROOT / "arena").rglob("*.py")):
-        rel = str(path.relative_to(ROOT))
+        # as_posix(), not str(): Windows renders this as
+        # `arena\admin\zerotier_central.py`, which matches no allowlist key
+        # and turned every reviewed entry back into a "new candidate" on
+        # five Windows runners. The keys are written with forward slashes
+        # because a review record should read the same everywhere.
+        rel = path.relative_to(ROOT).as_posix()
         for lineno, shape, source in scan_file(path):
             out.append((rel, lineno, shape, source))
     return out

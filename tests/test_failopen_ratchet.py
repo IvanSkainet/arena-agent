@@ -218,3 +218,18 @@ def test_allowlist_entries_point_at_real_lines():
             stale.append(f"{key} (past end of file)")
 
     assert not stale, "stale allowlist entries:\n  " + "\n  ".join(stale)
+
+
+def test_candidate_keys_use_forward_slashes():
+    """Regression: Windows reported every reviewed entry as new.
+
+    `str(path.relative_to(ROOT))` renders `arena\\admin\\x.py` there, which
+    matches no allowlist key, so five Windows runners went red claiming
+    the tree was full of fresh fail-opens. Fourth platform-specific slip
+    of this cycle, and the same shape each time: the logic was portable,
+    the way it was written down was not.
+    """
+    for rel, _ln, _shape, _src in ratchet.collect():
+        assert "\\" not in rel, f"backslash in candidate key: {rel!r}"
+    for key in ratchet.ALLOWLIST:
+        assert "\\" not in key, f"backslash in allowlist key: {key!r}"
