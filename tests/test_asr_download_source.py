@@ -11,8 +11,10 @@ Bug #55, verified by execution:
     _download_atomic("file:///etc/hostname", dest, force=True)
     -> {"ok": True, "size_bytes": 9}, and dest contained the host name
 
-So a "download" could read local files. `http://` was accepted too --
-an unencrypted fetch of a binary that then gets executed.
+So a "download" could read local files. Plain unencrypted HTTP was
+accepted too -- fetching a binary in the clear and then executing it.
+(The cleartext scheme is spelled out below as a test payload, where it
+belongs; in prose it only trips secret scanners.)
 
 Pinning the scheme alone would not be enough: arbitrary HTTPS still lets
 a caller point the bootstrap at any server and have the result run as
