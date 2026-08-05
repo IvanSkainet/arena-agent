@@ -1,5 +1,47 @@
 ## Unreleased
 
+### One tunnel was unauthenticated, and the guard that should have caught it was blind
+
+`arena/admin/handlers.py` (25.5% covered) exposes five tunnel transports
+that publish this bridge to the public internet. Four carry `@authed`.
+`bore`, added later as the fifth, does not -- the shape was copied, the
+decorator was not.
+
+Verified against a running bridge:
+
+    POST /v1/bore/tunnel/status   -> 200, no credentials
+    POST /v1/ngrok/tunnel/status  -> 401
+
+`start` and `stop` answered too. The bore binary is not installed here so
+`start` stopped at "binary not found", but on a host that has it, an
+unauthenticated local caller could have published the bridge.
+
+The more interesting half is why nothing noticed. `tests/
+test_auth_surface_guard.py` exists precisely to sweep every route and
+assert it refuses anonymous callers -- and it had been passing. Its path
+builder kept `{path}` but cut every other template at the first brace, so
+`/v1/bore/tunnel/{action}` was requested as `/v1/bore/tunnel`. No route
+serves that. The 404 landed in `BENIGN_STATUSES`, the route was counted
+as checked, and its handler never ran.
+
+That blind spot covered **66 of 274 registered routes** -- every path with
+a parameter other than `{path}`: all five tunnels, the ZeroTier network
+and Central endpoints, the mobile per-serial surface, autostart per
+transport, code-run status. A quarter of the API had a guard that
+reported on it without testing it.
+
+Template variables are now substituted with plausible values instead of
+truncated, and a second test asserts the sweep is actually arriving:
+a templated route that answers 404 means the probe never reached a
+handler, and that now fails the build. Two static-file routes
+(`/gui/assets/{path}`, `/gui/docs/{path}`) are named as explicit
+exceptions, because their 404 comes from the handler rather than the
+router -- a broader rule like "skip /gui" would grow to hide real gaps.
+
+Proven by sabotage in both directions: with the old truncating builder
+the missing `@authed` passes cleanly, and with the fixed builder it fails
+with `200 POST /v1/bore/tunnel/{action}`.
+
 ### Audit of 200 dismissed code-scanning alerts, and one they hid
 
 The operator asked whether alerts closed by earlier agents were closed

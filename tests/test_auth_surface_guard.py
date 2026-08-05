@@ -30,6 +30,7 @@ Notes for whoever touches this next
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 from pathlib import Path
 
@@ -187,9 +188,39 @@ def _iter_probeable_routes(app: web.Application):
         path = info.get("path") or info.get("formatter")
         if not path:
             continue
-        concrete = path.replace("{path:.*}", "probe").replace("{path}", "probe")
-        if "{" in concrete:  # any other template variable
-            concrete = concrete.split("{")[0].rstrip("/") or "/"
+        # v4.164.0: template variables are FILLED IN, not truncated.
+        #
+        # This used to keep `{path}` and then cut everything from the
+        # first remaining `{`, so `/v1/bore/tunnel/{action}` was probed
+        # as `/v1/bore/tunnel` -- a path no route serves. That answered
+        # 404, 404 is in BENIGN_STATUSES, and the route was recorded as
+        # checked while never being reached. 66 of 274 registered routes
+        # (every one with a parameter other than `{path}`) were invisible
+        # to this guard, and `POST /v1/bore/tunnel/status` really was
+        # unauthenticated behind that blind spot -- bug #57.
+        #
+        # Substituting a plausible value reaches the handler, which is
+        # the entire point of the sweep. `{action}` gets "status"
+        # specifically: the tunnel handlers dispatch on it, and a value
+        # they reject would return 400 and be waved through as benign
+        # for the same reason.
+        concrete = path
+        for variable, value in (
+            ("{path:.*}", "probe"),
+            ("{path}", "probe"),
+            ("{action}", "status"),
+            ("{transport}", "ngrok"),
+            ("{serial}", "probe-serial"),
+            ("{run_id}", "probe-run"),
+            ("{rec_id}", "probe-rec"),
+            ("{nwid}", "0" * 16),
+            ("{name}", "probe"),
+            ("{id}", "probe"),
+        ):
+            concrete = concrete.replace(variable, value)
+        # Anything still templated gets a generic filler rather than
+        # being cut short.
+        concrete = re.sub(r"\{[^}]+\}", "probe", concrete)
         key = (method, concrete)
         if key in seen:
             continue
@@ -267,3 +298,60 @@ def test_allowlist_entries_carry_a_justification():
     for path, reason in {**PUBLIC_BY_DESIGN, **PROTOCOL_ENVELOPE}.items():
         assert reason.strip(), f"{path} is exempted without a justification"
         assert len(reason) > 15, f"{path}: justification too thin: {reason!r}"
+
+
+def test_the_sweep_actually_reaches_templated_routes():
+    """Guard the guard: a truncated probe path proves nothing.
+
+    Until v4.164.0 this sweep cut every path at its first `{`, so
+    `/v1/bore/tunnel/{action}` was requested as `/v1/bore/tunnel`. No
+    route serves that, the 404 counted as benign, and 66 of 274
+    registered routes were recorded as "checked" without their handlers
+    ever running. One of them was genuinely unauthenticated.
+
+    A route counted as checked must therefore be a route that answered
+    something other than "no such path".
+
+    Static-file routes are the honest exception: `/gui/assets/{path}`
+    reaches its handler and *then* returns 404 because no file called
+    "probe" exists. That 404 comes from the handler, not from the
+    router, so those two are named explicitly rather than allowed by a
+    pattern -- a rule like "skip anything under /gui" would grow to hide
+    real gaps.
+    """
+    handler_serves_404 = {"/gui/assets/{path}", "/gui/docs/{path}"}
+
+    async def _run():
+        app = _build_app()
+        async with TestClient(TestServer(app)) as client:
+            missing = []
+            probed = 0
+            for method, concrete, declared in _iter_probeable_routes(app):
+                if "{" not in declared or declared in handler_serves_404:
+                    continue
+                base = concrete.split("?")[0].rstrip("/") or "/"
+                if base in PUBLIC_BY_DESIGN or base in PROTOCOL_ENVELOPE:
+                    continue
+                probed += 1
+                try:
+                    resp = await _probe(client, method, concrete)
+                except Exception:
+                    continue
+                if resp.status == 404:
+                    missing.append(f"{method} {declared} -> probed {concrete}")
+            return probed, missing
+
+    with _LimiterOff(), _QuietAuthWarnings():
+        probed, missing = asyncio.run(_run())
+
+    assert probed >= 40, (
+        f"only {probed} templated routes seen; the walker or the registry "
+        "changed shape and this guard is no longer measuring anything"
+    )
+    assert not missing, (
+        "these templated routes were probed at a path that does not exist, "
+        "so their handlers never ran and their auth was never tested:\n  "
+        + "\n  ".join(sorted(missing))
+        + "\n\nAdd the template variable to the substitution table in "
+          "_iter_probeable_routes."
+    )

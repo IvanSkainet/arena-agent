@@ -209,11 +209,21 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         ctx.audit({"type": "ngrok_tunnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_bore_tunnel(request: web.Request) -> web.Response:
         """POST /v1/bore/tunnel/{action} -- bore as the fifth
         transport (v4.47.0). Same start / stop / status shape as
         cloudflared and ngrok so the dashboard can treat all five
         as siblings.
+
+        v4.164.0 (bug #57): this was the one tunnel handler missing
+        `@authed`. Its four siblings all had it; bore was added later and
+        the decorator was not copied along with the shape. Verified
+        against a running bridge: `POST /v1/bore/tunnel/status` answered
+        200 with no credentials while the identical ngrok route answered
+        401, and `start` / `stop` were reachable too. On a host that
+        actually has the bore binary installed, an unauthenticated caller
+        could have published this bridge to the public internet.
 
         Autostart persistence mirrors the ngrok handler: marker at
         ``ROOT_AGENT/.bore_autostart`` created on successful start,
