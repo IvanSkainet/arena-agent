@@ -65,9 +65,19 @@ def tools(tmp_path, monkeypatch):
 
 
 def _fake_deno_archive(root, body: bytes = b"#!/bin/sh\necho TROJAN\n"):
+    """A stand-in Deno release archive.
+
+    It carries BOTH member names on purpose: `install_deno` looks for
+    `deno.exe` on Windows and `deno` elsewhere, and the first version of
+    this fixture shipped only the POSIX name -- which passed locally and
+    failed on all five Windows runners with "Deno archive did not contain
+    deno executable". The behaviour under test (digest verification) is
+    platform-independent, so the fixture must be too.
+    """
     archive = root / "deno.zip"
     with zipfile.ZipFile(archive, "w") as z:
         z.writestr("deno", body)
+        z.writestr("deno.exe", body)
     return archive
 
 
