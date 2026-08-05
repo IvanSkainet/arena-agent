@@ -1,5 +1,51 @@
 ## Unreleased
 
+### The npm surface, audited on the day Shai-Hulud took 1,280 packages
+
+On 2026-08-04 a worm took over the GitHub account behind `keyv` and
+pushed malicious releases across 1,280+ npm packages totalling more than
+two billion monthly installs. Two properties of that attack are worth
+stating plainly, because they defeat the defences people reach for first:
+
+  * The poisoned releases carried **valid provenance signed by GitHub
+    Actions**. They really were built by the maintainer's own CI -- the
+    account was compromised, not the signature. Verifying the signature
+    would have passed.
+  * The payload ran from a **`preinstall` hook**, before any human or
+    scanner saw the tree. `npm install` alone leaked GitHub, npm, AWS,
+    Kubernetes, Vault, Slack, Stripe and SSH credentials.
+
+This project was not affected, and the reason is structural rather than
+lucky. The entire npm tree is `oxlint` plus its per-platform binaries --
+21 lockfile entries, none of them from the affected families, none with
+an install script. `keyv` normally arrives transitively through eslint,
+which we do not use. Nothing here publishes to npm, so there is no
+publish token for a worm to harvest. Confirmed by `npm audit` (zero
+vulnerabilities) and by searching the tree for the worm's own artefacts
+(`setup.mjs`, `Math_Symbol.js`) -- absent.
+
+What changed is that none of this was enforced. `npm ci` now runs with
+`--ignore-scripts`, which neutralises the install-hook class outright.
+It changes nothing today precisely because there are no hooks to block;
+that is the argument for adding it now rather than after a lockfile bump
+quietly introduces one. Verified by execution: install with the flag,
+then lint a file containing a deliberate `eval()` and confirm oxlint
+still reports it.
+
+`tests/test_npm_supply_chain_surface.py` keeps the properties true --
+no install scripts, no bare `npm install`, exact pins rather than
+ranges, an integrity hash on every entry, `private: true`, the lock in
+sync with the manifest, and a ceiling on how many maintainer accounts we
+implicitly trust. Each was sabotaged and each caught its own regression.
+
+Unrelated but found while cleaning up: `requests.jsonl.2`, a 10 MB
+runtime log, had been tracked in git since c541f41e. `.gitignore` listed
+`requests.jsonl` and `requests.jsonl.1` but not `.2`, so logrotate's
+second rotation slipped through. `make_release_zip.py` already excluded
+rotated logs by prefix -- it was taught to after one leaked into the
+v4.83.0 zip -- but git never was. Now globbed by suffix, and the file is
+untracked.
+
 ### Microphone captures were left on the phone, and lied about
 
 `arena/mobile/audio_capture.py` was the lowest-covered file left in the

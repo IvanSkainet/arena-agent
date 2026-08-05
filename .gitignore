@@ -124,8 +124,15 @@ _selfheal*.sh
 requests.jsonl
 *.pid
 
-bridge.log.1
-requests.jsonl.1
+# v4.163.0: these used to list only `.1`, so logrotate's SECOND rotation
+# slipped through -- a 10 MB `requests.jsonl.2` was committed in c541f41e
+# and has been carried in the repo ever since. make_release_zip.py already
+# excludes rotated logs by prefix (it was taught to after one leaked into
+# the v4.83.0 zip), but git itself never was. Glob the suffix instead of
+# naming individual rotations.
+bridge.log.*
+requests.jsonl.*
+audit.jsonl.*
 reports/arena_kwin_windows_*.js
 .arena_proposals/
 

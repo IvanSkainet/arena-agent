@@ -651,8 +651,22 @@ jobs:
       # hash, which is the same contract the Python side gets from
       # `pip install --require-hashes`. A floating linter would also silently
       # move the floor it is supposed to be guarding.
-      - name: Install oxlint (hash-locked)
-        run: npm ci --no-audit --no-fund
+      #
+      # `--ignore-scripts` (v4.163.0) blocks the install-hook class of
+      # supply-chain malware outright. The Shai-Hulud wave of 2026-08-04
+      # worked exactly that way: a compromised maintainer account published
+      # signed releases carrying a `preinstall` entry, so the payload ran
+      # during `npm install` before anyone looked at the package. Valid
+      # provenance did not help, because the release really was cut by that
+      # account's GitHub Actions.
+      #
+      # Our current lock has zero packages with install scripts, so this
+      # flag changes nothing today -- which is the point of adding it today
+      # rather than after a transitive dependency brings one in. Verified by
+      # execution: `npm ci --ignore-scripts` then `oxlint` on a file with a
+      # deliberate `eval()` still reports the violation.
+      - name: Install oxlint (hash-locked, no install scripts)
+        run: npm ci --no-audit --no-fund --ignore-scripts
 
       - name: JS lint debt ratchet (blocking)
         run: python3 scripts/js_lint_ratchet.py
