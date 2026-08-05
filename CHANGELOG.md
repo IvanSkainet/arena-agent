@@ -1,3 +1,46 @@
+## Unreleased
+
+### The Input Helper served keystrokes to anyone who asked
+
+`arena/input_helper/helper_server.py` runs inside the user's interactive
+desktop session and exposes `/click`, `/move`, `/type`, `/key` and
+`/launch` over HTTP. It was at 17% coverage, and authentication was
+optional:
+
+    parser.add_argument("--token", type=str, default="")
+    ...
+    def _check_auth(self):
+        if not _TOKEN:
+            return True
+
+Started with no arguments -- which is exactly what the MCP tool's own
+error hint told people to do -- it served every endpoint to any local
+caller. Verified by execution: with the token empty,
+`POST /launch {"path": "/bin/true"}` reached `subprocess.Popen` and
+failed only because `CREATE_NEW_CONSOLE` is Windows-only. On the platform
+this helper exists for, the process would have started.
+
+Binding to 127.0.0.1 is not authentication. A browser tab running hostile
+JavaScript can POST to localhost, and so can any other process or user on
+the machine. This particular loopback port is a remote control for the
+desktop -- mouse, keyboard, arbitrary process launch -- so leaving it open
+is local privilege escalation with extra steps.
+
+It now refuses to start without a token, and prints how to generate one,
+because a refusal without a remedy is a refusal people work around. The
+request-time check refuses too rather than trusting startup, and the exit
+code propagates so a supervisor reading only the status does not mistake
+"I will not run like this" for a clean shutdown.
+
+The comparison was `==`, which leaks a shared secret one byte at a time to
+anyone who can measure response latency. It guards keystroke injection into
+a live desktop, so it is `hmac.compare_digest` now. The rest of the bridge
+already used constant-time comparison everywhere -- this file was the one
+that did not.
+
+The MCP hint that taught the unauthenticated invocation was fixed in the
+same commit, and a test asserts it never drifts back.
+
 ## v4.163.0 — 2026-08-05
 
 ### Mouse clicks were a shell injection, in a file with 0% coverage

@@ -22,6 +22,7 @@ Endpoints:
 from __future__ import annotations
 
 import ctypes
+import hmac
 import json
 import os
 import subprocess
@@ -290,10 +291,36 @@ class InputHandler(BaseHTTPRequestHandler):
         pass
 
     def _check_auth(self) -> bool:
+        # v4.164.0 (bug #54): this used to be `if not _TOKEN: return True`,
+        # so a helper started without a token served every endpoint to
+        # anything that could reach the port -- including POST /launch,
+        # which runs an arbitrary executable in the user's interactive
+        # desktop session. Verified by execution: with _TOKEN empty,
+        # `POST /launch {"path": "/bin/true"}` reached subprocess.Popen
+        # and only failed because CREATE_NEW_CONSOLE is Windows-only.
+        #
+        # "127.0.0.1 only" is not authentication. Any local process --
+        # a browser tab running hostile JS against localhost, another
+        # user on a shared box, anything -- can reach a loopback port.
+        # The helper is precisely a remote-control surface for the
+        # desktop, so an unauthenticated one is a local privilege
+        # escalation waiting to happen.
+        #
+        # main() now refuses to start without a token, and this stays as
+        # the second layer: if _TOKEN is somehow empty at request time,
+        # refuse rather than wave the request through.
         if not _TOKEN:
-            return True
+            self.send_response(503)
+            self.end_headers()
+            self.wfile.write(
+                b'{"ok":false,"error":"helper started without a token; '
+                b'refusing all requests"}')
+            return False
         auth = self.headers.get("Authorization", "")
-        if auth == f"Bearer {_TOKEN}":
+        # Constant-time: a plain `==` leaks the shared secret one byte at
+        # a time to anyone who can measure response latency, and this
+        # token guards keystroke injection into the live desktop.
+        if hmac.compare_digest(auth, f"Bearer {_TOKEN}"):
             return True
         self.send_response(401)
         self.end_headers()
@@ -385,13 +412,25 @@ def main():
     global _TOKEN
     _TOKEN = args.token or os.environ.get("ARENA_INPUT_HELPER_TOKEN", "")
 
+    # Fail closed at startup (bug #54). An unauthenticated helper hands
+    # keyboard, mouse and process launch to any local caller, so refusing
+    # to start is the only honest default -- printing
+    # "Token: (none — unauthenticated)" and serving anyway was not a
+    # warning, it was a footnote on an open door.
+    if not _TOKEN:
+        print("ERROR: no token. The helper injects keystrokes and launches "
+              "processes in your desktop session; it will not run "
+              "unauthenticated.", file=sys.stderr)
+        print("  Pass --token SECRET, or set ARENA_INPUT_HELPER_TOKEN.",
+              file=sys.stderr)
+        print("  Generate one with: python -c \"import secrets; "
+              "print(secrets.token_urlsafe(32))\"", file=sys.stderr)
+        return 2
+
     server = HTTPServer(("127.0.0.1", args.port), InputHandler)
     print(f"Arena Input Helper listening on http://127.0.0.1:{args.port}")
     print(f"Session: {os.environ.get('SESSIONNAME', 'unknown')}, PID: {os.getpid()}")
-    if _TOKEN:
-        print(f"Token: {'*' * 8}...{_TOKEN[-4:]}")
-    else:
-        print("Token: (none — unauthenticated)")
+    print(f"Token: {'*' * 8}...{_TOKEN[-4:]}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -400,4 +439,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Propagate the exit code: `main()` returns 2 when it refuses to
+    # start without a token, and a supervisor that reads only the exit
+    # status would otherwise treat that refusal as a clean shutdown.
+    raise SystemExit(main())

@@ -22,7 +22,7 @@ def handle_input_helper_tool(name: str, args: dict[str, Any], *, ctx=None) -> di
             result = _ih.click(int(x), int(y), button=str(args.get("button", "left")), double=bool(args.get("double", False)))
             return text_content(json.dumps(result, ensure_ascii=False))
         except Exception as e:
-            return text_content(json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}", "hint": "Is the Input Helper running? Start it with: python arena/input_helper/helper_server.py"}, ensure_ascii=False))
+            return text_content(json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}", "hint": "Is the Input Helper running? It requires a token since v4.164.0 (it injects keystrokes and launches processes): ARENA_INPUT_HELPER_TOKEN=$(python -c 'import secrets; print(secrets.token_urlsafe(32))') python arena/input_helper/helper_server.py"}, ensure_ascii=False))
 
     if name == "input_helper.move":
         try:
