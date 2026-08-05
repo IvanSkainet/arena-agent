@@ -25,7 +25,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import shutil
 import signal
 import tempfile
 import uuid
@@ -37,6 +36,12 @@ from typing import Any
 from aiohttp import web
 
 from arena.app_keys import APP_CFG
+from arena.exec.interpreters import (
+    _INTERPRETERS,
+    _quote_path,
+    _resolve_interpreter,
+    _which_interpreter,
+)
 from arena.exec.runner import run_shell_command_stream
 from arena.handler_context import ExecHandlerContext
 from arena.handler_helpers import authed, err_json, parse_json_body
@@ -47,26 +52,6 @@ _BLOCKED_ENV_PATTERNS = [
     "LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH", "PYTHONSTARTUP",
 ]
 
-# v4.2.0: interpreter → (cmdline template, filename suffix, unix?)
-# The template takes ``{path}`` for the temp script path; the shell
-# quoting is single-arg because we execute via create_subprocess_exec-
-# equivalent through the existing run_shell_command shim, which uses
-# shell mode. Interpreters that need special flags (bash -euo pipefail)
-# are configured here so agents don't have to think about it.
-_INTERPRETERS: dict[str, dict[str, object]] = {
-    "bash":       {"cmd": "bash -euo pipefail {path}",        "suffix": ".sh",   "unix": True},
-    "sh":         {"cmd": "sh -eu {path}",                     "suffix": ".sh",   "unix": True},
-    "python":     {"cmd": "python3 {path}",                    "suffix": ".py",   "unix": True},
-    "python3":    {"cmd": "python3 {path}",                    "suffix": ".py",   "unix": True},
-    "node":       {"cmd": "node {path}",                       "suffix": ".js",   "unix": True},
-    "pwsh":       {"cmd": "pwsh -NoProfile -File {path}",      "suffix": ".ps1",  "unix": False},
-    "powershell": {"cmd": "powershell -NoProfile -File {path}","suffix": ".ps1",  "unix": False},
-}
-
-_DEFAULT_INTERPRETER_UNIX = "bash"
-_DEFAULT_INTERPRETER_WIN = "powershell"
-
-
 @dataclass(frozen=True)
 class ExecHandlers:
     ps: Callable[..., Any]
@@ -76,25 +61,6 @@ class ExecHandlers:
     script: Callable[..., Any]
     # v4.3.0: NDJSON streaming endpoint.
     stream: Callable[..., Any]
-
-
-def _resolve_interpreter(name: str) -> tuple[str, dict[str, object]] | None:
-    """Return (name, config) for a supported interpreter or None.
-    Falls back to platform default when name is empty."""
-    if not name:
-        name = _DEFAULT_INTERPRETER_WIN if os.name == "nt" else _DEFAULT_INTERPRETER_UNIX
-    lower = name.strip().lower()
-    if lower in _INTERPRETERS:
-        return lower, _INTERPRETERS[lower]
-    return None
-
-
-def _which_interpreter(cmdline_template: str) -> str | None:
-    """Return the resolved absolute path of the interpreter binary,
-    or None if it's not on PATH. Used so a 404-style 'bash not
-    installed' comes back as a clear 400, not a shell error."""
-    first = cmdline_template.split()[0]
-    return shutil.which(first)
 
 
 def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
@@ -328,7 +294,11 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             except Exception:
                 pass
 
-            full_cmd = str(interp_cfg["cmd"]).format(path=tmp_path)
+            # v4.163.0 (bug #52): interpolated bare, a space in the root
+            # split the path into two shell words --
+            # `bash: /tmp/root: No such file or directory` for any root
+            # like `C:\Users\Ivan Petrov`. See _quote_path.
+            full_cmd = str(interp_cfg["cmd"]).format(path=_quote_path(tmp_path))
 
             # Same blocklist that /v1/exec uses — but applied to the
             # interpreter cmdline, not the script body. Script bodies

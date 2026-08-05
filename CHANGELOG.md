@@ -1,5 +1,48 @@
 ## Unreleased
 
+### /v1/exec/script was broken for anyone whose path contains a space
+
+Next on the danger-x-uncovered ranking was `arena/exec/handlers.py` at
+11.3% covered -- the module that runs commands. The bug there is not a
+security hole; it is the endpoint simply not working, quietly, for a
+large fraction of users.
+
+`/v1/exec/script` writes the request body to a temp file and drops the
+path into an interpreter template:
+
+    "bash": {"cmd": "bash -euo pipefail {path}", ...}
+    full_cmd = template.format(path=tmp_path)
+
+Those templates go to a **shell**, so the path is re-parsed by word
+splitting. One space and the command comes apart:
+
+    bash -euo pipefail /tmp/root with space/.../scr-ab.sh
+    -> bash: /tmp/root: No such file or directory
+
+Reproduced end to end through `run_shell_command_stream`: unquoted, the
+script never ran; quoted, it printed its output. Verified for bash, sh
+and python3.
+
+This is not an exotic setup. `C:\Users\Ivan Petrov` is what Windows
+gives an account with a two-word name, and `~/My Drive/...` is ordinary
+on macOS. The failure is actively misleading too -- it names a directory
+that plainly exists, so the natural conclusion is "the bridge is broken",
+not "quote your path".
+
+Quoting is platform-specific and that matters: `shlex.quote` wraps in
+single quotes, which cmd.exe and PowerShell do not treat as quoting at
+all, so the quote characters would arrive as part of the filename.
+Windows gets double quotes; POSIX gets shlex, which also handles
+embedded quotes, `$`, backticks and semicolons. Seven such payloads are
+pinned as round-trip tests: whatever the path contains, `shlex.split` of
+the assembled command must give back exactly the original path as one
+word.
+
+`handlers.py` crossed the 600-line cap during the fix. The architecture
+ratchet caught it, and the interpreter table plus the three functions
+around it moved to `arena/exec/interpreters.py` -- none of them touch
+aiohttp, auth or the request lifecycle, so that is where the seam was.
+
 ### Mutation testing that skips what it already proved
 
 The operator asked whether a full mutation run could happen once and then
