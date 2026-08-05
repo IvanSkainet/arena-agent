@@ -27,12 +27,27 @@ def ensure_ydotool():
         time.sleep(.5)
     return True
 
+# The five buttons ydotool/xdotool agree on: left, middle, right and the
+# two scroll-wheel pseudo-buttons. Anything else is a caller mistake, and
+# before v4.163.0 it was also a shell injection (bug #53).
+_MOUSE_BUTTONS = {1, 2, 3, 4, 5}
+
+
 def move(args):
     if not ensure_ydotool():
         j({'ok':False,'error':'ydotool missing'})
         sys.exit(1)
-    x,y=int(args.x),int(args.y)
-    steps=max(1,int(args.steps))
+    # int() here is what kept `move` safe while `click` was injectable --
+    # but it raised ValueError instead of answering, so a bad coordinate
+    # crashed the CLI with a traceback rather than a usable message.
+    try:
+        x, y = int(args.x), int(args.y)
+        steps = max(1, int(args.steps))
+    except (TypeError, ValueError):
+        j({'ok': False,
+           'error': f'x, y and steps must be integers, got '
+                    f'{args.x!r}, {args.y!r}, {args.steps!r}'})
+        sys.exit(1)
     sx=max(0,x-random.randint(150,350))
     sy=max(0,y+random.randint(80,240))
     for i in range(1,steps+1):
@@ -45,17 +60,41 @@ def move(args):
     j({'ok':True,'x':x,'y':y,'steps':steps})
 
 def click(args):
-    # Ensure WM is running for proper click-to-focus behavior
+    # v4.163.0 (bug #53): x, y and --button reached a shell as raw text.
+    # `move()` happens to be safe because it runs int() over its inputs
+    # first, but click passed args.x straight into an xdotool command
+    # line and never validated --button at all. Reproduced:
+    #
+    #   --button "1; touch /tmp/PWNED"  ->  the file was created.
+    #
+    # Coordinates are numbers and the button is one of five ints, so the
+    # fix is to say so. Parsing beats quoting here: a coordinate that is
+    # not a number is a bug in the caller, not something to escape and
+    # pass along.
     _ensure_wm()
-    move(argparse.Namespace(x=args.x,y=args.y,steps=args.steps,delay=args.delay))
+    try:
+        x, y = int(args.x), int(args.y)
+    except (TypeError, ValueError):
+        j({'ok': False, 'error': f'x and y must be integers, got {args.x!r}, {args.y!r}'})
+        sys.exit(1)
+    try:
+        btn = int(args.button)
+    except (TypeError, ValueError):
+        j({'ok': False, 'error': f'button must be an integer, got {args.button!r}'})
+        sys.exit(1)
+    if btn not in _MOUSE_BUTTONS:
+        j({'ok': False,
+           'error': f'button must be one of {sorted(_MOUSE_BUTTONS)}, got {btn}'})
+        sys.exit(1)
+
+    move(argparse.Namespace(x=x,y=y,steps=args.steps,delay=args.delay))
     # On X11, also focus the window at click position before clicking
     if have('xdotool'):
         # Get window at position and focus it
         p = run('xdotool selectwindow 2>/dev/null', timeout=2)
         # Alternative: use mousemove + click which naturally focuses
-        run(f'xdotool mousemove --sync {args.x} {args.y}', timeout=3)
+        run(f'xdotool mousemove --sync {x} {y}', timeout=3)
         time.sleep(0.05)
-    btn=args.button
     if have('ydotool'):
         p=run(f'ydotool click {btn}',timeout=3)
     elif have('xdotool'):

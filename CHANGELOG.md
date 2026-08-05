@@ -1,5 +1,39 @@
 ## Unreleased
 
+### Mouse clicks were a shell injection, in a file with 0% coverage
+
+Fourth on the danger ranking, and the starkest entry on it:
+`arena/desktop/cli/input.py` drives the mouse and keyboard of the host
+machine, and **not one line of it was executed by the test suite**.
+
+`click()` interpolated raw argv into shell strings:
+
+    run(f'xdotool mousemove --sync {args.x} {args.y}', timeout=3)
+    run(f'ydotool click {args.button}', timeout=3)
+
+`--button` is declared as a bare string with no `choices`, so
+`--button "1; touch /tmp/PWNED"` created the file. Same for the
+coordinates.
+
+What makes this one instructive is the file it lives in. `key()` and
+`type_text()` were already careful -- `shq()` on one path, an argv list
+on the other -- and `move()` was safe too, but for a different reason:
+it runs `int()` over its inputs before formatting them. Three of the
+four entry points were fine, each by its own mechanism, and the fourth
+was wide open. Consistency was the missing thing, not knowledge.
+
+The fix follows `move()`'s instinct rather than adding a fourth
+mechanism: coordinates and buttons are numbers, so parse them and refuse
+what does not parse. A button also has to be one of five real ones --
+ydotool does something unpredictable with 99, and refusing is a clearer
+answer than whatever that turns out to be. `move()` now answers instead
+of raising `ValueError`, which previously turned a typo into a
+traceback.
+
+A ratchet flags any future `f'tool {args.something}'` that is not
+wrapped in `shq()`, so the next entry point cannot quietly become the
+fifth mechanism.
+
 ### /v1/exec/script was broken for anyone whose path contains a space
 
 Next on the danger-x-uncovered ranking was `arena/exec/handlers.py` at
