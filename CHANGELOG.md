@@ -1,5 +1,38 @@
 ## Unreleased
 
+### A third-party MCP server could grow the bridge without limit
+
+`arena/mcp_client/client.py` (73.9% covered) starts external MCP servers
+-- `npx some-server`, `uvx another` -- and reads their stdout on a
+background thread. Neither the line length nor the queue depth was
+bounded:
+
+    self._stdout_q: queue.Queue[str | None] = queue.Queue()
+    for line in self.proc.stdout:
+        self._stdout_q.put(line)
+
+Measured with a stub that answers `initialize` and then streams 100 KB
+lines: RSS went from 13 MB to **1433 MB in four seconds**, 14,933 lines
+queued and still climbing. With bounds in place the same stub costs
+96 MB and the queue stops at its ceiling.
+
+Malice is not the likely cause. A server that accidentally writes its
+debug log to stdout instead of stderr does exactly this, and the process
+that dies is the bridge rather than the misbehaving server -- so whoever
+investigates sees the bridge run out of memory and reasonably blames the
+bridge.
+
+Two decisions worth stating. Oversized frames are **dropped rather than
+truncated**: a 4 MB+ line cut in half is invalid JSON the parser skips
+anyway, so keeping a fragment would only make the logs less honest. And
+on overflow the **oldest** line goes, not the newest -- a caller is
+blocking until it sees its own response `id`, so discarding new output
+would turn a chatty server into a hang.
+
+The EOF sentinel gets the same treatment: a full queue must still have
+room for it, or `request()` waits out its whole timeout instead of
+reporting "server closed the connection".
+
 ### Live metrics invented a gigabyte per second
 
 `arena/observability/live_metrics.py` (38.6% covered) computes every rate

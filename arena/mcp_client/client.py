@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import atexit
 import json
+import logging
 import os
 import queue
 import re
@@ -39,6 +40,21 @@ from typing import Any
 # this lets a git-venv server register its own venv interpreter
 # (e.g. .../venv/Scripts/python.exe) while still blocking arbitrary binaries.
 ALLOWED_COMMANDS = ("npx", "uvx", "uv", "python", "python3", "node")
+
+log = logging.getLogger("arena.mcp_client")
+
+# Bounds on what a third-party MCP server may push at us (bug #59).
+#
+# A JSON-RPC frame legitimately carries tool output, so the ceiling has to
+# be generous -- 4 MB is far more than any real `tools/list` or tool result
+# and still small enough that a runaway server cannot exhaust memory one
+# line at a time.
+_MAX_LINE_CHARS = 4 * 1024 * 1024
+# Depth of the pending-output queue. A request reads until it sees its own
+# `id`, so a backlog this deep already means the server is talking past
+# anyone listening. Bounded at 1000 lines the worst case is ~4 GB in
+# theory but ~a few MB in practice, versus unbounded before.
+_STDOUT_QUEUE_DEPTH = 1000
 
 
 def _command_allowed(command: str) -> bool:
@@ -77,7 +93,8 @@ class McpStdioClient:
         self.proc: subprocess.Popen | None = None
         self._id = 0
         self._lock = threading.Lock()
-        self._stdout_q: queue.Queue[str | None] = queue.Queue()
+        self._stdout_q: queue.Queue[str | None] = queue.Queue(
+            maxsize=_STDOUT_QUEUE_DEPTH)
         self._reader_thread: threading.Thread | None = None
         self.server_info: dict[str, Any] = {}
         self._tools: list[dict[str, Any]] | None = None
@@ -116,13 +133,61 @@ class McpStdioClient:
 
         def _reader() -> None:
             assert self.proc and self.proc.stdout
+            dropped = 0
             try:
                 for line in self.proc.stdout:
-                    self._stdout_q.put(line)
+                    # v4.164.0 (bug #59): neither the line length nor the
+                    # queue depth was bounded, so a third-party MCP server
+                    # -- `npx some-server` off the internet -- could grow
+                    # this process without limit. Measured with a stub
+                    # that answers `initialize` and then streams 100 KB
+                    # lines: RSS went from 13 MB to 1433 MB in four
+                    # seconds, 14,933 lines queued. A hostile server is
+                    # one way to get there; a buggy one that loops on
+                    # stderr-to-stdout is the likelier one.
+                    if len(line) > _MAX_LINE_CHARS:
+                        # A JSON-RPC frame this large is not a response we
+                        # can use. Truncating would produce invalid JSON
+                        # that the parser skips anyway, so drop it and say
+                        # so once rather than pretend.
+                        dropped += 1
+                        if dropped == 1:
+                            log.warning(
+                                "mcp[%s]: dropping oversized output line "
+                                "(%d chars > %d); the server is not "
+                                "speaking usable JSON-RPC",
+                                self.command, len(line), _MAX_LINE_CHARS)
+                        continue
+                    try:
+                        self._stdout_q.put_nowait(line)
+                    except queue.Full:
+                        # Backlog means nobody is reading: the caller has
+                        # moved on, or the server is chattier than any
+                        # consumer. Dropping the oldest keeps the newest
+                        # response reachable, which is what a request
+                        # waiting on `id` actually needs.
+                        dropped += 1
+                        try:
+                            self._stdout_q.get_nowait()
+                            self._stdout_q.put_nowait(line)
+                        except (queue.Empty, queue.Full):
+                            pass
             except Exception:
                 pass
             finally:
-                self._stdout_q.put(None)
+                if dropped:
+                    log.warning("mcp[%s]: dropped %d output line(s)",
+                                self.command, dropped)
+                try:
+                    self._stdout_q.put_nowait(None)
+                except queue.Full:
+                    # Make room for the EOF marker: a reader blocked on
+                    # `get()` must still learn the server is gone.
+                    try:
+                        self._stdout_q.get_nowait()
+                        self._stdout_q.put_nowait(None)
+                    except (queue.Empty, queue.Full):
+                        pass
 
         self._reader_thread = threading.Thread(
             target=_reader, name="arena-mcp-stdout-reader", daemon=True)
