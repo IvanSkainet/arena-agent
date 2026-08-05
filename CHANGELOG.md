@@ -1,5 +1,54 @@
 ## Unreleased
 
+### Why the live mirror never worked: a race nobody could lose slowly
+
+Ivan reported that live view in mobile does not work at all -- only the
+~0.4 fps screenshot poller does. He was right, and the cause was not in
+the video pipeline. It was two lines of lifecycle.
+
+`get_or_start` schedules `_pump_pipeline`, and the caller subscribes
+afterwards. The pipeline's loop condition is
+`while not stop_event.is_set() and session.has_subscribers()`. So the
+outcome depended on who won that race:
+
+  * subscribe before the loop's first evaluation -> it streams;
+  * lose by milliseconds -> zero subscribers, the loop exits at once, and
+    the `finally` block pops the session from `_SESSIONS`. The browser
+    holds a dead session, and retrying finds nothing registered either.
+
+On the WebSocket path there is an `await ws.prepare(request)` between the
+two, so the subscriber lost that race essentially every time. Measured
+with a stub screenrecord: subscribing 0.30s late left `reader_task.done()`
+True and the registry empty; subscribing synchronously worked. The
+pipeline now waits on an explicit `first_subscriber` event, with a
+timeout so a client that dies mid-handshake cannot leave screenrecord
+running on the phone.
+
+Writing the guard for that surfaced a second one. The read loop was
+`buf = await sr.stdout.read(65536)` with the stop checks *after* it, so
+both only ran when bytes arrived. A session whose last viewer left kept
+screenrecord alive until the phone happened to emit another frame -- and
+on a static screen the AVC encoder can stay quiet for a long time.
+Measured: stop_event set, zero subscribers, still running after three
+seconds. `stop_all()` on bridge shutdown had the same problem. The read
+is now bounded and re-checks its exit conditions while idle.
+
+The muxer itself turned out to be fine. `mp4_muxer.py` is 576 lines with
+no tests at all, so it was guilty until proven innocent -- fed real
+Annex-B parameter sets it parses 320x240 correctly, emits a valid
+ftyp+moov, produces moof+mdat fragments, flags the IDR as a keyframe and
+paces sample durations off the wall clock. It now has 15 tests covering
+that, including NALs split across arbitrary read boundaries, both
+start-code lengths, and garbage before the first one.
+
+One note on the sabotage round, because it caught a weak assertion rather
+than weak code. Removing `first_subscriber.set()` did not fail the tests:
+a pipeline parked in `wait_for` is also "not done", so `reader_task` was
+the wrong thing to assert on. The sessions now count `segments_started`,
+which only advances when screenrecord actually spawned -- and that number
+is exposed in `/v1/mobile/mirror/stats`, where it answers "is this
+session really streaming?" for anyone debugging a black video.
+
 ### The screen mirror had an unguarded RCE, and my own ratchet was blind to it
 
 `arena/mobile/mirror.py` sat at 35% coverage. It streams the phone screen,

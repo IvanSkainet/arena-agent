@@ -49,6 +49,18 @@ DEFAULT_BIT_RATE = 4_000_000
 # We restart at 170 s to keep a safety margin.
 _SEGMENT_SECONDS = 170
 
+# How long a freshly spawned pipeline waits for its first subscriber
+# before giving up (bug #49). Generous: the only thing between
+# `get_or_start` and `add_subscriber` is a WebSocket upgrade, so this
+# never has to absorb more than a round trip -- but a client that dies
+# mid-handshake must not leave screenrecord running on the phone.
+_FIRST_SUBSCRIBER_TIMEOUT = 10.0
+
+# How often the read loop wakes up to re-check stop/subscriber state when
+# the phone is sending nothing (bug #50). Short enough that shutdown feels
+# instant, long enough to add no measurable overhead to a live stream.
+_READ_POLL_SECONDS = 0.5
+
 # One MirrorSession per phone; N browser subscribers share it.
 _SESSIONS: dict[str, "MirrorSession"] = {}
 _SESSIONS_LOCK = threading.Lock()
@@ -78,6 +90,21 @@ class MirrorSession:
     # (which is what got them a black `<video>` before this fix).
     last_init: bytes | None = None
     last_keyframe: bytes | None = None
+    # v4.163.0 (bug #49): the pipeline loop is `while has_subscribers()`,
+    # but `get_or_start` schedules it BEFORE the caller has subscribed --
+    # the WebSocket handler has an `await ws.prepare(request)` in between.
+    # Whoever won that race decided whether the mirror worked at all:
+    # subscribe first and it streams, lose by a few milliseconds and the
+    # loop sees zero subscribers, exits immediately, and pops the session
+    # out of the registry, so even a retry finds nothing. This event lets
+    # the pipeline wait for its first subscriber instead of guessing.
+    first_subscriber: asyncio.Event = field(default_factory=asyncio.Event)
+    # How many times screenrecord was actually spawned. `started_at` is set
+    # before the pipeline waits for a subscriber and `reader_task.done()`
+    # is False while it is merely parked, so neither answers "is this
+    # session really streaming?". Tests need that distinction, and so does
+    # anyone reading /v1/mobile/mirror/stats to debug a black video.
+    segments_started: int = 0
 
     def add_subscriber(self) -> asyncio.Queue:
         """Register a new subscriber and pre-seed its queue with the
@@ -88,6 +115,9 @@ class MirrorSession:
         q: asyncio.Queue = asyncio.Queue(maxsize=32)
         with self.subscribers_lock:
             self.subscribers.add(q)
+        # Release the pipeline, which parks on this until someone is
+        # actually listening (bug #49).
+        self.first_subscriber.set()
         if self.last_init is not None:
             # A subscriber MUST see the init marker before it processes
             # the init segment bytes -- the client uses that marker to
@@ -194,6 +224,24 @@ async def _pump_pipeline(session: MirrorSession) -> None:
     log.info("mirror[%s]: pipeline started (python-native muxer)",
              session.serial)
 
+    # Wait for the first subscriber before entering the
+    # `while has_subscribers()` loop (bug #49). `get_or_start` schedules
+    # this task, and only then does the caller subscribe -- with an
+    # `await ws.prepare(request)` in between for the WebSocket path.
+    # Without this wait the loop evaluated `has_subscribers()` first,
+    # saw nothing, and tore the session down before the browser that
+    # asked for it had a chance to attach.
+    if not session.has_subscribers():
+        try:
+            await asyncio.wait_for(session.first_subscriber.wait(),
+                                   timeout=_FIRST_SUBSCRIBER_TIMEOUT)
+        except asyncio.TimeoutError:
+            log.info("mirror[%s]: no subscriber within %.0fs, not starting",
+                     session.serial, _FIRST_SUBSCRIBER_TIMEOUT)
+            with _SESSIONS_LOCK:
+                _SESSIONS.pop(session.serial, None)
+            return
+
     def _on_init(payload: bytes) -> None:
         # Cache the init segment so late-joining subscribers get it
         # too. Then tell current subscribers to reset their
@@ -230,6 +278,7 @@ async def _pump_pipeline(session: MirrorSession) -> None:
                               session.serial)
                 await asyncio.sleep(1.0)
                 continue
+            session.segments_started += 1
 
             async def _drain_sr_stderr():
                 assert sr.stderr is not None
@@ -244,7 +293,28 @@ async def _pump_pipeline(session: MirrorSession) -> None:
             try:
                 assert sr.stdout is not None
                 while True:
-                    buf = await sr.stdout.read(65536)
+                    # v4.163.0 (bug #50): this used to be a bare
+                    # `await sr.stdout.read(65536)`, and the stop checks
+                    # sat *after* it. Both only ran once bytes arrived,
+                    # so a session whose last viewer left kept
+                    # screenrecord alive on the phone until the device
+                    # happened to emit another frame -- on a static
+                    # screen the AVC encoder can stay silent for a long
+                    # time, and `stop_all()` on bridge shutdown had the
+                    # same problem. Measured: stop_event set, zero
+                    # subscribers, still running after 3s.
+                    try:
+                        buf = await asyncio.wait_for(
+                            sr.stdout.read(65536), timeout=_READ_POLL_SECONDS)
+                    except asyncio.TimeoutError:
+                        # No data yet -- that is normal on a static
+                        # screen. Re-check the exit conditions and go
+                        # back to waiting.
+                        if session.stop_event.is_set():
+                            break
+                        if not session.has_subscribers():
+                            break
+                        continue
                     if not buf:
                         break
                     mux.feed(buf)
@@ -317,6 +387,7 @@ def stats() -> list[dict[str, Any]]:
             "size": s.size,
             "bit_rate": s.bit_rate,
             "started_at": s.started_at,
+            "segments_started": s.segments_started,
             "subscribers": len(s.subscribers),
             "fragments_sent": s.fragments_sent,
             "bytes_sent": s.bytes_sent,
