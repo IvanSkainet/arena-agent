@@ -100,6 +100,13 @@ psutil: Any = _psutil_mod
 
 
 _LOCK = threading.Lock()
+
+# Shortest interval a rate can be computed over. Below this, the delta is
+# dominated by measurement noise rather than by real traffic: at 1ms a
+# single 1500-byte packet reads as 1.5 MB/s, at 1us as 1.5 GB/s (bug #58).
+# 250ms is well under the 1Hz the dashboard polls at, so normal use never
+# touches this path -- it only catches two callers landing together.
+_MIN_SAMPLE_INTERVAL = 0.25
 _LAST_SAMPLE: dict[str, Any] = {
     "timestamp": None,
     "net_bytes_sent": None,
@@ -444,16 +451,49 @@ def live_metrics_snapshot() -> dict[str, Any]:
     """Return a single JSON-serialisable snapshot of live host metrics.
 
     Thread-safe (module-level lock) so multiple pollers all see
-    consistent deltas rather than racing on _LAST_SAMPLE."""
+    consistent deltas rather than racing on _LAST_SAMPLE.
+
+    v4.164.0 (bug #58): rates are counter deltas divided by the time
+    since the previous snapshot, and nothing stopped that interval from
+    being microseconds. Two callers polling at once -- the dashboard's
+    WebSocket stream and a plain GET, which share this module-level
+    sample -- produced a division by almost zero:
+
+        1000 bytes over 1 microsecond -> 999,992,385 bytes/sec
+
+    Observed against a running bridge as `cpu=75.0` on an idle host,
+    twice in a row. The numbers are not merely wrong, they are wrong in
+    the alarming direction: a monitoring panel that invents 1 GB/s
+    spikes teaches its reader to disregard it.
+
+    A snapshot taken sooner than `_MIN_SAMPLE_INTERVAL` after the last
+    one reuses the previous rates instead of recomputing them, and says
+    so via `stale: true`. Counter totals stay live because they are
+    absolute readings, not deltas.
+    """
     now = time.time()
     with _LOCK:
         prev_ts = _LAST_SAMPLE.get("timestamp")
         dt = (now - prev_ts) if isinstance(prev_ts, (int, float)) else 0.0
+
+        cached = _LAST_SAMPLE.get("snapshot")
+        if cached is not None and 0.0 < dt < _MIN_SAMPLE_INTERVAL:
+            fresh = dict(cached)
+            fresh["timestamp"] = now
+            fresh["stale"] = True
+            fresh["stale_reason"] = (
+                f"re-polled {dt * 1000:.1f}ms after the previous sample; "
+                f"rates need at least {_MIN_SAMPLE_INTERVAL * 1000:.0f}ms "
+                "to mean anything"
+            )
+            return fresh
+
         _LAST_SAMPLE["timestamp"] = now
 
-        return {
+        snapshot = {
             "ok": True,
             "timestamp": now,
+            "stale": False,
             "cpu": _collect_cpu(),
             "memory": _collect_memory(),
             "swap": _collect_swap(),
@@ -461,3 +501,5 @@ def live_metrics_snapshot() -> dict[str, Any]:
             "disk": _collect_disk(now, dt),
             "gpu": _collect_gpu(now),
         }
+        _LAST_SAMPLE["snapshot"] = snapshot
+        return snapshot

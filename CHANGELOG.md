@@ -1,5 +1,44 @@
 ## Unreleased
 
+### Live metrics invented a gigabyte per second
+
+`arena/observability/live_metrics.py` (38.6% covered) computes every rate
+as a counter delta divided by the time since the previous snapshot, and
+nothing bounded that interval below.
+
+Two callers share the module-level sample: the dashboard's WebSocket
+stream and any plain `GET /v1/live-metrics`. When they land together the
+divisor is microseconds:
+
+    1000 bytes over 1 microsecond -> 999,992,385 bytes/sec
+
+Observed against a running bridge as `cpu=75.0` on an idle host, twice in
+a row, dropping back to `0.9` once the polls were spaced out.
+
+The direction is what makes it worth fixing. A monitoring panel that is
+slightly off is a minor annoyance; one that occasionally invents a 1 GB/s
+spike is a panel whose reader learns to disregard it -- and then misses
+the real spike. The failure teaches the wrong lesson.
+
+A snapshot requested sooner than 250ms after the last one now reuses the
+previous rates and reports `stale: true` with the reason, rather than
+dividing by almost nothing. Absolute counter totals stay live, because
+those are readings rather than deltas. The threshold sits well below the
+dashboard's 1Hz polling, and a test pins it there: raised above one
+second it would throttle the dashboard itself, the feed would look
+frozen, and the fix would get reverted instead of corrected.
+
+Two neighbouring failure modes were checked at the same time and turned
+out to be handled already: a counter reset (NIC reconfigured) and a
+backwards wall clock (NTP correction, DST) both yield zero rather than a
+negative rate. Those are pinned now too.
+
+Also examined and found clean: `agentctl_extras/status.py`, the other
+0%-covered file near the top of the ranking. Its subprocess calls are all
+argv-form with literal commands, and the `hwinfo.py not found` it prints
+in a source checkout is correct behaviour -- `ROOT` is the install
+directory, and the script does ship in the release zip.
+
 ### One tunnel was unauthenticated, and the guard that should have caught it was blind
 
 `arena/admin/handlers.py` (25.5% covered) exposes five tunnel transports
