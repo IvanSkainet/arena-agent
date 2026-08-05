@@ -42,13 +42,12 @@ from __future__ import annotations
 import ctypes
 import importlib.util
 import json
+import socket
 import subprocess
 import sys
 import threading
 import time
 import types
-import urllib.error
-import urllib.request
 from http.server import HTTPServer
 from pathlib import Path
 
@@ -108,16 +107,47 @@ def serving(helper):
 
 
 def _request(port: int, path: str, *, body=None, token: str | None = None):
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
-    request = urllib.request.Request(
-        f"http://127.0.0.1:{port}{path}",
-        data=json.dumps(body).encode() if body is not None else None,
-        headers=headers, method="POST" if body is not None else "GET")
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            return response.status, response.read().decode()
-    except urllib.error.HTTPError as exc:
-        return exc.code, exc.read().decode()
+    """Send one request and return (status, body).
+
+    Uses a raw socket rather than urllib. BaseHTTPRequestHandler answers
+    401/503 without draining the request body and then closes, and how
+    that surfaces through urllib is platform-dependent: Linux raises
+    HTTPError, macOS/3.14 raised ConnectionResetError and reddened CI.
+    The server's behaviour is identical on both -- only urllib's
+    reporting differs -- so the test reads the response itself instead of
+    depending on which exception the client library picks.
+    """
+    payload = json.dumps(body).encode() if body is not None else b""
+    method = "POST" if body is not None else "GET"
+    lines = [
+        f"{method} {path} HTTP/1.1",
+        f"Host: 127.0.0.1:{port}",
+        "Connection: close",
+        f"Content-Length: {len(payload)}",
+    ]
+    if token:
+        lines.append(f"Authorization: Bearer {token}")
+    if body is not None:
+        lines.append("Content-Type: application/json")
+    request = ("\r\n".join(lines) + "\r\n\r\n").encode() + payload
+
+    with socket.create_connection(("127.0.0.1", port), timeout=10) as sock:
+        sock.sendall(request)
+        chunks = []
+        while True:
+            try:
+                chunk = sock.recv(65536)
+            except (ConnectionResetError, TimeoutError, OSError):
+                break
+            if not chunk:
+                break
+            chunks.append(chunk)
+
+    raw = b"".join(chunks).decode("utf-8", "replace")
+    assert raw, f"no response from {path}"
+    head, _, response_body = raw.partition("\r\n\r\n")
+    status = int(head.splitlines()[0].split()[1])
+    return status, response_body
 
 
 # ---------------------------------------------------------------------------
