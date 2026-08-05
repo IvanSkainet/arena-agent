@@ -90,11 +90,23 @@ def _run_one(source: str, tests: tuple[str, ...], *,
     survived = int(counts.get("bad_survived", 0))
     killed = int(counts.get("ok_killed", 0))
     total = sum(int(v) for v in counts.values())
+
+    # Zero mutants is not a clean result, it is a broken run. The first
+    # CI sweep reported "ran, 0/0" for all nine targets in five seconds
+    # because dependencies had failed to install and every test died on
+    # import -- and the table said "ran" without blinking. Refusing to
+    # call that a result is the same rule this release added to the
+    # product code, applied to the tooling.
+    if total == 0:
+        tail = ((proc.stdout or "")[-400:] + (proc.stderr or "")[-400:])
+        return {"error": f"zero mutants generated -- mutmut did not run "
+                         f"properly; tail: {tail}"}
+
     result: dict[str, int | str] = {
         "survived": survived, "killed": killed,
         "total": total, "seconds": elapsed,
     }
-    if total and killed == 0:
+    if killed == 0:
         # The mirror.py lesson: all-survived means the tests never ran the
         # file, which is a coverage fact dressed up as a mutation score.
         result["warning"] = (
