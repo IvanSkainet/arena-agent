@@ -1,17 +1,21 @@
 """Managed runtime registry/probe/install for the Code Workbench."""
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import platform
 import shutil
 import subprocess
-import tarfile
 import urllib.request
-import zipfile
 from pathlib import Path
 from typing import Any
+
+from arena.workbench.runtime_fetch import (
+    _extract_tar_safe,
+    _extract_zip_safe,
+    _sha256,
+    _verify_digest,
+)
 
 _GO_INDEX = "https://go.dev/dl/?mode=json"
 _WASMTIME_LATEST = "https://api.github.com/repos/bytecodealliance/wasmtime/releases/latest"
@@ -187,51 +191,6 @@ def _download(url: str, dest: Path) -> None:
             shutil.copyfileobj(r, f)
 
 
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def _safe_join_extract(base: Path, member_name: str) -> Path:
-    target = (base / member_name).resolve()
-    base_resolved = base.resolve()
-    if target != base_resolved and base_resolved not in target.parents:
-        raise RuntimeError(f"archive member escapes destination: {member_name}")
-    return target
-
-
-def _extract_zip_safe(archive: Path, dest: Path) -> None:
-    with zipfile.ZipFile(archive) as z:
-        for info in z.infolist():
-            target = _safe_join_extract(dest, info.filename)
-            if info.is_dir():
-                target.mkdir(parents=True, exist_ok=True)
-                continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with z.open(info) as src, target.open("wb") as out:
-                shutil.copyfileobj(src, out)
-
-
-def _extract_tar_safe(archive: Path, dest: Path) -> None:
-    with tarfile.open(archive, "r:*") as t:
-        for member in t.getmembers():
-            target = _safe_join_extract(dest, member.name)
-            if member.isdir():
-                target.mkdir(parents=True, exist_ok=True)
-                continue
-            if not member.isfile():
-                continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            src = t.extractfile(member)
-            if src is None:
-                continue
-            with src, target.open("wb") as out:
-                shutil.copyfileobj(src, out)
-
-
 def _go_asset(version: str | None = None) -> dict[str, Any]:
     req = urllib.request.Request(_GO_INDEX, headers={"User-Agent": "ArenaBridge/runtime.install"})
     with urllib.request.urlopen(req, timeout=60) as r:  # nosec B310 -- fixed official Go release index  # nosemgrep: dynamic-urllib-use-detected -- fixed https://go.dev/dl/?mode=json official release metadata endpoint
@@ -293,11 +252,8 @@ def install_deno(version: str | None = None, sha256: str | None = None) -> dict[
     archive = root / str(asset["filename"])
     if not archive.exists():
         _download(str(asset["url"]), archive)
-    got = _sha256(archive)
-    digest = str(asset.get("digest") or "")
-    expected = digest.split(":", 1)[-1] if digest.startswith("sha256:") else digest
-    if expected and got.lower() != expected.lower():
-        raise RuntimeError(f"sha256 mismatch for {archive.name}: got {got}, expected {expected}")
+    got = _verify_digest(archive, str(asset.get("digest") or ""),
+                         runtime="deno")
     tmp = root / f".deno-{ver.lstrip('v')}.extract"
     if tmp.exists():
         shutil.rmtree(tmp, ignore_errors=True)
@@ -389,10 +345,8 @@ def install_lua(version: str | None = None, sha256: str | None = None, dll_sha25
         tmp = tools_dir() / str(asset["name"])
         if not tmp.exists():
             _download(str(asset["url"]), tmp)
-        got = _sha256(tmp)
-        expected = str(asset.get("digest") or "").split(":", 1)[-1]
-        if expected and got.lower() != expected.lower():
-            raise RuntimeError(f"sha256 mismatch for {asset['name']}: got {got}, expected {expected}")
+        got = _verify_digest(tmp, str(asset.get("digest") or ""),
+                             runtime="lua")
         shutil.copy2(tmp, dest)
         try:
             dest.chmod(dest.stat().st_mode | 0o111)
@@ -444,10 +398,8 @@ def install_zig(version: str | None = None) -> dict[str, Any]:
     archive = root / str(asset["filename"])
     if not archive.exists():
         _download(str(asset["url"]), archive)
-    got = _sha256(archive)
-    expected = str(asset.get("digest") or "").split(":", 1)[-1]
-    if expected and got.lower() != expected.lower():
-        raise RuntimeError(f"sha256 mismatch for {archive.name}: got {got}, expected {expected}")
+    got = _verify_digest(archive, str(asset.get("digest") or ""),
+                         runtime="zig")
     tmp = root / f".zig-{ver}.extract"
     if tmp.exists():
         shutil.rmtree(tmp, ignore_errors=True)
@@ -506,11 +458,8 @@ def install_wasmtime(version: str | None = None) -> dict[str, Any]:
     archive = root / asset["filename"]
     if not archive.exists():
         _download(str(asset["url"]), archive)
-    got = _sha256(archive)
-    digest = str(asset.get("digest") or "")
-    expected = digest.split(":", 1)[-1] if digest.startswith("sha256:") else digest
-    if expected and got.lower() != expected.lower():
-        raise RuntimeError(f"sha256 mismatch for {archive.name}: got {got}, expected {expected}")
+    got = _verify_digest(archive, str(asset.get("digest") or ""),
+                         runtime="wasmtime")
     tmp = root / f".wasmtime-{ver.lstrip('v')}.extract"
     if tmp.exists():
         shutil.rmtree(tmp, ignore_errors=True)

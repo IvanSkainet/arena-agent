@@ -1,5 +1,73 @@
 ## Unreleased
 
+### Ranking by danger x uncovered, and the first file it pointed at
+
+Before choosing between "chase coverage" and "run mutation testing over
+everything", I measured whether the second would have found anything.
+
+Bug #48 (the mirror RCE) was reverted into a scratch copy and mutmut was
+pointed at the vulnerable file with the tests that existed at the time:
+**180 mutants, 0 killed**. Not because the tests were weak in an
+interesting way -- `coverage` reported "No data to report" for
+`mirror.py`. The suite never executed it. And the vulnerability itself
+lived in *absent* code:
+
+    def _screenrecord_cmd(serial, size, bit_rate):
+        return [find_adb() or "adb", "-s", serial,
+                "exec-out", "screenrecord", "--size", size, ...]
+
+There is no operator to mutate in a missing validation. None of bugs
+#40-#50 would have been found this way: they are all absent checks,
+swallowed errors, or races.
+
+So the order is coverage first, mutation second -- and the ranking that
+picks *which* coverage is danger-weighted. Files were scored by the
+capabilities they hold (subprocess, rmtree, urlopen, chmod, device
+input) multiplied by their uncovered statements. `mirror.py` would have
+ranked seventh on that list before it was fixed, which is the point:
+uncovered and dangerous correlate, because dangerous code is the code
+people are least willing to poke.
+
+Top of the list was `arena/workbench/runtimes.py` at 26% covered -- it
+downloads Go, Deno, Zig, Wasmtime and Lua from the internet, unpacks them
+and marks them executable.
+
+### Downloaded runtimes installed without verification when the digest was absent
+
+All four install paths verified like this:
+
+    expected = str(asset.get("digest") or "").split(":", 1)[-1]
+    if expected and got.lower() != expected.lower():
+        raise RuntimeError(...)
+
+A *missing* digest skipped verification entirely, and three of the five
+asset resolvers can produce one -- `asset.get("digest") or ""` is exactly
+what happens when the GitHub release API omits the field.
+
+Reproduced end to end with the download stubbed: given `digest: ""`, an
+archive containing `#!/bin/sh; echo TROJAN` installed as the `deno`
+executable and was written into the runtime registry as managed. For
+bytes fetched over the network and then executed, "could not verify" has
+to mean "will not install", so `_verify_digest` now refuses outright.
+
+The extraction guards were audited at the same time and turned out to be
+sound -- zip slip via `../`, an absolute member path, and a tar symlink
+pointing out of the destination were all refused. Those are pinned now so
+they stay refused.
+
+Two notes from the sabotage round, both about my own tests. The ratchet
+forbidding the old fail-open shape flagged its own documentation, because
+`_verify_digest`'s docstring quotes the buggy code to explain why the
+helper exists; it parses the AST now instead of grepping. And the
+wrong-digest test used sixty-four zeroes, so a sabotage comparing only
+`got[:8]` passed it -- the digest has to differ *only in its tail* to
+distinguish a full comparison from a truncated one.
+
+`runtimes.py` crossed the 600-line cap during the fix. The architecture
+ratchet caught it and the download/extract half moved to
+`arena/workbench/runtime_fetch.py`, which is where it belonged anyway:
+nothing in it knows about any particular language runtime.
+
 ### Why the live mirror never worked: a race nobody could lose slowly
 
 Ivan reported that live view in mobile does not work at all -- only the
