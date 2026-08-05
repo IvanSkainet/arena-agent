@@ -1,4 +1,4 @@
-## Unreleased
+## v4.162.0 — 2026-08-05
 
 ### Stop and purge said "done" when the phone never heard them
 
