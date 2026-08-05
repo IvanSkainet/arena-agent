@@ -43,7 +43,6 @@ import platform
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -94,6 +93,9 @@ _REPLACE_TARGETS = (
     "uninstall.sh",
     "uninstall.bat",
 )
+
+
+from arena.admin.auto_update_fetch import download_release  # noqa: E402
 
 
 def _err(msg: str, **extra: Any) -> dict[str, Any]:
@@ -262,70 +264,6 @@ def check_updates(*, current_version: str | None = None) -> dict[str, Any]:
 # Download + verify
 # ---------------------------------------------------------------------------
 
-def _sha256_of(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def download_release(*, asset_url: str, asset_name: str,
-                     expected_sha256: str | None = None,
-                     dest_dir: Path | str | None = None) -> dict[str, Any]:
-    """Download a release zip to `dest_dir` (default: a fresh temp dir)
-    and compute its SHA-256. Optionally verifies against
-    `expected_sha256` (accepts `sha256:...` prefix as GitHub returns)."""
-    if not asset_url or not asset_name:
-        return _err("asset_url and asset_name are required")
-    dest = Path(dest_dir) if dest_dir else Path(tempfile.mkdtemp(prefix="arena-update-"))
-    dest.mkdir(parents=True, exist_ok=True)
-    zip_path = dest / asset_name
-    try:
-        # v4.43.0: SSRF + size-cap defence for the release
-        # download. asset_url is fed from the /v1/update  # nosec B310 -- inspected -- fixed / SSRF-guarded URL
-        # endpoint which already restricts sources, but a
-        # compromised upstream (or a badly-configured
-        # allowlist) shouldn't be able to stream unlimited
-        # bytes into the operator's disk. 512 MiB is well over
-        # a real release (~3 MB); an archive that big is
-        # already something we don't want to install.
-        from arena.security_ssrf import _validate_url
-        ssrf_err = _validate_url(asset_url)
-        if ssrf_err:
-            return _err(f"asset_url rejected: {ssrf_err}",
-                        asset_url=asset_url)
-        req = urllib.request.Request(asset_url, headers={"User-Agent": _USER_AGENT})
-        _MAX = 512 * 1024 * 1024
-        with urllib.request.urlopen(req, timeout=60) as resp, zip_path.open("wb") as out:  # nosec B310 -- SSRF-validated above; scheme forced to http/https by _validate_url  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
-            written = 0
-            while True:
-                chunk = resp.read(1 << 20)
-                if not chunk:
-                    break
-                written += len(chunk)
-                if written > _MAX:
-                    return _err("release zip exceeded 512 MiB size cap",
-                                asset_url=asset_url)
-                out.write(chunk)
-    except Exception as e:
-        return _err(f"download failed: {e!r}", asset_url=asset_url)
-
-    got = _sha256_of(zip_path)
-    if expected_sha256:
-        want = expected_sha256.split(":", 1)[-1].strip().lower()
-        if want and want != got:
-            return _err("sha256 mismatch after download",
-                        expected=want, got=got, path=str(zip_path))
-    return {
-        "ok": True,
-        "path": str(zip_path),
-        "sha256": got,
-        "size_bytes": zip_path.stat().st_size,
-        "staging_dir": str(dest),
-    }
-
-
 # ---------------------------------------------------------------------------
 # Consent
 # ---------------------------------------------------------------------------
@@ -470,7 +408,8 @@ def apply_update(*, asset_url: str, asset_name: str,
     # bails on mismatch. For the unverified path we still record the
     # computed digest in the return value + audit trail but do not compare.
     dl = download_release(asset_url=asset_url, asset_name=asset_name,
-                          expected_sha256=None if unverified else expected_sha256)
+                          expected_sha256=None if unverified else expected_sha256,
+                          allow_unverified=unverified)
     if not dl.get("ok"):
         return dl
     zip_path = Path(dl["path"])

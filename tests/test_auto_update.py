@@ -351,7 +351,7 @@ def test_apply_update_end_to_end_on_posix_writes_new_files(monkeypatch,
         zf.writestr("arena-agent/unified_bridge.py", "print('new')")
 
     def _fake_download(*, asset_url, asset_name, expected_sha256=None,
-                       dest_dir=None):
+                       allow_unverified=False, dest_dir=None):
         staging = tmp_path / "staging"
         staging.mkdir(exist_ok=True)
         dst = staging / asset_name

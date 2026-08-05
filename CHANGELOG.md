@@ -1,5 +1,42 @@
 ## Unreleased
 
+### An update archive could install without its digest being checked
+
+`arena/admin/auto_update.py` downloads a release zip and unpacks it over
+the install root -- it replaces the bridge's own code. Verification was
+two nested truthiness checks:
+
+    if expected_sha256:
+        want = expected_sha256.split(":", 1)[-1].strip().lower()
+        if want and want != got:
+            return _err(...)
+
+So `None`, `""`, `"   "`, `"sha256:"` and `"sha256:   "` all meant
+"install whatever arrived". Verified by execution against a stubbed
+download: a hand-made archive was accepted under every one of those, and
+refused only when a wrong-but-present digest was supplied.
+
+`apply_update()` does gate the unverified path properly -- it demands
+`accept_no_verification=True` plus a consent token derived from an
+`UNVERIFIED` sentinel, so an operator cannot reuse a verified consent to
+trigger an unverified install. The Dashboard route was never open. But
+`download_release` is module-level API, the guard lived a layer above it,
+and a bare `download_release(...)` reads as though it verifies. Skipping
+the check is now something a caller says (`allow_unverified=True`), and
+the result carries `verified: true|false` so an audit can tell which
+installs were checked.
+
+This is the third instance of this exact shape in two releases: the
+runtime installer (#51), the input helper's `if not _TOKEN: return True`
+(#54), and this. **An optional check written as a truthiness test is a
+check that is off by default.** A ratchet now fails the build if any
+`download_release` call omits the flag, so the next caller has to choose.
+
+`auto_update.py` crossed the 600-line cap during the fix; the architecture
+ratchet caught it and download+verify moved to
+`arena/admin/auto_update_fetch.py`, which knows nothing about version
+comparison, consent, or the platform-specific install swap.
+
 ### Shutting the bridge down left a recorder running on the phone
 
 `arena/mobile/mirror.py` has a `stop_all()`. `arena/mobile/__init__.py`
