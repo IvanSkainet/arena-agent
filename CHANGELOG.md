@@ -1,4 +1,4 @@
-## Unreleased
+## v4.163.0 — 2026-08-05
 
 ### Mouse clicks were a shell injection, in a file with 0% coverage
 
