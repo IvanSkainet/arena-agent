@@ -104,28 +104,42 @@ PS_PASS_BUDGET_S = 20
 
 # Monotonic deadline for the current pass, or None when no pass is active.
 _pass_deadline: float | None = None
+# The budget the active pass was opened with, so _remaining() can clamp to
+# it directly instead of trusting clock arithmetic to stay inside it.
+_pass_budget_s: float = 0.0
 
 
 def begin_pass(budget_s: float = PS_PASS_BUDGET_S) -> None:
     """Open a collection pass with a shared wall-clock budget."""
-    global _pass_deadline
-    _pass_deadline = time.monotonic() + max(0.0, float(budget_s))
+    global _pass_deadline, _pass_budget_s
+    _pass_budget_s = max(0.0, float(budget_s))
+    _pass_deadline = time.monotonic() + _pass_budget_s
 
 
 def end_pass() -> None:
     """Close the current pass; subsequent calls are unbudgeted again."""
-    global _pass_deadline
+    global _pass_deadline, _pass_budget_s
     _pass_deadline = None
+    _pass_budget_s = 0.0
 
 
 def _remaining(timeout: int) -> float | None:
-    """Seconds this call may take, or None when the pass budget is spent."""
+    """Seconds this call may take, or None when the pass budget is spent.
+
+    v4.165.0: the result is clamped to the budget as well as to `timeout`.
+    Windows' monotonic clock has a coarse tick, and when two reads land
+    inside the same one the subtraction can come back a hair ABOVE the
+    budget -- CI saw `2.0000000000002274` against a 2 s pass and went red
+    on five runners. A quarter-nanosecond overrun harms nothing in
+    production, but a bound that is only nearly true is a bound nobody
+    can assert on, and the test asserting it was right to complain.
+    """
     if _pass_deadline is None:
         return float(timeout)
     left = _pass_deadline - time.monotonic()
     if left <= 0:
         return None
-    return min(float(timeout), left)
+    return min(float(timeout), left, float(_pass_budget_s))
 
 
 def _run_powershell(script: str, timeout: int = PS_TIMEOUT_S) -> subprocess.CompletedProcess:
