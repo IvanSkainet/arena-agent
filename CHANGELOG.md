@@ -1,5 +1,48 @@
 ## Unreleased
 
+### Stop and purge said "done" when the phone never heard them
+
+`handlers_recording.py` sat at 31% coverage, and under it were two
+functions with the same shape:
+
+    try:
+        run(["shell", "kill", "-INT", str(pid)], ...)
+    except Exception:
+        pass
+    ...
+    return {"ok": True, ..., "status": "stopped"}
+
+With adb unreachable, `record_stop` reported `ok: True, status:
+"stopped"` while screenrecord kept running on the phone, and
+`record_purge` reported `ok: True` while every MP4 was still on the
+device. Both lies point the wrong way. An agent that believes the screen
+recorder is off will behave as if it is, and for a purge, "ok" is a
+privacy claim rather than a status code.
+
+Neither call raises now -- a stop or purge that partly worked should not
+look like a crash -- but the outcome is reported: `ok` reflects what
+actually happened, a failed stop marks the registry entry `stop_failed`
+rather than `stopped`, and a failed purge still lists what it cleared
+locally while saying plainly that the files may remain on the phone.
+
+Worth noting what surfaced along the way: `purge_recordings` had never
+worked at all. It passes its command as `run(["shell", "sh", "-c", inner])`,
+and before the argv quoting added earlier in this release adbd joined
+those arguments into `sh -c rm -f /path/*.mp4 ...` -- so the device shell
+ran `sh -c rm` with `-f` as its argument name and everything else
+discarded. `rm: missing operand`, exit non-zero, swallowed by
+`except: pass`, reported as success. The quoting fixed the deletion; this
+change is what would have made the failure visible in the first place.
+
+The ratchet guarding this only counts `except Exception: pass` around a
+device-mutating call when no reason is written down. `_ensure_record_dir`
+swallows deliberately and says why in its docstring -- screenrecord
+produces a better error moments later -- so flagging it would be noise,
+and a detector that flags documented decisions is one people learn to
+ignore. Also of note: the first version of that ratchet used the obvious
+`try:...except:pass` regex, which backtracked catastrophically and hung
+the suite until pytest-timeout killed it. It is a linear line scan now.
+
 ### An upload that answered "no" wrote the file anyway
 
 `arena/mobile/handlers_devops.py` was at 29% coverage, so it was next.

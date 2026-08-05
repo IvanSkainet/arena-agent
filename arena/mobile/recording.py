@@ -375,29 +375,49 @@ def stop_async(rec_id: str) -> dict[str, Any]:
     if guard:
         return guard
 
+    # v4.162.0 (bug #45): the kill result was discarded with `except:
+    # pass` and the response said `ok: True, status: "stopped"` no matter
+    # what. With adb unreachable the phone keeps recording -- the caller
+    # is told the camera is off while it is still running, which is the
+    # worst possible direction for this particular lie to point.
+    #
+    # The call still does not raise (a stop that half-worked should not
+    # look like a crash), but the outcome is now reported.
+    kill_error: str | None = None
     if pid:
         try:
-            run(["shell", "kill", "-INT", str(pid)],
-                serial=serial, timeout=5)
-        except Exception:
-            pass
+            killed = run(["shell", "kill", "-INT", str(pid)],
+                         serial=serial, timeout=5)
+            if killed.returncode != 0:
+                kill_error = ((killed.stderr or "").strip()
+                              or f"kill exit {killed.returncode}")
+        except Exception as e:
+            kill_error = f"{type(e).__name__}: {e}"
     # Give screenrecord a moment to flush.
     time.sleep(0.6)
 
+    status = "stopped" if kill_error is None else "stop_failed"
     with _REGISTRY_LOCK:
         e = _REGISTRY.get(rec_id)
         if e:
-            e["status"] = "stopped"
+            e["status"] = status
             e["stopped_at"] = time.time()
     stat_rc, size_bytes = _stat_remote(serial, entry["remote_path"])
-    return {
-        "ok": True,
+    result: dict[str, Any] = {
+        "ok": kill_error is None,
         "action": "record_stop",
         "id": rec_id,
         "remote_path": entry["remote_path"],
         "size_bytes": size_bytes if stat_rc == 0 else 0,
-        "status": "stopped",
+        "status": status,
     }
+    if kill_error is not None:
+        result["error"] = f"could not stop screenrecord on the device: {kill_error}"
+        result["hint"] = (
+            "The recording may still be running on the phone. Re-check with "
+            "GET /v1/mobile/{serial}/recordings once the device is reachable."
+        )
+    return result
 
 
 def list_recordings(serial: str | None = None) -> dict[str, Any]:
@@ -468,24 +488,48 @@ def purge_recordings(serial: str, *,
         for rid in stale_ids:
             _REGISTRY.pop(rid, None)
     # And clean the directory itself.
+    #
+    # v4.162.0 (bug #44): both branches below swallowed every failure and
+    # the function returned `ok: True` regardless. For a purge that is a
+    # privacy claim, not a status code -- the caller is told screen
+    # recordings were deleted from the phone when adb never even ran. The
+    # deletion is still best-effort (a purge that partly succeeded should
+    # not raise), but the outcome is reported honestly.
+    purge_error: str | None = None
     if older_than_seconds > 0:
         # find -mmin isn't available on Android's toybox; fall back to
         # deleting only what we know about via ls + stat.
         try:
-            run(["shell", "sh", "-c",
+            r = run(["shell", "sh", "-c",
                  f"for f in {_RECORD_DIR}/*.mp4; do "
                  f"  age=$(( $(date +%s) - $(stat -c %Y \"$f\" 2>/dev/null || echo 0) )); "
                  f"  [ \"$age\" -gt {older_than_seconds} ] && rm -f \"$f\"; "
                  f"done"],
                 serial=serial, timeout=20)
-        except Exception:
-            pass
+            if r.returncode != 0:
+                purge_error = ((r.stderr or "").strip()
+                               or f"purge exit {r.returncode}")
+        except Exception as e:
+            purge_error = f"{type(e).__name__}: {e}"
     else:
         try:
-            run(["shell", "sh", "-c", f"rm -f {_RECORD_DIR}/*.mp4 {_RECORD_DIR}/*.pid"],
-                serial=serial, timeout=10)
-        except Exception:
-            pass
-    return {"ok": True, "action": "purge",
-            "cleared_ids": stale_ids,
-            "kept_older_than_seconds": older_than_seconds}
+            r = run(["shell", "sh", "-c", f"rm -f {_RECORD_DIR}/*.mp4 {_RECORD_DIR}/*.pid"],
+                    serial=serial, timeout=10)
+            if r.returncode != 0:
+                purge_error = ((r.stderr or "").strip()
+                               or f"purge exit {r.returncode}")
+        except Exception as e:
+            purge_error = f"{type(e).__name__}: {e}"
+    result: dict[str, Any] = {
+        "ok": purge_error is None,
+        "action": "purge",
+        "cleared_ids": stale_ids,
+        "kept_older_than_seconds": older_than_seconds,
+    }
+    if purge_error is not None:
+        result["error"] = f"could not delete recordings from the device: {purge_error}"
+        result["hint"] = (
+            "The registry entries were cleared locally but the MP4 files may "
+            "still be on the phone. Re-run the purge once adb is reachable."
+        )
+    return result
