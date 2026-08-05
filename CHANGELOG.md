@@ -1,4 +1,4 @@
-## Unreleased
+## v4.164.0 — 2026-08-05
 
 ### An update archive could install without its digest being checked
 
