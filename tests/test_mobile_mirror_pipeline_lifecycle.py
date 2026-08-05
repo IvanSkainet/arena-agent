@@ -41,6 +41,7 @@ convention in the rest of tests/ (the plugin is not a dependency).
 from __future__ import annotations
 
 import asyncio
+import sys
 
 import pytest
 
@@ -50,16 +51,22 @@ from arena.mobile import mirror
 @pytest.fixture()
 def stub_adb(monkeypatch):
     """Never touch a real device; screenrecord becomes a long sleep."""
-    monkeypatch.setattr(mirror, "find_adb", lambda: "/bin/echo")
+    monkeypatch.setattr(mirror, "find_adb", lambda: sys.executable)
     # Emit a byte, then linger. `not reader_task.done()` turned out to be
     # too weak a signal on its own -- a pipeline parked in
     # `wait_for(first_subscriber)` is also "not done", so a sabotage that
     # removed `first_subscriber.set()` slipped through. Tests now assert
     # the pipeline actually reached screenrecord, via `started_reading`.
+    #
+    # Spawned via sys.executable rather than /bin/sh: the first version
+    # of this used a shell one-liner and went red on every Windows runner
+    # ("[WinError 2] The system cannot find the file specified"). A test
+    # for platform-independent logic must not itself be POSIX-only.
+    stub = ("import sys, time; sys.stdout.buffer.write(b'x'); "
+            "sys.stdout.flush(); time.sleep(30)")
     monkeypatch.setattr(
         mirror, "_screenrecord_cmd",
-        lambda serial, size, bit_rate: [
-            "/bin/sh", "-c", "printf x; exec sleep 30"])
+        lambda serial, size, bit_rate: [sys.executable, "-c", stub])
     monkeypatch.setattr(mirror, "_SESSIONS", {}, raising=False)
     yield
     for session in list(mirror._SESSIONS.values()):
