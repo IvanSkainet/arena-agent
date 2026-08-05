@@ -1,5 +1,43 @@
 ## Unreleased
 
+### The screen mirror had an unguarded RCE, and my own ratchet was blind to it
+
+`arena/mobile/mirror.py` sat at 35% coverage. It streams the phone screen,
+so it was next -- and `?size=` went from the query string straight into
+
+    adb -s <serial> exec-out screenrecord --size <size> ...
+
+with no validation of any kind. `exec-out` is the device shell, so this
+was remote code execution, reproduced end to end and then confirmed
+against a running bridge:
+
+    GET /v1/mobile/{serial}/mirror?size=720x1600; touch /tmp/PWNED %23
+    -> the file was created on the device.
+
+The uncomfortable part is why it survived. v4.162.0 fixed this exact
+class centrally, inside `arena.mobile.adb.run`, precisely so no caller
+could forget -- and mirror does not use `run()`. It cannot: `run()` is a
+blocking capture-everything helper and mirror needs a live pipe, so it
+spawns adb itself. That is a legitimate exception.
+
+The ratchet written to catch legitimate exceptions is what failed. It
+scanned for `subprocess.run` and `subprocess.Popen`; mirror uses
+`asyncio.create_subprocess_exec`. Two modules bypassed the central fix,
+the ratchet knew about one of them, and it reported clean. A detector is
+only as good as its list of spawn verbs -- that list is now eleven long
+(run/Popen/call/check_output/check_call, both async spawns, os.system,
+os.popen, os.spawn, os.exec), mirror is exempted **by name** so a third
+such module cannot inherit the exemption silently, and a test asserts
+the verb list still contains the async forms.
+
+`validate_stream_params` now rejects anything that is not `WxH` and
+bounds the bit rate, the WebSocket handler refuses before upgrading (a
+readable 400 beats a socket that opens and dies), and
+`_screenrecord_cmd` re-checks rather than trusting its callers -- the
+next caller is the one that forgets. Sixteen injection payloads are
+pinned alongside six real phone resolutions, because a validator that
+rejects `1080x2400` is a validator someone deletes.
+
 ### The npm surface, audited on the day Shai-Hulud took 1,280 packages
 
 On 2026-08-04 a worm took over the GitHub account behind `keyv` and

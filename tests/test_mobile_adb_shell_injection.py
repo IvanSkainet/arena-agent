@@ -214,6 +214,21 @@ def test_legitimate_diagnostics_are_not_blocked(command):
     )
 
 
+_SPAWN_VERBS = (
+    "subprocess.run",
+    "subprocess.Popen",
+    "subprocess.call",
+    "subprocess.check_output",
+    "subprocess.check_call",
+    "create_subprocess_exec",
+    "create_subprocess_shell",
+    "os.system",
+    "os.popen",
+    "os.spawn",
+    "os.exec",
+)
+
+
 def test_every_shell_call_site_goes_through_the_quoting_helper():
     """Ratchet: the fix lives in adb.run so no caller can forget it.
 
@@ -227,13 +242,27 @@ def test_every_shell_call_site_goes_through_the_quoting_helper():
     for py in mobile.glob("*.py"):
         if py.name == "adb.py":  # the one module allowed to spawn adb
             continue
+        if py.name == "mirror.py":
+            # mirror streams a live pipe, which arena.mobile.adb.run (a
+            # blocking capture-everything helper) cannot express. It is
+            # allowed to spawn adb itself, and pays for that with its own
+            # validation -- see validate_stream_params and
+            # tests/test_mobile_mirror_stream_params.py. Exempted by name
+            # so adding a THIRD such module is a deliberate act, not a
+            # silent one.
+            continue
         text = py.read_text(encoding="utf-8")
         lines = text.splitlines()
         for lineno, line in enumerate(lines, 1):
             stripped = line.strip()
             if stripped.startswith("#"):
                 continue
-            if "subprocess.run" not in stripped and "subprocess.Popen" not in stripped:
+            # v4.163.0: this list used to be just run/Popen, and mirror.py
+            # spawns adb with `asyncio.create_subprocess_exec` -- so the
+            # ratchet stayed silent while `?size=` went unvalidated into an
+            # `exec-out screenrecord --size <size>` argv (bug #48, a live
+            # RCE). A detector is only as good as its list of spawn verbs.
+            if not any(verb in stripped for verb in _SPAWN_VERBS):
                 continue
             # Only adb invocations are in scope. Spawning OTHER host tools
             # (apk_install runs `apksigner`, a local binary with a fixed

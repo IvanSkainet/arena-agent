@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import threading
 from dataclasses import dataclass, field
 from typing import Any
@@ -127,7 +128,47 @@ class MirrorSession:
             self.bytes_sent += len(chunk)
 
 
+_SIZE_RE = re.compile(r"^[1-9][0-9]{1,4}x[1-9][0-9]{1,4}$")
+_MIN_BITRATE = 100_000
+_MAX_BITRATE = 100_000_000
+
+
+def validate_stream_params(size: str, bit_rate: int) -> str | None:
+    """Return an error message if the streaming params are unsafe/invalid.
+
+    v4.163.0 (bug #48): `?size=` went from the query string straight into
+    the argv of `adb -s <serial> exec-out screenrecord --size <size>` with
+    no validation at all. `exec-out` is the device shell (adbd joins argv
+    and hands it to /system/bin/sh), so this was a remote code execution
+    hole, reproduced end to end:
+
+        ?size=720x1600; touch /tmp/PWNED #
+        -> the file was created on the device.
+
+    The central quoting added in v4.162.0 lives inside `arena.mobile.adb.run`
+    and did NOT cover this: mirror spawns adb itself with
+    `asyncio.create_subprocess_exec`. The ratchet meant to catch exactly
+    that only knew about `subprocess.run`/`Popen`, so it stayed silent --
+    both have been widened.
+
+    Validating here as well as quoting there is deliberate. `--size` has
+    exactly one legal shape and a stream that silently accepts nonsense
+    just fails later inside screenrecord with a worse error.
+    """
+    if not isinstance(size, str) or not _SIZE_RE.match(size):
+        return (f"size must be WxH (e.g. 720x1600), got {size!r}")
+    if not isinstance(bit_rate, int) or not (_MIN_BITRATE <= bit_rate <= _MAX_BITRATE):
+        return (f"bit_rate out of range {_MIN_BITRATE}..{_MAX_BITRATE}: "
+                f"{bit_rate!r}")
+    return None
+
+
 def _screenrecord_cmd(serial: str, size: str, bit_rate: int) -> list[str]:
+    # Fail closed: never build an adb command line from unvalidated input,
+    # even if every current caller validates first.
+    problem = validate_stream_params(size, bit_rate)
+    if problem:
+        raise ValueError(problem)
     return [
         find_adb() or "adb", "-s", serial,
         "exec-out", "screenrecord",
@@ -307,6 +348,13 @@ def make_mirror_handlers(ctx, *, cors):
             bit_rate = int(request.query.get("bit_rate", DEFAULT_BIT_RATE))
         except ValueError:
             bit_rate = DEFAULT_BIT_RATE
+
+        # Refuse before the WebSocket is upgraded, so the caller gets a
+        # readable 400 instead of a socket that opens and dies. Both
+        # params reach an adb command line (bug #48).
+        problem = validate_stream_params(size, bit_rate)
+        if problem:
+            return cors({"ok": False, "error": problem}, status=400)
 
         ws = web.WebSocketResponse(max_msg_size=0, autoping=True,
                                    heartbeat=15.0)
