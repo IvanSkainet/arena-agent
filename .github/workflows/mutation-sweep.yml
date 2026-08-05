@@ -1,0 +1,105 @@
+name: Mutation sweep (manual, long-running)
+
+# Answering the operator's question directly: a new commit does NOT cancel
+# this run. Cancellation comes from `cancel-in-progress: true` within a
+# concurrency GROUP, and ci.yml's group is `ci-${{ github.ref }}`. This
+# workflow has its own group and does not cancel in progress, so pushing
+# to master while a sweep is running leaves the sweep alone -- it keeps
+# grinding the commit it started from, which is what makes its result
+# meaningful.
+#
+# It is workflow_dispatch only. A sweep costs hours; nobody wants it on
+# every push, and the result belongs in an artifact where it can be read
+# later rather than scrolling past in a chat.
+on:
+  workflow_dispatch:
+    inputs:
+      paths:
+        description: "Comma-separated files to mutate (blank = the mutation_gate TARGETS)"
+        required: false
+        default: ""
+
+permissions: {}
+
+concurrency:
+  # Separate from ci-*; two sweeps queue rather than fight, and a normal
+  # CI run cannot cancel one.
+  group: mutation-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Mutate and report survivors
+    runs-on: ubuntu-latest
+    timeout-minutes: 350   # under the 360-minute job ceiling
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          # mutmut 2.5.1, not 3.x: 3.x copies the tree into mutants/ and
+          # breaks our imports. Measured, not assumed.
+          pip install "mutmut==2.5.1"
+          pip install -r requirements.txt || true
+          pip install pytest pytest-timeout
+
+      - name: Record the commit under test
+        run: |
+          set -euo pipefail
+          echo "Sweeping ${GITHUB_SHA}" | tee sweep-header.txt
+          echo "Started $(date -u +%FT%TZ)" | tee -a sweep-header.txt
+
+      - name: Run the sweep
+        id: sweep
+        continue-on-error: true
+        env:
+          SWEEP_PATHS: ${{ inputs.paths }}
+        run: |
+          set -uo pipefail
+          python scripts/mutation_sweep.py \
+            ${SWEEP_PATHS:+--paths "$SWEEP_PATHS"} \
+            --report mutation-report.md \
+            --json mutation-report.json
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Summarise into the job summary
+        if: always()
+        run: |
+          set -uo pipefail
+          {
+            cat sweep-header.txt
+            echo
+            if [ -f mutation-report.md ]; then
+              cat mutation-report.md
+            else
+              echo "No report produced -- see the step log."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mutation-report
+          path: |
+            mutation-report.md
+            mutation-report.json
+            sweep-header.txt
+          retention-days: 90
+          if-no-files-found: warn

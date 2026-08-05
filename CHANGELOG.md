@@ -1,3 +1,72 @@
+## Unreleased
+
+### Naming the pattern instead of fixing it a fourth time
+
+Three bugs in two releases had one shape, and each was found separately
+because nobody had named it:
+
+    #51  if expected and got.lower() != expected.lower():   runtimes.py
+    #54  if not _TOKEN: return True                         helper_server.py
+    #61  if expected_sha256:                                auto_update.py
+
+Every one reads as "verify this" and means "verify this, if somebody
+remembered to supply the thing to verify against". `scripts/
+failopen_ratchet.py` now looks for that shape across `arena/` on every
+run of the test suite.
+
+It reports two forms. **gated-refusal**: a refusal (raise, return an
+error, send a 4xx) sitting inside `if <secret>:` or `if <secret> and
+<comparison>:` -- empty value, no refusal, execution continues as though
+the check passed. **absent-means-allowed**: `if not <secret>: return
+True`, where the lack of a credential is read as permission.
+
+The detector is validated against the **actual pre-fix source**, pulled
+out of git rather than paraphrased: it catches all three, and the fixed
+versions of the same files come back clean. A detector that misses the
+cases it was built from is decoration.
+
+Getting the false-positive half right took three iterations, and the
+misses are instructive. The first version read `_apply_authtoken`'s bare
+`return` as "access granted" -- it means "nothing to configure". The
+second treated the browser diagnostics' `expected_output_substr` as a
+digest, because the word "expected" appeared. The third looked only at
+the gate's own name and so missed bug #51 entirely, which had used a
+bare `expected`; what identifies a security gate is the company it
+keeps, so the check now reads the whole condition plus the refusal it
+guards. All three mistakes are regression tests.
+
+The rest of the tree was audited by hand: twelve remaining candidates,
+every one legitimate, each allow-listed with a reason that has to explain
+why an *empty* value is safe there -- and a test rejects reasons too
+short to be one, or pointing at lines that no longer exist.
+
+### Mutation sweeps that a push cannot cancel
+
+The operator asked how to run a long mutation sweep without the next
+commit killing it. The answer is concrete: cancellation comes from
+`cancel-in-progress: true` inside a concurrency *group*, and `ci.yml`
+uses `ci-${{ github.ref }}`. `mutation-sweep.yml` has its own group with
+`cancel-in-progress: false`, so a push to master leaves a running sweep
+alone -- it keeps grinding the commit it started from, which is what
+makes its answer mean anything.
+
+It is `workflow_dispatch` only, capped at 350 minutes, and writes a
+markdown table into both the job summary and a 90-day artifact, so the
+result outlives the conversation that asked for it.
+
+`scripts/mutation_sweep.py` picks targets by coverage first. Measured
+during the previous cycle: `mirror.py` produced 180 mutants and killed
+zero, not because the tests were weak but because coverage said "No data
+to report" -- nothing executed the file. A survivor count on unexecuted
+code is not a weak signal, it is no signal at the same CPU price, so
+anything under 50% covered is skipped and said so in the report.
+
+Nine files are now declared as targets -- every module fixed during the
+v4.163/v4.164 hunt, paired with the guard written for it, all above 60%
+coverage. None of this runs on push: the gate is manual, and
+`mutation_cache` keys results by (source, tests, mutmut version) so a
+re-run re-proves only what changed.
+
 ## v4.164.0 — 2026-08-05
 
 ### An update archive could install without its digest being checked

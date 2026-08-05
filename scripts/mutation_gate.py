@@ -67,6 +67,41 @@ TARGETS: dict[str, tuple[str, ...]] = {
         "tests/test_bridge_self_protection.py",
         "tests/test_files_sandbox_v442_hardening.py",
     ),
+    # v4.165.0: the files fixed during the v4.163/v4.164 bug hunt, each
+    # paired with the guard written for it. Every one is above 60%
+    # covered -- below that a survivor count measures absent coverage
+    # rather than weak assertions (mirror.py at 0% once produced 180
+    # mutants and killed none, which said nothing about the tests).
+    #
+    # These run in the manual sweep (mutation-sweep.yml), not on every
+    # push: `mutation_cache` keys results by content, so the gate re-runs
+    # only what changed.
+    "arena/mobile/apk_paths.py": (
+        "tests/test_mobile_apk_upload_stays_in_staging.py",
+    ),
+    "arena/exec/interpreters.py": (
+        "tests/test_exec_script_path_quoting.py",
+    ),
+    "arena/workbench/runtime_fetch.py": (
+        "tests/test_workbench_runtime_downloads.py",
+    ),
+    "arena/admin/auto_update_fetch.py": (
+        "tests/test_auto_update_digest_required.py",
+        "tests/test_auto_update.py",
+    ),
+    "arena/browser/cdp_client/tabs_http.py": (
+        "tests/test_cdp_websocket_url_is_loopback.py",
+    ),
+    "arena/observability/live_metrics.py": (
+        "tests/test_live_metrics_rates.py",
+    ),
+    "arena/mcp_client/client.py": (
+        "tests/test_mcp_client_output_bounds.py",
+    ),
+    "arena/mobile/mirror.py": (
+        "tests/test_mobile_mirror_stream_params.py",
+        "tests/test_mobile_mirror_pipeline_lifecycle.py",
+    ),
 }
 
 
