@@ -1,5 +1,34 @@
 ## Unreleased
 
+### Shutting the bridge down left a recorder running on the phone
+
+`arena/mobile/mirror.py` has a `stop_all()`. `arena/mobile/__init__.py`
+re-exports it as `mirror_stop_all`. mirror.py contains the sentence
+"`stop_all()` on bridge shutdown had the same problem" -- written by me
+one cycle ago, while assuming a caller that does not exist.
+
+Nothing called it. Anywhere in the tree.
+
+Each live mirror session holds a `screenrecord` process **on the phone**.
+Killing the bridge left it recording, filling the device's storage, with
+no local process that knows how to stop it -- and restarting the bridge
+does not adopt the orphan, it starts a second session. Verified: a
+session with a stubbed long-running screenrecord survived `on_cleanup`
+entirely untouched.
+
+Both teardown paths now stop it. `on_cleanup` is aiohttp's orderly
+shutdown; `signal_handler` ends with `os._exit(0)` on a five-second timer
+and on SIGTERM may fire without cleanup completing. The browser process
+was already killed in both places for precisely that reason, and the
+asymmetry between "browser handled twice, recorder handled zero times" is
+how the gap stayed invisible.
+
+The guard tests assert the **call**, not the function's existence, and
+they parse the AST rather than grepping -- a mention in a comment is
+exactly what fooled me the first time, and lifecycle.py now contains
+several. A separate test runs `stop_all()` for real against stubbed
+sessions, because a no-op implementation would satisfy every AST check.
+
 ### A third-party MCP server could grow the bridge without limit
 
 `arena/mcp_client/client.py` (73.9% covered) starts external MCP servers

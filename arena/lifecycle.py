@@ -208,6 +208,25 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
         except Exception:
             pass
 
+        # v4.164.0 (bug #60): screen-mirror sessions were never stopped on
+        # shutdown. `mirror.stop_all()` exists and is even re-exported as
+        # `mirror_stop_all`, but nothing called it -- including the
+        # comment inside mirror.py that says "stop_all() on bridge
+        # shutdown had the same problem", written while assuming a caller
+        # that does not exist.
+        #
+        # Each live session holds a `screenrecord` running ON THE PHONE.
+        # Killing the bridge left it recording, filling the device's
+        # storage, with no local process left to stop it -- restarting the
+        # bridge produces a NEW session rather than adopting the orphan.
+        # Verified: a session with a stubbed long-running screenrecord
+        # survived on_cleanup untouched.
+        try:
+            from arena.mobile.mirror import stop_all as _mirror_stop_all
+            _mirror_stop_all()
+        except Exception:
+            pass
+
         await ctx.stop_grpc_server()
         await ctx.stop_cluster_heartbeat()
 
@@ -238,6 +257,17 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
                         mgr._browser_proc.wait(timeout=3)
                     except Exception:
                         mgr._browser_proc.kill()
+        except Exception:
+            pass
+
+        # Also here, not only in on_cleanup (bug #60): this handler ends
+        # with `os._exit(0)` on a 5s timer, and on SIGTERM aiohttp's
+        # cleanup may not finish first. The browser was already torn down
+        # in both places for exactly that reason; the phone-side recorder
+        # deserves the same treatment.
+        try:
+            from arena.mobile.mirror import stop_all as _mirror_stop_all
+            _mirror_stop_all()
         except Exception:
             pass
 
