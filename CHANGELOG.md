@@ -1,5 +1,90 @@
 ## Unreleased
 
+### The sweep that measured nothing and called it success
+
+Sweep run #1 finished in 38 seconds, printed `ran 0 0 0` for all nine
+targets, and the workflow was **green**. Two fail-opens stacked on top of
+each other: `mutation_sweep.py` returned 0 no matter what happened, and
+the workflow step carried `continue-on-error: true` so even a non-zero
+exit would have been swallowed. A tool built to find fail-open code that
+is itself fail-open is worse than no tool, because it hands out
+confidence instead of information.
+
+Both are gone. The script exits 1 if any file errored or if no file
+produced a survivor count, the step runs under `set -euo pipefail` with
+no `continue-on-error`, and a missing mutmut is a failure rather than a
+skip -- "the tool is absent" and "the code is fine" must not share an
+exit code. A test asserts the workflow text itself, because the guard is
+only as good as the step that runs it.
+
+### Interrupting a sweep left a mutant in the working tree
+
+mutmut 2.5.1 rewrites the source file **in place** and restores it when
+it finishes. Cut it short -- per-file timeout, killed job, Ctrl-C -- and
+the mutant stays on disk. Observed here, not theorised: a truncated run
+left `"ok": True` rewritten to `"XXokXX": True` in
+`arena/admin/auto_update.py`, and only `git status` caught it. On a
+whole-tree sweep across 620 modules that is a live risk of committing a
+mutant into the product. The original bytes are now held and written
+back unconditionally, including on timeout.
+
+### Sweeping the whole codebase instead of nine hand-picked files
+
+Ivan asked for a run over everything, accepting that it is slow. Slow is
+handled by splitting the work, not by narrowing it. `--all` discovers
+every module under `arena/` (620 of them, against nine declared
+targets), `--shard N/M` deals the sorted list round-robin so the
+expensive files spread across shards rather than piling into the last
+one, and the workflow fans out to a configurable 1-20 parallel shards
+with `fail-fast: false` -- a shard that dies still leaves the others
+with results worth reading.
+
+Two honesty rules travel with the extra scope. A file whose name matches
+no test is reported as `no-tests-declared` rather than counted clean.
+And `--deadline-minutes` stops *starting* new files near the job ceiling,
+listing everything it did not reach as `not-reached-deadline`, because an
+unrun file must never read like a file that came back clean. Tests assert
+that the shards partition the target list exactly: nothing dropped
+between them, nothing run twice.
+
+### Actions pinned to a runtime GitHub had retired
+
+Ivan spotted it in a job log: `dependency-review-action` targeted Node
+20 and was being force-run on Node 24. The warning only appears in the
+log of a job that actually ran, and dependency-review runs on pull
+requests only -- so the pin sat on a dead runtime for months while every
+push stayed green.
+
+Four pins were bumped to Node 24 builds: dependency-review-action
+v4.6.0 -> v5.0.0, gitleaks-action v2 -> v3.0.0, anchore/scan-action v6 ->
+v7.4.0, and the sweep's own upload-artifact v4.6.2 -> v7.
+
+`scripts/action_runtime_ratchet.py` stops the next one. Actions here are
+pinned by commit SHA, so the runtime a pin declares is a fixed fact; it
+is recorded per SHA in `.github/action-runtimes.json` and checked
+offline on every run. An unrecorded pin fails (somebody bumped an action
+without looking at its runtime) and so does a recorded `node16`/`node20`.
+Only `--refresh` touches the network, and it refuses to write a manifest
+it could not fully verify -- a partial manifest would record silence as
+safety, which is the shape this whole release is about.
+
+One quirk worth writing down: `rhysd/actionlint` ships **no**
+`action.yml` at all. The runner falls back to building the repository's
+Dockerfile, which its job log confirms. That is a container action with
+no Node runtime, recorded as `dockerfile` rather than treated as an
+unreadable pin -- the alternative was a false positive, and a detector
+with false positives is worse than no detector.
+
+### The dependency review was writing its report into the void
+
+Same job log, second line: "Unable to write summary to pull-request. Make
+sure you are giving this workflow the permission 'pull-requests: write'."
+The workflow asks for `comment-summary-in-pr: always` and had only
+`contents: read`, so it computed the CVE report on every pull request and
+threw it away. A review gate whose findings nobody can see is a gate that
+does not exist. Permission added, and a test ties the two together: ask
+for the comment, grant the permission.
+
 ### Naming the pattern instead of fixing it a fourth time
 
 Three bugs in two releases had one shape, and each was found separately

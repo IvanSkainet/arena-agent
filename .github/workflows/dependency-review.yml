@@ -6,6 +6,9 @@ on:
 
 permissions:
   contents: read
+  # The action posts its findings as a PR comment; without this it logs
+  # "Unable to write summary to pull-request" and the report is lost.
+  pull-requests: write
 
 jobs:
   dependency-review:
@@ -17,7 +20,7 @@ jobs:
           persist-credentials: false
 
       - name: Dependency Review
-        uses: actions/dependency-review-action@ce3cf9537a52e8119d91fd484ab5b8a807627bf8  # v4.6.0
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
         with:
           fail-on-severity: high
           comment-summary-in-pr: always

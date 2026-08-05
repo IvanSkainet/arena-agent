@@ -149,7 +149,7 @@ jobs:
           persist-credentials: false
 
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e  # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
@@ -197,7 +197,7 @@ jobs:
           output-file: sbom.cyclonedx.json
 
       - name: Scan SBOM with Grype
-        uses: anchore/scan-action@1638637db639e0ade3258b51db49a9a137574c3e  # v6
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2  # v7.4.0
         with:
           sbom: sbom.cyclonedx.json
           fail-build: false  # advisory

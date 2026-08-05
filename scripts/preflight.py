@@ -56,6 +56,10 @@ CHECKS: list[Check] = [
           why="lint debt must not grow"),
     Check("quality ratchet", [PY, "scripts/quality_ratchet.py"],
           why="pyrefly/vulture debt must not grow"),
+    Check("action runtimes", [PY, "scripts/action_runtime_ratchet.py"],
+          why="GitHub retired Node 20; the warning only shows in the log of "
+              "a job that actually ran, so dependency-review sat on a dead "
+              "runtime unnoticed"),
     Check("workflow lint", ["actionlint", "-shellcheck", "shellcheck"],
           needs="actionlint",
           why="CI runs actionlint WITH shellcheck; without it SC2012 slipped "

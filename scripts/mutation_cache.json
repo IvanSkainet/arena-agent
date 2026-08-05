@@ -1,5 +1,16 @@
 {
  "entries": {
+  "arena/admin/auto_update_fetch.py": {
+   "fingerprint": "0d1f55f81eca525e57962986dd3d0f909895b4f2c8747233470b68865528a46a",
+   "reason": "sweep",
+   "survived": 32,
+   "tests": [
+    "tests/test_auto_update.py",
+    "tests/test_auto_update_digest_required.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 72
+  },
   "arena/files/sandbox.py": {
    "fingerprint": "e2e3e73d7d5356c9b03e998a21b2392d3ce1798dd2cc9c33bc3c232dacfa428a",
    "reason": "fresh run",

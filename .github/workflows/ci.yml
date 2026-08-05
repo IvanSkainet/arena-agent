@@ -52,6 +52,14 @@ jobs:
         # actionlint has always run with its default config (and passes). To
         # suppress a specific check, pass actionlint's own flag via `args:`.
 
+      # GitHub retired Node 20 on its runners. The deprecation warning
+      # only appears in the log of a job that actually ran, so
+      # dependency-review (pull_request only) sat on a dead runtime until
+      # Ivan read the log by hand. Offline check: runtimes are recorded
+      # per pinned SHA, and a pinned SHA cannot change what it declares.
+      - name: Action runtime ratchet (no retired Node runtimes)
+        run: python3 scripts/action_runtime_ratchet.py
+
   # ----------------------------------------------------------------
   # Test matrix: 5 Python versions on ubuntu-latest + windows-latest,
   # plus one macOS smoke cell (3.12). The macOS cell keeps the

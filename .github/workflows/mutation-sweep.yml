@@ -18,6 +18,16 @@ on:
         description: "Comma-separated files to mutate (blank = the mutation_gate TARGETS)"
         required: false
         default: ""
+      scope:
+        description: "targets = the mutation_gate list; all = every module under arena/"
+        required: false
+        default: targets
+        type: choice
+        options: [targets, all]
+      shards:
+        description: "How many parallel shards to split the sweep across"
+        required: false
+        default: "8"
 
 permissions: {}
 
@@ -28,12 +38,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Ivan asked for a sweep across the whole codebase and accepted that it
+  # is slow. Slow is handled by splitting the work, not by narrowing it:
+  # 620 modules against a 350-minute job ceiling does not fit in one
+  # runner, so the file list is dealt round-robin across N shards that
+  # run in parallel. `fail-fast: false` because a shard that dies still
+  # leaves the other seven with real results worth reading.
+  plan:
+    name: Plan the shards
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Build the shard list
+        id: plan
+        env:
+          SHARDS: ${{ inputs.shards }}
+        run: |
+          set -euo pipefail
+          case "$SHARDS" in
+            ''|*[!0-9]*) echo "shards must be a positive integer" >&2; exit 1 ;;
+          esac
+          [ "$SHARDS" -ge 1 ] && [ "$SHARDS" -le 20 ] || {
+            echo "shards must be between 1 and 20" >&2; exit 1; }
+          list=$(seq 1 "$SHARDS" | paste -sd, -)
+          echo "matrix={\"shard\":[$list],\"total\":[$SHARDS]}" >> "$GITHUB_OUTPUT"
+
   sweep:
     name: Mutate and report survivors
+    needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 350   # under the 360-minute job ceiling
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - name: Harden Runner (audit mode, egress visibility)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -83,21 +123,35 @@ jobs:
 
       - name: Run the sweep
         id: sweep
-        continue-on-error: true
         env:
           SWEEP_PATHS: ${{ inputs.paths }}
+          SWEEP_SCOPE: ${{ inputs.scope }}
+          SHARD: ${{ matrix.shard }}
+          SHARD_TOTAL: ${{ matrix.total }}
         run: |
-          set -uo pipefail
+          # No `continue-on-error`, and `-e` so a non-zero exit reddens the
+          # step. Sweep #1 reported "ran 0 0 0" for every target and the
+          # run was green, because the script always returned 0 and this
+          # step swallowed it anyway. The whole point of the sweep is to
+          # be believed, which requires it to be able to say "no".
+          set -euo pipefail
+          scope_flag=""
+          if [ "${SWEEP_SCOPE:-targets}" = "all" ]; then scope_flag="--all"; fi
+          # Leave ~40 minutes of the 350-minute ceiling for reporting and
+          # artifact upload; files not reached are listed as such rather
+          # than silently omitted.
           python scripts/mutation_sweep.py \
             ${SWEEP_PATHS:+--paths "$SWEEP_PATHS"} \
+            $scope_flag \
+            --shard "${SHARD}/${SHARD_TOTAL}" \
+            --deadline-minutes 310 \
             --report mutation-report.md \
             --json mutation-report.json
-          echo "exit=$?" >> "$GITHUB_OUTPUT"
 
       - name: Summarise into the job summary
         if: always()
         run: |
-          set -uo pipefail
+          set -euo pipefail
           {
             cat sweep-header.txt
             echo
@@ -110,9 +164,9 @@ jobs:
 
       - name: Upload the report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: mutation-report
+          name: mutation-report-shard-${{ matrix.shard }}
           path: |
             mutation-report.md
             mutation-report.json

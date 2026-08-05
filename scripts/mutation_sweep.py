@@ -59,6 +59,57 @@ def _coverage_map() -> dict[str, float]:
             for name, meta in data.get("files", {}).items()}
 
 
+def _module_stem(source: str) -> str:
+    return Path(source).stem
+
+
+def _guarding_tests(source: str) -> tuple[str, ...]:
+    """Tests declared for this file, or a name-matched guess.
+
+    The gate's TARGETS map is hand-written and authoritative. For a
+    whole-tree sweep there is no such map, so tests are matched by
+    module name: `arena/mobile/mirror.py` -> any `tests/test_*mirror*`.
+    That guess is deliberately narrow. Running the entire suite per
+    mutant would be correct and unaffordable (~103k mutants), and a file
+    whose name matches nothing is reported as `no-tests-declared`
+    instead of being quietly counted as clean.
+    """
+    declared = TARGETS.get(source)
+    if declared:
+        return declared
+    stem = _module_stem(source)
+    if stem in {"__init__", "__main__"}:
+        return ()
+    tests_dir = ROOT / "tests"
+    if not tests_dir.is_dir():
+        return ()
+    found = sorted(
+        f"tests/{p.name}"
+        for p in tests_dir.glob("test_*.py")
+        if stem in p.stem
+    )
+    return tuple(found)
+
+
+def discover_targets() -> dict[str, tuple[str, ...]]:
+    """Every mutable module under arena/, with whatever guards it has.
+
+    Ivan asked for a sweep over the whole codebase, accepting that it is
+    slow. Slowness is handled by sharding and the content cache, not by
+    quietly narrowing the target list.
+    """
+    targets: dict[str, tuple[str, ...]] = {}
+    for path in sorted((ROOT / "arena").rglob("*.py")):
+        rel = path.relative_to(ROOT).as_posix()
+        if "/tests/" in rel or path.name.startswith("test_"):
+            continue
+        if path.stat().st_size == 0:
+            continue
+        targets[rel] = _guarding_tests(rel)
+    targets.update(TARGETS)
+    return targets
+
+
 def _run_one(source: str, tests: tuple[str, ...], *,
              timeout: int) -> dict[str, int | str]:
     existing = [t for t in tests if (ROOT / t).exists()]
@@ -69,11 +120,27 @@ def _run_one(source: str, tests: tuple[str, ...], *,
     runner = ("python3 -m pytest -x -q --no-cov -p no:randomly "
               + " ".join(existing))
     started = time.time()
-    proc = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
-        ["mutmut", "run", "--paths-to-mutate", source,
-         "--runner", runner, "--no-progress"],
-        cwd=ROOT, capture_output=True, text=True, timeout=timeout,
-    )
+    # mutmut 2.5.1 mutates the file IN PLACE and restores it afterwards.
+    # Interrupt it -- per-file timeout, killed job, Ctrl-C -- and the
+    # mutant stays on disk. Observed here: a cut-short sweep left
+    # `"ok": True` rewritten to `"XXokXX": True` in
+    # arena/admin/auto_update.py, and only `git status` caught it. On a
+    # whole-tree sweep that is a live risk of committing a mutant, so
+    # the original bytes are held and put back unconditionally.
+    target = ROOT / source
+    original = target.read_bytes()
+    try:
+        proc = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
+            ["mutmut", "run", "--paths-to-mutate", source,
+             "--runner", runner, "--no-progress"],
+            cwd=ROOT, capture_output=True, text=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        target.write_bytes(original)
+        return {"error": f"timed out after {timeout}s"}
+    finally:
+        if target.read_bytes() != original:
+            target.write_bytes(original)
     elapsed = int(time.time() - started)
 
     if not CACHE.exists():
@@ -123,23 +190,67 @@ def main() -> int:
     parser.add_argument("--min-coverage", type=float, default=50.0,
                         help="skip files below this %% coverage")
     parser.add_argument("--per-file-timeout", type=int, default=3600)
+    parser.add_argument(
+        "--all", action="store_true",
+        help="sweep every module under arena/, not just the gate TARGETS")
+    parser.add_argument(
+        "--shard", default="",
+        help="N/M -- take only shard N of M when sweeping (1-based)")
+    parser.add_argument(
+        "--deadline-minutes", type=float, default=0.0,
+        help="stop starting new files after this much wall clock (0 = no limit)")
     parser.add_argument("--report", default="mutation-report.md")
     parser.add_argument("--json", dest="json_out", default="mutation-report.json")
     args = parser.parse_args()
 
     if shutil.which("mutmut") is None:
-        print("SKIP: mutmut is not installed (pip install mutmut==2.5.1)")
-        return 0
+        # Not a skip. "The tool is missing" and "the code is fine" are
+        # different facts and must not share an exit code.
+        print("FAIL: mutmut is not installed (pip install mutmut==2.5.1)",
+              file=sys.stderr)
+        return 1
 
     if args.paths.strip():
-        targets = {p.strip(): TARGETS.get(p.strip(), ())
+        targets = {p.strip(): _guarding_tests(p.strip())
                    for p in args.paths.split(",") if p.strip()}
+    elif args.all:
+        targets = discover_targets()
     else:
         targets = dict(TARGETS)
 
+    if args.shard.strip():
+        index, _, count = args.shard.partition("/")
+        try:
+            index_i, count_i = int(index), int(count)
+        except ValueError:
+            print(f"--shard must look like N/M, got {args.shard!r}",
+                  file=sys.stderr)
+            return 2
+        if not (count_i >= 1 and 1 <= index_i <= count_i):
+            print(f"--shard {args.shard} is out of range", file=sys.stderr)
+            return 2
+        ordered = sorted(targets)
+        # Deal round-robin over the sorted list: consecutive files in a
+        # package tend to cost similarly, so striping spreads the slow
+        # ones across shards instead of piling them into the last one.
+        picked = ordered[index_i - 1::count_i]
+        if not picked:
+            print(f"shard {args.shard} selects no files out of "
+                  f"{len(ordered)}", file=sys.stderr)
+            return 2
+        targets = {p: targets[p] for p in picked}
+
     coverage = _coverage_map()
     rows: list[dict] = []
+    sweep_started = time.time()
+    deadline = (sweep_started + args.deadline_minutes * 60
+                if args.deadline_minutes > 0 else None)
     for source, tests in sorted(targets.items()):
+        if deadline is not None and time.time() >= deadline:
+            # Out of budget. Say so per file: an unrun file must never
+            # read like a file that came back clean.
+            rows.append({"source": source, "status": "not-reached-deadline"})
+            continue
         if not (ROOT / source).exists():
             rows.append({"source": source, "status": "missing"})
             continue
@@ -189,10 +300,31 @@ def main() -> int:
         for row in errored:
             lines.append(f"* `{row['source']}`: {row['detail']}")
 
+    produced = [r for r in rows if r["status"] in ("ran", "cached")]
+    lines += [
+        "",
+        f"{len(produced)} of {len(rows)} files produced a survivor count; "
+        f"{len(errored)} errored.",
+    ]
+
     Path(args.report).write_text("\n".join(lines) + "\n", encoding="utf-8")
     Path(args.json_out).write_text(json.dumps(rows, indent=1) + "\n",
                                    encoding="utf-8")
     print("\n".join(lines))
+
+    # Fail closed. Sweep #1 reported `ran 0 0 0` for all nine targets and
+    # the workflow went green, because this function returned 0 no matter
+    # what and the workflow step carried `continue-on-error: true`. A
+    # sweep that measured nothing is a broken sweep, and a broken tool
+    # that reports success is worse than no tool -- that is the whole
+    # thesis of this release.
+    if errored:
+        print(f"FAIL: {len(errored)} file(s) could not be mutated",
+              file=sys.stderr)
+        return 1
+    if not produced:
+        print("FAIL: no file produced a survivor count", file=sys.stderr)
+        return 1
     return 0
 
 
