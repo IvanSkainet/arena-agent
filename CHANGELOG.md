@@ -1,5 +1,33 @@
 ## Unreleased
 
+### An ASR "download" could read local files
+
+`arena/mcp/tool_asr.py` fetches ffmpeg, whisper.cpp and a model, then runs
+the first two. `asr.bootstrap` takes `model_url` and `whisper_zip_url`
+straight from the tool call, and `_download_atomic` handed them to
+`urllib.request.urlopen` -- which speaks whatever scheme it is given.
+
+Verified by execution:
+
+    _download_atomic("file:///etc/hostname", dest, force=True)
+    -> {"ok": True, "size_bytes": 9}, dest contained the host name
+
+`http://` was accepted too: an unencrypted fetch of a binary that is
+then executed.
+
+Pinning the scheme alone would not have been enough, and that is the part
+worth writing down. Arbitrary HTTPS still lets a caller aim the bootstrap
+at any server and have the result run as whisper-cli, so the host is
+pinned as well. The allowlist is *derived* from the three default URL
+constants rather than typed out beside them -- a second hand-maintained
+list drifts, and the natural fix when it does is to widen it carelessly.
+A test asserts the derivation, so hardcoding the set fails even if the
+values happen to match today.
+
+This is the same shape as the runtime-digest bug earlier in this release:
+code that downloads something and then executes it, trusting the caller
+to have supplied a sensible source.
+
 ### The Input Helper served keystrokes to anyone who asked
 
 `arena/input_helper/helper_server.py` runs inside the user's interactive

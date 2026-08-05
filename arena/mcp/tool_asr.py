@@ -30,6 +30,7 @@ import platform
 import shutil
 import subprocess
 import tempfile
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -54,6 +55,14 @@ _WHISPER_ZIP_URL = (
     f"{_DEFAULT_WHISPER_VERSION}/whisper-bin-x64.zip"
 )
 _MODEL_URL_TMPL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{name}?download=true"
+
+# Hosts the bootstrap is allowed to fetch from. Derived from the three
+# default URLs above rather than typed out again, so adding a source
+# means changing the URL constant and nothing else can drift (bug #55).
+_ALLOWED_DOWNLOAD_HOSTS = frozenset(
+    urllib.parse.urlparse(u).hostname or ""
+    for u in (_FFMPEG_ZIP_URL, _WHISPER_ZIP_URL, _MODEL_URL_TMPL)
+)
 _KNOWN_MODEL_MIN_BYTES = {
     "ggml-tiny.bin": 70_000_000,
     "ggml-base.bin": 140_000_000,
@@ -314,6 +323,41 @@ def _handle_asr_models(_args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _require_https(url: str) -> None:
+    """Refuse any URL that is not plain HTTPS.
+
+    v4.164.0 (bug #55): `asr.bootstrap` accepts `model_url` and
+    `whisper_zip_url` straight from the tool call, and `_download_atomic`
+    handed them to `urllib.request.urlopen`, which speaks whatever scheme
+    it is given. Verified by execution:
+
+        _download_atomic("file:///etc/hostname", dest)
+        -> ok: True, and dest contained the host's name
+
+    So a "download" could read local files, and `http://` was accepted
+    too -- an unencrypted fetch of a binary that is then run as
+    whisper-cli.
+
+    The host is pinned as well as the scheme. Allowing arbitrary HTTPS
+    would still let a caller point the bootstrap at any server and have
+    the result executed; the three hosts below are the ones the default
+    URLs already use, derived from those constants so the two cannot
+    drift apart.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https":
+        raise ValueError(
+            f"refusing to download over {parsed.scheme or 'no'} scheme: "
+            f"only https is allowed (got {url[:80]!r})")
+    host = (parsed.hostname or "").lower()
+    if host not in _ALLOWED_DOWNLOAD_HOSTS:
+        raise ValueError(
+            f"refusing to download from {host!r}: ASR assets are fetched "
+            f"from {sorted(_ALLOWED_DOWNLOAD_HOSTS)} only. Download the "
+            f"file yourself and pass a local path if you need another "
+            f"source.")
+
+
 def _download_atomic(url: str, dest: Path, *, force: bool = False) -> dict[str, Any]:
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists() and not force:
@@ -321,6 +365,7 @@ def _download_atomic(url: str, dest: Path, *, force: bool = False) -> dict[str, 
     tmp = dest.with_suffix(dest.suffix + ".tmp")
     if tmp.exists():
         tmp.unlink()
+    _require_https(url)
     req = urllib.request.Request(url, headers={"User-Agent": "arena-agent"})
     with urllib.request.urlopen(  # nosec B310 -- controlled HTTPS bootstrap URL/override is an approved runtime installer input # nosemgrep: dynamic-urllib-use-detected -- ASR bootstrap downloads approved HTTPS runtime assets; caller must approve asr.bootstrap
         req, timeout=60) as r, tmp.open("wb") as f:
