@@ -1,3 +1,49 @@
+## Unreleased
+
+### Microphone captures were left on the phone, and lied about
+
+`arena/mobile/audio_capture.py` was the lowest-covered file left in the
+mobile tree at 21%, and it is the one that records through the device
+microphone -- so it got looked at next.
+
+The cleanup at the end of `voice_record` was this:
+
+    try:
+        run(["shell", "rm", "-f", output, marker], ...)
+        result["cleaned_up"] = True
+    except Exception:
+        pass
+
+`run()` returns a CompletedProcess; it does not raise on a non-zero exit.
+So an `rm` answering "Permission denied" still set `cleaned_up: True` and
+the caller was told a microphone recording had been deleted from the
+device while it was still sitting in /sdcard/DCIM. That is the third
+instance of this exact shape this release -- `except: pass` around an adb
+call, followed by a hardcoded success -- and for voice capture it is a
+privacy claim rather than a status field.
+
+The larger problem was next to it: no failure path cleaned up at all.
+A capture that timed out, one the recorder app reported as failed, and
+one that pulled back zero bytes all returned early and left the audio on
+the device indefinitely. A capture that FAILED is precisely the one
+nobody comes back for, so it is where an orphaned recording matters most.
+All three now delete before returning.
+
+The failed-`pull` path deliberately does the opposite and keeps the file:
+the bytes exist only on the phone and the transfer is what broke, so
+deleting them would destroy the very recording being retrieved. What it
+does not do any more is stay silent about that -- it returns
+`cleaned_up: false` with the device path and the reason, the same
+envelope shape as every other outcome.
+
+That last property is the one the guard actually pins: whatever a path
+decides, the caller must always be able to tell where the microphone
+audio is. Whether a given path deletes or keeps is a judgement call;
+leaving the caller unable to find out is not. The sabotage round included
+an inverted case -- adding cleanup to the failed-pull path -- to make sure
+the tests defend the decision in both directions rather than just
+rewarding more deletion.
+
 ## v4.162.0 — 2026-08-05
 
 ### Stop and purge said "done" when the phone never heard them

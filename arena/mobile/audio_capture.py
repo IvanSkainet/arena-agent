@@ -171,6 +171,34 @@ def _read_done(serial: str, marker: str) -> str | None:
     return r.stdout or ""
 
 
+def _cleanup_device(serial: str, output: str, marker: str) -> dict[str, Any]:
+    """Delete the recording + marker from the phone; report what happened.
+
+    v4.163.0 (bug #46): this used to be a bare `try: run(...) except: pass`
+    that set `cleaned_up = True` unconditionally. `run()` does not raise on
+    a non-zero exit, so a `rm` that came back "Permission denied" still
+    reported a successful cleanup -- and the microphone recording stayed in
+    /sdcard/DCIM while the caller was told it was gone. For voice capture
+    that is a privacy claim, so it has to be true or say otherwise.
+    """
+    try:
+        r = run(["shell", "rm", "-f", output, marker], serial=serial, timeout=10)
+    except Exception as e:
+        return {"cleaned_up": False,
+                "cleanup_error": f"{type(e).__name__}: {e}"}
+    if r.returncode != 0:
+        return {
+            "cleaned_up": False,
+            "cleanup_error": ((r.stderr or "").strip()
+                              or f"rm exit {r.returncode}"),
+            "cleanup_hint": (
+                "The microphone recording is still on the device at "
+                f"{output}. Delete it manually or retry with adb reachable."
+            ),
+        }
+    return {"cleaned_up": True}
+
+
 def voice_record(
     serial: str,
     *,
@@ -233,27 +261,50 @@ def voice_record(
         time.sleep(_POLL_INTERVAL_S)
 
     if content is None:
-        return _err("recording did not signal completion in time",
-                    remote=output,
-                    hint="the recorder app may have been blocked in the "
-                         "background; retry or increase the buffer")
+        # v4.163.0 (bug #47): every failure path below used to return
+        # without touching the device, leaving captured microphone audio
+        # sitting in /sdcard/DCIM indefinitely. A capture that FAILED is
+        # exactly the case where nobody comes back to collect the file,
+        # so it is the case where leaving it behind matters most.
+        err = _err("recording did not signal completion in time",
+                   remote=output,
+                   hint="the recorder app may have been blocked in the "
+                        "background; retry or increase the buffer")
+        if not keep_on_device:
+            err.update(_cleanup_device(serial, output, marker))
+        return err
 
     ok, detail = parse_done_marker(content)
     record_ms = int((time.monotonic() - started) * 1000)
     if not ok:
-        return _err(f"recorder reported failure: {detail}",
-                    remote=output, status=detail, record_ms=record_ms)
+        err = _err(f"recorder reported failure: {detail}",
+                   remote=output, status=detail, record_ms=record_ms)
+        if not keep_on_device:
+            err.update(_cleanup_device(serial, output, marker))
+        return err
 
     # Pull the MP4 back to the host voice-capture dir.
     local = str(voice_capture_dir() / Path(output).name)
     pull = run(["pull", output, local], serial=serial, timeout=120)
     if pull.returncode != 0 or not Path(local).is_file():
+        # Deliberately do NOT clean up here: the bytes exist only on the
+        # phone and the pull is what failed, so deleting them destroys the
+        # recording the caller asked for. Leaving it is the lesser harm --
+        # but say so, rather than staying silent about it.
         return _err("adb pull of recording failed",
                     remote=output,
-                    detail=(pull.stderr or pull.stdout or "").strip()[-400:])
+                    detail=(pull.stderr or pull.stdout or "").strip()[-400:],
+                    cleaned_up=False,
+                    cleanup_hint=(
+                        "The recording is still on the device at "
+                        f"{output} because the pull failed; it was kept so "
+                        "the capture is not lost. Delete it once retrieved."))
     size_bytes = Path(local).stat().st_size
     if size_bytes == 0:
-        return _err("pulled recording is empty", remote=output, local=local)
+        err = _err("pulled recording is empty", remote=output, local=local)
+        if not keep_on_device:
+            err.update(_cleanup_device(serial, output, marker))
+        return err
 
     result: dict[str, Any] = {
         "ok": True,
@@ -270,9 +321,5 @@ def voice_record(
         import base64
         result["bytes_b64"] = base64.b64encode(Path(local).read_bytes()).decode("ascii")
     if not keep_on_device:
-        try:
-            run(["shell", "rm", "-f", output, marker], serial=serial, timeout=10)
-            result["cleaned_up"] = True
-        except Exception:
-            pass
+        result.update(_cleanup_device(serial, output, marker))
     return result
