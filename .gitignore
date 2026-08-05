@@ -141,3 +141,9 @@ reports/arena_kwin_windows_*.js
 .coverage.*
 coverage.xml
 .specify/
+
+# mutmut's own sqlite scratch file. The *results* live in
+# scripts/mutation_cache.json, which IS committed -- that is the point of
+# the cache: CI reuses a verdict this repo already earned. This file is
+# per-run state and would just churn.
+.mutmut-cache

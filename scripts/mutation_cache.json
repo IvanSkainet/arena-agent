@@ -1,0 +1,17 @@
+{
+ "entries": {
+  "arena/files/sandbox.py": {
+   "fingerprint": "e2e3e73d7d5356c9b03e998a21b2392d3ce1798dd2cc9c33bc3c232dacfa428a",
+   "reason": "fresh run",
+   "survived": 89,
+   "tests": [
+    "tests/test_bridge_self_protection.py",
+    "tests/test_files_sandbox_v442_hardening.py",
+    "tests/test_write_is_not_code_execution.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 216
+  }
+ },
+ "version": 1
+}

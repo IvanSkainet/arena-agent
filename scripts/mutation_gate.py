@@ -50,6 +50,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import mutation_cache  # noqa: E402 -- needs the path line above
+
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "scripts" / "mutation_baseline.json"
 CACHE = ROOT / ".mutmut-cache"
@@ -138,9 +141,22 @@ def main() -> int:
     for source, tests in TARGETS.items():
         if not (ROOT / source).exists():
             raise SystemExit(f"FAIL-CLOSED: target {source} does not exist")
-        survived, total = _run_one(source, tests)
+
+        # v4.163.0: skip work that would re-prove an unchanged result.
+        # The key covers the source, its guarding tests AND the mutmut
+        # version, because a change to any of the three can change the
+        # verdict. A miss always means "run it" -- never "assume fine" --
+        # and a hit is still checked against the baseline below, so the
+        # cache can save time but cannot lower the bar.
+        cached = None if args.write_baseline else mutation_cache.lookup(source, tests)
+        if cached is not None:
+            survived, total = int(cached["survived"]), int(cached["total"])
+            print(f"  {source:38s} survived {survived:4d} / {total}  (cached)")
+        else:
+            survived, total = _run_one(source, tests)
+            mutation_cache.record(source, tests, survived=survived, total=total)
+            print(f"  {source:38s} survived {survived:4d} / {total}")
         results[source] = survived
-        print(f"  {source:38s} survived {survived:4d} / {total}")
 
     if args.write_baseline:
         BASELINE.write_text(json.dumps(results, indent=1, sort_keys=True) + "\n",

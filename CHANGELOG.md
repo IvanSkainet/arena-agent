@@ -1,5 +1,40 @@
 ## Unreleased
 
+### Mutation testing that skips what it already proved
+
+The operator asked whether a full mutation run could happen once and then
+only re-check what changed. That is the right shape, and it is now built:
+``scripts/mutation_cache.py``.
+
+Results are keyed by a hash of the **source, its guarding tests, and the
+mutmut version**. All three matter. Hashing only the source would let a
+weakened test ride forever on an old pass -- which is precisely the
+regression mutation testing exists to detect. A different mutmut
+generates a different mutant set, so an old count is not comparable to a
+new one.
+
+Measured on ``arena/files/sandbox.py``: **146s cold, 0s cached**, same
+verdict (89 survivors of 216).
+
+Two rules stop this from becoming a way to quietly stop testing. A cache
+**miss is never a pass** -- unknown input means run it, and a corrupt or
+truncated cache file degrades to "test everything" rather than "everything
+passed". A cache **hit still ratchets**: the stored count goes through the
+same baseline comparison a fresh run would, so caching a good result and
+then breaking the code does not slip through. There is a test asserting
+the cached branch falls through to the ratchet rather than returning
+early.
+
+One bug in the cache itself, caught by inspecting what it wrote: mutmut
+2.5.1 has no ``--version`` flag, so the first implementation recorded its
+usage banner as the tool version -- a string that never changes between
+releases, silently disabling that third of the key. It reads the
+installed distribution metadata now.
+
+`.mutmut-cache` (mutmut's sqlite scratch file) is ignored;
+`scripts/mutation_cache.json` is committed, because a verdict this
+repository already earned is exactly what CI should be allowed to reuse.
+
 ### Ranking by danger x uncovered, and the first file it pointed at
 
 Before choosing between "chase coverage" and "run mutation testing over
