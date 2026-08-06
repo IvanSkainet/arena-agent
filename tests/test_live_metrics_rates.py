@@ -257,11 +257,26 @@ def test_totals_stay_live_while_rates_are_suppressed(monkeypatch):
     """
     import arena.observability.live_metrics as lm
 
+    # v4.165.0: this test raced the clock and one Windows cell caught it.
+    # Two snapshots taken back to back are normally microseconds apart, so
+    # the second is suppressed -- unless the machine is slow enough (or the
+    # timer coarse enough) that more than _MIN_SAMPLE_INTERVAL elapses
+    # between them, and then `stale` is False and the assertion below
+    # fails for a reason that has nothing to do with what is being tested.
+    # Drive the clock instead of hoping: the interval is now a fact of the
+    # test, not a property of the runner.
+    now = [10_000.0]
+    monkeypatch.setattr(lm.time, "time", lambda: now[0])
+    lm._LAST_SAMPLE.clear()
+
     first = lm.live_metrics_snapshot()
     if not first.get("net", {}).get("available"):
         import pytest
 
         pytest.skip("psutil not installed; no counters to re-read")
+
+    # Well inside the suppression window, deterministically.
+    now[0] += lm._MIN_SAMPLE_INTERVAL / 10
 
     # `>=` would be a weak assertion: a FROZEN total also satisfies it,
     # and sabotage proved it -- deleting the refresh left this test
