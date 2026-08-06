@@ -1,5 +1,41 @@
 ## Unreleased
 
+### A dashboard E2E test waited for a condition a polling page can never meet
+
+CI went red on `d7132aa9` after sitting in GitHub's queue for two and a
+half hours, and the single real failure was
+`test_exactly_one_panel_is_visible_at_boot`:
+`Page.goto: Timeout 45000ms exceeded`.
+
+The helper opened `/gui` with `wait_until="networkidle"`, which means
+*500ms with no network activity*. The dashboard polls forever --
+`19-auto-refresh.js` every 15s, `11-tasks.js` every 10s, `16-audit.js`
+every 5s when enabled, plus per-tab timers in four more files. On a fast
+machine the gaps between polls happen to exceed 500ms and the condition
+is met by luck; on a loaded runner each request takes longer, the gaps
+close, and the wait never finishes.
+
+The evidence that this was a race rather than a broken page: the same
+helper is used by all ten tests in that file and **nine of them passed**
+in the same run (`1 failed, 9 passed in 111.54s`). A page that failed to
+load would have taken all ten with it.
+
+It is now `domcontentloaded` plus an explicit wait for the sidebar the
+tests actually query -- asserting the thing that matters instead of a
+proxy the page can never satisfy. The second copy of the same mistake, in
+`test_dashboard_survives_a_reload`, is fixed too. Locally the file went
+from 111s to 53s, and sabotage confirms the shorter wait did not cost the
+suite its teeth: a deliberate syntax error in `11-tasks.js` still reddens
+it, and reverting turns it green.
+
+Worth recording why this reached CI at all: the whole file is guarded by
+`@requires_browser`, and Chromium was not installed in the sandbox, so
+every run **skipped silently** and looked like a pass. Installing
+playwright reproduced the environment rather than guessing at it. A skip
+that reads like a success is the same shape as the fail-open bugs this
+release keeps finding -- the difference between "verified" and "not
+checked" has to be visible.
+
 ### #69 -- `agentctl mcp install` reported success for packages that do not exist
 
 `arena/agentctl_extras/integrations.py` came back from the sweep with

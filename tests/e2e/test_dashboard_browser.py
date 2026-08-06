@@ -108,11 +108,40 @@ class Recorder:
 
 
 def _open_dashboard(browser, bridge, *, token: str | None = "use-real"):
+    """Open /gui and wait for the shell to be *rendered*, not for silence.
+
+    v4.165.0: this used `wait_until="networkidle"`, which is the wrong
+    condition for this page and produced a flake that only ever fired on
+    CI. `networkidle` means 500ms with no network activity, and the
+    dashboard polls forever -- `19-auto-refresh.js` every 15s,
+    `11-tasks.js` every 10s, `16-audit.js` every 5s when enabled, plus
+    per-tab timers in 04d/08b/19/20. On a fast machine the gaps between
+    those polls exceed 500ms and the condition happens to be met; on a
+    loaded GitHub runner each request takes longer, the gaps close, and
+    `page.goto` times out after 45s.
+
+    The evidence it was a race and not a broken page: in the failing run
+    the same helper was used by all ten tests and nine of them passed
+    (`1 failed, 9 passed in 111.54s`).
+
+    Waiting for `domcontentloaded` plus the element the tests actually
+    assert on is both faster and honest -- it asserts the thing we care
+    about (the shell rendered) instead of a proxy that a polling page can
+    never satisfy.
+    """
     page = browser.new_page()
     rec = Recorder(page)
     suffix = f"?token={bridge.token}" if token == "use-real" else ""
     page.goto(f"http://127.0.0.1:{bridge.port}/gui{suffix}",
-              wait_until="networkidle", timeout=45_000)
+              wait_until="domcontentloaded", timeout=45_000)
+    if token == "use-real":
+        # The sidebar is what every caller goes on to query. Without a
+        # token the dashboard renders a login page and never builds it,
+        # so that path waits for the body instead.
+        page.wait_for_selector(".sidebar nav a[data-tab]",
+                               state="attached", timeout=45_000)
+    else:
+        page.wait_for_selector("body", state="attached", timeout=45_000)
     page.wait_for_timeout(1500)
     return page, rec
 
@@ -257,7 +286,12 @@ def test_dashboard_survives_a_reload(browser, bridge):
     """Boot is not idempotent for free: the nav guards on dataset.built."""
     page, rec = _open_dashboard(browser, bridge)
     try:
-        page.reload(wait_until="networkidle", timeout=45_000)
+        # Same reasoning as _open_dashboard: the page polls forever, so
+        # "no network for 500ms" is a condition it may never satisfy on a
+        # loaded runner. Wait for the sidebar this test is about instead.
+        page.reload(wait_until="domcontentloaded", timeout=45_000)
+        page.wait_for_selector(".sidebar nav a[data-tab]",
+                               state="attached", timeout=45_000)
         page.wait_for_timeout(1500)
         links = page.locator(".sidebar nav a[data-tab]").count()
         assert links >= 20, f"after reload only {links} tabs"
