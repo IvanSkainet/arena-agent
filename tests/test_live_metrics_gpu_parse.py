@@ -24,7 +24,11 @@ from unittest.mock import patch
 
 import pytest
 
-import arena.observability.live_metrics as lm
+# The parsing moved to gpu_probe.py in v4.165.0 when live_metrics.py
+# crossed the 600-line runtime cap during this fix. Patch the module that
+# actually owns `shutil`/`subprocess`, not the one that re-exports the
+# functions -- patching the re-exporter would silently stop intercepting.
+import arena.observability.gpu_probe as lm
 
 
 def _with_smi(stdout: str, returncode: int = 0):

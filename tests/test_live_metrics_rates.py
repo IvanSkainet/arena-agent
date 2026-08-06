@@ -327,3 +327,57 @@ def test_refresh_totals_leaves_unavailable_sections_alone():
     lm._refresh_totals(snapshot)
     assert snapshot["net"] == {"available": False, "reason": "psutil not installed"}
     assert "read_bytes_total" not in snapshot["disk"]
+
+
+def test_a_zero_interval_is_suppressed_not_divided_by(monkeypatch):
+    """`0.0 < dt` let the single most degenerate interval through.
+
+    Windows' `time.time()` ticks about every 15.6 ms, so two polls inside
+    one tick give `dt == 0.0` EXACTLY -- and the whole Windows matrix in
+    CI went red on it while every Linux and macOS cell passed. Zero is
+    not "enough time has passed", it is no time at all, and it is the
+    worst possible denominator for the rates bug #58 was about.
+
+    The clock is driven here rather than raced, so this fails on every
+    platform if the boundary regresses -- not only on the one with the
+    coarse clock.
+    """
+    import arena.observability.live_metrics as lm
+
+    monkeypatch.setattr(lm.time, "time", lambda: 1000.0)
+    lm._LAST_SAMPLE.clear()
+    first = lm.live_metrics_snapshot()
+    assert first["stale"] is False
+    second = lm.live_metrics_snapshot()
+    assert second["stale"] is True, "dt == 0.0 must take the stale path"
+
+
+def test_a_backwards_clock_is_not_a_valid_time_base(monkeypatch):
+    """NTP steps, suspend/resume and VM snapshots move the wall clock back.
+
+    A negative dt divided into a positive counter delta yields a negative
+    rate, which a sparkline renders as a plunge that never happened.
+    """
+    import arena.observability.live_metrics as lm
+
+    now = [1000.0]
+    monkeypatch.setattr(lm.time, "time", lambda: now[0])
+    lm._LAST_SAMPLE.clear()
+    lm.live_metrics_snapshot()
+    now[0] = 990.0
+    stale = lm.live_metrics_snapshot()
+    assert stale["stale"] is True
+    assert "backwards" in stale["stale_reason"]
+
+
+def test_a_real_interval_is_still_reported_fresh(monkeypatch):
+    """Reverse sabotage: the widened guard must not freeze normal polling."""
+    import arena.observability.live_metrics as lm
+
+    now = [1000.0]
+    monkeypatch.setattr(lm.time, "time", lambda: now[0])
+    lm._LAST_SAMPLE.clear()
+    lm.live_metrics_snapshot()
+    now[0] = 1000.0 + lm._MIN_SAMPLE_INTERVAL + 0.01
+    fresh = lm.live_metrics_snapshot()
+    assert fresh["stale"] is False

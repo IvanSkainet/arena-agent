@@ -76,11 +76,15 @@ Cross-platform notes:
 from __future__ import annotations
 
 import platform
-import shutil
-import subprocess
 import threading
 import time
 from typing import Any
+
+from arena.observability.gpu_probe import (  # noqa: F401 -- re-exported: tests and
+    _query_gpu_devices,  # callers referenced these here first
+    _smi_bytes_from_mib,
+    _smi_int,
+)
 
 # psutil is optional. We import lazily so the module can still be
 # collected even in a minimal install without it.
@@ -370,123 +374,6 @@ def _collect_gpu(now: float) -> dict[str, Any]:
     return fresh
 
 
-def _smi_int(text: str) -> int | None:
-    """Parse one nvidia-smi numeric field, or None if it is unreadable.
-
-    nvidia-smi writes "[N/A]" (and sometimes "N/A") for values it cannot
-    report -- normal on vGPU and MIG partitions. None means "not
-    reported"; it must never be silently rendered as 0, which on a
-    utilisation gauge reads as a confidently idle GPU.
-    """
-    try:
-        return int(float(text))
-    except (TypeError, ValueError):
-        return None
-
-
-def _smi_bytes_from_mib(text: str) -> int | None:
-    value = _smi_int(text)
-    return None if value is None else value * 1024 * 1024
-
-
-def _query_gpu_devices() -> dict[str, Any]:
-    # Try NVIDIA first.
-    if shutil.which("nvidia-smi"):
-        try:
-            r = subprocess.run(
-                [
-                    "nvidia-smi",
-                    "--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu",
-                    "--format=csv,noheader,nounits",
-                ],
-                capture_output=True, text=True, timeout=3,
-            )
-            if r.returncode == 0 and r.stdout.strip():
-                devices = []
-                for line in r.stdout.strip().splitlines():
-                    # v4.165.0 (bug #64): a plain `split(",")` broke on a
-                    # device name that contains a comma -- nvidia-smi
-                    # does not quote the name field, so
-                    # "NVIDIA RTX A2000, Laptop" produced seven parts,
-                    # shifted every column by one, failed the int() and
-                    # dropped the card entirely. The four numeric columns
-                    # are fixed and trailing, and the index is fixed and
-                    # leading, so split from both ends and let the name
-                    # keep whatever is in the middle.
-                    raw = line.split(",")
-                    if len(raw) < 6:
-                        continue
-                    idx = raw[0].strip()
-                    util, mem_used, mem_total, temp = (p.strip() for p in raw[-4:])
-                    name = ",".join(raw[1:-4]).strip()
-                    try:
-                        devices.append({
-                            "index": int(idx),
-                            "name": name,
-                            # v4.165.0 (bug #64, second half): nvidia-smi
-                            # prints "[N/A]" for a field it cannot read --
-                            # routine on vGPU and MIG partitions, where
-                            # utilisation is simply not exposed. That
-                            # raised inside the try and `continue` threw
-                            # the WHOLE device away, so a machine with a
-                            # working A100 reported backend "none" and an
-                            # empty device list: "you have no GPU" instead
-                            # of "one field is unavailable". An unreadable
-                            # field is now null and the card still shows.
-                            "gpu_util_percent": _smi_int(util),
-                            "mem_used_bytes": _smi_bytes_from_mib(mem_used),
-                            "mem_total_bytes": _smi_bytes_from_mib(mem_total),
-                            "temperature_c": _smi_int(temp),
-                        })
-                    except Exception:
-                        continue
-                if devices:
-                    return {"available": True, "backend": "nvidia-smi", "devices": devices}
-        except Exception:
-            pass
-    # Try AMD ROCm.
-    if shutil.which("rocm-smi"):
-        try:
-            r = subprocess.run(
-                ["rocm-smi", "--showuse", "--showtemp", "--showmeminfo", "vram", "--json"],
-                capture_output=True, text=True, timeout=3,
-            )
-            if r.returncode == 0 and r.stdout.strip():
-                try:
-                    import json
-                    data = json.loads(r.stdout)
-                except Exception:
-                    data = {}
-                devices = []
-                for key, val in (data.items() if isinstance(data, dict) else []):
-                    if not key.startswith("card"):
-                        continue
-                    if not isinstance(val, dict):
-                        continue
-                    try:
-                        util_raw = val.get("GPU use (%)") or val.get("GPU Use (%)") or "0"
-                        util = int(float(str(util_raw).strip().rstrip("%")))
-                        vram_used = int(val.get("VRAM Total Used Memory (B)") or 0)
-                        vram_total = int(val.get("VRAM Total Memory (B)") or 0)
-                        temp_raw = val.get("Temperature (Sensor edge) (C)") or "0"
-                        temp = int(float(str(temp_raw).strip()))
-                        devices.append({
-                            "index": int("".join(c for c in key if c.isdigit()) or 0),
-                            "name": val.get("Card series") or val.get("GPU ID") or key,
-                            "gpu_util_percent": util,
-                            "mem_used_bytes": vram_used,
-                            "mem_total_bytes": vram_total,
-                            "temperature_c": temp,
-                        })
-                    except Exception:
-                        continue
-                if devices:
-                    return {"available": True, "backend": "rocm-smi", "devices": devices}
-        except Exception:
-            pass
-    return {"available": False, "backend": "none", "devices": []}
-
-
 def _refresh_totals(snapshot: dict[str, Any]) -> None:
     """Re-read the absolute counters on a stale (rate-suppressed) snapshot.
 
@@ -547,7 +434,17 @@ def live_metrics_snapshot() -> dict[str, Any]:
         dt = (now - prev_ts) if isinstance(prev_ts, (int, float)) else 0.0
 
         cached = _LAST_SAMPLE.get("snapshot")
-        if cached is not None and 0.0 < dt < _MIN_SAMPLE_INTERVAL:
+        # v4.165.0: this was `0.0 < dt`, which let the single most
+        # degenerate interval through the guard. Windows' `time.time()`
+        # ticks about every 15.6 ms, so two polls inside one tick give
+        # `dt == 0.0` EXACTLY -- and the whole Windows matrix went red on
+        # it. Zero is not "enough time has passed", it is no time at all.
+        # A negative dt (the wall clock stepped backwards -- NTP, a
+        # suspend/resume, a VM snapshot) is not a valid time base either.
+        # Both now take the stale path instead of recomputing rates
+        # against a meaningless denominator. Same coarse-clock lesson as
+        # the hwinfo budget fix, in a different module.
+        if cached is not None and dt < _MIN_SAMPLE_INTERVAL:
             # v4.165.0 (bug #63): this was `dict(cached)`, a SHALLOW copy.
             # Every nested section -- cpu, memory, net, disk, gpu -- came
             # back as the very same object held in _LAST_SAMPLE, so a
@@ -570,12 +467,20 @@ def live_metrics_snapshot() -> dict[str, Any]:
             _refresh_totals(fresh)
             fresh["timestamp"] = now
             fresh["stale"] = True
-            fresh["stale_reason"] = (
-                f"re-polled {dt * 1000:.1f}ms after the previous sample; "
-                f"rates need at least {_MIN_SAMPLE_INTERVAL * 1000:.0f}ms "
-                "to mean anything (totals are live, rates are the previous "
-                "sample's)"
-            )
+            if dt < 0:
+                fresh["stale_reason"] = (
+                    f"the wall clock moved backwards by {-dt * 1000:.1f}ms "
+                    "since the previous sample, so no rate can be computed "
+                    "from it (totals are live, rates are the previous "
+                    "sample's)"
+                )
+            else:
+                fresh["stale_reason"] = (
+                    f"re-polled {dt * 1000:.1f}ms after the previous sample; "
+                    f"rates need at least {_MIN_SAMPLE_INTERVAL * 1000:.0f}ms "
+                    "to mean anything (totals are live, rates are the previous "
+                    "sample's)"
+                )
             return fresh
 
         _LAST_SAMPLE["timestamp"] = now

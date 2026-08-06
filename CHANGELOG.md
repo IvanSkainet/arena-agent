@@ -127,6 +127,20 @@ only rates do. Totals are re-read on a stale snapshot now, and if a
 counter cannot be read the previous value is kept rather than zeroed --
 a zero on a byte counter reads as "the interface reset".
 
+Then the Windows matrix went red on my own fix and found a third defect
+in the same guard. The condition was `0.0 < dt < _MIN_SAMPLE_INTERVAL`,
+which lets the single most degenerate interval straight through:
+Windows' `time.time()` ticks about every 15.6 ms, so two polls inside
+one tick give `dt == 0.0` **exactly**, and zero is the worst possible
+denominator for the very division bug #58 was about. Every Linux and
+macOS cell passed. A negative `dt` -- an NTP step, a suspend/resume, a VM
+snapshot -- was equally unguarded, and dividing by it renders a plunge
+that never happened. Both take the stale path now, with a distinct
+reason string for the backwards-clock case, and the new tests drive the
+clock instead of racing it so a regression fails on every platform
+rather than only on the one with the coarse timer. Same coarse-clock
+lesson as the hwinfo budget fix, in a different module.
+
 Worth recording: the first version of the totals test asserted
 `new >= old`, which a **frozen** total also satisfies. Sabotage caught
 it -- deleting the refresh left the test green. It now drives the counter
@@ -158,6 +172,12 @@ Leniency stops there: unparseable output still reports `backend: none`
 with an empty list rather than inventing a device, and a non-zero
 nvidia-smi exit is not treated as data. Survivors on this file went from
 430/479 to 405/508, with killed mutants up from 49 to 103.
+
+`live_metrics.py` crossed the 600-line runtime cap during these fixes and
+the architecture ratchet caught it. The vendor-CLI parsing moved to
+`arena/observability/gpu_probe.py` -- a clean seam: it turns nvidia-smi
+and rocm-smi text into device dicts and knows nothing about sampling,
+caching or rate arithmetic. The threshold was not raised.
 
 ### Actions pinned to a runtime GitHub had retired
 

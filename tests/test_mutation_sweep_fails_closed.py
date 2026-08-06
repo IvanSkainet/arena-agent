@@ -85,6 +85,12 @@ def test_a_real_result_still_passes(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(mod.mutation_cache, "lookup", lambda s, t: None)
     monkeypatch.setattr(mod.mutation_cache, "record", lambda *a, **k: None)
+    # This test is about the exit code for a healthy sweep, so the
+    # leaked-mutant check is stubbed out: run from a working tree with
+    # any uncommitted edit -- which is the normal state while developing
+    # -- it would otherwise fail for an unrelated and correct reason.
+    # `test_a_mutant_left_on_disk_fails_the_sweep` covers the other side.
+    monkeypatch.setattr(mod, "_leaked_mutants", lambda sources: [])
     monkeypatch.setattr(
         sys, "argv",
         ["mutation_sweep.py", "--report", str(tmp_path / "r.md"),
@@ -246,6 +252,17 @@ def test_an_unverifiable_tree_is_not_reported_as_clean(monkeypatch):
     assert leaked, "an unverifiable tree must not come back empty"
 
 
-def test_a_clean_tree_reports_no_leaks():
-    """Reverse sabotage: the check must not cry wolf on a clean checkout."""
-    assert mod._leaked_mutants(["arena/mobile/apk_paths.py"]) == []
+def test_the_leak_check_reads_real_git_state(tmp_path):
+    """Reverse sabotage: it must report what git reports, not a constant.
+
+    Asserting "a clean checkout yields []" would fail for anyone with
+    uncommitted work in that file, so drive it against a file whose state
+    is known: git itself is the oracle.
+    """
+    target = "arena/mobile/apk_paths.py"
+    proc = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
+        ["git", "diff", "--name-only", "--", target],
+        cwd=ROOT, capture_output=True, text=True, timeout=60,
+    )
+    expected = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
+    assert mod._leaked_mutants([target]) == expected
