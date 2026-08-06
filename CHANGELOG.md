@@ -1,5 +1,51 @@
 ## Unreleased
 
+### #69 -- `agentctl mcp install` reported success for packages that do not exist
+
+`arena/agentctl_extras/integrations.py` came back from the sweep with
+**152 of 152 mutants surviving**. Reading it against the live npm
+registry showed that all four built-in aliases were dead names:
+
+    @anthropic-ai/desktop-commander     404
+    @modelcontextprotocol/filesystem    404
+    @modelcontextprotocol/sqlite        404
+    @modelcontextprotocol/fetch         404
+
+The real servers carry a `server-` prefix, and desktop-commander is
+published under a different scope. `@anthropic-ai/desktop-commander` is
+the one that matters most: it named an **unclaimed** package in a scope
+this project does not control, so the command sat one registration away
+from installing a stranger's code as MCP tooling -- a supply-chain hole
+opened by a typo rather than an attack.
+
+The control flow compounded it. The order was: write the mcp.json entry,
+then attempt the install, then `return 0` no matter what happened. A dead
+name therefore printed `[OK] Registered`, printed a warning that no
+script checks, exited **successfully**, and left the bridge trying to
+launch a nonexistent package on every start. The consolation line -- "npx
+will download the package on first run automatically" -- is true only
+when the package exists; for a 404 it is a promise that cannot be kept.
+Verified end to end: the old code returned 0 and wrote the entry for
+`@modelcontextprotocol/filesystem`, which is not published.
+
+Install now runs **before** the config is written, a failure returns
+non-zero and leaves mcp.json untouched, and a 404 says so in plain words.
+Only aliases verified present in the registry ship, and a test checks
+each one against npm on every run -- failing on a 404, skipping when the
+registry is unreachable, so an offline runner produces neither a false
+accusation nor a false reassurance.
+
+One more, found in the same function: `if npm or npx:` guarded a call to
+`npm` specifically. On a machine with npx and no npm -- corepack,
+bun-first setups, trimmed container images -- the guard passed and the
+call raised `FileNotFoundError` out of a CLI command. It is a clean
+refusal with exit code 3 now, and npm is invoked through the resolved
+path with a 300-second timeout rather than by bare name and unbounded.
+
+Sabotage: restoring the dead package names, restoring `return 0` on a
+failed install, and restoring `if npm or npx` each reddened the suite;
+restoring each turned it green. Killed mutants went from **0 to 34**.
+
 ### #67 -- the GPU row in `agentctl status` never printed, on any machine
 
 `arena/agentctl_extras/status.py` came back from the sweep with **224 of
