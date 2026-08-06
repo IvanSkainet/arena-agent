@@ -219,6 +219,39 @@ def test_unknown_user_tilde_is_refused_not_crashed(staging):
     assert result["ok"] is False
 
 
+def test_non_string_apk_paths_are_refused_not_crashed(staging):
+    """The JSON boundary can supply null, numbers or arrays, not just text."""
+    from arena.mobile.apk_paths import resolve_apk_path
+
+    for candidate in (None, 123, ["app.apk"], {"path": "app.apk"}):
+        try:
+            result = resolve_apk_path(candidate, staging)  # type: ignore[arg-type]
+        except Exception as exc:  # pragma: no cover - this is the failure
+            pytest.fail(f"resolve_apk_path({candidate!r}) raised {type(exc).__name__}: {exc}")
+        assert isinstance(result, dict) and result["ok"] is False, candidate
+
+
+def test_missing_nested_staging_root_is_created_before_resolution(tmp_path):
+    """Root creation is part of the total refusal contract, not an exception."""
+    from arena.mobile.apk_paths import resolve_apk_path
+
+    root = tmp_path / "one" / "two" / "staging"
+    result = resolve_apk_path("missing.apk", root)
+
+    assert isinstance(result, dict) and result["ok"] is False
+    assert root.is_dir()
+
+
+def test_exact_tilde_is_reported_as_a_home_escape(staging):
+    """A bare `~` is a home reference, not a literal staging filename."""
+    from arena.mobile.apk_paths import resolve_apk_path
+
+    result = resolve_apk_path("~", staging)
+
+    assert isinstance(result, dict) and result["ok"] is False
+    assert result["error"].startswith("apk_path must live under the staging directory")
+
+
 def test_tilde_home_reference_cannot_escape_staging(staging, monkeypatch, tmp_path):
     """`~/x.apk` expands to a real home dir -- which is outside staging."""
     from arena.mobile.apk_install import prepare

@@ -75,6 +75,7 @@ Cross-platform notes:
 """
 from __future__ import annotations
 
+import copy
 import platform
 import threading
 import time
@@ -454,10 +455,7 @@ def live_metrics_snapshot() -> dict[str, Any]:
             # value made the next caller read -999. The dashboard and the
             # WebSocket stream share this module-level state, so this is
             # cross-consumer corruption, not a theoretical aliasing note.
-            fresh = {
-                key: (dict(value) if isinstance(value, dict) else value)
-                for key, value in cached.items()
-            }
+            fresh = copy.deepcopy(cached)
             # ...and the docstring promised "Counter totals stay live
             # because they are absolute readings, not deltas", which was
             # simply not happening -- the whole section was reused, totals
@@ -496,5 +494,8 @@ def live_metrics_snapshot() -> dict[str, Any]:
             "disk": _collect_disk(now, dt),
             "gpu": _collect_gpu(now),
         }
-        _LAST_SAMPLE["snapshot"] = snapshot
+        # Keep the cache isolated from the object handed to the caller.
+        # Stale responses are deep-copied above; the first fresh response
+        # needs the same boundary or a caller can poison the next poll.
+        _LAST_SAMPLE["snapshot"] = copy.deepcopy(snapshot)
         return snapshot

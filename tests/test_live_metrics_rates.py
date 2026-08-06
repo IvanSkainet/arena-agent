@@ -286,6 +286,73 @@ def test_totals_stay_live_while_rates_are_suppressed(monkeypatch):
     assert "totals are live" in stale["stale_reason"]
 
 
+def test_stale_snapshot_deep_copies_nested_values(monkeypatch):
+    """A copied section is not enough when it contains a mutable list.
+
+    The existing shallow-copy fix protects ``snapshot["gpu"]`` itself but
+    still shares ``gpu["devices"]`` with the cache. A dashboard consumer
+    mutating one device record would therefore corrupt the next response.
+    """
+    import arena.observability.live_metrics as lm
+
+    cached = {
+        "ok": True,
+        "timestamp": 1000.0,
+        "stale": False,
+        "gpu": {"available": True, "devices": [{"name": "card"}]},
+        "net": {"available": False},
+    }
+    monkeypatch.setattr(lm.time, "time", lambda: 1000.001)
+    monkeypatch.setattr(lm, "_HAS_PSUTIL", False)
+    monkeypatch.setattr(
+        lm,
+        "_LAST_SAMPLE",
+        {"timestamp": 1000.0, "snapshot": cached},
+        raising=False,
+    )
+
+    stale = lm.live_metrics_snapshot()
+    stale["gpu"]["devices"][0]["name"] = "mutated-by-caller"
+
+    assert cached["gpu"]["devices"][0]["name"] == "card"
+
+
+def test_fresh_snapshot_does_not_alias_the_cache(monkeypatch):
+    """The first return must be isolated from the cache too.
+
+    Deep-copying only the stale path leaves the fresh snapshot object itself
+    stored in ``_LAST_SAMPLE``. A caller mutating that first response then
+    poisons the next stale response.
+    """
+    import arena.observability.live_metrics as lm
+
+    now = [1000.0]
+    monkeypatch.setattr(lm.time, "time", lambda: now[0])
+    monkeypatch.setattr(lm, "_HAS_PSUTIL", False)
+    monkeypatch.setattr(lm, "_LAST_SAMPLE", {}, raising=False)
+    monkeypatch.setattr(lm, "_collect_cpu", lambda: {"available": True, "percent": 1.0})
+    monkeypatch.setattr(lm, "_collect_memory", lambda: {"available": False})
+    monkeypatch.setattr(lm, "_collect_swap", lambda: {"available": False})
+    monkeypatch.setattr(
+        lm,
+        "_collect_net",
+        lambda _now, _dt: {"available": True, "bytes_sent_total": 1},
+    )
+    monkeypatch.setattr(lm, "_collect_disk", lambda _now, _dt: {"available": False})
+    monkeypatch.setattr(
+        lm,
+        "_collect_gpu",
+        lambda _now: {"available": True, "devices": [{"name": "card"}]},
+    )
+
+    fresh = lm.live_metrics_snapshot()
+    fresh["gpu"]["devices"][0]["name"] = "mutated-by-caller"
+    now[0] += 0.001
+    stale = lm.live_metrics_snapshot()
+
+    assert stale["gpu"]["devices"][0]["name"] == "card"
+
+
 def test_refresh_totals_keeps_the_old_reading_when_the_counter_fails(
     monkeypatch,
 ):

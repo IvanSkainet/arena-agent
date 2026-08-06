@@ -404,6 +404,9 @@ def test_shell_control_characters_are_refused_on_every_http_exec_surface(bridge)
         assert status == 403, (path, status, body)
         assert body.get("ok") is False, (path, body)
         assert "shell control" in body.get("error", ""), (path, body)
+        if path == "/v2/exec":
+            assert body.get("api_version") == "2", body
+            assert body.get("allowed"), body
 
     status, body, _, _ = bridge.post_json("/mcp", {
         "jsonrpc": "2.0", "id": 40, "method": "tools/call",

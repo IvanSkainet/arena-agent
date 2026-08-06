@@ -16,6 +16,20 @@ failure. The live HTTP gate rotates the bearer, proves the old token is refused,
 proves the new one works, and checks the on-disk mode. Symlink and chmod
 sabotages were both observed to redden the tests before restoration.
 
+### Live metrics snapshots still shared nested mutable state
+
+The earlier stale-snapshot fix copied each top-level section, but it still left
+nested values such as `gpu.devices` shared. The fresh path had the opposite
+alias: it stored the exact object returned to the caller in `_LAST_SAMPLE`. A
+consumer mutating its own first or stale response could therefore poison the
+next dashboard poll. Reproduced by changing a returned GPU device name and
+observing it in the next response.
+
+Both cache boundaries now use deep copies. Rates, totals and stale timestamps
+keep their existing contracts; only object ownership changed. Tests mutate
+nested data on both fresh and stale responses, and removing either deep-copy
+boundary reddens its gate.
+
 ### A first-word allow-list was not a shell boundary
 
 The `cautious` and sandbox execution paths checked only `first_word(cmd)`
