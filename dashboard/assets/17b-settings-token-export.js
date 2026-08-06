@@ -1,7 +1,14 @@
 async function regenToken() {
+  // v4.165.0 (bug #66): this dialog used to promise that a restart was
+  // needed before the previous credential stopped working. The opposite
+  // is true -- the route swaps the live in-memory token, so the previous
+  // one is refused from the next request onward. Telling an operator who
+  // is rotating a leaked credential that the leak stays live is the
+  // dangerous direction to be wrong in.
   if (!confirm("Regenerate the auth token?\n\n" +
                "A new token will be written to token.txt.\n" +
-               "Existing sessions continue with the OLD token until the bridge restarts.")) return;
+               "The OLD token stops working IMMEDIATELY — every client " +
+               "still using it, including this page, must be updated.")) return;
   try {
     const result = await api("/v1/token/regenerate", {method: "POST"});
     if (!result.ok) {
@@ -9,18 +16,30 @@ async function regenToken() {
       return;
     }
     const tok = result.token || "(no token in response)";
+    // The rotation already happened server-side and the previous bearer
+    // is already dead, so this page's stored credential is stale RIGHT
+    // NOW. Persist the new one before doing anything else -- the earlier
+    // code only saved it on the restart branch, so choosing Cancel left
+    // the dashboard holding a credential the bridge no longer accepts and
+    // every subsequent call 401'd with no explanation.
+    let saved = true;
+    try { localStorage.setItem("arena_token", tok); } catch(_) { saved = false; }
+
     const wantRestart = confirm(
-      "✅ New token generated:\n\n" + tok + "\n\n" +
+      "✅ New token generated and ALREADY ACTIVE:\n\n" + tok + "\n\n" +
       "Written to:\n" + (result.written_to || []).join("\n") + "\n\n" +
-      "Restart the bridge now to activate? (Recommended)\n" +
-      "Cancel to keep current session running with old token."
+      (saved ? "This page has been updated to the new token.\n"
+             : "⚠ Could not save the token in this browser — copy it now.\n") +
+      "Other clients using the old token are already being refused.\n\n" +
+      "Restart the bridge as well? (optional — not needed for the token)"
     );
     if (wantRestart) {
-      // Persist token in localStorage so the reloaded page can re-auth
-      try { localStorage.setItem("arena_token", tok); } catch(_) {}
       bridgeRestart();
+    } else if (saved) {
+      alert("Token rotated and active. This page now uses the new token.");
     } else {
-      alert("Token saved. Restart bridge later via Settings → Restart Bridge.");
+      alert("Token rotated and active, but it could not be stored in this " +
+            "browser. Paste it manually or this page will get 401s.");
     }
   } catch(e) {
     alert("Error regenerating token: " + (e.message||"Unknown error"));

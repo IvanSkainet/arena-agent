@@ -26,10 +26,26 @@ def token_regenerate(target_path: str = "", *, default_token_file: Path) -> dict
             "ok": True,
             "token": new_tok,
             "written_to": [str(target)],
+            # v4.165.0 (bug #66): the note here used to claim a restart was
+            # needed before the previous credential stopped working. That
+            # was the opposite of the truth. The route assigns the new value
+            # into the live `cfg["token"]`, and `check_auth` compares every
+            # request against exactly that, so the old bearer starts
+            # returning 401 on the very next request -- the e2e gate
+            # asserts precisely this (old_status == 401).
+            #
+            # The direction of the error is what makes it serious. An
+            # operator rotating a LEAKED token was told the leak stayed
+            # live until a restart, which invites either a panicked restart
+            # or the belief that an attacker still has a window. Both are
+            # wrong, and the second is the dangerous one.
             "note": (
-                "Existing connections still use the OLD token until the bridge restarts. "
-                "Use POST /v1/restart, or click Restart Bridge."
+                "The new token takes effect immediately: the previous token "
+                "is rejected from the next request onward. No restart is "
+                "required. Update any client that still holds the old token."
             ),
+            "previous_token_revoked": True,
+            "restart_required": False,
         }
     except Exception as e:
         return {"ok": False, "error": f"Failed to write {target}: {e}"}

@@ -33,8 +33,17 @@ def test_regenerate_uses_default_path_and_owner_only_mode(tmp_path, monkeypatch)
     assert result["ok"] is True
     assert target.read_text(encoding="utf-8") == result["token"]
     assert len(result["token"]) == 43  # 32 random bytes, unpadded URL-safe base64
-    assert "Existing connections" in result["note"]
-    assert "POST /v1/restart" in result["note"]
+    # v4.165.0 (bug #66): these two assertions used to require the note to
+    # say "Existing connections ... until the bridge restarts" and to point
+    # at POST /v1/restart. That is the opposite of what the route does --
+    # it swaps the live in-memory token, so the previous bearer is refused
+    # from the next request onward (the e2e gate asserts old_status == 401).
+    # Pinning the wrong sentence in a test is how a false security claim
+    # survives a rewrite, so the assertions now require the truth instead.
+    # Full reasoning and the sabotage record: tests/test_token_rotation_promise.py
+    assert "immediat" in result["note"].lower()
+    assert result["previous_token_revoked"] is True
+    assert result["restart_required"] is False
     if os.name != "nt":
         assert _mode(target) == 0o600
 

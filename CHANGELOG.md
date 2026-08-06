@@ -1,5 +1,57 @@
 ## Unreleased
 
+### #66 -- the bridge told operators a rotated token was still live
+
+`arena/admin/token.py` came back from the mutation sweep with **23 of 23
+mutants surviving** -- no test executed the file at all. Reading it with
+that in mind turned up something worse than a weak test: the rotation
+endpoint returned this advice to the operator.
+
+    "Existing connections still use the OLD token until the bridge
+     restarts. Use POST /v1/restart, or click Restart Bridge."
+
+That is the opposite of what happens. The route assigns the new value
+into the live `cfg["token"]`, and `check_auth` compares every request
+against exactly that, so the previous bearer is refused from the very
+next request. The e2e gate had been asserting `old_status == 401` all
+along: the code was right and the sentence beside it was wrong.
+
+The direction of the error is what makes this a security bug rather than
+a typo. An operator rotating a **leaked** credential was told the leak
+stayed live until a restart. That invites a panicked restart of a running
+bridge, or -- much worse -- the belief that an attacker still holds a
+working token when they do not. Advice that is wrong in the reassuring
+direction is dangerous; wrong in the alarming direction is merely noise.
+
+The Dashboard repeated the claim in its confirmation dialog and added a
+sharper edge: it offered *"Cancel to keep current session running with
+old token"*, and on Cancel it skipped persisting the new token entirely.
+The rotation had already happened by then, so choosing the option the
+dialog recommended left the page holding a credential the bridge had
+stopped accepting, and every later call returned 401 with no explanation.
+The new token is now stored before the operator is offered any choice,
+and the restart prompt is honest that a restart is optional.
+
+The response also carries `previous_token_revoked` and
+`restart_required` so a script does not have to parse English prose to
+learn whether the old credential is dead.
+
+**A second inherited test had pinned the false claim.**
+`tests/test_admin_token_security.py` asserted `"Existing connections" in
+result["note"]` and `"POST /v1/restart" in result["note"]` -- so fixing
+the message broke the suite, which is exactly how a wrong security claim
+survives a rewrite. This is the second time in two releases that a test
+was found holding a bug in place (the first was `python3 -c` in the shell
+allow-list). Both assertions now require the truth, and a new gate scans
+the whole tree so the third copy of the sentence cannot appear quietly.
+
+Sabotage: restoring the false note, moving the token save back inside the
+restart branch, and making a failed rotation return a token it never
+wrote each reddened the suite; restoring each one turned it green.
+Surviving mutants on this file went from 23/23 to 2/25, and both
+survivors are cosmetic (`rstrip("=")` rewritten to an equivalent, and one
+prose fragment already pinned by substring).
+
 ### #65 -- an interpreter in the allow-list makes the whole list decorative
 
 The metacharacter fix that landed just before this one was right, and it
