@@ -25,6 +25,39 @@ compatibility entrypoints or large catch-all files.
 - Never store per-release scratch notes in the repository; use `/tmp/` when
   driving `gh release create --notes-file`.
 
+**Agent workspace hygiene (added v4.165.0 -- learned the hard way)**
+
+An agent sandbox has a snapshot budget (128 MB / 10 000 files on Arena).
+Blow it and the session starts truncating mid-generation, which reads to
+the operator as "the platform is broken" rather than "the agent filled the
+disk". It cost Ivan an afternoon and nearly cost the session. Rules:
+
+- **Install tooling outside the snapshot root.** `pip install --user`
+  writes to `~/.local`, which IS captured: `ruff` and `pyrefly` alone are
+  57 MB of binaries. Use `PYTHONUSERBASE=/tmp/tools pip install ...` and
+  put `/tmp/tools/bin` on `PATH`. The tools do not survive a snapshot
+  anyway, so paying for them in the budget buys nothing.
+- **Never copy the repository to work on it.** A `cp -a` of the tree for a
+  background mutation sweep doubles everything. Work in `/tmp/`, or run in
+  place and rely on the sweep's own dirty-tree check.
+- **Check before finishing a long session**: `du -sh ~ && find ~ -type f | wc -l`.
+  Anything over ~80 MB deserves a look at `du -sh ~/.*` too -- dotfiles are
+  where it hides.
+- `git gc --aggressive --prune=now` reclaims real space after heavy
+  fetching (44 MB -> 30 MB here) and is safe on a pushed tree.
+- `pip` also leaves ~19 MB in `~/.cache`; pass `--no-cache-dir` or delete
+  it afterwards.
+
+The working setup, for copy-paste at the start of a session:
+
+```bash
+export PYTHONUSERBASE=/tmp/tools PATH=/tmp/tools/bin:$PATH
+pip install --user -q --no-cache-dir ruff bandit "mutmut==2.5.1" cryptography zizmor
+```
+
+Measured result: 202 MB / 4 079 files (over budget, session truncating)
+became 55 MB / 1 603 files with every tool still on `PATH`.
+
 **Security (added v4.46.0 -- these are non-negotiable)**
 
 - **Every change must pass `make security-scan` locally before commit.**
