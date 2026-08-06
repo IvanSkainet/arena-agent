@@ -17,6 +17,25 @@ skip -- "the tool is absent" and "the code is fine" must not share an
 exit code. A test asserts the workflow text itself, because the guard is
 only as good as the step that runs it.
 
+CI then caught a smaller version of the same confusion in the new code.
+A test asserting "a malformed `--shard` exits 2" got exit 1 ("mutmut is
+not installed") on runners that have no mutmut -- a different complaint
+about a different problem, and one that would send whoever hit it off
+installing a tool they did not need. Argument validation now runs before
+the toolchain check: usage errors first, environment second, work last.
+
+And the per-file restore turned out not to be enough. mutmut can be
+killed outright -- job cancelled, OOM, runner gone -- and the mutant it
+had written just stays on disk. That happened here: an interrupted sweep
+left `0 <= tab_index` rewritten to `1 <= tab_index` in
+`arena/browser/cdp_client/tabs_http.py`, and it surfaced hours later as
+an unrelated-looking test failure rather than as anything the sweep
+said. The sweep now diffs its targets against HEAD when it finishes and
+fails if the tree is dirty. It does not `git checkout` them: restoring
+automatically would also erase a maintainer's real edits without asking.
+If git cannot be run at all, that is reported as "tree state unknown"
+rather than as a clean bill of health.
+
 ### Interrupting a sweep left a mutant in the working tree
 
 mutmut 2.5.1 rewrites the source file **in place** and restores it when

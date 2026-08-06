@@ -78,6 +78,7 @@ TARGETS: dict[str, tuple[str, ...]] = {
     # only what changed.
     "arena/mobile/apk_paths.py": (
         "tests/test_mobile_apk_upload_stays_in_staging.py",
+        "tests/test_mobile_staging_root_failure.py",
     ),
     "arena/exec/interpreters.py": (
         "tests/test_exec_script_path_quoting.py",
@@ -94,6 +95,7 @@ TARGETS: dict[str, tuple[str, ...]] = {
     ),
     "arena/observability/live_metrics.py": (
         "tests/test_live_metrics_rates.py",
+        "tests/test_live_metrics_gpu_parse.py",
     ),
     "arena/mcp_client/client.py": (
         "tests/test_mcp_client_output_bounds.py",

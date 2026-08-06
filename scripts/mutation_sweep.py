@@ -183,6 +183,40 @@ def _run_one(source: str, tests: tuple[str, ...], *,
     return result
 
 
+def _leaked_mutants(sources: list[str]) -> list[str]:
+    """Sources that differ from git HEAD after a sweep.
+
+    The per-file restore in `_run_one` covers the paths this script
+    controls, but mutmut can also be killed outright -- job cancelled,
+    OOM, the runner going away -- and then the mutant it had written is
+    simply left there. That is not theoretical: a sweep interrupted in
+    this workspace left `0 <= tab_index` rewritten to `1 <= tab_index` in
+    arena/browser/cdp_client/tabs_http.py, and it was found by a test
+    failing hours later rather than by anything in the sweep.
+
+    So the tree is checked against HEAD at the end and the run fails if
+    anything is dirty. Not `git checkout` -- restoring automatically
+    would also erase a maintainer's real edits without asking. Report and
+    refuse.
+    """
+    tracked = [s for s in sources if (ROOT / s).exists()]
+    if not tracked:
+        return []
+    try:
+        proc = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
+            ["git", "diff", "--name-only", "--", *tracked],
+            cwd=ROOT, capture_output=True, text=True, timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError):
+        # No git, or it failed: cannot prove the tree is clean, so do not
+        # claim it is. An empty list here would be exactly the
+        # "absent means fine" shape this release is about.
+        return ["<could not run `git diff` to verify the tree>"]
+    if proc.returncode != 0:
+        return ["<`git diff` failed; tree state unknown>"]
+    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--paths", default="",
@@ -203,6 +237,26 @@ def main() -> int:
     parser.add_argument("--json", dest="json_out", default="mutation-report.json")
     args = parser.parse_args()
 
+    # Argument validation comes BEFORE the toolchain check. `--shard 5/4`
+    # is a mistake in the invocation whether or not mutmut is installed,
+    # and CI caught the original ordering: a test asserting "a bad shard
+    # exits 2" got exit 1 ("mutmut is not installed") on a runner that
+    # has no mutmut, which is a different complaint about a different
+    # problem. Usage errors first, environment second, work last.
+    shard: tuple[int, int] | None = None
+    if args.shard.strip():
+        index, sep, count = args.shard.partition("/")
+        try:
+            index_i, count_i = int(index), int(count)
+        except ValueError:
+            print(f"--shard must look like N/M, got {args.shard!r}",
+                  file=sys.stderr)
+            return 2
+        if not sep or count_i < 1 or not (1 <= index_i <= count_i):
+            print(f"--shard {args.shard} is out of range", file=sys.stderr)
+            return 2
+        shard = (index_i, count_i)
+
     if shutil.which("mutmut") is None:
         # Not a skip. "The tool is missing" and "the code is fine" are
         # different facts and must not share an exit code.
@@ -218,17 +272,8 @@ def main() -> int:
     else:
         targets = dict(TARGETS)
 
-    if args.shard.strip():
-        index, _, count = args.shard.partition("/")
-        try:
-            index_i, count_i = int(index), int(count)
-        except ValueError:
-            print(f"--shard must look like N/M, got {args.shard!r}",
-                  file=sys.stderr)
-            return 2
-        if not (count_i >= 1 and 1 <= index_i <= count_i):
-            print(f"--shard {args.shard} is out of range", file=sys.stderr)
-            return 2
+    if shard is not None:
+        index_i, count_i = shard
         ordered = sorted(targets)
         # Deal round-robin over the sorted list: consecutive files in a
         # package tend to cost similarly, so striping spreads the slow
@@ -300,6 +345,12 @@ def main() -> int:
         for row in errored:
             lines.append(f"* `{row['source']}`: {row['detail']}")
 
+    leaked = _leaked_mutants(sorted(targets))
+    if leaked:
+        lines += ["", "## MUTANTS LEFT ON DISK", ""]
+        for path in leaked:
+            lines.append(f"* `{path}` differs from HEAD after the sweep")
+
     produced = [r for r in rows if r["status"] in ("ran", "cached")]
     lines += [
         "",
@@ -318,6 +369,12 @@ def main() -> int:
     # sweep that measured nothing is a broken sweep, and a broken tool
     # that reports success is worse than no tool -- that is the whole
     # thesis of this release.
+    if leaked:
+        print("FAIL: mutmut left modified sources on disk: "
+              + ", ".join(leaked)
+              + " -- inspect and `git checkout` them before trusting this tree",
+              file=sys.stderr)
+        return 1
     if errored:
         print(f"FAIL: {len(errored)} file(s) could not be mutated",
               file=sys.stderr)

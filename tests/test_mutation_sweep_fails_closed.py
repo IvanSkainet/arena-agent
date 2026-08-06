@@ -112,10 +112,27 @@ def test_deadline_marks_unrun_files_distinctly(tmp_path, monkeypatch):
     assert "ran" not in statuses
 
 
-@pytest.mark.parametrize("shard", ["5/4", "0/4", "abc", "1/0", "-1/3"])
+@pytest.mark.parametrize("shard", ["5/4", "0/4", "abc", "1/0", "-1/3", "3"])
 def test_bad_shard_is_rejected(shard, tmp_path):
+    """Exit 2 = "you called this wrong", distinct from 1 = "it failed".
+
+    CI caught the first version of this: argument validation ran AFTER
+    the mutmut-on-PATH check, so on a runner without mutmut a malformed
+    --shard reported "mutmut is not installed" and exited 1 -- a
+    different complaint about a different problem, and one that would
+    send whoever hit it off installing a tool they did not need. Usage
+    errors are now diagnosed before the environment is inspected, which
+    is also why this test can run on a machine with no mutmut.
+    """
     proc = _run(["--shard", shard], tmp_path)
     assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "shard" in (proc.stdout + proc.stderr).lower()
+
+
+def test_a_valid_shard_is_not_rejected_as_malformed(tmp_path):
+    """Reverse sabotage: the validator must not eat legitimate input."""
+    proc = _run(["--shard", "2/4", "--deadline-minutes", "0.0001"], tmp_path)
+    assert proc.returncode != 2, proc.stdout + proc.stderr
 
 
 def test_shards_partition_the_target_list_exactly():
@@ -185,3 +202,50 @@ def test_workflow_does_not_swallow_the_sweep_exit_code():
     assert not re.search(r"^\s*run:\s*\|\s*\n\s*set -uo pipefail", text, re.M), (
         "use `set -euo pipefail` so a failing sweep fails the step"
     )
+
+
+def test_a_mutant_left_on_disk_fails_the_sweep(tmp_path, monkeypatch):
+    """The per-file restore is not enough on its own.
+
+    mutmut can be killed outright -- job cancelled, OOM, runner gone --
+    and then the mutant it had written just stays there. Not theoretical:
+    an interrupted sweep in this workspace left `0 <= tab_index` rewritten
+    to `1 <= tab_index` in arena/browser/cdp_client/tabs_http.py, and it
+    surfaced hours later as an unrelated-looking test failure.
+    """
+    monkeypatch.setattr(mod.shutil, "which", lambda name: "/usr/bin/mutmut")
+    monkeypatch.setattr(
+        mod, "_run_one",
+        lambda source, tests, timeout: {
+            "survived": 1, "killed": 1, "total": 2, "seconds": 1},
+    )
+    monkeypatch.setattr(mod.mutation_cache, "lookup", lambda s, t: None)
+    monkeypatch.setattr(mod.mutation_cache, "record", lambda *a, **k: None)
+    monkeypatch.setattr(
+        mod, "_leaked_mutants", lambda sources: ["arena/somewhere/leaked.py"]
+    )
+    monkeypatch.setattr(
+        sys, "argv",
+        ["mutation_sweep.py", "--report", str(tmp_path / "r.md"),
+         "--json", str(tmp_path / "r.json")],
+    )
+    assert mod.main() == 1
+    report = (tmp_path / "r.md").read_text(encoding="utf-8")
+    assert "MUTANTS LEFT ON DISK" in report
+    assert "leaked.py" in report
+
+
+def test_an_unverifiable_tree_is_not_reported_as_clean(monkeypatch):
+    """No git, or git failing, must not read as "nothing was modified"."""
+
+    def boom(*args, **kwargs):
+        raise OSError("git is not installed")
+
+    monkeypatch.setattr(mod.subprocess, "run", boom)
+    leaked = mod._leaked_mutants(["arena/mobile/apk_paths.py"])
+    assert leaked, "an unverifiable tree must not come back empty"
+
+
+def test_a_clean_tree_reports_no_leaks():
+    """Reverse sabotage: the check must not cry wolf on a clean checkout."""
+    assert mod._leaked_mutants(["arena/mobile/apk_paths.py"]) == []
