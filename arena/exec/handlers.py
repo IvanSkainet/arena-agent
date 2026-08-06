@@ -116,7 +116,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             if reason:
                 reason = f"{reason}; use --profile owner-shell"
                 ctx.audit({"type": "exec_blocked", "request_id": request_id, "cmd": cmd,
-                           "reason": reason, "client": request.remote or "127.0.0.1"})
+                           "reason": reason, "client": request.remote or "local-client"})
                 ctx.record_request(is_error=True, count_request=False)
                 return err_json(ctx, reason, status=403, request_id=request_id)
 
@@ -424,7 +424,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             if reason:
                 reason = f"{reason}; use --profile owner-shell"
                 ctx.audit({"type": "exec_stream_blocked", "request_id": request_id, "cmd": cmd,
-                           "reason": reason, "client": request.remote or "127.0.0.1"})
+                           "reason": reason, "client": request.remote or "local-client"})
                 ctx.record_request(is_error=True, count_request=False)
                 return err_json(ctx, reason, status=403, request_id=request_id)
 
