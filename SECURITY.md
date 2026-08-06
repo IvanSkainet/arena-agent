@@ -57,6 +57,7 @@ The threats we defend against, in decreasing severity order.
 | Unauthenticated caller with network access to the bridge URL | Bearer-token auth on every endpoint (`hmac.compare_digest` for constant-time match), rate-limit 10 fails / 60 s / IP, TLS strict-verify by default |
 | Rogue / compromised CA issuing a cert for the bridge's hostname | Opt-in cert pinning via `ARENA_BRIDGE_PIN_SHA256`; both cert-fp and SPKI-fp checked; pin match aborts BEFORE any bearer token is sent |
 | Authenticated narrow-scope multi-agent bearer escalating to full privilege | Sandbox blocklist for every `/v1/fs/*` verb (both basename and prefix — `.ssh/`, `.aws/`, `.gnupg/`, `.docker/`, `.kube/`, browser profiles, shell history, `token.txt`, `.env`, credential dotfiles). Same check runs on view / edit / create / upload / download |
+| Authenticated caller chaining a second command through a first-word allow-list | `cautious` and sandbox shell paths fail closed on an empty allow-list, require the first word, and reject shell control characters (`;`, `|`, `&`, `$`, backticks, redirection, and newlines) before starting a child process; the same policy covers MCP `exec.exec` |
 | Attacker with local write to the operator's home | Cache poisoning defeated by HMAC signature keyed on `BRIDGE_TOKEN`; APK staging + URL cache + tempfiles all 0o600; `~/.arena/` 0o700 |
 | Attacker on network path between CLI and bridge | TLS strict-verify default; `?token=` query auth deprecated with `Warning: 299` response header; opt-in cert pinning |
 | Malicious payload in a downloaded release / skill / APK zip | `arena/files/safe_extract.py` — pre-scan for absolute paths, `..` traversal, symlink members, per-member + total-size caps (zip-bomb defence); SSRF-guard on the download URL |
@@ -105,6 +106,11 @@ The threats we defend against, in decreasing severity order.
   metadata (`169.254.169.254`, `.internal`, `.local`,
   `metadata.google.internal`), IPv4-mapped IPv6, hex/octal
   IP notation.
+- **`arena/security_commands.py::command_allowlist_reason`** —
+  first-word allow-lists are paired with shell-control-character
+  rejection on every cautious/sandbox shell path; missing policy data
+  is a refusal, never universal permission. MCP `exec.exec` reads the
+  active app profile before applying the same check.
 - **`arena/files/sandbox.py`** — path validators for every
   `/v1/fs/*` verb. `resolve()`-based to defeat symlink
   escape. Sensitivity check runs BEFORE existence check to

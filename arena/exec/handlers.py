@@ -45,6 +45,7 @@ from arena.exec.interpreters import (
 from arena.exec.runner import run_shell_command_stream
 from arena.handler_context import ExecHandlerContext
 from arena.handler_helpers import authed, err_json, parse_json_body
+from arena.security_commands import command_allowlist_reason
 from arena.web_utils import CORS_HEADERS
 
 _BLOCKED_ENV_PATTERNS = [
@@ -110,12 +111,14 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
 
         profile = cfg["profile"]
         first = ctx.first_word(cmd)
-        if profile == "cautious" and first not in ctx.cautious_allow:
-            reason = f"command '{first}' not in cautious allowlist; use --profile owner-shell"
-            ctx.audit({"type": "exec_blocked", "request_id": request_id, "cmd": cmd,
-                       "reason": reason, "client": request.remote or "127.0.0.1"})
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, reason, status=403, request_id=request_id)
+        if profile == "cautious":
+            reason = command_allowlist_reason(cmd, first, ctx.cautious_allow)
+            if reason:
+                reason = f"{reason}; use --profile owner-shell"
+                ctx.audit({"type": "exec_blocked", "request_id": request_id, "cmd": cmd,
+                           "reason": reason, "client": request.remote or "127.0.0.1"})
+                ctx.record_request(is_error=True, count_request=False)
+                return err_json(ctx, reason, status=403, request_id=request_id)
 
         root: Path = cfg["root"]
         cwd_raw = str(data.get("cwd") or root)
@@ -416,12 +419,14 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
 
         profile = cfg["profile"]
         first = ctx.first_word(cmd)
-        if profile == "cautious" and first not in ctx.cautious_allow:
-            reason = f"command '{first}' not in cautious allowlist; use --profile owner-shell"
-            ctx.audit({"type": "exec_stream_blocked", "request_id": request_id, "cmd": cmd,
-                       "reason": reason, "client": request.remote or "127.0.0.1"})
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, reason, status=403, request_id=request_id)
+        if profile == "cautious":
+            reason = command_allowlist_reason(cmd, first, ctx.cautious_allow)
+            if reason:
+                reason = f"{reason}; use --profile owner-shell"
+                ctx.audit({"type": "exec_stream_blocked", "request_id": request_id, "cmd": cmd,
+                           "reason": reason, "client": request.remote or "127.0.0.1"})
+                ctx.record_request(is_error=True, count_request=False)
+                return err_json(ctx, reason, status=403, request_id=request_id)
 
         root: Path = cfg["root"]
         cwd_raw = str(data.get("cwd") or root)

@@ -10,6 +10,7 @@ from aiohttp import web
 from arena.handler_context import SandboxHandlerContext
 from arena.handler_helpers import authed
 from arena.sandbox.runtime import SANDBOX_CONFIG
+from arena.security_commands import command_allowlist_reason
 
 
 @dataclass(frozen=True)
@@ -60,13 +61,15 @@ def make_sandbox_handlers(ctx: SandboxHandlerContext) -> SandboxHandlers:
             if not cmd:
                 return ctx.cors_json_response({"ok": False, "error": "cmd is required"}, status=400)
 
-            # Check if the command is allowed.
+            # Check the first word and the shell syntax together. A first-word
+            # check alone is not a boundary when execution still uses a shell.
             first_cmd = ctx.first_word(cmd)
             allowed = SANDBOX_CONFIG["allowed_commands"]
-            if allowed and first_cmd not in allowed:
+            policy_reason = command_allowlist_reason(cmd, first_cmd, allowed)
+            if policy_reason:
                 return ctx.cors_json_response({
                     "ok": False,
-                    "error": f"command '{first_cmd}' not in allowed list",
+                    "error": policy_reason,
                     "allowed": allowed,
                 }, status=403)
 

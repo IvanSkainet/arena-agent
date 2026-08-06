@@ -1,5 +1,24 @@
 ## Unreleased
 
+### A first-word allow-list was not a shell boundary
+
+The `cautious` and sandbox execution paths checked only `first_word(cmd)`
+while still passing the complete string to `create_subprocess_shell`. That made
+an allowed `echo` authorize `echo first; second-command`, command substitution,
+pipes, redirection, background jobs, and newlines. Reproduced through real HTTP
+against all four handlers (`/v1/exec`, `/v1/exec/stream`, `/v2/exec`, and
+`/v1/sandbox`), not just by reading the source. The MCP `exec.exec` path had the
+same flaw and also read only an environment fallback, so the CLI's configured
+`--profile cautious` was invisible to it.
+
+The shared policy now fails closed when the allow-list is empty, requires the
+first word to be present, and rejects shell control characters before any child
+process is started. MCP reads the running app profile and uses the same policy.
+Legitimate single commands such as `git status`, `python3 script.py`, and
+`npm run build` remain valid. A corpus gate drives the real HTTP server, and
+sabotaging the helper plus each of the five call sites was observed to redden
+the gate before restoration.
+
 ### The sweep that measured nothing and called it success
 
 Sweep run #1 finished in 38 seconds, printed `ran 0 0 0` for all nine

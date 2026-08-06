@@ -25,6 +25,12 @@ Design principles (v4.0.1):
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
+
+# ``first_word`` is only a useful allow-list key when the command is a
+# single shell word sequence. These characters let the shell start another
+# command, redirect data, or perform substitution after the first word.
+_SHELL_CONTROL_CHARS = frozenset(";|&$`><\r\n")
 
 BLOCK_PATTERNS: list[str] = [
     # Destructive `rm -rf` against absolute paths, home directory,
@@ -98,4 +104,25 @@ def blocked_reason(cmd: str) -> str | None:
     for pat in BLOCK_PATTERNS:
         if re.search(pat, cmd, flags=re.I | re.S):
             return f"blocked by safety pattern: {pat}"
+    return None
+
+
+def command_allowlist_reason(
+    cmd: str,
+    first: str,
+    allowed: Collection[str] | None,
+) -> str | None:
+    """Return why an allow-listed shell command must be refused.
+
+    An allow-list of *first words* is not a shell parser.  Passing a command
+    such as ``echo ok; curl ...`` after checking only ``echo`` would therefore
+    turn the list into a cosmetic check.  Empty policy data is also a refusal:
+    missing configuration must never mean "all commands are allowed".
+    """
+    if not allowed:
+        return "command allowlist is empty; refusing execution"
+    if first not in allowed:
+        return f"command '{first}' not in allowlist"
+    if any(char in cmd for char in _SHELL_CONTROL_CHARS):
+        return "shell control characters are not allowed with a command allowlist"
     return None

@@ -7,6 +7,7 @@ import platform
 from typing import Any
 
 from arena.mcp.tool_utils import text_content
+from arena.security_commands import command_allowlist_reason
 
 
 def handle_exec_tool(name: str, args: dict[str, Any], *, ctx, run_sd) -> dict[str, Any] | None:
@@ -30,11 +31,20 @@ def handle_exec_tool(name: str, args: dict[str, Any], *, ctx, run_sd) -> dict[st
     block = ctx.blocked_reason(cmd)
     if block:
         return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: {block}"}]}
-    profile = os.environ.get("ARENA_PROFILE", "owner-shell")
+    # The CLI profile lives in the app config. The environment fallback keeps
+    # standalone MCP wiring compatible, but must not hide the configured
+    # cautious profile from this handler.
+    try:
+        app_config = ctx.app_config()
+    except Exception:
+        app_config = {}
+    configured_profile = app_config.get("profile") if isinstance(app_config, dict) else None
+    profile = str(configured_profile or os.environ.get("ARENA_PROFILE", "owner-shell")).strip().lower()
     if profile == "cautious":
         fw = ctx.first_word(cmd)
-        if ctx.cautious_allow and fw not in ctx.cautious_allow and fw.rstrip(".exe") not in ctx.cautious_allow:
-            return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: command '{fw}' not in allowlist"}]}
+        policy_reason = command_allowlist_reason(cmd, fw, ctx.cautious_allow)
+        if policy_reason:
+            return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: {policy_reason}"}]}
     if platform.system() == "Windows":
         rc, out, err = run_sd(["cmd", "/c", cmd], timeout=args.get("timeout", 60))
     else:

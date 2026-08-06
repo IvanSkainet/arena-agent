@@ -7,6 +7,7 @@ from aiohttp import web
 
 from arena.api_v2.common import auth_and_record
 from arena.handler_context import ApiV2HandlerContext
+from arena.security_commands import command_allowlist_reason
 
 
 async def run_unsandboxed_exec(ctx: ApiV2HandlerContext, request: web.Request, cmd: str, data: dict) -> dict:
@@ -35,10 +36,11 @@ async def run_unsandboxed_exec(ctx: ApiV2HandlerContext, request: web.Request, c
 async def run_sandboxed_exec(ctx: ApiV2HandlerContext, cmd: str, data: dict) -> dict:
     first_cmd = ctx.first_word(cmd)
     allowed = ctx.sandbox_config["allowed_commands"]
-    if allowed and first_cmd not in allowed:
+    policy_reason = command_allowlist_reason(cmd, first_cmd, allowed)
+    if policy_reason:
         return {
             "ok": False,
-            "error": f"command '{first_cmd}' not in allowed list (sandbox mode)",
+            "error": policy_reason,
             "allowed": allowed,
             "api_version": "2",
             "_status": 403,

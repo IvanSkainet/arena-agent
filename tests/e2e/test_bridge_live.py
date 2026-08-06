@@ -344,3 +344,45 @@ def test_sse_stream_opens_with_endpoint_event(bridge):
         assert b"event: endpoint" in chunk
     finally:
         conn.close()
+
+
+# ----------------------------------------------------- shell allow-list gate
+
+def test_shell_control_characters_are_refused_on_every_http_exec_surface(bridge):
+    """The first-word allow-list must not authorize a second shell command.
+
+    These are separate handlers and historically each had its own copy of the
+    fail-open check. Drive the real server so a green unit test cannot hide a
+    missing route wiring or a profile that is ignored by MCP.
+    """
+    cmd = "echo first; echo second"
+    surfaces = (
+        ("/v1/exec", {"cmd": cmd, "timeout": 5}),
+        ("/v1/exec/stream", {"cmd": cmd, "timeout": 5}),
+        ("/v2/exec", {"cmd": cmd, "timeout": 5, "sandbox": True}),
+        ("/v1/sandbox", {"action": "run", "cmd": cmd, "timeout": 5}),
+    )
+    for path, payload in surfaces:
+        status, body, _, _ = bridge.post_json(path, payload)
+        assert status == 403, (path, status, body)
+        assert body.get("ok") is False, (path, body)
+        assert "shell control" in body.get("error", ""), (path, body)
+
+    status, body, _, _ = bridge.post_json("/mcp", {
+        "jsonrpc": "2.0", "id": 40, "method": "tools/call",
+        "params": {"name": "exec.exec", "arguments": {"cmd": cmd}},
+    })
+    assert status == 200
+    result = body.get("result") or {}
+    text = ((result.get("content") or [{}])[0]).get("text", "")
+    assert result.get("isError") is True, body
+    assert "shell control" in text
+
+
+def test_shell_allowlist_keeps_legitimate_commands_working(bridge):
+    for cmd in ("git status --short", "python3 -c 'print(\"allowlisted\")'"):
+        status, body, _, _ = bridge.post_json(
+            "/v1/exec", {"cmd": cmd, "timeout": 5}
+        )
+        assert status == 200, (cmd, status, body)
+        assert body.get("ok") is True, (cmd, body)
