@@ -268,16 +268,46 @@ def check_updates(*, current_version: str | None = None) -> dict[str, Any]:
 # Consent
 # ---------------------------------------------------------------------------
 
-def consent_token(*, tag: str, sha256: str) -> str:
-    """`yes-update-<first-8-hex-of-tag+sha>`. Same shape as the APK
-    install consent so operators recognise the pattern.
+def consent_token(*, tag: str, sha256: str, asset_url: str = "") -> str:
+    """`yes-update-<hex>`. Same shape as the APK install consent so
+    operators recognise the pattern.
 
     v4.50.2: when ``sha256`` is the sentinel ``"UNVERIFIED"`` the
     consent still comes out as a stable per-tag string, but the
     caller must have explicitly opted out of SHA-256 verification.
-    apply_update() emits a distinct audit trail in that case."""
-    digest = hashlib.sha256(f"{tag}|{sha256}".encode("utf-8")).hexdigest()
-    return f"yes-update-{digest[:8]}"
+    apply_update() emits a distinct audit trail in that case.
+
+    v4.165.0 (bug #70): ``asset_url`` is now part of the token, and the
+    unverified path *requires* it.
+
+    The consent exists so an operator approves a specific thing before
+    the bridge overwrites its own code. It covered the tag and the
+    digest, but not where the bytes come from. On the verified path that
+    is survivable -- a substituted URL serves different bytes, the digest
+    check fails, the install aborts. On the **unverified** path nothing
+    else is checked: the digest is the string ``"UNVERIFIED"``, and SSRF
+    validation only blocks loopback and link-local, so any public HTTPS
+    host is fair game. The operator approves "update to v4.164.0" and the
+    approval fits a ZIP from anywhere.
+
+    The token also used only the first 8 hex characters -- 32 bits.
+    Consent is not a secret an attacker can brute-force offline (it is
+    derived from values they already know), so the width was never the
+    weak part; it is widened to 16 anyway because the cost is zero and a
+    32-bit space invites accidental collisions in audit logs.
+    """
+    if sha256 == "UNVERIFIED" and not asset_url:
+        # Fail closed. Without a digest, the URL is the ONLY thing tying
+        # the approval to a specific artefact, so a caller that omits it
+        # is asking for a token that authorises anything.
+        raise ValueError(
+            "asset_url is required for an unverified-install consent token; "
+            "without a digest the URL is the only thing the operator is "
+            "actually approving"
+        )
+    material = f"{tag}|{sha256}|{asset_url}"
+    digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
+    return f"yes-update-{digest[:16]}"
 
 
 # ---------------------------------------------------------------------------
@@ -394,12 +424,18 @@ def apply_update(*, asset_url: str, asset_name: str,
                 hint=(
                     "Either provide a token so GitHub returns a digest, "
                     "or resend the request with accept_no_verification=true "
-                    "AND consent=" + consent_token(tag=tag, sha256="UNVERIFIED")
+                    "AND consent="
+                    + consent_token(tag=tag, sha256="UNVERIFIED",
+                                    asset_url=asset_url)
                 ),
             )
         unverified = True
         expected = "UNVERIFIED"
-    want_consent = consent_token(tag=tag, sha256=expected)
+    # v4.165.0 (bug #70): the source URL is part of the consent now. On
+    # the unverified path it is the ONLY thing binding the approval to a
+    # specific artefact, so a token minted for the official release no
+    # longer authorises a ZIP fetched from somewhere else.
+    want_consent = consent_token(tag=tag, sha256=expected, asset_url=asset_url)
     if (consent or "").strip() != want_consent:
         return _err("consent token missing or wrong",
                     hint=f"Pass consent={want_consent}")

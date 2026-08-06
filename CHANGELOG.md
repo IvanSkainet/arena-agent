@@ -1,5 +1,47 @@
 ## Unreleased
 
+### #70 -- update consent named the version but not the artefact
+
+`arena/admin/handlers_update.py` came back from the sweep at **193 of 198
+mutants surviving**, so the endpoint that overwrites the bridge's own
+code was barely executed by tests. What reading it found was a gap in the
+consent design rather than a coding slip.
+
+`consent_token(tag=..., sha256=...)` covered the version and the digest
+but **not the source URL**. On the verified path that is survivable: a
+substituted URL serves different bytes, `download_release` compares the
+digest, the install aborts. On the **unverified** path -- the documented
+`accept_no_verification=true` escape hatch, where the digest becomes the
+literal string `"UNVERIFIED"` -- nothing else is checked. And
+`arena.security_ssrf._validate_url` only blocks loopback, link-local and
+non-HTTP schemes; `https://evil.example.com/payload.zip` passes it
+cleanly, verified by execution.
+
+So an operator approving "update to v4.164.0" minted a token that
+authorised a ZIP from *any* public HTTPS host, for an endpoint whose job
+is replacing the running code. The consent existed, it was checked, and
+it was answering the wrong question.
+
+`asset_url` is part of the token now, and the unverified path *requires*
+it -- minting a consent with no digest and no URL raises rather than
+returning something that authorises anything. `apply_update` also emits
+the URL-bound token in its refusal hint, because a refusal that prints an
+unusable token teaches people to ignore refusals.
+
+The token widened from 8 hex characters to 16 along the way. That was
+never the weak part -- consent is derived from values the caller already
+holds, so there is nothing to brute-force -- but 32 bits invites
+accidental collisions in audit logs and widening costs nothing.
+
+Sabotage caught the first version of the *test* being toothless, which is
+worth recording. It searched `handlers_update.py` for the substring
+`asset_url=asset_url`, which also matches the `apply_update` call further
+down -- so deleting the argument from the `consent_token` call left the
+test green. It parses the call with `ast` now and checks that specific
+keyword. Removing the URL from the token material and allowing an empty
+URL on the unverified path each reddened the suite; restoring each turned
+it green.
+
 ### A dashboard E2E test waited for a condition a polling page can never meet
 
 CI went red on `d7132aa9` after sitting in GitHub's queue for two and a

@@ -179,8 +179,12 @@ def test_apply_update_still_demands_opt_in_and_consent():
 def test_apply_update_unverified_consent_differs_from_verified():
     """Reusing a verified consent to trigger an unverified install would
     defeat the opt-in entirely."""
-    verified = au.consent_token(tag="v9.9.9", sha256=DIGEST)
-    unverified = au.consent_token(tag="v9.9.9", sha256="UNVERIFIED")
+    url = "https://example.invalid/a.zip"
+    verified = au.consent_token(tag="v9.9.9", sha256=DIGEST, asset_url=url)
+    # v4.165.0 (bug #70): the unverified path now REQUIRES a URL --
+    # without a digest it is the only thing the operator is approving.
+    unverified = au.consent_token(tag="v9.9.9", sha256="UNVERIFIED",
+                                  asset_url=url)
 
     assert verified != unverified
 

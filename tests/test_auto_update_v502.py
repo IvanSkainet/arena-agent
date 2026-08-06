@@ -161,6 +161,8 @@ def test_verified_consent_and_unverified_consent_are_distinct():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)  # type: ignore
     tag = "v4.50.2"
-    verified = mod.consent_token(tag=tag, sha256="a" * 64)
-    unverified = mod.consent_token(tag=tag, sha256="UNVERIFIED")
+    url = "https://example.invalid/a.zip"
+    verified = mod.consent_token(tag=tag, sha256="a" * 64, asset_url=url)
+    unverified = mod.consent_token(tag=tag, sha256="UNVERIFIED",
+                                   asset_url=url)
     assert verified != unverified

@@ -271,7 +271,11 @@ def test_consent_token_shape_and_stability():
     from arena.admin.auto_update import consent_token
     t = consent_token(tag="v3.85.0", sha256="abcd")
     assert t.startswith("yes-update-")
-    assert len(t) == len("yes-update-") + 8
+    # v4.165.0 (bug #70): widened from 8 hex to 16. Consent is derived
+    # from values the caller already knows, so width was never the weak
+    # part -- but a 32-bit space invites accidental collisions in audit
+    # logs and costs nothing to widen.
+    assert len(t) == len("yes-update-") + 16
     # Deterministic.
     assert consent_token(tag="v3.85.0", sha256="abcd") == t
     # Different inputs -> different tokens.
@@ -366,7 +370,8 @@ def test_apply_update_end_to_end_on_posix_writes_new_files(monkeypatch,
 
     tag = "v3.85.0"
     sha = "a" * 64
-    consent = au.consent_token(tag=tag, sha256=sha)
+    consent = au.consent_token(tag=tag, sha256=sha,
+                               asset_url="https://example/x.zip")
     r = au.apply_update(
         asset_url="https://example/x.zip",
         asset_name="arena-agent-v3.85.0.zip",

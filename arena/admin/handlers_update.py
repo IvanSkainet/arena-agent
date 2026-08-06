@@ -140,7 +140,8 @@ def make_update_handlers(ctx):
         digest_for_consent = (
             expected.split(":", 1)[-1].strip().lower() if expected else "UNVERIFIED"
         )
-        required_consent = _upd.consent_token(tag=tag, sha256=digest_for_consent)
+        required_consent = _upd.consent_token(
+            tag=tag, sha256=digest_for_consent, asset_url=asset_url)
         if not consent:
             return ctx.cors_json_response({
                 "ok": False,
