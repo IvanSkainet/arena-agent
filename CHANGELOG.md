@@ -83,6 +83,63 @@ result discarded, under a comment claiming it "will raise if
 impossible". With `strict=False` it does not raise. It was dead code,
 and it announced itself by having a mutant nobody could kill.
 
+### #63 -- a "stale" snapshot handed out the cache itself
+
+`live_metrics.py` came back from the first sweep with **430 survivors out
+of 479**. That is not "the tests are weak", it is "the tests check the
+extremes and nothing else": bug #58's guard against invented gigabit
+spikes was pinned, and the ordinary arithmetic around it was not. Two
+real defects were sitting inside the guard.
+
+`dict(cached)` is a **shallow** copy. Every nested section -- cpu,
+memory, swap, net, disk, gpu -- came back as the very object stored in
+`_LAST_SAMPLE`, so a caller writing into its own snapshot rewrote what
+the next caller would read. Verified by execution: setting
+`snapshot["net"]["bytes_sent_total"] = -999` on a returned value made the
+following poll report -999. The dashboard's plain GET and its WebSocket
+stream share this module-level state, so this is cross-consumer
+corruption, not an aliasing footnote.
+
+And the docstring stated "Counter totals stay live because they are
+absolute readings, not deltas" -- which was not happening at all. The
+whole section was reused, totals included, so anything polling faster
+than 250 ms watched a frozen byte count. A total needs no time base;
+only rates do. Totals are re-read on a stale snapshot now, and if a
+counter cannot be read the previous value is kept rather than zeroed --
+a zero on a byte counter reads as "the interface reset".
+
+Worth recording: the first version of the totals test asserted
+`new >= old`, which a **frozen** total also satisfies. Sabotage caught
+it -- deleting the refresh left the test green. It now drives the counter
+to a known larger value instead of hoping the host generated traffic
+during the test.
+
+### #64 -- one unreadable field made the whole GPU disappear
+
+`_query_gpu_devices` had **0% coverage**; the sweep left it untouched,
+which is no signal rather than a good one. Reading it against real
+nvidia-smi behaviour found two defects that both answer "you have no
+GPU" for a machine that plainly has one.
+
+nvidia-smi prints `[N/A]` for a field it cannot report -- routine on
+vGPU and MIG partitions. `int(float("[N/A]"))` raised inside the try, and
+the bare `continue` threw away the **entire device**, so an A100 with an
+unreadable utilisation column reported backend `"none"` and an empty
+device list. An unreadable field is now `null` and the card still shows,
+because null means "not reported" while 0 would read as a confidently
+idle GPU.
+
+The CSV is also unquoted, so a device name containing a comma
+("NVIDIA GeForce RTX 4090, Laptop GPU") split into seven fields, shifted
+every column by one, failed the `int()` and dropped the card. The index
+is fixed and leading, the four numeric columns are fixed and trailing;
+the name now keeps whatever is in the middle.
+
+Leniency stops there: unparseable output still reports `backend: none`
+with an empty list rather than inventing a device, and a non-zero
+nvidia-smi exit is not treated as data. Survivors on this file went from
+430/479 to 405/508, with killed mutants up from 49 to 103.
+
 ### Actions pinned to a runtime GitHub had retired
 
 Ivan spotted it in a job log: `dependency-review-action` targeted Node

@@ -370,6 +370,25 @@ def _collect_gpu(now: float) -> dict[str, Any]:
     return fresh
 
 
+def _smi_int(text: str) -> int | None:
+    """Parse one nvidia-smi numeric field, or None if it is unreadable.
+
+    nvidia-smi writes "[N/A]" (and sometimes "N/A") for values it cannot
+    report -- normal on vGPU and MIG partitions. None means "not
+    reported"; it must never be silently rendered as 0, which on a
+    utilisation gauge reads as a confidently idle GPU.
+    """
+    try:
+        return int(float(text))
+    except (TypeError, ValueError):
+        return None
+
+
+def _smi_bytes_from_mib(text: str) -> int | None:
+    value = _smi_int(text)
+    return None if value is None else value * 1024 * 1024
+
+
 def _query_gpu_devices() -> dict[str, Any]:
     # Try NVIDIA first.
     if shutil.which("nvidia-smi"):
@@ -385,18 +404,39 @@ def _query_gpu_devices() -> dict[str, Any]:
             if r.returncode == 0 and r.stdout.strip():
                 devices = []
                 for line in r.stdout.strip().splitlines():
-                    parts = [p.strip() for p in line.split(",")]
-                    if len(parts) < 6:
+                    # v4.165.0 (bug #64): a plain `split(",")` broke on a
+                    # device name that contains a comma -- nvidia-smi
+                    # does not quote the name field, so
+                    # "NVIDIA RTX A2000, Laptop" produced seven parts,
+                    # shifted every column by one, failed the int() and
+                    # dropped the card entirely. The four numeric columns
+                    # are fixed and trailing, and the index is fixed and
+                    # leading, so split from both ends and let the name
+                    # keep whatever is in the middle.
+                    raw = line.split(",")
+                    if len(raw) < 6:
                         continue
-                    idx, name, util, mem_used, mem_total, temp = parts
+                    idx = raw[0].strip()
+                    util, mem_used, mem_total, temp = (p.strip() for p in raw[-4:])
+                    name = ",".join(raw[1:-4]).strip()
                     try:
                         devices.append({
                             "index": int(idx),
                             "name": name,
-                            "gpu_util_percent": int(float(util)),
-                            "mem_used_bytes": int(float(mem_used) * 1024 * 1024),
-                            "mem_total_bytes": int(float(mem_total) * 1024 * 1024),
-                            "temperature_c": int(float(temp)),
+                            # v4.165.0 (bug #64, second half): nvidia-smi
+                            # prints "[N/A]" for a field it cannot read --
+                            # routine on vGPU and MIG partitions, where
+                            # utilisation is simply not exposed. That
+                            # raised inside the try and `continue` threw
+                            # the WHOLE device away, so a machine with a
+                            # working A100 reported backend "none" and an
+                            # empty device list: "you have no GPU" instead
+                            # of "one field is unavailable". An unreadable
+                            # field is now null and the card still shows.
+                            "gpu_util_percent": _smi_int(util),
+                            "mem_used_bytes": _smi_bytes_from_mib(mem_used),
+                            "mem_total_bytes": _smi_bytes_from_mib(mem_total),
+                            "temperature_c": _smi_int(temp),
                         })
                     except Exception:
                         continue
@@ -447,6 +487,36 @@ def _query_gpu_devices() -> dict[str, Any]:
     return {"available": False, "backend": "none", "devices": []}
 
 
+def _refresh_totals(snapshot: dict[str, Any]) -> None:
+    """Re-read the absolute counters on a stale (rate-suppressed) snapshot.
+
+    A total is a reading, not a delta: it needs no time base and so has
+    no reason to be stale. Rates do, and they stay as they were. If a
+    counter cannot be read right now the previous value is kept -- a
+    stale number beats a fabricated zero, which on a byte counter would
+    look like the interface reset.
+    """
+    if not _HAS_PSUTIL:
+        return
+    net = snapshot.get("net")
+    if isinstance(net, dict) and net.get("available"):
+        try:
+            io = psutil.net_io_counters()
+            net["bytes_sent_total"] = int(io.bytes_sent)
+            net["bytes_recv_total"] = int(io.bytes_recv)
+        except Exception:  # nosec B110 -- keep the previous reading
+            pass
+    disk = snapshot.get("disk")
+    if isinstance(disk, dict) and disk.get("available"):
+        try:
+            io = psutil.disk_io_counters()
+            if io is not None:
+                disk["read_bytes_total"] = int(io.read_bytes)
+                disk["write_bytes_total"] = int(io.write_bytes)
+        except Exception:  # nosec B110 -- keep the previous reading
+            pass
+
+
 def live_metrics_snapshot() -> dict[str, Any]:
     """Return a single JSON-serialisable snapshot of live host metrics.
 
@@ -478,13 +548,33 @@ def live_metrics_snapshot() -> dict[str, Any]:
 
         cached = _LAST_SAMPLE.get("snapshot")
         if cached is not None and 0.0 < dt < _MIN_SAMPLE_INTERVAL:
-            fresh = dict(cached)
+            # v4.165.0 (bug #63): this was `dict(cached)`, a SHALLOW copy.
+            # Every nested section -- cpu, memory, net, disk, gpu -- came
+            # back as the very same object held in _LAST_SAMPLE, so a
+            # caller writing to its own snapshot rewrote the cache for
+            # every other poller. Verified by execution: setting
+            # `snapshot["net"]["bytes_sent_total"] = -999` on a returned
+            # value made the next caller read -999. The dashboard and the
+            # WebSocket stream share this module-level state, so this is
+            # cross-consumer corruption, not a theoretical aliasing note.
+            fresh = {
+                key: (dict(value) if isinstance(value, dict) else value)
+                for key, value in cached.items()
+            }
+            # ...and the docstring promised "Counter totals stay live
+            # because they are absolute readings, not deltas", which was
+            # simply not happening -- the whole section was reused, totals
+            # included, so a caller polling faster than the interval saw a
+            # frozen byte count. Rates are what need a time base; the
+            # totals are re-read here.
+            _refresh_totals(fresh)
             fresh["timestamp"] = now
             fresh["stale"] = True
             fresh["stale_reason"] = (
                 f"re-polled {dt * 1000:.1f}ms after the previous sample; "
                 f"rates need at least {_MIN_SAMPLE_INTERVAL * 1000:.0f}ms "
-                "to mean anything"
+                "to mean anything (totals are live, rates are the previous "
+                "sample's)"
             )
             return fresh
 

@@ -206,3 +206,124 @@ def test_the_threshold_is_below_the_dashboard_interval():
     than corrected.
     """
     assert 0 < lm._MIN_SAMPLE_INTERVAL < 1.0
+
+
+# --------------------------------------------------------------------
+# v4.165.0 (bug #63). live_metrics.py came back from the first mutation
+# sweep with 430 survivors out of 479 -- the tests pinned the extreme
+# values (no 1 GB/s spikes) but never the ordinary arithmetic or the
+# lifetime of the objects handed out. Two real defects were hiding in
+# the rate-suppression path added for bug #58.
+# --------------------------------------------------------------------
+
+
+def test_a_stale_snapshot_does_not_alias_the_cache():
+    """`dict(cached)` was a SHALLOW copy.
+
+    Every nested section came back as the very object stored in
+    _LAST_SAMPLE, so a caller writing to its own snapshot rewrote what
+    the next caller would read. The dashboard poll and the WebSocket
+    stream share this module-level state, which makes it cross-consumer
+    corruption rather than an aliasing curiosity.
+    """
+    import arena.observability.live_metrics as lm
+
+    first = lm.live_metrics_snapshot()
+    stale = lm.live_metrics_snapshot()
+    assert stale["stale"] is True, "expected the second poll to be suppressed"
+
+    for section in ("cpu", "memory", "swap", "net", "disk", "gpu"):
+        if isinstance(first.get(section), dict):
+            assert stale[section] is not first[section], (
+                f"{section} is the same object in two snapshots"
+            )
+
+    stale["net"]["bytes_sent_total"] = -999
+    stale["cpu"]["percent"] = -1
+    after = lm.live_metrics_snapshot()
+    assert after["net"].get("bytes_sent_total") != -999
+    assert after["cpu"].get("percent") != -1
+
+
+def test_totals_stay_live_while_rates_are_suppressed(monkeypatch):
+    """The docstring promised it; the code froze the whole section.
+
+    A total is a reading, not a delta -- it needs no time base. Rates do,
+    and those correctly stay as the previous sample's.
+    """
+    import arena.observability.live_metrics as lm
+
+    first = lm.live_metrics_snapshot()
+    if not first.get("net", {}).get("available"):
+        import pytest
+
+        pytest.skip("psutil not installed; no counters to re-read")
+
+    # `>=` would be a weak assertion: a FROZEN total also satisfies it,
+    # and sabotage proved it -- deleting the refresh left this test
+    # green. So drive the counter to a known, larger value instead of
+    # hoping the host generated traffic during the test.
+    import types
+
+    bumped = first["net"]["bytes_recv_total"] + 4096
+
+    def fake_net_io():
+        return types.SimpleNamespace(
+            bytes_sent=first["net"]["bytes_sent_total"] + 2048,
+            bytes_recv=bumped,
+            packets_sent=0,
+            packets_recv=0,
+        )
+
+    monkeypatch.setattr(lm.psutil, "net_io_counters", fake_net_io)
+    stale = lm.live_metrics_snapshot()
+    assert stale["stale"] is True
+    assert stale["net"]["bytes_recv_total"] == bumped, (
+        "the total was reused from the cache instead of being re-read"
+    )
+    # ...and the rate is explicitly the old one, not a recomputed spike.
+    assert stale["net"]["bytes_recv_per_sec"] == first["net"]["bytes_recv_per_sec"]
+    assert "totals are live" in stale["stale_reason"]
+
+
+def test_refresh_totals_keeps_the_old_reading_when_the_counter_fails(
+    monkeypatch,
+):
+    """A counter that cannot be read must not become a fabricated zero.
+
+    On a byte counter, zero reads as "the interface reset" -- inventing
+    that is the same crime as bug #58's invented gigabit.
+    """
+    import arena.observability.live_metrics as lm
+
+    if not lm._HAS_PSUTIL:
+        import pytest
+
+        pytest.skip("psutil not installed")
+
+    snapshot = {
+        "net": {"available": True, "bytes_sent_total": 111, "bytes_recv_total": 222},
+        "disk": {"available": True, "read_bytes_total": 333, "write_bytes_total": 444},
+    }
+
+    def boom(*args, **kwargs):
+        raise OSError("counter unavailable")
+
+    monkeypatch.setattr(lm.psutil, "net_io_counters", boom)
+    monkeypatch.setattr(lm.psutil, "disk_io_counters", boom)
+    lm._refresh_totals(snapshot)
+    assert snapshot["net"]["bytes_sent_total"] == 111
+    assert snapshot["disk"]["write_bytes_total"] == 444
+
+
+def test_refresh_totals_leaves_unavailable_sections_alone():
+    """No inventing fields for a section that reported itself absent."""
+    import arena.observability.live_metrics as lm
+
+    snapshot = {
+        "net": {"available": False, "reason": "psutil not installed"},
+        "disk": {"available": False, "reason": "no disk counters"},
+    }
+    lm._refresh_totals(snapshot)
+    assert snapshot["net"] == {"available": False, "reason": "psutil not installed"}
+    assert "read_bytes_total" not in snapshot["disk"]
