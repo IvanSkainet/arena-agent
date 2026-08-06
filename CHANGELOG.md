@@ -179,6 +179,15 @@ the architecture ratchet caught it. The vendor-CLI parsing moved to
 and rocm-smi text into device dicts and knows nothing about sampling,
 caching or rate arithmetic. The threshold was not raised.
 
+The sweep workflow then opened two Scorecard `PinnedDependenciesID`
+alerts on itself the day it landed: `pip install --upgrade pip` and
+`pip install "mutmut==2.5.1"` both install unhashed artefacts. Version
+pinning is not artefact pinning. mutmut is now hash-locked in
+`requirements-mutation.lock` like every other tool here, the pip upgrade
+is gone (the runner's pip already honours `--require-hashes`), and the
+existing `.in`/`.lock` freshness guard picked up the new pair with no
+changes. Verified by installing from the lock in a clean venv.
+
 ### Actions pinned to a runtime GitHub had retired
 
 Ivan spotted it in a job log: `dependency-review-action` targeted Node

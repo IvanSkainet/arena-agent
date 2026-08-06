@@ -92,7 +92,9 @@ jobs:
       - name: Install dependencies
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip
+          # No `pip install --upgrade pip`: an unhashed install in a
+          # workflow is a Scorecard PinnedDependenciesID finding, and the
+          # runner's pip is already new enough to honour --require-hashes.
           # Same install path CI uses. The first version of this step did
           # `pip install -r requirements.txt || true`, which swallowed the
           # failure: only pytest landed, every mutated test run died on a
@@ -103,8 +105,12 @@ jobs:
           python -m pip install --require-hashes -r requirements-ci.lock
           python -m pip install --no-deps --no-build-isolation -e .
           # mutmut 2.5.1, not 3.x: 3.x copies the tree into mutants/ and
-          # breaks our imports. Measured, not assumed.
-          pip install "mutmut==2.5.1"
+          # breaks our imports. Measured, not assumed. Hash-locked in
+          # requirements-mutation.lock for the same reason as every other
+          # install here -- `pip install "mutmut==2.5.1"` pins the version
+          # but not the artefact, and opened two alerts on this very
+          # workflow the day it landed.
+          python -m pip install --require-hashes -r requirements-mutation.lock
 
       - name: Prove the suite runs before mutating anything
         run: |
