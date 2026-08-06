@@ -9,6 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
+from arena import token_storage  # noqa: E402
 from arena.bootstrap import (  # noqa: E402
     ensure_session_env,
     get_bridge_port,
@@ -65,6 +66,33 @@ def test_resolve_token_priority_and_generation(tmp_path, monkeypatch):
     assert tok == "generated-token-123456"
     assert path == token_file
     assert token_file.read_text(encoding="utf-8").strip() == tok
+
+
+def test_resolve_token_refuses_symlink_path(tmp_path, monkeypatch):
+    monkeypatch.delenv("ARENA_TOKEN_FILE", raising=False)
+    victim = tmp_path / "victim.txt"
+    victim.write_text("must-survive", encoding="utf-8")
+    target = tmp_path / "token.txt"
+    try:
+        target.symlink_to(victim)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable on this runner")
+
+    with pytest.raises(OSError, match="symlink token path"):
+        resolve_token(None, default_token_file=target, token_generator=lambda: "generated")
+    assert victim.read_text(encoding="utf-8") == "must-survive"
+
+
+def test_resolve_token_reports_chmod_failure(tmp_path, monkeypatch):
+    target = tmp_path / "token.txt"
+
+    def denied(*_args, **_kwargs):
+        raise OSError("chmod denied")
+
+    monkeypatch.setattr(token_storage.os, "chmod", denied)
+    with pytest.raises(OSError, match="chmod denied"):
+        resolve_token(None, default_token_file=target, token_generator=lambda: "generated")
+    assert not target.exists()
 
 
 @pytest.mark.skipif(

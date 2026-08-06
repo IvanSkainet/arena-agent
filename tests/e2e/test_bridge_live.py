@@ -348,6 +348,43 @@ def test_sse_stream_opens_with_endpoint_event(bridge):
 
 # ----------------------------------------------------- shell allow-list gate
 
+def test_token_regeneration_rotates_the_live_bearer_and_writes_the_file(bridge):
+    """Drive the admin token rotation through the real HTTP server.
+
+    The route intentionally changes the in-memory token, so update the shared
+    client after a successful rotation; later tests in this module then use
+    the new credential just like a real operator would after clicking
+    "Restart Bridge".
+    """
+    token_file = REPO_ROOT / "token.txt"
+    previous = token_file.read_bytes() if token_file.exists() else None
+    previous_mode = token_file.stat().st_mode & 0o777 if token_file.exists() else None
+    old_token = bridge.token
+    try:
+        status, body, _, _ = bridge.post_json("/v1/token/regenerate", {})
+        assert status == 200, body
+        assert body.get("ok") is True, body
+        new_token = body.get("token", "")
+        assert isinstance(new_token, str) and len(new_token) == 43
+        assert token_file.read_text(encoding="utf-8") == new_token
+        if os.name != "nt":
+            assert token_file.stat().st_mode & 0o777 == 0o600
+
+        old_status, _, _, _ = bridge.get("/v1/info", token=old_token)
+        new_status, new_body, _, _ = bridge.get("/v1/info", token=new_token)
+        assert old_status == 401
+        assert new_status == 200
+        assert new_body.get("ok") is True
+        bridge.token = new_token
+    finally:
+        if previous is None:
+            token_file.unlink(missing_ok=True)
+        else:
+            token_file.write_bytes(previous)
+            if previous_mode is not None and os.name != "nt":
+                token_file.chmod(previous_mode)
+
+
 def test_shell_control_characters_are_refused_on_every_http_exec_surface(bridge):
     """The first-word allow-list must not authorize a second shell command.
 

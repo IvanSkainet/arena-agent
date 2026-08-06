@@ -1,5 +1,21 @@
 ## Unreleased
 
+### Token rotation could follow a symlink and lie about file permissions
+
+`admin/token.py` wrote directly through the configured token path. A symlink at
+that path was followed and an unrelated victim file was overwritten. Worse,
+when `chmod(0600)` failed, the helper returned `ok: true` anyway; a real run
+with a denied chmod left a `0644` token file while the HTTP endpoint reported
+success. The startup bootstrap helper carried the same silent-permission
+failure and non-atomic write pattern.
+
+The storage primitive is now shared by admin rotation and bootstrap. It refuses
+an existing symlink, writes to a unique temporary file, flushes and syncs it,
+requires `0600` before and after atomic replacement, and propagates every
+failure. The live HTTP gate rotates the bearer, proves the old token is refused,
+proves the new one works, and checks the on-disk mode. Symlink and chmod
+sabotages were both observed to redden the tests before restoration.
+
 ### A first-word allow-list was not a shell boundary
 
 The `cautious` and sandbox execution paths checked only `first_word(cmd)`

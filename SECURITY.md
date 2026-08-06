@@ -97,6 +97,10 @@ The threats we defend against, in decreasing severity order.
   rate-limit (10 fails / 60 s / IP → 429 + `Retry-After: 60`);
   `?token=` query auth still accepted for legacy WebSocket
   clients, but flagged.
+- **`arena/token_storage.py`** — token rotation and startup bootstrap
+  reject symlink targets, write through a temporary file, fsync, enforce
+  `0600` before and after atomic replacement, and propagate permission or
+  filesystem failures instead of reporting a false success.
 - **`arena/errors.py::error_middleware`** — attaches
   `Warning: 299` header on every response served through the
   deprecated `?token=` channel; `X-Request-Id`; converts
