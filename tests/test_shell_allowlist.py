@@ -54,13 +54,30 @@ def test_empty_allowlist_is_refusal_not_universal_permission() -> None:
 
 def test_single_allowlisted_command_remains_usable() -> None:
     assert command_allowlist_reason("echo safe", "echo", _ALLOWED) is None
-    # Shell quoting, Python's -c option and parentheses are ordinary parts of
-    # one command; the guard must not turn the cautious profile into a blanket
-    # refusal of legitimate scripts.
+    # Running a SCRIPT is ordinary work and must keep working.
     assert command_allowlist_reason(
-        "python3 -c 'print(1)'", "python3", _ALLOWED
+        "python3 script.py --flag", "python3", _ALLOWED
     ) is None
     assert command_allowlist_reason("git status --short", "git", _ALLOWED) is None
+
+
+def test_python_dash_c_is_not_ordinary_use(monkeypatch) -> None:
+    """v4.165.0 (bug #65): this assertion used to say `-c` was fine.
+
+    It was written as "Python's -c option is an ordinary part of one
+    command", which is true of the *syntax* and false of the *authority*:
+    `python3 -c` is a full interpreter, so allow-listing it allow-lists
+    reading any file, opening any socket and exec'ing anything. Confirmed
+    by execution -- `python3 -c 'import os; print(os.getuid())'` answers.
+
+    Keeping the old assertion would have pinned the bypass in place, which
+    is the worst thing a test can do. The escape hatch is explicit and the
+    refusal message names it: `--profile owner-shell`. A cautious profile
+    that silently grants a Python REPL is not cautious.
+    """
+    assert command_allowlist_reason(
+        "python3 -c 'print(1)'", "python3", _ALLOWED
+    ) is not None
 
 
 def test_every_shell_backed_allowlist_surface_uses_the_shared_guard() -> None:

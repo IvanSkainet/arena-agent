@@ -1,5 +1,58 @@
 ## Unreleased
 
+### #65 -- an interpreter in the allow-list makes the whole list decorative
+
+The metacharacter fix that landed just before this one was right, and it
+closed `echo ok; curl evil`. It also left the wider hole untouched:
+`bash`, `sh`, `zsh`, `pwsh`, `cmd` and `python3` are all **in** both
+shipped allow-lists, and
+
+    bash -c 'curl http://evil'
+
+contains no metacharacter at all. Verified by execution rather than by
+reading the code: `command_allowlist_reason` returned `None`,
+`blocked_reason` returned `None`, and running the string printed its
+payload. The cautious profile -- which is the **default** -- was handing
+out a full shell to anything that asked politely.
+
+Admitting an interpreter to a first-word allow-list admits everything it
+can be asked to run. What matters is the *flag*, not the binary:
+`python3 script.py` is precisely what an agent on a cautious profile is
+supposed to do, while `python3 -c '...'` is a shell in disguise. The
+guard now knows the code-string flags of the interpreters it ships with,
+plus the launchers that hand execution to something else entirely --
+`env`, `xargs`, `timeout`, `nohup`, `find -exec`, `sudo`, `ssh`,
+`git -c core.pager=...`.
+
+Two of these limits exist only because **reverse sabotage** caught the
+first version of the fix strangling real work. `git` had been banned
+outright, which kills `git status`; `find` had been banned for the sake
+of `-exec`, which kills `find . -name '*.py'`. Both now refuse just the
+execution-bearing forms. A guard that blocks the day job gets switched
+off, and then it guards nothing. A third came from the same pass:
+comparing whole tokens missed `--exec-path=/tmp`, because a glued value
+is the same flag.
+
+Unbalanced quoting is a refusal, not a guess -- a string nobody can parse
+is not a string we agree to run.
+
+One inherited assertion had to be **inverted**, which is worth stating
+plainly rather than burying. `tests/test_shell_allowlist.py` asserted
+that `python3 -c 'print(1)'` must be allowed, reasoning that "Python's
+-c option is an ordinary part of one command". That is true of the syntax
+and false of the authority: `-c` is a full interpreter, so allow-listing
+it allow-lists reading any file, opening any socket and exec'ing
+anything. Keeping the assertion would have pinned the bypass in place,
+which is the worst thing a test can do. The escape hatch stays explicit
+and the refusal names it: `--profile owner-shell`.
+
+Proven against the live bridge over HTTP, not only in unit tests: four
+payloads that were accepted before now return 403 with the escape hatch
+named, while `git status --short`, `python3 --version` and `echo` still
+return 200. Three sabotages (drop the interpreter check, ignore
+`flag=value`, treat unparseable quoting as permission) each reddened the
+suite; restoring each one turned it green.
+
 ### Token rotation could follow a symlink and lie about file permissions
 
 `admin/token.py` wrote directly through the configured token path. A symlink at
