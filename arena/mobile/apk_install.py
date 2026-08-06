@@ -59,7 +59,7 @@ def _default_staging_root() -> Path:
 STAGING_ROOT = _default_staging_root()
 
 
-def _ensure_staging_root() -> None:
+def _ensure_staging_root() -> dict[str, Any] | None:
     """Create the staging directory with owner-only mode. Idempotent.
 
     Called lazily inside ``persist_uploaded_apk`` and
@@ -71,7 +71,18 @@ def _ensure_staging_root() -> None:
     same ACL-proof pattern the v4.40.0 URL cache uses.
     """
     import os as _os
-    STAGING_ROOT.mkdir(parents=True, exist_ok=True)
+    # v4.165.0 (bug #62): this mkdir used to be unguarded. A staging root
+    # under a read-only parent (an operator pointing
+    # $ARENA_APK_STAGING at a mount they cannot write, a
+    # locked-down home) raised PermissionError straight through
+    # `persist_uploaded_apk` and became an HTTP 500, while every other
+    # refusal on the upload path returns an {"ok": false} envelope. The
+    # sibling in apk_paths.py had the same hole.
+    try:
+        STAGING_ROOT.mkdir(parents=True, exist_ok=True)
+    except (OSError, ValueError) as e:
+        return _err(f"could not create the staging directory: {e}",
+                    staging_root=str(STAGING_ROOT))
     try:
         _os.chmod(STAGING_ROOT, 0o700)  # nosemgrep: insecure-file-permissions -- 0o700 on a DIRECTORY is the tightest owner-only mode; execute bit here is directory traversal, not file execution
     except OSError:
@@ -82,6 +93,7 @@ def _ensure_staging_root() -> None:
         _os.chmod(STAGING_ROOT.parent, 0o700)  # nosemgrep: insecure-file-permissions -- 0o700 on a DIRECTORY is the tightest owner-only mode; execute bit here is directory traversal, not file execution
     except OSError:
         pass
+    return None
 
 # APK package-name regex from android.content.pm.PackageParser.
 # Broad enough for real apps, strict enough to reject obvious junk.
@@ -164,7 +176,9 @@ def save_upload(filename: str, data: bytes) -> dict[str, Any]:
             "(missing PK\\x03\\x04 magic)",
             got_prefix=data[:4].hex(),
         )
-    _ensure_staging_root()
+    staging_err = _ensure_staging_root()
+    if staging_err is not None:
+        return staging_err
     dest = STAGING_ROOT / filename
     contain_err = ensure_within_staging(dest, STAGING_ROOT)
     if contain_err is not None:

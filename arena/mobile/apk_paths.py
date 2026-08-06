@@ -26,8 +26,27 @@ def _staging_root() -> Path:
     return STAGING_ROOT
 
 
-def _ensure_root(root: Path) -> None:
-    root.mkdir(parents=True, exist_ok=True)
+def _ensure_root(root: Path) -> dict[str, Any] | None:
+    """Create the staging root, or return an envelope saying why not.
+
+    v4.165.0 (bug #62), found by a surviving mutant: this was a bare
+    `root.mkdir(parents=True, exist_ok=True)` whose exceptions nobody
+    caught. Creating a directory is not a total operation -- a read-only
+    parent gives PermissionError, a missing intermediate gives
+    FileNotFoundError once `parents` is anything but True, a path
+    component that is a file gives NotADirectoryError -- and every one of
+    them escaped as an HTTP 500 while every other refusal on this path
+    returns `{"ok": false}`. Same lesson as bug #43 (`Path.exists()` is
+    not total), one function earlier in the same call chain.
+    """
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except (OSError, ValueError) as e:
+        return _err(
+            f"could not create the staging directory: {e}",
+            staging_root=str(root),
+        )
+    return None
 
 
 def ensure_within_staging(dest: Path, root: Path) -> dict[str, Any] | None:
@@ -63,7 +82,9 @@ def resolve_apk_path(client_path: str, staging_root: Path | None = None) -> Path
     if not isinstance(client_path, str) or not client_path.strip():
         return _err("apk_path is required")
     root = staging_root if staging_root is not None else _staging_root()
-    _ensure_root(root)
+    root_err = _ensure_root(root)
+    if root_err is not None:
+        return root_err
     # v4.162.0 (bug #42): `Path.expanduser()` raises an UNCAUGHT
     # RuntimeError("Could not determine home directory.") for a leading
     # `~unknownuser`, so `prepare("~nosuchuser/x.apk")` returned a 500
@@ -97,12 +118,17 @@ def resolve_apk_path(client_path: str, staging_root: Path | None = None) -> Path
         p = raw
     if not p.is_absolute():
         p = root / p
+    # `root.resolve(strict=False)` used to be called here too, on its own
+    # line, with the result thrown away and a comment claiming it "will
+    # raise if impossible". With strict=False it does not raise, so the
+    # line was dead: mutmut flipped it to strict=True and no test noticed,
+    # which is how dead code announces itself. The root is resolved once,
+    # below, inside the same try.
     try:
         resolved = p.resolve(strict=False)
-        root.resolve(strict=False)  # will raise if impossible
+        root_resolved = root.resolve(strict=False)
     except Exception as e:
         return _err(f"could not resolve apk_path: {e}")
-    root_resolved = root.resolve(strict=False)
     if root_resolved not in resolved.parents and resolved != root_resolved:
         return _err(
             "apk_path must live under the staging directory",

@@ -47,6 +47,42 @@ unrun file must never read like a file that came back clean. Tests assert
 that the shards partition the target list exactly: nothing dropped
 between them, nothing run twice.
 
+### #62 -- creating the staging directory was not a total operation either
+
+Found by a surviving mutant rather than by reading the code, which is
+the point of the exercise. mutmut turned `root.mkdir(parents=True, ...)`
+into `parents=False` in `arena/mobile/apk_paths.py` and the suite stayed
+green -- meaning nothing had ever exercised what happens when that mkdir
+fails. It raised straight through and became an HTTP 500, while every
+other refusal on the APK path returns an `{"ok": false}` envelope.
+
+The trigger is ordinary: `$ARENA_APK_STAGING` pointed at somewhere the
+bridge cannot create -- a read-only mount, a locked-down home, a path
+component that is a file. Reproduced by execution (a 0o500 parent gives
+`PermissionError: '/tmp/.../staging'`), and the same hole was in
+`apk_install._ensure_staging_root`, which sits directly under the upload
+endpoint that writes attacker-supplied bytes. Both now return an
+envelope naming the directory that failed.
+
+This is bug #43's lesson one function earlier in the same chain:
+`Path.exists()` is not total, and neither is `Path.mkdir()`. Sabotage
+confirms both fixes -- removing either wrapper reddens the guard, and
+restoring it passes.
+
+Three more surviving mutants got tests rather than fixes, because they
+were untested paths rather than live bugs: a non-string `apk_path`
+(`or` -> `and` in the type check turns a wrong JSON type into an
+AttributeError 500), a bare `~` (must be refused as a home reference,
+not accepted as a file named `~` inside staging), and the `~\` prefix
+(a home reference on Windows; lose it and the same string is a staging
+file on one platform and an escape attempt on the other -- exactly the
+split bug #42's fix was written to end).
+
+One line was deleted outright: `root.resolve(strict=False)` on its own,
+result discarded, under a comment claiming it "will raise if
+impossible". With `strict=False` it does not raise. It was dead code,
+and it announced itself by having a mutant nobody could kill.
+
 ### Actions pinned to a runtime GitHub had retired
 
 Ivan spotted it in a job log: `dependency-review-action` targeted Node
