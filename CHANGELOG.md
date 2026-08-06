@@ -1,5 +1,74 @@
 ## Unreleased
 
+### #67 -- the GPU row in `agentctl status` never printed, on any machine
+
+`arena/agentctl_extras/status.py` came back from the sweep with **224 of
+224 mutants surviving**: nothing executed the file. That is the absence
+of a signal rather than a weak one, so the file was read against the
+actual output of its own data source -- and consumer and producer turned
+out to disagree about a shape.
+
+`scripts/hwinfo.py` returns `gpu` as a **dict**,
+`{"name": ..., "vram_mb": ...}`. The consumer treated it as a list::
+
+    g = h_data.get('gpu', [])
+    if g and len(g) >= 3:
+        gpu_name = next((item["name"] for item in g if "name" in item), "?")
+
+`len()` of that dict is 2 -- the number of keys -- so the guard was never
+satisfied and the GPU line was skipped on every host. Both halves were
+verified by execution: the condition is False for the real payload, and
+forcing a third key makes the body raise `TypeError: string indices must
+be integers`, because iterating a dict yields key strings. The line was
+unreachable, and broken underneath.
+
+A status command that omits a row is worse than one that raises. Nobody
+concludes "the tool is broken"; they conclude the machine has no GPU.
+The reader now accepts both shapes, and stays silent when no name is
+known rather than printing `GPU: ? (? MB VRAM)` -- a row with no content
+makes a real absence indistinguishable from a failed probe.
+
+Two neighbours found while proving that one. `int(platform.version()
+.split('.')[-1])` raised on any Windows build string with a non-numeric
+tail, from a command whose entire job is to report rather than fail;
+non-Windows hosts were safe only by accident, through the `and` short
+circuit. And direct `h_data['os']['build']` indexing -- `build` is null
+on Linux today -- meant one `KeyError` was swallowed by the broad
+`except` and replaced the *entire* hardware section with a single error
+line. A missing field should cost that field, not the report.
+
+### #68 -- a running Windows service was reported stopped in five languages
+
+Found by a surviving mutant rather than by reading: deleting a duplicated
+`"Running" in r.stdout` changed nothing, which is how the line drew
+attention to itself. It read::
+
+    running = "Running" in r.stdout or "Выполняется" in r.stdout or "Running" in r.stdout
+
+Windows translates the Status column of `schtasks /fo TABLE`. Somebody
+had already hit this on a Russian install and bolted the translation on
+beside the English one -- and repeated `"Running"` a third time while
+doing it. German, French, Chinese and every other locale still reported a
+perfectly healthy bridge as **stopped**. Verified against captured
+`schtasks` output in five locales.
+
+Text scraping is gone. `/fo CSV` does not help -- the Status column is
+localized there too. What answers the operator's real question is the
+listening socket, which the function already checks: the scheduler entry
+only says whether Windows *would* start the bridge, while the open port
+says whether it did. The state now distinguishes four situations --
+running, stopped with a task registered, stopped with no task, and "could
+not query the scheduler" -- instead of collapsing them into one word, and
+a bridge started by hand is correctly reported as running.
+
+Sabotage: restoring `len(g) >= 3`, removing the `int()` guard, printing a
+row with no card name, and putting the localized string back each
+reddened the suite; restoring each turned it green. Killed mutants on
+this file went from **0 to 36**. The remaining 205 are almost entirely
+console-string edits inside `print()` calls -- pinning that prose would
+be testing the wording of a status report, which is not worth the
+brittleness, so they are left alive deliberately rather than papered over.
+
 ### #66 -- the bridge told operators a rotated token was still live
 
 `arena/admin/token.py` came back from the mutation sweep with **23 of 23

@@ -14,7 +14,55 @@ from arena.agentctl_extras.common import (
 )
 
 
-def run_status(args=[]):
+def _gpu_entries(raw):
+    """Yield (name, vram) for whatever shape hwinfo reported.
+
+    `hwinfo.py` returns a single dict today; a multi-GPU host or a future
+    revision could reasonably return a list of them. Bug #67 was code that
+    assumed the list shape while the producer used the dict shape, and
+    which failed by printing *nothing* -- so accept both rather than pin
+    the guess that happens to be true this week.
+
+    Nothing is yielded when no name is known, because "GPU: ? (? MB)" is
+    noise, not information.
+    """
+    if isinstance(raw, dict):
+        candidates = [raw]
+    elif isinstance(raw, (list, tuple)):
+        candidates = [item for item in raw if isinstance(item, dict)]
+    else:
+        candidates = []
+    for item in candidates:
+        name = item.get("name")
+        if not name:
+            continue
+        vram = item.get("vram_mb")
+        yield name, (vram if vram not in (None, "") else "?")
+
+
+def _os_label() -> str:
+    """Human OS name, tolerant of a build number that is not a number.
+
+    The original expression did `int(platform.version().split('.')[-1])`.
+    On Windows that is normally a build like `22631`, but the field is
+    free-form -- Wine, Server previews and stripped-down images have all
+    been seen with a non-numeric tail, and `int()` then raises straight
+    through a *status* command whose entire job is to report rather than
+    fail. Non-Windows was safe only by accident, via the `and` short
+    circuit.
+    """
+    system = platform.system()
+    if system != "Windows":
+        return system
+    tail = platform.version().rsplit(".", 1)[-1]
+    try:
+        build = int(tail)
+    except ValueError:
+        return "Windows (unknown build)"
+    return "Windows 11" if build >= 22000 else "Windows 10"
+
+
+def run_status(args=None):
     import subprocess
     import urllib.request
     print("### bridge health local")
@@ -64,8 +112,8 @@ def run_status(args=[]):
 
     print()
     print("### platform info")
-    os_ver = ("Windows 11" if platform.system() == "Windows" and int(platform.version().split('.')[-1]) >= 22000 else "Windows 10" if platform.system() == "Windows" else platform.system())
-    print(f"system={os_ver}  build={platform.version().split('.')[-1]}  node={platform.node()}  release={platform.release()}")
+    os_ver = _os_label()
+    print(f"system={os_ver}  build={platform.version().rsplit('.', 1)[-1]}  node={platform.node()}  release={platform.release()}")
 
     print()
     print("### hardware info (HWiNFO / AIDA64 style)")
@@ -76,7 +124,16 @@ def run_status(args=[]):
             if res_hw.returncode == 0:
                 h_data = json.loads(res_hw.stdout)
                 # Print OS
-                print(f"  OS:       {h_data['os']['name_pretty']} (Build {h_data['os']['build']}) {h_data['os']['architecture']}")
+                # v4.165.0: `.get` rather than `[...]` throughout this
+                # block. Every one of these keys is optional in practice --
+                # `build` is null on Linux right now -- and a single
+                # KeyError here was caught by the broad `except` below and
+                # replaced the ENTIRE hardware section with one error line.
+                # A missing field should cost that field, not the report.
+                _os = h_data.get('os') or {}
+                print(f"  OS:       {_os.get('name_pretty', '?')} "
+                      f"(Build {_os.get('build', '?')}) "
+                      f"{_os.get('architecture', '?')}")
                 # Motherboard
                 m = h_data.get('motherboard', {})
                 if m:
@@ -86,11 +143,22 @@ def run_status(args=[]):
                 if c:
                     print(f"  CPU:      {c.get('name', '')} ({c.get('physical_cores', '')} Cores / {c.get('logical_processors', '')} Threads)")
                 # GPU
-                g = h_data.get('gpu', [])
-                if g and len(g) >= 3:
-                    gpu_name = next((item["name"] for item in g if "name" in item), "?")
-                    gpu_ram = next((item["vram_mb"] for item in g if "vram_mb" in item), "?")
-                    print(f"  GPU:      {gpu_name} ({gpu_ram} MB VRAM)")
+                #
+                # v4.165.0 (bug #67): this line never ran, and would have
+                # crashed if it had. `hwinfo.py` returns `gpu` as a DICT
+                # (`{"name": ..., "vram_mb": ...}`), not a list, so
+                # `len(g) >= 3` compared the number of KEYS -- two -- and
+                # the whole GPU row was silently skipped on every machine.
+                # Had a third key ever been added, the body would have
+                # iterated the dict, got key STRINGS, and died on
+                # `item["name"]` with "string indices must be integers".
+                # Verified both halves by execution.
+                #
+                # A status command that omits a row is worse than one that
+                # errors: the reader concludes there is no GPU.
+                g = h_data.get('gpu')
+                for name, vram in _gpu_entries(g):
+                    print(f"  GPU:      {name} ({vram} MB VRAM)")
                 # RAM
                 r = h_data.get('ram', {})
                 if r:
@@ -100,7 +168,13 @@ def run_status(args=[]):
                 if d:
                     print("  Disks:")
                     for cap, details in d.items():
-                        print(f"    - Drive {cap}  {details['free_gb']} GB free of {details['total_gb']} GB ({details['filesystem']}, {details['used_pct']}% used)")
+                        if not isinstance(details, dict):
+                            continue
+                        print(f"    - Drive {cap}  "
+                              f"{details.get('free_gb', '?')} GB free of "
+                              f"{details.get('total_gb', '?')} GB "
+                              f"({details.get('filesystem', '?')}, "
+                              f"{details.get('used_pct', '?')}% used)")
                 # Network
                 net = h_data.get('network', {}).get('adapters', [])
                 if net:
@@ -139,12 +213,40 @@ def run_status(args=[]):
             ("ArenaUnifiedBridge", "unified-bridge (all services on :8765)"),
         ]:
             svc_name, desc = svc_info
+            # v4.165.0 (bug #68): this used to scrape the localized TABLE
+            # output for the word "Running" (with "Выполняется" bolted on,
+            # and "Running" repeated a third time by accident -- a mutant
+            # that deleted the duplicate survived, which is how it was
+            # spotted). Windows translates that column, so a *running*
+            # service reported "stopped" on German, French, Chinese and
+            # every other non-English install. Verified against captured
+            # schtasks output in all five locales.
+            #
+            # `/fo LIST` still translates the labels, but `schtasks` also
+            # accepts `/fo CSV`, whose Status column carries the same
+            # localized text -- so parsing does not help. What DOES work is
+            # the port check we already perform: the task scheduler entry
+            # merely says whether Windows would start the bridge, while the
+            # listening socket says whether it actually did. Report the
+            # scheduler state honestly as "registered/absent" and let the
+            # port answer the question the operator is really asking.
             try:
-                r = subprocess.run(["schtasks", "/query", "/tn", svc_name, "/fo", "TABLE"], capture_output=True, text=True, timeout=5)
-                running = "Running" in r.stdout or "Выполняется" in r.stdout or "Running" in r.stdout
-                state = "running" if running and _check_port(8765) == "LISTEN" else "stopped"
+                r = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
+                    ["schtasks", "/query", "/tn", svc_name, "/fo", "LIST"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                registered = r.returncode == 0
             except Exception:
-                state = "unknown"
+                registered = None
+            listening = _check_port(8765) == "LISTEN"
+            if listening:
+                state = "running"
+            elif registered is None:
+                state = "unknown (could not query the task scheduler)"
+            elif registered:
+                state = "stopped (scheduled task registered)"
+            else:
+                state = "stopped (no scheduled task)"
             print(f"  - {desc}: {state}")
         # Also check if bridge is reachable even without scheduled task
         if _check_port(8765) == "LISTEN":
