@@ -217,7 +217,7 @@ def test_the_threshold_is_below_the_dashboard_interval():
 # --------------------------------------------------------------------
 
 
-def test_a_stale_snapshot_does_not_alias_the_cache():
+def test_a_stale_snapshot_does_not_alias_the_cache(monkeypatch):
     """`dict(cached)` was a SHALLOW copy.
 
     Every nested section came back as the very object stored in
@@ -228,7 +228,11 @@ def test_a_stale_snapshot_does_not_alias_the_cache():
     """
     import arena.observability.live_metrics as lm
 
+    now = {"t": 1000.0}
+    monkeypatch.setattr(lm.time, "time", lambda: now["t"])
+    monkeypatch.setattr(lm, "_LAST_SAMPLE", {}, raising=False)
     first = lm.live_metrics_snapshot()
+    now["t"] += 0.001
     stale = lm.live_metrics_snapshot()
     assert stale["stale"] is True, "expected the second poll to be suppressed"
 
