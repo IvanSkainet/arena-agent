@@ -1,3 +1,97 @@
+## v4.167.0 — 2026-08-07
+
+### Android is not "Linux": host classification, and two lies it exposed
+
+`platform.system()` answers `"Linux"` on an Android phone. True, and
+useless: there is no systemd, no desktop session, and in Termux the
+entire userland lives under `/data/data/com.termux/files/usr`. Twenty-one
+call sites in this repo reach for `systemctl`.
+
+New module `arena/hostplatform.py` classifies the host as
+`windows | macos | android | linux` and, on Android, distinguishes the
+two products that were previously indistinguishable: **driving** a phone
+over ADB versus **being** the phone (Termux). Detection uses signals
+measured on a real device -- POCO F7 Pro, Android 16, SDK 36, arm64-v8a,
+HyperOS 3 -- not assumptions:
+
+    ANDROID_ROOT=/system      every Android shell
+    ANDROID_DATA=/data        every Android shell
+    PREFIX=…/com.termux/…     Termux userland only
+
+`ANDROID_ROOT` is required for a positive verdict; `PREFIX` corroborates
+but never decides, because a stray `PREFIX` on a developer laptop must
+not reclassify a desktop and silently disable its service management.
+
+### #76 -- `agentctl doctor` crashed on Android
+
+`arena/agent_helpers/cli.py` called `systemctl --user is-active`
+unconditionally. On a phone there is no such binary, so `subprocess.run`
+raises `FileNotFoundError` and the doctor died with a traceback instead
+of reporting the checks it had already completed. A diagnostic that
+crashes on the platform being diagnosed is worse than one that says "not
+applicable". Now gated on `has_systemd()`, which tests
+`/run/systemd/system` rather than trusting a `systemctl` shim on PATH.
+
+### The capability map was a brochure
+
+`/v1/capabilities` reported `"backend": "adb"` as a **literal constant**
+and returned all 51 mobile endpoint names **regardless of whether adb
+existed**. An agent reading that map would plan a screenshot on a host
+with no adb and no phone, discovering the truth from a 404 at execution
+time. Same defect class as bug #65's decorative allow-list: a control
+surface describing itself instead of the system.
+
+Now `backend` is one of `adb` / `on-device` / `none`, the endpoint list
+is empty when nothing can serve it, and an
+`endpoints_unavailable_reason` explains why. The on-device case matters
+in the other direction too: a phone running the bridge in Termux has no
+adb and needs none, so reporting it unavailable would be equally wrong.
+
+`platform` in the capability map now carries `class`, `termux` and
+`systemd` so agents can branch without re-deriving the Android test.
+
+### Running the bridge on the phone itself
+
+`scripts/install_termux.sh` installs and verifies the bridge inside
+Termux on an unrooted device. This is far less exotic than it sounds:
+the bridge has exactly one hard dependency (`aiohttp`), is pure Python,
+and every `import psutil` is lazy and guarded. Measured with psutil
+removed entirely, the bridge starts, serves, and logs
+`orphan-reap skipped: No module named 'psutil'` while `/v1/doctor`
+returns `ok: true`. Idle cost on x86 Linux: **57 MB RSS, 6 threads,
+0.42 s startup**.
+
+The installer defaults to `--bind 127.0.0.1` and refuses to suggest
+otherwise. A phone roams between untrusted networks; an owner-shell
+bridge on `0.0.0.0` is a shell handed to everyone else on the café
+Wi-Fi. Widening is the operator's explicit decision, over Tailscale, and
+the script prints how.
+
+It also proves itself before claiming success: it imports the bridge on
+the device and asserts the host really classifies as Android/on-device.
+
+### Gates
+
+Every test here simulates the phone from Linux, because CI has no
+Android runner -- the standing lesson from bug #75, applied before the
+fact this time rather than after.
+
+* `tests/test_hostplatform.py` -- 11 cases built from the real device's
+  environment, including the reverse direction: a Linux desktop, a
+  desktop with a stray `ANDROID_DATA`, and one with a stray `PREFIX`
+  must all stay Linux.
+* `tests/test_capabilities_mobile_honesty.py` -- unavailable means empty,
+  available means the real list, on-device means `on-device`.
+* `tests/test_install_termux.py` -- static checks plus a real execution
+  against a simulated Termux tree. That execution caught a duplicated
+  `--bind` flag in the Tailscale hint that reading the script had
+  missed.
+
+Nine sabotage runs across the three suites: restoring the brochure,
+re-hardcoding `backend`, blinding the Android detector, making the
+detector call a desktop a phone, letting `has_systemd` lie, defaulting
+the installer to `0.0.0.0`, dropping its self-check, making psutil
+fatal, and removing its non-Termux guard. All nine are caught.
 ## v4.166.5 — 2026-08-07
 
 ### #75 (continued) -- three guesses about Windows, three red matrices

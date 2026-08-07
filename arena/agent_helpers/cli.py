@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 
+from arena import hostplatform as _hostplatform
 from arena.agent_helpers.files import ROOT, verify_bash, verify_python
 from arena.agent_helpers.runtime import load_facts, put_fact
 
@@ -38,15 +39,28 @@ def cli_self_check(_args) -> int:
         if not ok:
             issues.append(f"{name}: {msg}")
     # 5. services
-    cp = subprocess.run(["systemctl", "--user", "is-active",
-                         "arena-bridge.service",
-                         "arena-task-runner.service"],
-                        capture_output=True, text=True)
-    states = cp.stdout.strip().splitlines()
-    if len(states) >= 1 and states[0] != "active":
-        issues.append(f"arena-bridge.service: {states[0]}")
-    if len(states) >= 2 and states[1] != "active":
-        issues.append(f"arena-task-runner.service: {states[1]}")
+    #
+    # v4.167.0 (bug #76): this called `systemctl` unconditionally. On
+    # Android -- where `platform.system()` cheerfully answers "Linux"
+    # but there is no systemd and no systemctl binary --
+    # `subprocess.run` raises FileNotFoundError, so `doctor` died with a
+    # traceback instead of reporting on the checks it had already
+    # completed. A diagnostic tool that crashes on the platform you are
+    # diagnosing is worse than one that says "not applicable".
+    if _hostplatform.has_systemd():
+        try:
+            cp = subprocess.run(["systemctl", "--user", "is-active",
+                                 "arena-bridge.service",
+                                 "arena-task-runner.service"],
+                                capture_output=True, text=True)
+        except OSError as exc:
+            issues.append(f"systemctl unavailable: {exc}")
+        else:
+            states = cp.stdout.strip().splitlines()
+            if len(states) >= 1 and states[0] != "active":
+                issues.append(f"arena-bridge.service: {states[0]}")
+            if len(states) >= 2 and states[1] != "active":
+                issues.append(f"arena-task-runner.service: {states[1]}")
     # 6. session dir
     sd = ROOT / "memory" / "sessions"
     if not sd.is_dir():

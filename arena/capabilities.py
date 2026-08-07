@@ -16,6 +16,33 @@ import socket
 import sys
 from typing import Any, Callable
 
+from arena import hostplatform as _host_platform
+
+# Every mobile endpoint the bridge can serve, minus the `/v1/mobile/`
+# prefix. Kept as a module constant so the capability map cannot drift
+# from a hand-maintained copy inside a function.
+_MOBILE_ENDPOINTS: tuple[str, ...] = (
+    "devices", "info", "screenshot",
+    "tap", "swipe", "type", "key",
+    "shell", "packages", "gesture", "ui", "tap_by",
+    "helpers/status", "helpers/install",
+    "ime", "ime/set", "ime/reset", "paste",
+    "sensors", "scroll", "key_combo",
+    "pair", "connect", "disconnect",
+    "apk/prepare", "apk/install",
+    "batch",
+    "camera/launch", "camera/shutter", "camera/photos", "camera/pull",
+    "camera/capture",
+    "apk/upload",
+    "recording/sync", "recording/start", "recording/stop",
+    "recordings", "recording/purge",
+    "mirror", "mirror/stats", "mirror/stop",
+    "camera/controls", "camera/mode", "camera/lens",
+    "camera/zoom", "camera/flash",
+    "camera/record/start", "camera/record/stop",
+    "transport", "transport/tcp/enable", "transport/tcp/disable",
+)
+
 
 def build_capabilities(
     *,
@@ -42,6 +69,11 @@ def build_capabilities(
             "machine": platform.machine(),
             "python": platform.python_version(),
             "host": socket.gethostname(),
+            # v4.167.0: `system` says "linux" on an Android phone, which
+            # is true and useless -- there is no systemd, no desktop, and
+            # the userland lives under Termux's $PREFIX. `host_class`
+            # distinguishes what an agent actually needs to branch on.
+            **_host_platform.describe(),
         },
         "api": {
             "rest": True,
@@ -165,41 +197,46 @@ def build_capabilities(
         except Exception as e:
             caps.setdefault("network", {})["zerotier_error"] = str(e)[:200]
 
-    # Mobile (Android via ADB) — Phase 1 companion layer.
+    # Mobile (Android). Two products behind one section: driving a phone
+    # over ADB from a desktop, or running ON the phone (Termux), where
+    # there is no adb and none is needed.
     if mobile_status_fn is not None:
         try:
             m = mobile_status_fn() or {}
+            on_device = _host_platform.is_android()
+            adb_ready = bool(m.get("adb_installed"))
+            # v4.167.0: `backend` was the literal string "adb" regardless
+            # of anything, and the endpoint list below was returned in
+            # full even when adb was missing entirely -- a decorative
+            # capability map, the same class as bug #65's decorative
+            # allow-list. An agent reading it would plan a screenshot on
+            # a host that cannot take one.
+            if on_device:
+                backend = "on-device"
+            elif adb_ready:
+                backend = "adb"
+            else:
+                backend = "none"
             caps["mobile"] = {
-                "available": bool(m.get("adb_installed")),
-                "backend": "adb",
+                "available": adb_ready or on_device,
+                "backend": backend,
                 "adb_path": m.get("adb_path"),
                 "adb_version": m.get("adb_version"),
                 "devices": len(m.get("devices") or []),
                 "device_serials": [d.get("serial") for d in (m.get("devices") or [])],
-                "endpoints": [
-                    "devices", "info", "screenshot",
-                    "tap", "swipe", "type", "key",
-                    "shell", "packages", "gesture", "ui", "tap_by",
-                    "helpers/status", "helpers/install",
-                    "ime", "ime/set", "ime/reset", "paste",
-                    "sensors", "scroll", "key_combo",
-                    "pair", "connect", "disconnect",
-                    "apk/prepare", "apk/install",
-                    "batch",
-                    "camera/launch", "camera/shutter", "camera/photos", "camera/pull", "camera/capture",
-                    "apk/upload",
-                    "recording/sync", "recording/start", "recording/stop",
-                    "recordings", "recording/purge",
-                    "mirror", "mirror/stats", "mirror/stop",
-                    "camera/controls", "camera/mode", "camera/lens",
-                    "camera/zoom", "camera/flash",
-                    "camera/record/start", "camera/record/stop",
-                    "transport", "transport/tcp/enable", "transport/tcp/disable",
-                ],
+                # Only advertise what this host can actually serve. An
+                # endpoint list that is constant regardless of runtime
+                # state is a brochure, not a capability map.
+                "endpoints": _MOBILE_ENDPOINTS if (adb_ready or on_device) else [],
+                "endpoints_unavailable_reason": (
+                    None if (adb_ready or on_device)
+                    else "adb is not installed and this host is not an Android device"
+                ),
                 "hint": m.get("hint"),
             }
         except Exception as e:
-            caps["mobile"] = {"available": False, "backend": "adb", "error": str(e)[:200]}
+            caps["mobile"] = {"available": False, "backend": "none",
+                              "endpoints": [], "error": str(e)[:200]}
 
     return caps
 
