@@ -137,7 +137,27 @@ def serve(args: argparse.Namespace, ctx: CliContext) -> None:
     ctx.log_info("All services multiplexed on single port: bridge, MCP, SSE, WS, gateway, dashboard, task-runner")
     ctx.log_info("Stop with Ctrl+C.")
 
-    web.run_app(app, host=args.bind, port=args.port, print=None, access_log=None)
+    # v4.165.0 (bug #71): two problems, one symptom -- "bridge ignored
+    # SIGTERM for 30s and had to be SIGKILLed".
+    #
+    # 1. `web.run_app(handle_signals=True)` (the default) installs its own
+    #    SIGTERM/SIGINT handlers and OVERWRITES the ones registered above.
+    #    Our handler is what tears the watchdog, the CDP browser and the
+    #    phone-side recorder down, and it carries the `os._exit(0)`
+    #    backstop on a 5s timer. None of it ran.
+    # 2. aiohttp's `shutdown_timeout` defaults to **60 seconds**, and it
+    #    waits for open WebSockets. The dashboard holds one open
+    #    (41-live-charts.js), so a bridge that had ever served the GUI sat
+    #    there for a minute after being asked to stop.
+    #
+    # Reproduced by execution: with a WebSocket attached to /ws the
+    # process ignored SIGTERM past 40s; with none it exited in 0.1s --
+    # which is exactly why this only ever failed in the browser E2E job.
+    #
+    # `handle_signals=False` keeps our handler installed, and the timeout
+    # drops to 5s: a client that has not finished by then is not going to.
+    web.run_app(app, host=args.bind, port=args.port, print=None,
+                access_log=None, handle_signals=False, shutdown_timeout=5.0)
 
 
 def token_cmd(_: argparse.Namespace, ctx: CliContext) -> None:

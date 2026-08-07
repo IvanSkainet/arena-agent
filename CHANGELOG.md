@@ -1,5 +1,49 @@
 ## Unreleased
 
+### #71 -- the bridge ignored SIGTERM whenever the dashboard had been open
+
+CI reported this as an error nobody had looked at twice:
+
+    ERROR at teardown of test_dashboard_survives_a_reload
+    Failed: bridge ignored SIGTERM for 30s and had to be SIGKILLed (rc=-9)
+
+Ten tests passed and one *teardown* errored, so the run was red for a
+reason unrelated to any assertion -- the exact shape of thing that gets
+filed under "flaky CI" and re-run. It was not flaky. Two defects stacked
+into one symptom, and both are about the running product rather than the
+test.
+
+`web.run_app(handle_signals=True)` is the default, and it installs its
+own SIGTERM/SIGINT handlers, **overwriting** the ones `serve()` registers
+twenty lines earlier. That handler is not decoration: it stops the
+watchdog, terminates the CDP browser, calls `mirror.stop_all()` -- which
+is bug #60, a screen recorder left running on the operator's phone -- and
+arms the `os._exit(0)` backstop on a 5-second timer. None of it ran.
+
+Underneath, aiohttp's `shutdown_timeout` defaults to **60 seconds** and
+it waits for open WebSockets to close. `41-live-charts.js` keeps one open
+for the whole session, so any bridge that had ever served the dashboard
+sat there for a full minute after being asked to stop.
+
+Reproduced by execution before changing anything: with a WebSocket
+attached the process ignored SIGTERM past 40s; with none it exited in
+0.1s. That gap is precisely why this only ever failed in the browser E2E
+job -- no other suite opens one. After the fix both cases stop in 5.0s.
+
+This reaches well past CI. `POST /v1/restart` and the auto-update restart
+path both depend on the process actually leaving, and a service manager
+that sends SIGTERM and waits will eventually SIGKILL a bridge that is
+mid-write.
+
+Sabotage is worth reporting precisely here, because it disagreed with
+itself. Restoring either setting alone left the live test **green**:
+`handle_signals=False` on its own brings back the `os._exit(0)` timer,
+and `shutdown_timeout=5` on its own stops aiohttp waiting. Only the full
+revert to defaults reddened it. Two independent mechanisms each mask the
+other, which is how a 60-second default survived this long unnoticed --
+so the static guards assert both settings by parsing the `run_app` call
+with `ast`, and the live test proves the behaviour they are protecting.
+
 ### #70 -- update consent named the version but not the artefact
 
 `arena/admin/handlers_update.py` came back from the sweep at **193 of 198
