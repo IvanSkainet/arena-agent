@@ -164,18 +164,51 @@ def test_a_second_viewer_reuses_the_running_session(stub_adb):
 
 
 def test_last_viewer_leaving_stops_the_pipeline(stub_adb):
-    """The flip side of the fix: it must still shut down when idle."""
+    """The flip side of the fix: it must still shut down when idle.
+
+    v4.167.4: this failed on one Windows job (`assert stopped` False)
+    while the other thirty-four passed, and would not reproduce locally
+    in twenty runs, nor in eight more under saturating CPU load. That is
+    the signature of a *timing* assumption, not a bug in the code under
+    test: `await asyncio.sleep(0.40)` is a bet that the reader task
+    finishes within 400 ms, and a loaded Windows runner is entitled to
+    lose that bet.
+
+    A flaky gate is worse than no gate -- it trains everyone to re-run
+    CI instead of reading it. So the wait is now on the *event* rather
+    than the clock: `asyncio.wait_for` on the task itself, with a
+    generous ceiling that only trips if the pipeline genuinely never
+    stops. Fast machines finish in milliseconds; slow ones simply take
+    longer instead of failing.
+    """
     async def _run():
         session = mirror.get_or_start("emulator-5554")
         queue = session.add_subscriber()
-        await asyncio.sleep(0.20)
+
+        # Same treatment for the startup half: wait until the reader is
+        # actually running rather than assuming 200 ms was enough.
+        deadline = asyncio.get_running_loop().time() + 5.0
+        while session.reader_task.done() is False and not session.subscribers:
+            if asyncio.get_running_loop().time() > deadline:
+                break
+            await asyncio.sleep(0.01)
         started = not session.reader_task.done()
 
         session.remove_subscriber(queue)
         session.stop_event.set()
-        await asyncio.sleep(0.40)
+        try:
+            await asyncio.wait_for(asyncio.shield(session.reader_task), timeout=10.0)
+        except asyncio.TimeoutError:
+            pass
+        except Exception:
+            # The reader raising is still "it stopped"; the assertion
+            # below is about the task completing, not about how.
+            pass
         return started, session.reader_task.done()
 
     started, stopped = asyncio.run(_run())
     assert started
-    assert stopped
+    assert stopped, (
+        "the reader task was still running 10s after the last viewer left "
+        "and stop_event was set -- the pipeline leaks a screenrecord "
+        "process on the phone")

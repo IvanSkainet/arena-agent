@@ -1,3 +1,31 @@
+## v4.167.4 — 2026-08-07
+
+### A flaky gate trains people to ignore CI
+
+`test_last_viewer_leaving_stops_the_pipeline` failed on exactly one of
+thirty-five jobs (Python 3.12, windows-latest) with `assert False`, and
+would not reproduce locally in twenty runs -- nor in eight more with the
+CPU saturated. That pattern is a timing assumption, not a defect in the
+code under test.
+
+The test waited `await asyncio.sleep(0.40)` and then asserted the reader
+task had finished. That is a bet that a screenrecord pipeline unwinds
+within 400 ms, and a loaded Windows runner is entitled to lose it. The
+danger is not the red run; it is that one flaky job teaches everyone to
+hit re-run instead of reading the log -- and the next real failure gets
+the same treatment.
+
+Both halves now wait on the event instead of the clock: a poll loop for
+startup, `asyncio.wait_for` on the task itself for shutdown, with
+ceilings (5 s and 10 s) that only trip if the pipeline genuinely never
+stops. Fast machines finish in milliseconds.
+
+Sabotage was more informative than expected. Removing the `stop_event`
+check from the `while` condition did **not** fail the test, because a
+second exit -- the `break` further down the loop body -- still ended it.
+Only disabling both exits produced a hang and a red gate. A sabotage
+that passes is a finding: the first attempt proved the test was not
+pinning what its name claimed, and the second proved it now does.
 ## v4.167.3 — 2026-08-07
 
 ### The Windows CI failure: `which("bash")` is not "bash works"
