@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import collections
 import json
+import os
 import threading
 from pathlib import Path
 
@@ -597,3 +598,131 @@ def test_counting_replies_does_not_eat_them(tmp_path):
     consumed = S.read_replies(tmp_path, consume=True)
     assert [m.body for m in consumed] == ["answer"]
     assert S.read_replies(tmp_path, consume=False) == []
+
+
+def test_the_claim_survives_a_delete_that_does_not_remove_the_name(tmp_path,
+                                                                   monkeypatch):
+    """Bug #75: the #73 fix was POSIX-only, and CI had to tell us.
+
+    v4.166.2 claimed a reply with `os.unlink`, reasoning that exactly one
+    caller can succeed at removing a path. True on POSIX. **False on
+    Windows**, where a delete flags the file and the directory entry
+    survives until the last handle closes -- so two threads both see
+    `unlink` return cleanly and both deliver the reply. The Windows and
+    macOS matrix reported *15 replies delivered more than once* while
+    Linux stayed green, which is exactly why local preflight passed it.
+
+    This test makes that platform behaviour reproducible on Linux: it
+    replaces the removal with a no-op, simulating the worst case where a
+    delete reports success and removes nothing at all. Under that
+    filesystem the claim must still be exclusive, because the claim is a
+    rename to a unique name rather than a delete.
+
+    Without this, the only detector for the next instance is CI, and CI
+    told us after the release was already tagged and shipped.
+    """
+    import collections
+    import threading
+
+    total = 120
+    for index in range(total):
+        msg = S.send_message(tmp_path, f"question {index}")
+        S.post_reply(tmp_path, msg.id, f"answer {index}")
+
+    real_unlink = os.unlink
+
+    def unlink_that_does_not_remove(path, *args, **kwargs):
+        # Windows: "deleted" but the name is still there.
+        return None
+
+    monkeypatch.setattr(os, "unlink", unlink_that_does_not_remove)
+
+    seen: collections.Counter = collections.Counter()
+    lock = threading.Lock()
+
+    def drain():
+        for _ in range(40):
+            batch = S.read_replies(tmp_path, consume=True)
+            if not batch:
+                return
+            with lock:
+                for reply in batch:
+                    seen[reply.id] += 1
+
+    workers = [threading.Thread(target=drain) for _ in range(12)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+
+    monkeypatch.setattr(os, "unlink", real_unlink)
+
+    duplicated = {rid: n for rid, n in seen.items() if n > 1}
+    assert not duplicated, (
+        f"{len(duplicated)} replies delivered twice when unlink does not "
+        f"remove the name -- the claim depends on POSIX delete semantics")
+    assert len(seen) == total, f"lost {total - len(seen)} replies"
+
+
+def test_claim_markers_are_never_left_behind(tmp_path):
+    """The rename-based claim must not litter.
+
+    The claim moves the reply to a `.taken` name before removing it. If
+    the removal is skipped or the name is reused, the replies directory
+    fills with debris and `inbox_depth`-style counts start lying.
+    """
+    for index in range(25):
+        msg = S.send_message(tmp_path, f"q{index}")
+        S.post_reply(tmp_path, msg.id, f"a{index}")
+
+    assert len(S.read_replies(tmp_path, consume=True)) == 25
+    assert S.read_replies(tmp_path, consume=False) == []
+
+    leftovers = [p.name for p in (tmp_path / "replies").iterdir()]
+    assert leftovers == [], f"claim debris left behind: {leftovers}"
+
+
+def test_the_claim_destination_is_unique_per_caller(tmp_path):
+    """#75, the half that Linux cannot demonstrate.
+
+    The claim is `os.replace(reply, reply + ".<unique>.taken")`. If that
+    destination were shared -- `reply + ".taken"` for everybody -- the
+    code would still pass every concurrency test on Linux, because POSIX
+    `rename` is atomic and the loser gets FileNotFoundError. On Windows
+    it is the `lost -29` bug verbatim: two callers can both complete a
+    replace onto the same existing target and both believe they won.
+
+    Two sabotage runs proved the runtime tests cannot see this on Linux,
+    so the property is asserted directly: the destination must depend on
+    something unique to the caller, not on the reply alone. Checking the
+    computed name rather than the source text, so a rewrite that keeps
+    the words but loses the property still fails.
+    """
+    msg = S.send_message(tmp_path, "question")
+    S.post_reply(tmp_path, msg.id, "answer")
+    replies_dir = tmp_path / "replies"
+    reply_file = next(replies_dir.glob("*.json"))
+
+    seen: set[str] = set()
+    real_replace = os.replace
+
+    def capture(src, dst, *args, **kwargs):
+        seen.add(str(dst))
+        return real_replace(src, dst, *args, **kwargs)
+
+    original = os.replace
+    os.replace = capture
+    try:
+        assert len(S.read_replies(tmp_path, consume=True)) == 1
+    finally:
+        os.replace = original
+
+    assert seen, "the claim did not use os.replace at all"
+    destination = next(iter(seen))
+    assert destination != str(reply_file) + ".taken", (
+        "the claim renames onto a destination derived only from the reply "
+        "name; two callers can race the same target, which is the "
+        "`lost -29` bug. Include something unique to the caller.")
+    assert str(os.getpid()) in destination or len(
+        destination) > len(str(reply_file)) + 16, (
+        f"claim destination {destination!r} carries no per-caller entropy")

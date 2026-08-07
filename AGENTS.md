@@ -163,6 +163,24 @@ an observer sees the real thing work.
 - **A gate that is always green is suspicious.** Ratchets and contracts
   exist to be occasionally red. Negative-test the gate itself when you
   build one.
+- **A release is not done until CI is green on its tag.** Preflight runs
+  on Linux only. v4.166.2 shipped with a passing preflight, a verified
+  SHA, an execution transcript from the downloaded ZIP, and a live check
+  on the operator's machine -- and its CI still went red on every
+  Windows and macOS job, because the bug #73 fix used `os.unlink` as an
+  exclusive claim and that is POSIX-only semantics. The operator found
+  it before the agent did. Polling the run once and seeing
+  `in_progress` is not checking; wait for the conclusion, and treat a
+  release as provisional until then.
+- **Platform assumptions need a Linux-runnable test.** When a fix rests
+  on filesystem or OS behaviour, simulate the hostile platform locally
+  (monkeypatch the syscall to behave the way Windows does) rather than
+  letting the CI matrix be the only detector. Bug #75 added
+  `test_the_claim_survives_a_delete_that_does_not_remove_the_name` for
+  exactly this: an `os.unlink` that reports success and removes nothing.
+  Where a property genuinely cannot be observed on Linux -- a shared
+  rename destination is atomic here and racy on Windows -- assert the
+  property directly instead of hoping a runtime test trips over it.
 - **Sabotage every new gate before you claim it works.** Deliberately
   reintroduce the bug the gate was written for, confirm the gate fails,
   then restore. A gate that has never been observed failing is a

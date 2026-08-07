@@ -1,3 +1,54 @@
+## v4.166.4 — 2026-08-07
+
+### #75 -- the #73 fix was POSIX-only, and the operator caught it
+
+The operator sent one message through the relay: "CI failed." He was
+right, and the agent had already moved on -- it polled the run once,
+saw `in_progress`, and treated the release as finished. That is the
+actual failure here; the code bug is downstream of it.
+
+v4.166.2 claimed a reply with `os.unlink`, on the reasoning that exactly
+one caller can succeed at removing a path. True on POSIX. **False on
+Windows**, where a delete flags the file and the directory entry
+survives until the last handle closes -- so two threads both see
+`unlink` return cleanly and both deliver the reply. Every Windows and
+macOS job went red with *15 replies delivered more than once*; Linux
+stayed green, which is exactly why local preflight passed it.
+
+That is the third time this mailbox has been bitten by assuming POSIX
+filesystem semantics: `lost -29` in v4.166.0, #73 in v4.166.2, and now
+this.
+
+The claim is now a rename to a name nobody else could pick:
+`os.replace(reply, reply + ".<pid>.<uuid>.taken")`. Whoever completes
+the move owns the reply; everyone else errors because the source is
+gone. The destination is unique, so unlike the original `lost -29`
+rename there is no shared target a platform can silently overwrite.
+
+An intermediate draft used `O_EXCL` plus an `exists()` check and
+reintroduced duplicates through the window where a released marker name
+frees up -- caught by the existing concurrency gate before it shipped.
+
+### Making the platform visible from Linux
+
+Three new gates, because CI being the only detector is what let this
+reach a tag:
+
+* `test_the_claim_survives_a_delete_that_does_not_remove_the_name`
+  monkeypatches `os.unlink` into a no-op -- the worst case of Windows
+  delete semantics -- and requires the claim to stay exclusive anyway.
+  This fails against the shipped v4.166.2 code.
+* `test_the_claim_destination_is_unique_per_caller` asserts the property
+  directly. A shared rename target is atomic on Linux and racy on
+  Windows, so no runtime test on this machine can see it: sabotaging the
+  destination to `reply + ".taken"` passed every concurrency test until
+  this assertion existed.
+* `test_claim_markers_are_never_left_behind` keeps the rename-based
+  claim from littering the replies directory.
+
+Two rules added to AGENTS.md: a release is provisional until CI is green
+on its tag, and a fix resting on OS behaviour needs a Linux-runnable
+test that simulates the hostile platform.
 ## v4.166.3 — 2026-08-07
 
 ### The mirror-fix audit (and the ratchet that ends it)

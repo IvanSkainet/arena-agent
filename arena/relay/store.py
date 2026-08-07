@@ -21,6 +21,7 @@ Design notes worth keeping:
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
@@ -257,12 +258,28 @@ def read_replies(root: Path, *, in_reply_to: str = "",
     `arena-relay` -- is enough to hit it, and a duplicated answer is the
     same class of harm as a duplicated instruction.
 
-    The fix is the same primitive: `os.unlink` is atomic, and exactly
-    one caller can succeed at removing a given path. Delete FIRST, and
-    only the winner of that delete gets to return the message. The read
-    happens before the unlink because the bytes must survive the
-    removal, but the *decision* to deliver rests solely on owning the
-    unlink.
+    v4.166.4 (bug #75): the v4.166.2 fix used `os.unlink` as the claim,
+    reasoning that exactly one caller can succeed at removing a path.
+    That is true on POSIX and **false on Windows**, and the Windows and
+    macOS CI matrix said so: *15 replies delivered more than once*, while
+    Linux stayed green -- which is why local preflight cleared it.
+
+    On Windows a delete is not the removal of a name; it flags the file
+    for deletion and the entry survives until the last handle closes. Two
+    threads can both see `os.unlink` return without error, and both then
+    believe they own the reply. This is the same trap as the original
+    `lost -29`, which is the third time this mailbox has been bitten by
+    assuming POSIX filesystem semantics.
+
+    The claim is now a rename to a name nobody else could pick:
+    `os.replace(path, path + ".<pid>.<uuid>.taken")`. Whoever completes
+    the move owns the reply; every other caller gets an error because the
+    source is already gone. The destination is unique, so unlike the
+    original `lost -29` rename there is no shared target a platform can
+    silently overwrite, and unlike a lock file there is no window where
+    releasing the marker lets a second reader back in -- an earlier draft
+    of this fix used `O_EXCL` plus an `exists()` check and reintroduced
+    duplicates through exactly that gap.
 
     `consume=False` (used by `/v1/relay/status` for a depth count) takes
     no locks and deletes nothing, so counting can never eat a reply.
@@ -270,6 +287,8 @@ def read_replies(root: Path, *, in_reply_to: str = "",
     _inbox, _claimed, replies = _dirs(root)
     found: list[RelayMessage] = []
     for path in sorted(replies.glob("*.json")):
+        if path.name.endswith(".taken"):
+            continue
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -277,12 +296,23 @@ def read_replies(root: Path, *, in_reply_to: str = "",
         if in_reply_to and (raw.get("meta") or {}).get("in_reply_to") != in_reply_to:
             continue
         if consume:
+            # Move the reply to a name only this caller could have chosen.
+            # Whoever completes the move owns the reply; everyone else gets
+            # FileNotFoundError because the entry is already gone. Unlike a
+            # shared destination -- the `lost -29` mistake -- there is no
+            # contention on the target, so no platform gets to "helpfully"
+            # overwrite and let two callers both think they won. Unlike a
+            # lock file, nothing has to be cleaned up afterwards and there
+            # is no window where a freed marker name lets a second reader
+            # back in.
+            taken = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.taken")
             try:
-                os.unlink(path)
+                os.replace(path, taken)
             except OSError:
-                # Someone else won the delete, so the reply is theirs to
-                # deliver. Not ours -- skip it rather than double-report.
+                # Someone else moved it first. Not ours to deliver.
                 continue
+            with contextlib.suppress(OSError):
+                os.unlink(taken)
         found.append(RelayMessage.from_dict(raw))
     return found
 
