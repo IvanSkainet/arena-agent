@@ -284,6 +284,7 @@ def prune(root: Path, *, older_than_seconds: float = 7 * 86400,
     protected = {p.name for p in entries[-keep_recent:]} if keep_recent > 0 else set()
 
     removed = 0
+    failed = 0
     for path in entries:
         if path.name in protected:
             continue
@@ -294,9 +295,23 @@ def prune(root: Path, *, older_than_seconds: float = 7 * 86400,
             removed += 1
         except OSError:
             # A file that cannot be removed is not worth failing a
-            # housekeeping pass over; it will be retried next time.
+            # housekeeping pass over -- Windows raises PermissionError for
+            # anything another process still has open -- so it is counted
+            # as a failure and retried next time.
+            failed += 1
             continue
-    return {"removed": removed, "remaining": len(entries) - removed}
+    # `failed` is the field that matters here. The first version returned
+    # only `removed`, so a pass that deleted 5 of 10 and hit
+    # PermissionError on the rest -- routine on Windows, where anything
+    # another process holds open cannot be unlinked -- reported
+    # "removed: 5" and read as success. A housekeeping report that
+    # overstates itself is the token-note problem from bug #66, quieter.
+    #
+    # `remaining` is recounted from disk rather than derived from
+    # `len(entries) - removed`. The two agree today; recounting cannot
+    # drift if the skip conditions above ever change.
+    return {"removed": removed, "failed": failed,
+            "remaining": len(list(claimed.glob("*")))}
 
 
 def wait_for_reply(root: Path, in_reply_to: str, *, timeout: float = 300.0,

@@ -450,7 +450,67 @@ def test_prune_leaves_fresh_messages_alone(root):
 
 
 def test_prune_on_an_empty_relay_is_not_an_error(root):
-    assert S.prune(root) == {"removed": 0, "remaining": 0}
+    assert S.prune(root) == {"removed": 0, "failed": 0, "remaining": 0}
+
+
+def test_prune_reports_files_it_could_not_delete(root):
+    """Windows raises PermissionError for anything still held open.
+
+    The first version counted only successes, so a pass that deleted 5 of
+    10 and failed on the rest reported "removed: 5" and looked clean. A
+    housekeeping report that overstates itself is the token-note problem
+    from bug #66 in a quieter place.
+    """
+    import os
+    import pathlib as _pl
+
+    for i in range(6):
+        S.send_message(root, f"m{i}")
+        S.claim_next(root)
+    for path in (root / "claimed").glob("*"):
+        os.utime(path, (0, 0))
+
+    real_unlink = _pl.Path.unlink
+    calls = {"n": 0}
+
+    def flaky(self, *a, **k):
+        calls["n"] += 1
+        if calls["n"] % 2:
+            raise PermissionError("file in use by another process")
+        return real_unlink(self, *a, **k)
+
+    _pl.Path.unlink = flaky
+    try:
+        result = S.prune(root, keep_recent=0)
+    finally:
+        _pl.Path.unlink = real_unlink
+
+    assert result["failed"] > 0, "undeletable files were not reported"
+    on_disk = len(list((root / "claimed").glob("*")))
+    assert result["remaining"] == on_disk, (
+        f"reported {result['remaining']} remaining, {on_disk} actually there"
+    )
+
+
+def test_prune_never_raises_when_the_filesystem_says_no(root):
+    """Housekeeping must not turn a working send into a 500."""
+    import os
+    import pathlib as _pl
+
+    S.send_message(root, "m")
+    S.claim_next(root)
+    for path in (root / "claimed").glob("*"):
+        os.utime(path, (0, 0))
+
+    real_unlink = _pl.Path.unlink
+    _pl.Path.unlink = lambda self, *a, **k: (_ for _ in ()).throw(
+        PermissionError("locked"))
+    try:
+        result = S.prune(root, keep_recent=0)
+    finally:
+        _pl.Path.unlink = real_unlink
+    assert result["removed"] == 0
+    assert result["failed"] >= 1
 
 
 def test_the_http_layer_calls_prune_on_ordinary_traffic():

@@ -26,6 +26,13 @@ swallowed -- housekeeping must never turn a working `send` into a 500.
 Verified through the live HTTP server: 800 files became 200, while two
 unread messages sat untouched in the inbox.
 
+`prune()` also reports what it could **not** delete. Windows raises
+PermissionError for any file another process still holds open, and the
+first version counted only successes -- a pass that removed 5 of 10
+returned `removed: 5` and read as a clean sweep. It returns `failed`
+alongside now, and recounts `remaining` from disk rather than deriving
+it, so the number cannot drift if the skip conditions change.
+
 Sabotage on all four invariants -- pruning the inbox, dropping the
 keep-recent floor, ignoring the age cutoff, and removing the call from
 the handlers -- each reddened the suite.
