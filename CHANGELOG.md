@@ -1,3 +1,25 @@
+## v4.167.1 — 2026-08-07
+
+### The new installer gate went red on all fifteen CI jobs
+
+`test_the_installer_exists_and_is_executable` checked `os.stat` for the
+POSIX exec bit. Two separate mistakes, and the second is the
+interesting one.
+
+`scripts/install_termux.sh` had been committed **100644**: the sandbox
+sets `core.fileMode=false`, so a local `chmod +x` never reached the
+index and the file arrives on the phone non-executable. That is a real
+defect and the gate was right to catch it.
+
+But the gate itself was not portable. Windows has no POSIX exec bit at
+all, so five of the fifteen jobs would have stayed red even after the
+mode was fixed -- a gate that cannot pass on a supported platform is
+just noise waiting to be silenced.
+
+Both fixed: the mode is now `100755` in git, and the test reads **git's
+index** rather than the filesystem, because the index is what determines
+what gets checked out on the device. The working-tree check is kept as a
+secondary assertion, guarded by `os.name == "posix"`.
 ## v4.167.0 — 2026-08-07
 
 ### Android is not "Linux": host classification, and two lies it exposed

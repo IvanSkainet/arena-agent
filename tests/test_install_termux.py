@@ -30,9 +30,39 @@ def _text() -> str:
 
 
 def test_the_installer_exists_and_is_executable():
+    """The exec bit must be recorded in git, not merely on this disk.
+
+    First version checked `os.stat` and went red on all fifteen CI jobs:
+    the file had been committed 100644, and `core.fileMode=false` in the
+    sandbox meant a local `chmod +x` never staged. Worse, checking the
+    filesystem cannot work on Windows at all -- there is no POSIX exec
+    bit there, so the test would have stayed red on five jobs even after
+    the mode was fixed.
+
+    Git's index is the portable source of truth: a mode of 100755 is
+    what gets checked out on the phone, which is the only place that
+    matters.
+    """
     assert SCRIPT.is_file(), "scripts/install_termux.sh is missing"
-    mode = SCRIPT.stat().st_mode
-    assert mode & stat.S_IXUSR, "installer is not executable"
+
+    if shutil.which("git") is None:  # pragma: no cover - git is always there
+        pytest.skip("git unavailable")
+    result = subprocess.run(
+        ["git", "ls-files", "-s", "--", "scripts/install_termux.sh"],
+        capture_output=True, text=True, cwd=str(ROOT))
+    if result.returncode != 0 or not result.stdout.strip():
+        pytest.skip("not a git checkout")
+
+    mode = result.stdout.split()[0]
+    assert mode == "100755", (
+        f"installer is committed as {mode}; it must be 100755 so it is "
+        f"executable when checked out on the phone. Fix with:\n"
+        f"    git update-index --chmod=+x scripts/install_termux.sh")
+
+    # Where the OS does model an exec bit, the working tree should agree.
+    if os.name == "posix":
+        assert SCRIPT.stat().st_mode & stat.S_IXUSR, (
+            "committed 100755 but not executable in the working tree")
 
 
 def test_it_never_binds_to_every_interface_by_default():
