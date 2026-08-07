@@ -92,7 +92,7 @@ ALLOWLIST: dict[str, str] = {
         "Same shape, same function family: the token check precedes it and "
         "_ok_status() refuses everything this branch lets through."
     ),
-    "arena/auth/users.py:77:gated-refusal": (
+    "arena/auth/users.py:137:gated-refusal": (
         "`if users:` gates the multi-user table, not the auth decision. An "
         "empty table falls through to the single shared config token below "
         "-- which is compared with hmac.compare_digest. No users configured "

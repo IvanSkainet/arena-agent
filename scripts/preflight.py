@@ -56,6 +56,10 @@ CHECKS: list[Check] = [
           why="lint debt must not grow"),
     Check("quality ratchet", [PY, "scripts/quality_ratchet.py"],
           why="pyrefly/vulture debt must not grow"),
+    Check("claim order", [PY, "scripts/claim_order_ratchet.py"],
+          why="bug #73 was the v4.166.0 `lost -29` defect a second time, in "
+              "the mirror direction: a value escaping before the file is "
+              "claimed means two workers deliver the same item"),
     Check("action runtimes", [PY, "scripts/action_runtime_ratchet.py"],
           why="GitHub retired Node 20; the warning only shows in the log of "
               "a job that actually ran, so dependency-review sat on a dead "

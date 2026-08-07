@@ -1,3 +1,76 @@
+## v4.166.3 — 2026-08-07
+
+### The mirror-fix audit (and the ratchet that ends it)
+
+Bug #73 was bug #72's `lost -29` a second time, in the opposite
+direction, because the first fix was scoped to the direction that had
+gone red instead of to the property. One defect found twice in one file
+is a class, not an incident. So: audit the class, then make the third
+instance impossible.
+
+**`scripts/claim_order_ratchet.py`** is the result. It fails when, in a
+loop over a directory listing, a value escapes -- returned, yielded, or
+appended -- before the statement that claims the file has run. Claiming
+is what makes delivery exclusive; delivery before the claim means two
+workers hand out the same item.
+
+Note what it does *not* check. The first draft flagged "read before
+delete" and immediately reported the already-fixed `read_replies`: the
+bytes must obviously be read while the file still exists. A detector
+with false positives is worse than no detector, so the property was
+restated until it fired on the historical bug and on nothing else.
+Current tree: 656 files, zero findings. Five sabotage runs -- two
+offending shapes caught, three legitimate shapes (correct order,
+read-only scan, housekeeping delete) left alone -- plus an `O_EXCL`
+exemption, since a lock is a stronger guarantee than ordering.
+
+### #74 -- an interrupted write deleted every user account
+
+Found by the same audit, in the mirror pair `read_users_data` /
+`write_users_data`.
+
+The write was a bare `write_text`, which truncates the destination and
+then writes. The read caught any parse error and returned
+`{"users": []}` -- the same answer as a fresh install. So a crash, a
+full disk, or a kill -9 mid-write produced a partial file, the reader
+called it empty, and the next `add_or_update_user` rebuilt the roster
+from that empty list. A recoverable corruption became a permanent one,
+silently.
+
+Measured: 60 accounts, file truncated to 60% of its length,
+`load_users()` returned `{}` and the following write left a file with a
+single entry. Sixty tokens destroyed by one interrupted write, no error
+raised anywhere.
+
+Both halves are fixed. The write goes to a temp file in the same
+directory, is flushed and `fsync`-ed, then `os.replace`-d onto the
+destination -- atomic on POSIX and Windows alike, and the `fsync`
+matters because `os.replace` promises an atomic rename, not that the
+bytes reached the disk. The read now distinguishes *absent* (first run,
+still an empty roster) from *present but unparseable*, which raises
+`UsersFileCorrupt` and refuses to overwrite. Both HTTP callers already
+wrap these in `except Exception`, so the operator gets a 400 explaining
+the damage rather than a 500 or a silent wipe.
+
+`load_users` deliberately still degrades instead of raising: it runs on
+every authenticated request, and a corrupt roster must fall back to the
+primary admin token rather than lock everyone out. Losing per-user
+accounts is bad; losing all access is worse.
+
+### A test that read its own docstring
+
+Worth recording, because it nearly shipped. The first atomicity test
+asserted `"os.replace" in inspect.getsource(write_users_data)`. It
+passed against a sabotaged build with the bare `write_text` restored --
+the docstring explaining the fix still contained the words `os.replace`
+and `fsync`. The test was reading its own prose.
+
+It now watches syscalls instead: the destination must never be opened
+for writing (that is the truncation), and must appear only as the target
+of a replace. Re-run against three sabotages -- non-atomic write, write
+straight to the destination, copy instead of replace -- all three fail
+it now, and a fourth test asserts a failed write leaves the old roster
+byte-identical.
 ## v4.166.2 — 2026-08-07
 
 ### #73 -- the operator's replies were delivered more than once

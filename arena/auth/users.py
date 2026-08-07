@@ -1,8 +1,10 @@
 """Multi-user token store and role checks."""
 from __future__ import annotations
 
+import contextlib
 import hmac
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -13,6 +15,14 @@ from aiohttp import web
 from arena.app_keys import APP_CFG
 
 ROLE_LEVEL = {"admin": 3, "user": 2, "readonly": 1}
+
+
+class UsersFileCorrupt(RuntimeError):
+    """The user file exists but cannot be parsed.
+
+    Raised instead of quietly reporting an empty roster, so a damaged
+    file fails closed rather than being overwritten with a fresh one.
+    """
 
 
 class UserStore:
@@ -52,16 +62,66 @@ class UserStore:
         return users
 
     def read_users_data(self) -> dict[str, Any]:
-        if self.users_file.exists():
-            try:
-                return json.loads(self.users_file.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        return {"users": []}
+        """Parsed user file, or `{"users": []}` when there genuinely is none.
+
+        v4.166.3 (bug #74): "unreadable" and "empty" used to be the same
+        answer. A file that exists but does not parse is not an empty
+        roster -- it is a damaged one -- and returning `{"users": []}`
+        for it made `add_or_update_user` rebuild the file from that empty
+        list, converting a recoverable corruption into a permanent one.
+
+        A missing file is still an empty roster: that is first-run.
+        """
+        if not self.users_file.exists():
+            return {"users": []}
+        try:
+            data = json.loads(self.users_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise UsersFileCorrupt(
+                f"{self.users_file} exists but could not be read: {exc}. "
+                f"Refusing to treat it as an empty user list; a rewrite "
+                f"would discard every account in it."
+            ) from exc
+        if not isinstance(data, dict):
+            raise UsersFileCorrupt(
+                f"{self.users_file} holds {type(data).__name__}, not an object")
+        return data
 
     def write_users_data(self, data: dict[str, Any]) -> None:
+        """Replace the user file atomically.
+
+        v4.166.3 (bug #74): this was a bare `write_text`, which truncates
+        the destination and then writes. A crash, a full disk, or a
+        kill -9 in that window leaves a half-written file, and the reader
+        above turned that into "no users at all".
+
+        Measured on the unfixed pair: 60 accounts, the file truncated to
+        60% of its length, and every account was gone -- `load_users()`
+        returned `{}` and the next `add_or_update_user` wrote a file with
+        a single entry. Sixty tokens deleted by one interrupted write.
+
+        Write to a temp file in the same directory, flush and fsync it,
+        then `os.replace`. `os.replace` is atomic on POSIX and Windows
+        alike, so a reader sees either the old file or the new one and
+        never a torn one -- the same reasoning as bug #73's claim.
+        """
         self.users_file.parent.mkdir(parents=True, exist_ok=True)
-        self.users_file.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        payload = json.dumps(data, indent=2, ensure_ascii=False)
+        tmp = self.users_file.with_name(self.users_file.name + ".tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8") as handle:
+                handle.write(payload)
+                # Durability, not just atomicity: os.replace only promises
+                # that the rename is atomic, not that the bytes reached the
+                # disk before it. Without the fsync a power loss can land
+                # the rename and lose the contents.
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp, self.users_file)
+        except OSError:
+            with contextlib.suppress(OSError):
+                tmp.unlink()
+            raise
         self.invalidate()
 
     def check_auth_with_role(self, request: web.Request, required_role: str | None = None) -> tuple[bool, str]:
