@@ -48,6 +48,29 @@ def build_tasks_skills_resources_registries(g: MutableMapping[str, Any]) -> dict
     env.export_handler_attrs(registry, task_handlers, {"handle_v1_tasks_get": "tasks_get", "handle_v1_tasks_post": "tasks_post", "handle_v1_tasks_clean": "tasks_clean"})
     registry.update({"_task_handler_ctx": task_handler_ctx, "_task_handlers": task_handlers})
 
+    # v4.166.0: the operator <-> agent mailbox. Deliberately separate from
+    # the task queue above -- that one EXECUTES what it is given, which is
+    # wrong for prose (verified on a live bridge: a plain sentence posted
+    # to /v1/tasks came back state=failed, exit_code=1).
+    relay_handler_ctx = env.RelayHandlerContext(
+        require_auth=env.require_auth,
+        record_request=env.record_request,
+        cors_json_response=env._cors_json_response,
+        executor=env._EXECUTOR,
+        relay_root=lambda: g["ROOT_AGENT"] / "relay",
+        audit=env.audit,
+    )
+    relay_handlers = env.make_relay_handlers(relay_handler_ctx)
+    env.export_handler_attrs(registry, relay_handlers, {
+        "handle_v1_relay_send": "relay_send",
+        "handle_v1_relay_poll": "relay_poll",
+        "handle_v1_relay_reply": "relay_reply",
+        "handle_v1_relay_replies": "relay_replies",
+        "handle_v1_relay_status": "relay_status",
+    })
+    registry.update({"_relay_handler_ctx": relay_handler_ctx,
+                     "_relay_handlers": relay_handlers})
+
     skill_runtime_ctx = env.SkillRuntimeContext(
         skills_dir=lambda: g["SKILLS_DIR"],
         root_agent=lambda: g["ROOT_AGENT"],

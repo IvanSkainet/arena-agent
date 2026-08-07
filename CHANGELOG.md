@@ -1,5 +1,57 @@
 ## Unreleased
 
+### The relay, wired up: five endpoints and a Dashboard tab
+
+The mailbox from the previous entry now works over HTTP and has a UI. A
+message typed in the Dashboard is claimed by `bin/arena-relay poll` in a
+terminal and the answer appears back in the browser -- measured at one
+second round trip, driven end to end through a real Chromium against a
+live bridge, not stubbed.
+
+Endpoints: `POST /v1/relay/send`, `GET /v1/relay/poll`,
+`POST /v1/relay/reply`, `GET /v1/relay/replies`, `GET /v1/relay/status`.
+All authenticated, all listed in the route registry that
+`test_auth_surface_guard.py` walks -- bug #57 left 66 of 274 routes
+unaudited precisely because they were missing from that list.
+
+Two properties exist only at this layer and both are pinned. `wait` is
+clamped to 25s: the bridge has a fixed `max_concurrent`, so a caller
+asking for `wait=99999` would park a worker until the tunnel gave up, and
+enough of them would take the bridge down without a single malformed
+request. The cap also sits under the 30s idle timeout most proxies use,
+because a long-poll that outlives the proxy reads as a lost message. And
+a poll is recorded **even when it finds nothing** -- that is the entire
+basis for `send` reporting "an agent is listening" rather than printing
+success into an empty room.
+
+The Dashboard tab renders it as a chat and carries the same honesty: the
+status line says "no agent has ever polled" or "idle (last poll 40s ago)"
+rather than a green light, and a message with nobody listening is
+labelled *queued*, not *delivered*.
+
+**A race found by testing rather than reading.** Dashboard scripts are
+injected dynamically with retry, so a tab clicked before its module
+arrived threw a `ReferenceError` that the dispatcher swallowed into a
+`console.warn`: the tab rendered, the poll timer never started, and
+nothing in the UI or the console said why. Reproduced deterministically
+-- clicking 2.0s after boot left the timer `null`, 2.5s set it. Fixed
+with `arenaWhenReady`, which retries for two seconds and then warns
+loudly instead of leaving a dead tab with a clean console. Verified at
+300ms and 1500ms delays: both now complete the round trip in one second.
+
+The project's own gates caught two things on the way in, which is what
+they are for: `test_no_hardcoded_theme_colors` rejected literal hex in
+the new CSS (moved to locals, the same pattern `#tab-tasks` uses), and
+ruff's import sort rejected the context re-export. Worth noting the first
+one bit twice -- naming a variable `--rl-me-border` matches the guard's
+`border:#...` pattern, so the palette locals end in `-line` instead.
+
+Sabotage: removing the wait clamp, dropping the poll timestamp, logging
+message bodies into the audit trail, and deleting a route from the
+registry each reddened the suite; restoring each turned it green.
+
+## Unreleased
+
 ### An operator <-> agent mailbox (`arena-relay`), and what it deliberately is not
 
 From a thread in the project's Discord: the tunnel already carries data

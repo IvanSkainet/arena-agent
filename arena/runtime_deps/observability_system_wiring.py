@@ -58,6 +58,7 @@ from arena.handler_context import (  # noqa: E402,F401
     ProfileHandlerContext,
     PublicHandlerContext,
     RateLimitHandlerContext,
+    RelayHandlerContext,
     ResourceHandlerContext,
     RuntimeObservabilityHandlerContext,
     SandboxHandlerContext,
@@ -115,6 +116,7 @@ from arena.observability.webhooks import (  # noqa: E402,F401
     save_webhooks,
 )
 from arena.paths import ArenaPaths  # noqa: E402,F401
+from arena.relay.handlers import make_relay_handlers  # noqa: E402,F401
 from arena.routes import register_routes  # noqa: E402,F401
 from arena.service.capabilities import make_capabilities_sync  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401

@@ -23,6 +23,7 @@ class ArenaPaths:
     missions_dir: Path
     reports_dir: Path
     webhooks_file: Path
+    relay_dir: Path
 
     @classmethod
     def from_env(cls, bridge_dir: Path) -> "ArenaPaths":
@@ -43,5 +44,6 @@ class ArenaPaths:
             memory_db=root_agent / "memory" / "facts.db",
             missions_dir=root_agent / "missions",
             reports_dir=root_agent / "reports",
+            relay_dir=root_agent / "relay",
             webhooks_file=root_agent / "webhooks.json",
         )

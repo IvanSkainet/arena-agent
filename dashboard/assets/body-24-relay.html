@@ -1,0 +1,66 @@
+<div class="tab" id="tab-relay">
+<style>
+  /* Relay tab -- scoped to #tab-relay (the v4.0.x lesson: never leak
+     selectors, six tabs once ended up outside .main because of it). */
+  /* Palette as locals, same pattern as #tab-tasks -- the guard test
+     allows a literal as a variable VALUE, never as a property value. */
+  #tab-relay{
+    --rl-on:#00d672;
+    --rl-on-glow:#00d67288;
+    --rl-off:#88888899;
+    --rl-me-bg:#4fc3f722;
+    --rl-me-line:#4fc3f744;
+    --rl-them-bg:#00d67218;
+    --rl-them-line:#00d67240;
+    --rl-edge:#2a2a2a;
+  }
+  #tab-relay .rl-status{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:13px}
+  #tab-relay .rl-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  #tab-relay .rl-dot.on{background:var(--rl-on);box-shadow:0 0 6px var(--rl-on-glow)}
+  #tab-relay .rl-dot.off{background:var(--rl-off)}
+  #tab-relay .rl-log{
+    height:min(52vh,460px);overflow-y:auto;padding:12px;border-radius:8px;
+    background:var(--bg3);border:1px solid var(--bg4,var(--rl-edge));
+    display:flex;flex-direction:column;gap:10px;
+  }
+  #tab-relay .rl-msg{max-width:86%;padding:8px 11px;border-radius:10px;line-height:1.45;white-space:pre-wrap;word-break:break-word}
+  #tab-relay .rl-msg.me{align-self:flex-end;background:var(--rl-me-bg);border:1px solid var(--rl-me-line)}
+  #tab-relay .rl-msg.them{align-self:flex-start;background:var(--rl-them-bg);border:1px solid var(--rl-them-line)}
+  #tab-relay .rl-msg.sys{align-self:center;background:transparent;color:var(--text2);font-size:12px;font-style:italic;max-width:100%;text-align:center}
+  #tab-relay .rl-meta{display:block;font-size:11px;color:var(--text2);margin-bottom:3px}
+  #tab-relay .rl-compose{display:flex;gap:8px;margin-top:10px;align-items:flex-end}
+  #tab-relay .rl-compose textarea{
+    flex:1;min-height:62px;max-height:220px;resize:vertical;font-family:inherit;
+    font-size:14px;padding:9px;border-radius:8px;
+  }
+  #tab-relay .rl-hint{font-size:12px;color:var(--text2);margin-top:6px}
+  #tab-relay .rl-empty{padding:28px;text-align:center;color:var(--text2)}
+</style>
+
+<h1>Relay <span class="badge info" id="relayDepthBadge">0</span></h1>
+<p class="rl-hint">
+  A mailbox between you and the agent. Messages wait here until an agent
+  session picks them up &mdash; this cannot start a session, and it is not
+  meant to. Same queue as <code>bin/arena-relay</code> in a terminal.
+</p>
+
+<div class="card">
+  <div class="rl-status">
+    <span><span class="rl-dot off" id="relayDot"></span><b id="relayPollState">checking&hellip;</b></span>
+    <span class="grow"></span>
+    <span id="relayQueueInfo">&mdash;</span>
+    <button class="btn" id="relayRefreshBtn" onclick="relayRefresh()">Refresh</button>
+    <label class="auto-hint"><input type="checkbox" id="relayAuto" checked> auto</label>
+  </div>
+
+  <div class="rl-log" id="relayLog">
+    <div class="rl-empty" id="relayEmpty">No messages yet. Write one below.</div>
+  </div>
+
+  <div class="rl-compose">
+    <textarea id="relayInput" placeholder="Message for the agent&hellip;  (Ctrl+Enter to send)"></textarea>
+    <button class="btn primary" id="relaySendBtn" onclick="relaySend()">Send</button>
+  </div>
+  <div class="rl-hint" id="relaySendHint"></div>
+</div>
+</div>

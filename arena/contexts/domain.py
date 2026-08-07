@@ -24,6 +24,21 @@ class TaskHandlerContext:
 
 
 @dataclass(frozen=True)
+class RelayHandlerContext:
+    """Dependencies for the operator <-> agent mailbox handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    executor: Executor
+    # Returns the directory the relay stores messages under. A callable
+    # rather than a Path so tests and a relocated ARENA_AGENT_HOME both
+    # work without rebuilding the context.
+    relay_root: Callable[[], Any]
+    audit: Callable[[dict[str, Any]], None]
+
+
+@dataclass(frozen=True)
 class SkillHandlerContext:
     """Dependencies for skills API handlers."""
 

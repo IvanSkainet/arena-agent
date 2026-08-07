@@ -44,8 +44,36 @@ window.ARENA_TABS = [
   // v4.95.0: external MCP servers monitor.
   {name: "mcp",       icon: "🔗", label: "MCP",       onShow: () => loadMcp()},
   {name: "proposals", icon: "📝", label: "Proposals", onShow: () => loadProposals()},
+  // v4.166.0: operator <-> agent mailbox. onHide stops the poll timer so a
+  // background tab does not keep hitting the bridge every 4s.
+  // 24-relay.js may not have loaded yet when this tab is clicked -- the
+  // dispatcher would then swallow a ReferenceError into console.warn and
+  // the poll timer would silently never start. Observed: clicking 2.0s
+  // after boot left the timer null, 2.5s set it. Retry briefly instead of
+  // racing, and give up loudly rather than pretending it worked.
+  {name: "relay",     icon: "✉️", label: "Relay",
+                                    onShow: () => window.arenaWhenReady(
+                                      "startRelay", () => startRelay()),
+                                    onHide: () => {
+                                      if (typeof stopRelay === "function") stopRelay();
+                                    }},
   {name: "settings",  icon: "⚙️", label: "Settings",  onShow: () => refreshSettings()},
 ];
+
+
+// Call `fn` once `name` exists in global scope. Scripts are injected
+// dynamically with retry (see index.html), so a tab can be clicked before
+// its module has arrived. Polls briefly, then reports rather than failing
+// silently -- a dead tab with a clean console is the worst outcome.
+window.arenaWhenReady = function (name, fn, tries) {
+  tries = tries == null ? 40 : tries;   // 40 x 50ms = 2s
+  if (typeof window[name] === "function") { fn(); return; }
+  if (tries <= 0) {
+    console.warn("[arena] " + name + " never loaded; tab will not refresh");
+    return;
+  }
+  setTimeout(() => window.arenaWhenReady(name, fn, tries - 1), 50);
+};
 
 // Public helper -- lookup by name.
 window.arenaTabByName = function(name) {
