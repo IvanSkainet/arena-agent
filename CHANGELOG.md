@@ -1,3 +1,41 @@
+## v4.166.1 — 2026-08-07
+
+### #72 -- two update installers copied into the same tree at once
+
+Found by reading `.arena-update-apply.log` on the operator's machine
+after a real v4.166.0 update. Every line appeared **twice**:
+
+    bridge exited, starting copy   x2
+    copy done, launching relaunch  x2
+    relaunched via schtasks        x2
+
+Two movers had been spawned -- an API call and the Dashboard button
+within the same minute, both perfectly legitimate uses. Each waited on
+the same bridge PID, both woke when it exited, and both ran `robocopy`
+into the live install root while both fired `schtasks /Run`.
+
+That update happened to survive, which is the uncomfortable part. Two
+concurrent copies into a tree that is being replaced is how a half-written
+install happens, and two relaunches is how two bridges end up fighting
+over port 8765. Neither failure announces itself politely.
+
+The mover now takes a lock before doing anything. `mkdir` is the mutex
+because it is the only atomic one cmd.exe offers -- creating a directory
+that already exists fails and sets errorlevel. A lock *file* written with
+`echo >` would silently overwrite and both movers would proceed. The
+loser logs one line and exits before reaching the copy; the winner
+releases the lock at the end so a later update is not blocked, and that
+release cannot fail the mover: a stale lock costs one skipped update with
+a clear log line, while a hard failure after a successful copy costs
+trust.
+
+The project's own guard caught this on the way in, which is exactly what
+it is for. `test_generated_mover_uses_no_if_paren_blocks` bans `if (...)`
+blocks in the generated script, because an install path like
+`arena-agent (2)` puts a literal `)` inside the block and cmd.exe closes
+it early -- the v4.60.11 bug. My first version of the lock used one. It
+is a `goto` now.
+
 ## v4.166.0 — 2026-08-07
 
 ### The mailbox now cleans up after itself

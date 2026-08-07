@@ -46,6 +46,10 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
     # v4.60.14: sibling log file so operators can see what the mover did
     # even when it runs detached in the background with no console.
     log = f"{dst}\\.arena-update-apply.log"
+    # Lock directory, not a lock FILE: `mkdir` fails when the target
+    # exists and sets errorlevel, which is the only atomic mutex cmd.exe
+    # offers. A lock file via `echo > x` would happily overwrite.
+    lockdir = f"{dst}\\.arena-update-apply.lock"
 
     # Header: wait for the bridge PID to exit before touching files.
     lines: list[str] = [
@@ -58,6 +62,27 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
         # v4.60.14: log every phase to .arena-update-apply.log next to
         # the mover script, so a failure is diagnosable from disk even
         # if the detached process is long gone.
+        # v4.166.0 (bug #72): refuse to run twice. Two apply_update calls
+        # -- e.g. an API caller and the Dashboard button within the same
+        # minute -- each spawned a mover, and both waited on the same PID,
+        # both woke on its exit, and both robocopy'd into the SAME install
+        # root while both fired schtasks /Run. Observed in
+        # .arena-update-apply.log: every line duplicated.
+        #
+        # Two concurrent copies into a live install root is how you get a
+        # half-written tree, and two relaunches is how you get two bridges
+        # fighting over port 8765. `2>nul` on the mkdir is the standard
+        # cmd.exe mutex: the directory create is atomic, so exactly one
+        # mover wins.
+        f'mkdir "{lockdir}" 2>nul',
+        # No `if (...)` block: a download folder like "arena-agent (2)"
+        # puts a literal ')' inside the block and cmd.exe closes it early.
+        # That is v4.60.11's bug, and a guard test enforces the ban -- it
+        # caught this line before it shipped. `goto` costs one label.
+        "if not errorlevel 1 goto :got_lock",
+        f'echo [%DATE% %TIME%] another mover already running -- exiting >> "{log}"',
+        "exit /b 0",
+        ":got_lock",
         f'echo [%DATE% %TIME%] mover-start pid_target={pid} > "{log}"',
         # v4.60.16: log wait-loop-entry so we can distinguish "mover
         # died before the first tasklist" (Popen-detach broken) from
@@ -126,6 +151,11 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
         ":no_relaunch",
         f'echo [%DATE% %TIME%] WARN no relaunch mechanism found >> "{log}"',
         ":relaunched",
+        # Release the mutex so a LATER update is not blocked by this one.
+        # Failure is ignored on purpose: a stale lock costs one skipped
+        # update with a clear log line, while `exit /b 1` here would leave
+        # the operator with a mover that "failed" after copying fine.
+        f'rmdir "{lockdir}" 2>nul',
         f'echo [%DATE% %TIME%] mover-done >> "{log}"',
         "endlocal",
         "exit /b 0",
