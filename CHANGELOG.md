@@ -1,3 +1,69 @@
+## v4.167.5 — 2026-08-07
+
+### Scorecard #317/#318/#319: unpinned dependencies on the install that
+### lands on a phone
+
+Three medium Pinned-Dependencies alerts, all on
+`scripts/install_termux.sh`, all correct. The script ran bare
+`pip install aiohttp` and `pip install psutil`.
+
+Unpinned installs are a supply-chain hole anywhere. This one is worse
+than most: the artifact lands on the operator's **phone**, and the
+bridge that imports it holds shell access on a device that roams
+between untrusted networks. A typosquat or a compromised release would
+arrive with execution rights on exactly the machine that travels.
+
+I missed these. The operator found them.
+
+`scripts/requirements-termux.txt` now pins the full transitive closure
+-- 12 packages, 96 digests -- and the installer uses
+`pip install --require-hashes -r ...`, which refuses anything whose
+artifact does not match.
+
+Verified by execution, not by reading: `pip download --require-hashes`
+resolved all 12 packages against real PyPI, and tampering with one
+aiohttp digest produced
+
+    ERROR: THESE PACKAGES DO NOT MATCH THE HASHES FROM THE
+    REQUIREMENTS FILE ... someone may have tampered with them.
+
+Several hashes per package on purpose. Termux/arm64 normally builds
+aiohttp from the sdist because Bionic matches no manylinux tag, but pip
+takes a wheel when the ABI does match; a hash set omitting the artifact
+pip actually picks fails the install rather than skipping the check.
+
+`scripts/refresh_termux_requirements.py` regenerates the file from
+PyPI and refuses to write anything it could not fully resolve -- a
+half-generated pin file that happens to satisfy pip is the quiet
+failure this whole change is against.
+
+### The failure path must not teach a bypass
+
+A stale pin will eventually break an install. The `die` message points
+at refreshing the pins on a trusted machine, and a test asserts the
+script never mentions `--no-deps`, `--trusted-host`, `--index-url` or
+`--break-system-packages`. A documented workaround is the same as no
+check.
+
+### Ordering fix found while wiring this up
+
+The requirements file lives inside the release, so the bridge-directory
+validation moved *above* the dependency install. A missing or partial
+unpack now fails before pip has changed the environment, rather than
+after.
+
+### psutil: pinned, still optional
+
+Every psutil import in the bridge is lazy and guarded and the bridge
+degrades honestly without it -- measured earlier by running with a
+deliberately broken psutil. Pinning it does not make it mandatory, and
+a test pins that distinction: a missing psutil must report and
+continue, while a failed dependency install must abort.
+
+Four sabotage runs: reverting to bare `pip install` fails the pinning
+gate, offering `--no-deps` fails the bypass gate, stripping one
+package's hashes fails the well-formedness gate, and making psutil
+fatal fails the reverse gate that keeps it optional.
 ## v4.167.4 — 2026-08-07
 
 ### A flaky gate trains people to ignore CI

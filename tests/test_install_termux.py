@@ -105,37 +105,111 @@ def test_it_refuses_to_run_outside_termux():
     assert "set -euo pipefail" in text, "script does not fail closed"
 
 
-def test_psutil_is_optional_and_aiohttp_is_not():
-    """The dependency story is what makes on-device viable at all.
+def test_dependencies_are_hash_pinned_not_installed_by_name():
+    """Scorecard #317/#318/#319: bare `pip install` is a supply-chain hole.
 
-    aiohttp is the single hard requirement; psutil must degrade. If a
-    future edit makes psutil mandatory, Termux installs start failing on
-    devices where it will not build.
+    Three medium alerts fired on this script for `pip install aiohttp`
+    and `pip install psutil`. Unpinned is bad anywhere; here the
+    artifact lands on the operator's phone and is imported by a bridge
+    holding shell access on a device that roams between untrusted
+    networks. A typosquat arrives with execution rights.
     """
     text = _text()
-    assert "aiohttp" in text
+    assert "--require-hashes" in text, (
+        "the installer no longer verifies dependency hashes")
+    assert "requirements-termux.txt" in text
 
-    # Scope the check to the psutil install block itself. An earlier
-    # draft searched a fixed number of characters after the first
-    # mention of "psutil" and tripped over a `die` belonging to the
-    # next section entirely -- a false positive, which is the one
-    # failure mode a gate must not have.
+    offenders = [
+        line.strip() for line in text.splitlines()
+        if "pip install" in line
+        and "--require-hashes" not in line
+        and not line.strip().startswith("#")
+    ]
+    assert not offenders, (
+        "these pip invocations install by name without hash verification, "
+        "which is what Scorecard flagged:\n  " + "\n  ".join(offenders))
+
+
+def test_a_hash_mismatch_is_never_worked_around():
+    """The failure path must not teach the operator to disable the check.
+
+    A `die` message suggesting `--no-deps` would undo the fix the moment
+    a pin goes stale. It must point at refreshing pins on a trusted
+    machine instead.
+    """
+    text = _text()
+    assert "HASH MISMATCH" in text, (
+        "the installer does not explain what a hash failure means")
+    assert "refresh_termux_requirements.py" in text, (
+        "no recovery path offered for stale pins")
+    for escape in ("--no-deps", "--trusted-host", "--index-url",
+                   "PIP_NO_VERIFY", "--break-system-packages"):
+        assert escape not in text, (
+            f"installer offers {escape} as a workaround; a documented "
+            f"bypass is the same as no check")
+
+
+def test_psutil_stays_optional_at_runtime():
+    """Pinned does not mean mandatory.
+
+    Every psutil import in the bridge is lazy and guarded and the bridge
+    degrades honestly without it -- measured. If a future edit makes a
+    missing psutil fatal, Termux installs start failing on devices where
+    it will not build.
+    """
+    text = _text()
     lines = text.splitlines()
-    starts = [i for i, ln in enumerate(lines) if "pip install" in ln and "psutil" in ln]
-    assert starts, "the installer no longer installs psutil at all"
-    block = lines[starts[0]:starts[0] + 6]
-
+    checks = [i for i, ln in enumerate(lines) if "import psutil" in ln]
+    assert checks, "the installer no longer reports psutil status"
+    block = lines[checks[0]:checks[0] + 6]
     assert not any("die " in ln for ln in block), (
-        "a psutil failure now aborts the install; it must degrade:\n"
+        "a missing psutil now aborts the install; it must degrade:\n"
         + "\n".join(block))
-    assert any("psutil" in ln and "optional" in ln.lower()
-               for ln in lines), "psutil is no longer described as optional"
 
-    # aiohttp, by contrast, must remain fatal -- the bridge cannot run
-    # without it, and a "successful" install that cannot serve is worse
-    # than a failed one.
-    aiohttp_lines = [ln for ln in lines if "aiohttp install failed" in ln]
-    assert aiohttp_lines, "an aiohttp failure no longer aborts the install"
+    # aiohttp, by contrast, must stay fatal: a "successful" install that
+    # cannot serve is worse than a failed one.
+    assert any("dependency install failed" in ln for ln in lines), (
+        "a failed dependency install no longer aborts")
+
+
+def test_the_pinned_requirements_file_is_well_formed():
+    """A pin file pip cannot parse is a pin file that never runs.
+
+    Structure, not versions: versions move, the shape must not. Every
+    requirement needs at least one sha256, because `--require-hashes`
+    rejects the entire file over a single entry without digests -- and
+    the operator would meet that failure on the phone.
+    """
+    import re
+
+    pins = ROOT / "scripts" / "requirements-termux.txt"
+    assert pins.is_file(), "the pinned requirements file is missing"
+
+    body = [ln.rstrip() for ln in pins.read_text(encoding="utf-8").splitlines()
+            if ln.strip() and not ln.lstrip().startswith("#")]
+    assert body, "the pin file contains no requirements"
+
+    requirement = re.compile(r"^[A-Za-z0-9._-]+==[A-Za-z0-9.+!-]+ \\$")
+    digest = re.compile(r"^ {4}--hash=sha256:[0-9a-f]{64}( \\)?$")
+
+    packages = 0
+    hashes_for_current = 0
+    for line in body:
+        if requirement.match(line):
+            if packages:
+                assert hashes_for_current, "a requirement carried no hashes"
+            packages += 1
+            hashes_for_current = 0
+        elif digest.match(line):
+            hashes_for_current += 1
+        else:
+            raise AssertionError(f"unparseable line in pin file: {line!r}")
+    assert hashes_for_current, "the last requirement carried no hashes"
+
+    assert any(ln.startswith("aiohttp==") for ln in body), "aiohttp is not pinned"
+    assert packages >= 5, (
+        f"only {packages} packages pinned; transitive dependencies are "
+        f"missing and --require-hashes will reject the install")
 
 
 def _bash_actually_runs() -> bool:
@@ -223,6 +297,11 @@ def test_it_runs_end_to_end_against_a_simulated_termux(tmp_path):
         encoding="utf-8")
     shutil.copytree(ROOT / "arena", bridge_dir / "arena",
                     ignore=shutil.ignore_patterns("__pycache__"))
+    # The release ships the pinned requirements file and the installer
+    # refuses to run without it, so the simulated tree must have it too.
+    (bridge_dir / "scripts").mkdir()
+    shutil.copy2(ROOT / "scripts" / "requirements-termux.txt",
+                 bridge_dir / "scripts" / "requirements-termux.txt")
 
     env = dict(os.environ)
     env.update({

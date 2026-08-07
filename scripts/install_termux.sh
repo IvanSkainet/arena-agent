@@ -48,34 +48,10 @@ esac
 
 say "Termux detected: PREFIX=$PREFIX"
 
-# ------------------------------------------------------------- packages
-say "Installing packages (python, git)…"
-pkg install -y python git >/dev/null 2>&1 \
-    || die "pkg install failed. Run 'pkg update' first, then retry."
-
-python_version="$(python3 -V 2>&1)"
-say "Python: $python_version"
-
-# aiohttp ships arm64 wheels; if pip still tries to build, it needs a
-# compiler, so say so instead of leaving a wall of gcc errors.
-say "Installing aiohttp (the bridge's only hard dependency)…"
-if ! pip install --quiet --upgrade aiohttp; then
-    say "Wheel unavailable -- installing build tools and retrying."
-    pkg install -y clang libffi openssl >/dev/null 2>&1 || true
-    pip install --quiet --upgrade aiohttp \
-        || die "aiohttp install failed. See the pip output above."
-fi
-
-# psutil is optional: every import of it in the bridge is lazy and
-# guarded, and the bridge degrades honestly without it. Try, shrug off.
-say "Installing psutil (optional -- richer metrics)…"
-if pip install --quiet psutil >/dev/null 2>&1; then
-    say "psutil: installed"
-else
-    say "psutil: unavailable, continuing (metrics degrade, nothing breaks)"
-fi
-
 # ---------------------------------------------------------------- files
+# Checked BEFORE installing anything: the pinned requirements file
+# lives inside the release, so a missing or partial unpack must fail
+# here rather than after pip has already changed the environment.
 if [ ! -d "$BRIDGE_DIR" ]; then
     die "Bridge directory not found: $BRIDGE_DIR
 Unpack the release zip there first, e.g.:
@@ -86,6 +62,53 @@ fi
     || die "$BRIDGE_DIR does not contain unified_bridge.py"
 
 cd "$BRIDGE_DIR"
+
+# ------------------------------------------------------------- packages
+say "Installing packages (python, git)…"
+pkg install -y python git >/dev/null 2>&1 \
+    || die "pkg install failed. Run 'pkg update' first, then retry."
+
+python_version="$(python3 -V 2>&1)"
+say "Python: $python_version"
+
+# Dependencies are installed from a hash-pinned requirements file, not
+# by name. Scorecard raised three Pinned-Dependencies alerts (#317,
+# #318, #319) against the bare `pip install` calls that used to live
+# here, and they were right: this artifact lands on a phone and is
+# imported by a bridge that holds shell access on a device roaming
+# between untrusted networks. A typosquat or a compromised release
+# would arrive with execution rights.
+#
+# `--require-hashes` makes pip refuse anything whose digest is not in
+# the file, transitive dependencies included.
+REQUIREMENTS="$BRIDGE_DIR/scripts/requirements-termux.txt"
+[ -f "$REQUIREMENTS" ] \
+    || die "missing $REQUIREMENTS -- unpack the full release, not just the bridge"
+
+say "Installing pinned dependencies (hash-verified)…"
+if ! pip install --quiet --require-hashes -r "$REQUIREMENTS"; then
+    say "Wheels unavailable -- installing build tools and retrying."
+    # These come from Termux's own signed package repository, which is
+    # the trust root for the whole userland; pinning them here would
+    # duplicate pkg's job and rot on every Termux release.
+    pkg install -y clang libffi openssl >/dev/null 2>&1 || true
+    pip install --quiet --require-hashes -r "$REQUIREMENTS" \
+        || die "dependency install failed. If pip reported a HASH MISMATCH,
+do NOT work around it -- that is the check doing its job. Refresh the
+pins on a trusted machine with:
+    python scripts/refresh_termux_requirements.py"
+fi
+say "Dependencies installed and hash-verified."
+
+# psutil is in the pinned set but stays optional at runtime: every
+# import of it in the bridge is lazy and guarded, and the bridge
+# degrades honestly without it. Report which way it went rather than
+# leaving the operator guessing.
+if python3 -c "import psutil" >/dev/null 2>&1; then
+    say "psutil: available (richer metrics)"
+else
+    say "psutil: unavailable, continuing (metrics degrade, nothing breaks)"
+fi
 
 # ---------------------------------------------------------------- token
 TOKEN_FILE="$BRIDGE_DIR/token.txt"
