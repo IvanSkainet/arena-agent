@@ -1,3 +1,41 @@
+## v4.166.5 — 2026-08-07
+
+### #75 (continued) -- three guesses about Windows, three red matrices
+
+v4.166.4 claimed a reply by renaming it to a per-caller unique name.
+macOS went green. **Windows still reported 72 duplicates.** That is
+three attempts -- `os.unlink` (v4.166.2), `O_EXCL` plus a released
+marker, `os.replace` to a unique target (v4.166.4) -- and three CI
+matrices. The pattern was the guessing, not the primitive.
+
+So this stops guessing and uses the one mechanism that has actually
+survived this matrix: the `O_EXCL` lock in `claimed/` that `claim_next`
+has used since v4.166.0, with the property the intermediate drafts kept
+losing -- **the lock is never removed by the claim.**
+
+A marker deleted after delivery frees its own name, and the next reader
+to meet the same reply creates it again and delivers a second copy. That
+window is what reintroduced duplicates in the draft. The lock is a
+permanent tombstone living in `claimed/`, so it outlives the reply file
+it guards; `prune()` clears it later on its usual age-and-count rules
+(verified: 30 tombstones in, 30 removed, 0 remaining).
+
+### Gates that can see Windows from Linux
+
+The runtime concurrency tests cannot observe any of this here, which is
+why CI kept being the detector of last resort. Two replacements assert
+the property directly:
+
+* `test_the_claim_tombstone_is_never_recycled` -- after a delivery the
+  tombstone must still exist and must name the reply it claimed. This is
+  what the v4.166.4 draft fails.
+* `test_a_reply_whose_tombstone_exists_is_never_delivered` -- simulates
+  a reader that claimed a reply and crashed before removing the file.
+  The reply is still on disk; delivering it would be the duplicate.
+
+Sabotage: the v4.166.2 unlink claim fails three tests, the v4.166.4
+released-marker draft fails two, dropping `O_EXCL` fails two more, and
+`consume=False` still neither locks nor deletes.
 ## v4.166.4 — 2026-08-07
 
 ### #75 -- the #73 fix was POSIX-only, and the operator caught it

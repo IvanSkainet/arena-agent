@@ -682,47 +682,56 @@ def test_claim_markers_are_never_left_behind(tmp_path):
     assert leftovers == [], f"claim debris left behind: {leftovers}"
 
 
-def test_the_claim_destination_is_unique_per_caller(tmp_path):
-    """#75, the half that Linux cannot demonstrate.
+def test_the_claim_tombstone_is_never_recycled(tmp_path):
+    """#75, the property no Linux runtime test can trip over.
 
-    The claim is `os.replace(reply, reply + ".<unique>.taken")`. If that
-    destination were shared -- `reply + ".taken"` for everybody -- the
-    code would still pass every concurrency test on Linux, because POSIX
-    `rename` is atomic and the loser gets FileNotFoundError. On Windows
-    it is the `lost -29` bug verbatim: two callers can both complete a
-    replace onto the same existing target and both believe they won.
+    The claim is an `O_EXCL` lock in `claimed/`. The lock must **outlive**
+    the delivery: a marker that gets removed frees its own name, and the
+    next reader to encounter the same reply name creates it again and
+    delivers a second copy. That is precisely how the v4.166.4 draft --
+    `O_EXCL` plus an immediate unlink of the marker -- reintroduced
+    duplicates.
 
-    Two sabotage runs proved the runtime tests cannot see this on Linux,
-    so the property is asserted directly: the destination must depend on
-    something unique to the caller, not on the reply alone. Checking the
-    computed name rather than the source text, so a rewrite that keeps
-    the words but loses the property still fails.
+    On Linux the reply file disappears fast enough that the window is
+    hard to hit, so the ordering is asserted directly instead of raced.
+    Three sabotage runs showed the concurrency tests alone cannot see it
+    here; Windows CI could, twice, after the tag was already pushed.
     """
     msg = S.send_message(tmp_path, "question")
     S.post_reply(tmp_path, msg.id, "answer")
     replies_dir = tmp_path / "replies"
-    reply_file = next(replies_dir.glob("*.json"))
+    reply_name = next(replies_dir.glob("*.json")).name
 
-    seen: set[str] = set()
-    real_replace = os.replace
+    assert [m.body for m in S.read_replies(tmp_path, consume=True)] == ["answer"]
 
-    def capture(src, dst, *args, **kwargs):
-        seen.add(str(dst))
-        return real_replace(src, dst, *args, **kwargs)
+    claimed = tmp_path / "claimed"
+    markers = [p.name for p in claimed.iterdir()]
+    assert markers, (
+        "the claim left no tombstone in claimed/; a claim that cleans up "
+        "after itself can be re-acquired for the same reply")
+    assert any(reply_name in name for name in markers), (
+        f"tombstone does not identify the reply it claimed: {markers}")
 
-    original = os.replace
-    os.replace = capture
-    try:
-        assert len(S.read_replies(tmp_path, consume=True)) == 1
-    finally:
-        os.replace = original
+    # And the reply itself is gone, so nothing is served twice.
+    assert S.read_replies(tmp_path, consume=False) == []
+    assert list(replies_dir.glob("*.json")) == []
 
-    assert seen, "the claim did not use os.replace at all"
-    destination = next(iter(seen))
-    assert destination != str(reply_file) + ".taken", (
-        "the claim renames onto a destination derived only from the reply "
-        "name; two callers can race the same target, which is the "
-        "`lost -29` bug. Include something unique to the caller.")
-    assert str(os.getpid()) in destination or len(
-        destination) > len(str(reply_file)) + 16, (
-        f"claim destination {destination!r} carries no per-caller entropy")
+
+def test_a_reply_whose_tombstone_exists_is_never_delivered(tmp_path):
+    """The tombstone must actually be honoured, not merely written.
+
+    Simulates the crash case: a reader claimed a reply and died before
+    removing the file. The lock is on disk, the reply file is still
+    there. Delivering it now would be the duplicate this whole fix
+    exists to prevent.
+    """
+    msg = S.send_message(tmp_path, "question")
+    S.post_reply(tmp_path, msg.id, "answer")
+    reply_file = next((tmp_path / "replies").glob("*.json"))
+
+    lock = tmp_path / "claimed" / (reply_file.name + ".reply.lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text("", encoding="utf-8")
+
+    assert S.read_replies(tmp_path, consume=True) == [], (
+        "a reply with an existing tombstone was delivered anyway")

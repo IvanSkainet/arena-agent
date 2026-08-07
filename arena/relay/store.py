@@ -258,28 +258,28 @@ def read_replies(root: Path, *, in_reply_to: str = "",
     `arena-relay` -- is enough to hit it, and a duplicated answer is the
     same class of harm as a duplicated instruction.
 
-    v4.166.4 (bug #75): the v4.166.2 fix used `os.unlink` as the claim,
+    v4.166.5 (bug #75): the v4.166.2 fix used `os.unlink` as the claim,
     reasoning that exactly one caller can succeed at removing a path.
-    That is true on POSIX and **false on Windows**, and the Windows and
-    macOS CI matrix said so: *15 replies delivered more than once*, while
-    Linux stayed green -- which is why local preflight cleared it.
+    That is true on POSIX and **false on Windows**, where a delete flags
+    the file and the directory entry survives until the last handle
+    closes -- two threads both see `unlink` return cleanly and both
+    deliver the reply. Windows and macOS CI went red with *15 replies
+    delivered more than once* while Linux stayed green.
 
-    On Windows a delete is not the removal of a name; it flags the file
-    for deletion and the entry survives until the last handle closes. Two
-    threads can both see `os.unlink` return without error, and both then
-    believe they own the reply. This is the same trap as the original
-    `lost -29`, which is the third time this mailbox has been bitten by
-    assuming POSIX filesystem semantics.
+    v4.166.4 then tried `os.replace` onto a per-caller unique name.
+    macOS went green, **Windows still reported 72 duplicates**. Three
+    guesses about what Windows guarantees, three failures; the pattern
+    is the guessing, not the primitive.
 
-    The claim is now a rename to a name nobody else could pick:
-    `os.replace(path, path + ".<pid>.<uuid>.taken")`. Whoever completes
-    the move owns the reply; every other caller gets an error because the
-    source is already gone. The destination is unique, so unlike the
-    original `lost -29` rename there is no shared target a platform can
-    silently overwrite, and unlike a lock file there is no window where
-    releasing the marker lets a second reader back in -- an earlier draft
-    of this fix used `O_EXCL` plus an `exists()` check and reintroduced
-    duplicates through exactly that gap.
+    So this now uses the one mechanism that has actually survived this
+    CI matrix: the `O_EXCL` lock in `claimed/` that `claim_next` has
+    used since v4.166.0. `os.open` with `O_CREAT | O_EXCL` fails when
+    the file exists on every platform, and -- the part the v4.166.4
+    draft got wrong -- the lock is **never removed by the claim**. A
+    marker that gets deleted frees its own name and lets a second reader
+    back in, which is how the intermediate attempt reintroduced
+    duplicates. The lock is a permanent tombstone; `prune()` is what
+    eventually clears `claimed/`.
 
     `consume=False` (used by `/v1/relay/status` for a depth count) takes
     no locks and deletes nothing, so counting can never eat a reply.
@@ -296,23 +296,22 @@ def read_replies(root: Path, *, in_reply_to: str = "",
         if in_reply_to and (raw.get("meta") or {}).get("in_reply_to") != in_reply_to:
             continue
         if consume:
-            # Move the reply to a name only this caller could have chosen.
-            # Whoever completes the move owns the reply; everyone else gets
-            # FileNotFoundError because the entry is already gone. Unlike a
-            # shared destination -- the `lost -29` mistake -- there is no
-            # contention on the target, so no platform gets to "helpfully"
-            # overwrite and let two callers both think they won. Unlike a
-            # lock file, nothing has to be cleaned up afterwards and there
-            # is no window where a freed marker name lets a second reader
-            # back in.
-            taken = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.taken")
+            # The tombstone lives in claimed/, not next to the reply, so
+            # it survives the reply's removal and cannot be recycled.
+            lock = _claimed / (path.name + ".reply.lock")
             try:
-                os.replace(path, taken)
-            except OSError:
-                # Someone else moved it first. Not ours to deliver.
+                handle = os.open(
+                    str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            except FileExistsError:
+                # Another reader already claimed this reply.
                 continue
+            except OSError:
+                continue
+            os.close(handle)
+            # The bytes are in hand and the tombstone is ours, so the reply
+            # is delivered exactly once even if the removal below fails.
             with contextlib.suppress(OSError):
-                os.unlink(taken)
+                os.unlink(path)
         found.append(RelayMessage.from_dict(raw))
     return found
 
