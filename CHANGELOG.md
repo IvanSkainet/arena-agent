@@ -1,4 +1,4 @@
-## Unreleased
+## v4.165.0 — 2026-08-07
 
 ### #71 -- the bridge ignored SIGTERM whenever the dashboard had been open
 
