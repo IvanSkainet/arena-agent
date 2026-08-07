@@ -1,4 +1,4 @@
-## Unreleased
+## v4.166.0 — 2026-08-07
 
 ### The mailbox now cleans up after itself
 
