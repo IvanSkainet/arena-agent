@@ -149,6 +149,67 @@ def test_a_hash_mismatch_is_never_worked_around():
             f"bypass is the same as no check")
 
 
+def test_psutil_is_installed_separately_so_it_cannot_abort_the_install():
+    """v4.167.6, found on real hardware: `pip install -r` is all-or-nothing.
+
+    psutil was in the main requirements file. On a POCO F7 Pro
+    (Android 16, arm64-v8a) the first real on-device install died with
+
+        platform android is not supported
+        ERROR: Failed to build 'psutil' when getting requirements to
+        build wheel
+        ERROR: dependency install failed
+
+    psutil's build backend rejects Android outright -- no wheel exists
+    and the sdist will not compile -- so a single pip run containing it
+    can never succeed there, and it took aiohttp down with it.
+
+    Every psutil import in the bridge is lazy and guarded. "Optional"
+    has to mean the install survives without it; it did not. The two
+    files must therefore stay separate, and the optional run must not be
+    able to abort the script.
+    """
+    text = _text()
+    assert "requirements-termux-optional.txt" in text, (
+        "optional extras are no longer installed separately; a psutil "
+        "failure will abort the whole install again")
+
+    # Check requirement LINES, not the whole text: the header explains
+    # why psutil is absent and mentions it by name. A gate that trips on
+    # its own documentation is a false positive, and those are worse
+    # than no gate.
+    core = ROOT / "scripts" / "requirements-termux.txt"
+    core_pins = [ln.split("==")[0].strip()
+                 for ln in core.read_text(encoding="utf-8").splitlines()
+                 if "==" in ln and not ln.lstrip().startswith("#")]
+    assert "psutil" not in core_pins, (
+        "psutil is back in the mandatory requirements file; it cannot "
+        "build on Android and will abort every on-device install")
+
+    optional = ROOT / "scripts" / "requirements-termux-optional.txt"
+    assert optional.is_file(), "the optional requirements file is missing"
+    assert "psutil==" in optional.read_text(encoding="utf-8")
+
+    # The optional install must be in a condition, never a bare command
+    # whose failure trips `set -e`.
+    lines = text.splitlines()
+    installs = [ln for ln in lines
+                if "pip install" in ln and "$OPTIONAL" in ln]
+    assert installs, "the optional file is referenced but never installed"
+
+    # It must run inside a condition. A bare `pip install` here would
+    # abort the script under `set -euo pipefail` -- which is exactly the
+    # bug: an optional dependency that can kill the install.
+    for line in installs:
+        stripped = line.strip()
+        guarded = (stripped.startswith(("if ", "&&", "||"))
+                   or "||" in stripped
+                   or "&&" in stripped)
+        assert guarded, (
+            f"optional install is not guarded and will abort under "
+            f"`set -euo pipefail`: {stripped}")
+
+
 def test_psutil_stays_optional_at_runtime():
     """Pinned does not mean mandatory.
 
@@ -159,8 +220,9 @@ def test_psutil_stays_optional_at_runtime():
     """
     text = _text()
     lines = text.splitlines()
-    checks = [i for i, ln in enumerate(lines) if "import psutil" in ln]
-    assert checks, "the installer no longer reports psutil status"
+    checks = [i for i, ln in enumerate(lines)
+              if "pip install" in ln and "$OPTIONAL" in ln]
+    assert checks, "the installer no longer installs the optional extras"
     block = lines[checks[0]:checks[0] + 6]
     assert not any("die " in ln for ln in block), (
         "a missing psutil now aborts the install; it must degrade:\n"

@@ -1,3 +1,48 @@
+## v4.167.6 — 2026-08-07
+
+### The first real on-device install failed, and only hardware could
+### have told us
+
+The operator could not get the bridge running in Termux. Driving his
+POCO F7 Pro directly -- launching Termux, typing into it, reading the
+screen -- reproduced it in one run:
+
+    platform android is not supported
+    ERROR: Failed to build 'psutil' when getting requirements to build wheel
+    ERROR: dependency install failed
+
+**psutil cannot be installed on Android at all.** Its build backend
+rejects the platform outright; there is no wheel and the sdist will not
+compile. That is permanent, not a transient packaging gap.
+
+The defect was mine: psutil sat in the same `requirements-termux.txt`
+as aiohttp, and `pip install -r` is all-or-nothing. So a dependency the
+bridge does not need took down the one dependency it does need, and the
+install aborted. Every psutil import in the bridge is lazy and guarded
+-- "optional" was true in the code and false in the installer.
+
+Optional extras now live in `scripts/requirements-termux-optional.txt`
+and are installed in a **separate, guarded** pip run. psutil failing
+prints one line and the install continues.
+
+`refresh_termux_requirements.py` generates both files; the optional set
+stays hash-pinned rather than dropped, so a future Android-capable
+psutil is still verified.
+
+### Two gates, and a false positive caught during sabotage
+
+`test_psutil_is_installed_separately_so_it_cannot_abort_the_install`
+asserts psutil is absent from the mandatory file and that the optional
+install sits inside a condition -- a bare `pip install` there would
+abort under `set -euo pipefail`, which is precisely the bug.
+
+The first version searched the whole file text for "psutil" and tripped
+on the header explaining why psutil is absent. A gate that fails on its
+own documentation is a false positive, and those are worse than no gate
+at all; it now parses requirement lines.
+
+Sabotage: putting psutil back in the mandatory file fails the gate, and
+so does removing the guard from the optional install.
 ## v4.167.5 — 2026-08-07
 
 ### Scorecard #317/#318/#319: unpinned dependencies on the install that

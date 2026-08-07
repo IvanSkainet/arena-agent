@@ -100,14 +100,27 @@ pins on a trusted machine with:
 fi
 say "Dependencies installed and hash-verified."
 
-# psutil is in the pinned set but stays optional at runtime: every
-# import of it in the bridge is lazy and guarded, and the bridge
-# degrades honestly without it. Report which way it went rather than
-# leaving the operator guessing.
-if python3 -c "import psutil" >/dev/null 2>&1; then
-    say "psutil: available (richer metrics)"
+# Optional extras go in a SEPARATE pip run, on purpose.
+#
+# v4.167.6: psutil was in the main requirements file, and `pip install
+# -r` is all-or-nothing -- so psutil failing took aiohttp down with it
+# and aborted the whole install. Measured on a POCO F7 Pro during the
+# first real on-device run:
+#
+#     platform android is not supported
+#     ERROR: Failed to build 'psutil' when getting requirements to build
+#     wheel
+#
+# psutil's build backend refuses Android outright. There is no wheel and
+# the sdist cannot compile, so this is permanent, not a packaging blip.
+# Every psutil import in the bridge is lazy and guarded; "optional" has
+# to mean the install survives without it, and it did not.
+OPTIONAL="$BRIDGE_DIR/scripts/requirements-termux-optional.txt"
+if [ -f "$OPTIONAL" ] \
+   && pip install --quiet --require-hashes -r "$OPTIONAL" >/dev/null 2>&1; then
+    say "psutil: installed (richer metrics)"
 else
-    say "psutil: unavailable, continuing (metrics degrade, nothing breaks)"
+    say "psutil: unavailable on Android, continuing (metrics degrade, nothing breaks)"
 fi
 
 # ---------------------------------------------------------------- token

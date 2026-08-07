@@ -42,11 +42,19 @@ import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TARGET = ROOT / "scripts" / "requirements-termux.txt"
+OPTIONAL_TARGET = ROOT / "scripts" / "requirements-termux-optional.txt"
 
 # Direct dependencies of the on-device install. `psutil` is optional at
 # runtime (every import of it in the bridge is lazy and guarded), but it
 # is pinned all the same: optional does not mean unverified.
-DIRECT = ("aiohttp", "psutil")
+DIRECT = ("aiohttp",)
+
+# Installed in a SEPARATE pip run. psutil's build backend rejects
+# Android outright ("platform android is not supported"), and `pip
+# install -r` is all-or-nothing -- keeping it in the main file made its
+# failure abort the whole install, aiohttp included. Measured on a POCO
+# F7 Pro during the first real on-device install.
+OPTIONAL = ("psutil",)
 
 # Transitive closure of aiohttp on Android/CPython. Environment markers
 # for other platforms (aiodns, Brotli, backports.zstd -- all excluded on
@@ -102,8 +110,40 @@ def collect(package: str) -> tuple[str, list[str]]:
     return version, sorted(digests)
 
 
-def render(rows: list[tuple[str, str, list[str]]]) -> str:
+OPTIONAL_HEADER = """# OPTIONAL, hash-verified extras for the on-device (Termux) install.
+#
+# GENERATED FILE -- do not edit by hand.
+#     python scripts/refresh_termux_requirements.py
+#
+# psutil is NOT installable on Android: its build backend refuses the
+# platform outright --
+#
+#     platform android is not supported
+#     ERROR: Failed to build 'psutil' when getting requirements to build wheel
+#
+# measured on a POCO F7 Pro (Android 16, arm64-v8a) during the first
+# real on-device install. No wheel exists and the sdist cannot compile,
+# so this is a permanent property of the platform.
+#
+# Separate file because `pip install -r` is all-or-nothing: with psutil
+# in the main list its failure took aiohttp down with it and aborted the
+# install, even though every psutil import in the bridge is lazy and
+# guarded. Optional must mean the install survives without it.
+#
+# Verified against PyPI on {today}.
+"""
+
+
+def render(rows: list[tuple[str, str, list[str]]], *, header: str | None = None) -> str:
     today = _dt.date.today().isoformat()
+    if header is not None:
+        lines = [header.format(today=today)]
+        for package, version, digests in rows:
+            lines.append(f"\n{package}=={version} \\")
+            for index, digest in enumerate(digests):
+                suffix = " \\" if index < len(digests) - 1 else ""
+                lines.append(f"    --hash=sha256:{digest}{suffix}")
+        return "\n".join(lines) + "\n"
     header = f'''# Pinned, hash-verified dependencies for the on-device (Termux) install.
 #
 # GENERATED FILE -- do not edit by hand.
@@ -171,8 +211,21 @@ def main() -> int:
         print("requirements-termux.txt is current")
         return 0
 
+    optional_rows: list[tuple[str, str, list[str]]] = []
+    for package in OPTIONAL:
+        try:
+            version, digests = collect(package)
+        except (urllib.error.URLError, KeyError, RuntimeError) as exc:
+            print(f"FAILED to resolve optional {package}: {exc}", file=sys.stderr)
+            return 2
+        optional_rows.append((package, version, digests))
+        print(f"  [optional] {package}=={version}  ({len(digests)} artifacts)")
+
     TARGET.write_text(rendered, encoding="utf-8")
+    OPTIONAL_TARGET.write_text(
+        render(optional_rows, header=OPTIONAL_HEADER), encoding="utf-8")
     print(f"wrote {TARGET.relative_to(ROOT)}")
+    print(f"wrote {OPTIONAL_TARGET.relative_to(ROOT)}")
     return 0
 
 

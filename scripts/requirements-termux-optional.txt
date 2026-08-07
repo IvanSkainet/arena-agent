@@ -1,0 +1,29 @@
+# OPTIONAL, hash-verified extras for the on-device (Termux) install.
+#
+# GENERATED FILE -- do not edit by hand.
+#     python scripts/refresh_termux_requirements.py
+#
+# psutil is NOT installable on Android: its build backend refuses the
+# platform outright --
+#
+#     platform android is not supported
+#     ERROR: Failed to build 'psutil' when getting requirements to build wheel
+#
+# measured on a POCO F7 Pro (Android 16, arm64-v8a) during the first
+# real on-device install. No wheel exists and the sdist cannot compile,
+# so this is a permanent property of the platform.
+#
+# Separate file because `pip install -r` is all-or-nothing: with psutil
+# in the main list its failure took aiohttp down with it and aborted the
+# install, even though every psutil import in the bridge is lazy and
+# guarded. Optional must mean the install survives without it.
+#
+# Verified against PyPI on 2026-08-07.
+
+
+psutil==7.2.2 \
+    --hash=sha256:0746f5f8d406af344fd547f1c8daa5f5c33dbc293bb8d6a16d80b4bb88f59372 \
+    --hash=sha256:917e891983ca3c1887b4ef36447b1e0873e70c933afc831c6b6da078ba474312 \
+    --hash=sha256:b0726cecd84f9474419d67252add4ac0cd9811b04d61123054b9fb6f57df6e9e \
+    --hash=sha256:e452c464a02e7dc7822a05d25db4cde564444a67e58539a00f929c51eddda0cf \
+    --hash=sha256:fd04ef36b4a6d599bbdb225dd1d3f51e00105f6d48a28f006da7f9822f2606d8
