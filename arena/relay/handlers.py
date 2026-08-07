@@ -64,6 +64,12 @@ def _clamp_wait(raw: Any, *, default: float = 0.0) -> float:
     return max(0.0, min(value, MAX_WAIT_S))
 
 
+# How often housekeeping runs. Tied to activity rather than a timer: the
+# relay has no background loop of its own, and adding one for a directory
+# that grows by a few files a day would cost more than it saves.
+PRUNE_EVERY_S = 3600.0
+
+
 def make_relay_handlers(ctx) -> RelayHandlers:
     """Build the relay endpoints.
 
@@ -74,6 +80,25 @@ def make_relay_handlers(ctx) -> RelayHandlers:
     # Process-global, like the metrics sample: several handlers need to
     # agree on when an agent last showed interest.
     last_poll: dict[str, float] = {"at": 0.0}
+    last_prune: dict[str, float] = {"at": 0.0}
+
+    async def _maybe_prune(loop, root) -> None:
+        """Housekeeping, at most hourly, never on the critical path.
+
+        v4.166.0: `claimed/` grew forever. Measured: 500 messages read
+        and answered left 1000 files behind. A `prune()` function nobody
+        calls is a button nobody presses, so it is wired to ordinary
+        traffic instead -- and failures here are swallowed, because a
+        housekeeping error must not turn a working `send` into a 500.
+        """
+        now = time.monotonic()
+        if last_prune["at"] and now - last_prune["at"] < PRUNE_EVERY_S:
+            return
+        last_prune["at"] = now
+        try:
+            await loop.run_in_executor(ctx.executor, lambda: store.prune(root))
+        except Exception:  # nosec B110 -- housekeeping must never fail a request
+            pass
 
     @authed(ctx)
     async def handle_v1_relay_send(request: web.Request) -> web.Response:
@@ -100,6 +125,7 @@ def make_relay_handlers(ctx) -> RelayHandlers:
         polling = age is not None and age < POLL_FRESH_S
         depth = await loop.run_in_executor(
             ctx.executor, lambda: store.inbox_depth(root))
+        await _maybe_prune(loop, root)
         ctx.audit({"type": "relay.send", "id": msg.id, "sender": sender,
                    "bytes": len(body.encode("utf-8")), "agent_polling": polling})
         return ctx.cors_json_response({

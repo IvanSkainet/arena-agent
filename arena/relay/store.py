@@ -258,6 +258,47 @@ def read_replies(root: Path, *, in_reply_to: str = "",
     return found
 
 
+def prune(root: Path, *, older_than_seconds: float = 7 * 86400,
+          keep_recent: int = 200) -> dict[str, int]:
+    """Delete claimed messages the operator will never look at again.
+
+    v4.166.0: nothing removed anything. Measured before adding this --
+    500 messages read and answered left **1000 files** in `claimed/`
+    (the message plus its lock), growing forever. Small in bytes, but an
+    unbounded file count is the kind of thing that is fine for a month
+    and then makes `glob` slow and a backup noisy.
+
+    Only `claimed/` is pruned. `inbox/` holds messages nobody has read,
+    and deleting those on a timer would silently discard the operator's
+    words -- exactly the failure this whole channel exists to avoid.
+    `replies/` is consumed on read, so it empties itself.
+
+    Two conditions, both must hold: older than the age limit AND outside
+    the newest `keep_recent`. The count floor means a burst of traffic
+    cannot age everything out at once and leave nothing to inspect after
+    an incident.
+    """
+    _inbox, claimed, _replies = _dirs(root)
+    entries = sorted(claimed.glob("*"), key=lambda p: p.name)
+    cutoff = time.time() - max(0.0, older_than_seconds)
+    protected = {p.name for p in entries[-keep_recent:]} if keep_recent > 0 else set()
+
+    removed = 0
+    for path in entries:
+        if path.name in protected:
+            continue
+        try:
+            if path.stat().st_mtime >= cutoff:
+                continue
+            path.unlink()
+            removed += 1
+        except OSError:
+            # A file that cannot be removed is not worth failing a
+            # housekeeping pass over; it will be retried next time.
+            continue
+    return {"removed": removed, "remaining": len(entries) - removed}
+
+
 def wait_for_reply(root: Path, in_reply_to: str, *, timeout: float = 300.0,
                    now: Any = time.monotonic,
                    sleep: Any = time.sleep) -> RelayMessage | None:

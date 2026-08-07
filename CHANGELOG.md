@@ -1,5 +1,37 @@
 ## Unreleased
 
+### The mailbox now cleans up after itself
+
+Checked before calling the relay finished, because "works" and "works in
+six months" are different claims: 500 messages read and answered left
+**1000 files** in `claimed/` -- the message plus its lock -- and nothing
+anywhere removed any of them. Small in bytes, unbounded in count, and the
+kind of thing that is invisible for a month and then makes `glob` slow
+and a backup noisy.
+
+`prune()` deletes claimed messages that are both older than a week AND
+outside the newest 200. Two conditions rather than one because a burst of
+traffic must not age everything out at once and leave nothing to inspect
+after an incident.
+
+**Only `claimed/` is pruned.** `inbox/` holds messages nobody has read
+yet, and deleting those on a timer would silently discard the operator's
+words -- the exact failure this channel exists to prevent. That has its
+own test rather than relying on the implementation staying obvious.
+`replies/` is consumed on read and empties itself.
+
+A `prune()` nobody calls is a button nobody presses, so it rides on
+ordinary traffic: at most hourly, off the critical path, and failures are
+swallowed -- housekeeping must never turn a working `send` into a 500.
+Verified through the live HTTP server: 800 files became 200, while two
+unread messages sat untouched in the inbox.
+
+Sabotage on all four invariants -- pruning the inbox, dropping the
+keep-recent floor, ignoring the age cutoff, and removing the call from
+the handlers -- each reddened the suite.
+
+## Unreleased
+
 ### The relay claim was not exclusive on Windows
 
 The whole Windows matrix went red on the relay with

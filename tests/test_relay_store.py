@@ -377,3 +377,96 @@ def test_the_claim_uses_an_exclusive_create_not_a_rename():
         "os.rename is back in claim_next -- use os.replace, which is "
         "defined to overwrite on both platforms"
     )
+
+
+# --------------------------------------------------------------------
+# Housekeeping. Added before the release, after measuring what a month
+# of use leaves behind: 500 messages read and answered -> 1000 files in
+# claimed/, and nothing anywhere removed any of them.
+# --------------------------------------------------------------------
+
+def test_claimed_messages_are_pruned_once_they_are_old(root):
+    import os
+    import time as _t
+
+    for i in range(400):
+        S.send_message(root, f"m{i}")
+        S.claim_next(root)
+    aged = _t.time() - 30 * 86400
+    for path in (root / "claimed").glob("*"):
+        os.utime(path, (aged, aged))
+
+    before = len(list((root / "claimed").glob("*")))
+    result = S.prune(root, keep_recent=50)
+    after = len(list((root / "claimed").glob("*")))
+    assert before > after, "prune removed nothing"
+    assert result["removed"] == before - after
+    assert after == 50, "the keep_recent floor was not honoured"
+
+
+def test_recent_messages_survive_even_when_old(root):
+    """A burst must not age everything out and leave nothing to inspect."""
+    import os
+    import time as _t
+
+    for i in range(20):
+        S.send_message(root, f"m{i}")
+        S.claim_next(root)
+    aged = _t.time() - 365 * 86400
+    for path in (root / "claimed").glob("*"):
+        os.utime(path, (aged, aged))
+
+    S.prune(root, older_than_seconds=1, keep_recent=10)
+    assert len(list((root / "claimed").glob("*"))) == 10
+
+
+def test_prune_never_touches_unread_messages(root):
+    """Deleting inbox/ on a timer would discard the operator's words.
+
+    That is the one failure this whole channel exists to prevent, so it
+    gets its own test rather than relying on the implementation staying
+    obvious.
+    """
+    import os
+    import time as _t
+
+    S.send_message(root, "nobody has read this yet")
+    aged = _t.time() - 365 * 86400
+    for path in (root / "inbox").glob("*"):
+        os.utime(path, (aged, aged))
+
+    S.prune(root, older_than_seconds=1, keep_recent=0)
+    assert S.inbox_depth(root) == 1, "an unread message was deleted by housekeeping"
+    assert S.claim_next(root).body == "nobody has read this yet"
+
+
+def test_prune_leaves_fresh_messages_alone(root):
+    for i in range(5):
+        S.send_message(root, f"m{i}")
+        S.claim_next(root)
+    before = len(list((root / "claimed").glob("*")))
+    assert S.prune(root, keep_recent=0)["removed"] == 0
+    assert len(list((root / "claimed").glob("*"))) == before
+
+
+def test_prune_on_an_empty_relay_is_not_an_error(root):
+    assert S.prune(root) == {"removed": 0, "remaining": 0}
+
+
+def test_the_http_layer_calls_prune_on_ordinary_traffic():
+    """A prune() nobody calls is a button nobody presses.
+
+    The relay has no background loop, so housekeeping rides on normal
+    requests. Asserting the wiring because the alternative is discovering
+    in six months that claimed/ has 40k files in it.
+    """
+    import ast
+    import pathlib
+
+    source = (pathlib.Path(__file__).resolve().parents[1]
+              / "arena" / "relay" / "handlers.py").read_text(encoding="utf-8")
+    assert "store.prune" in source, "handlers never call prune"
+    tree = ast.parse(source)
+    names = {n.func.attr for n in ast.walk(tree)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+    assert "prune" in names
