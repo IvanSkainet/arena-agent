@@ -530,3 +530,70 @@ def test_the_http_layer_calls_prune_on_ordinary_traffic():
     names = {n.func.attr for n in ast.walk(tree)
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
     assert "prune" in names
+
+
+def test_concurrent_reply_readers_never_see_the_same_reply_twice(tmp_path):
+    """Bug #73: the operator's direction had the duplicate-delivery bug.
+
+    `claim_next` was hardened in v4.166.0 after Windows CI reported
+    `lost -29` -- a negative loss, i.e. duplicates. The same read-then-
+    unlink shape survived in `read_replies`, untouched, because the fix
+    was scoped to the agent's side of the mailbox. Two operator consoles
+    long-polling `/v1/relay/replies`, or a console plus `arena-relay`,
+    is enough to trigger it.
+
+    Measured against the pre-fix code with this exact setup: 300 replies,
+    16 threads, **542 deliveries and 96 duplicates**. The assertion is on
+    duplicates, not on losses, because a duplicated answer misleads the
+    operator while a lost one merely makes them ask again.
+    """
+    import collections
+    import threading
+
+    total = 300
+    for i in range(total):
+        msg = S.send_message(tmp_path, f"question {i}")
+        S.post_reply(tmp_path, msg.id, f"answer {i}")
+
+    seen: collections.Counter = collections.Counter()
+    lock = threading.Lock()
+
+    def drain():
+        while True:
+            batch = S.read_replies(tmp_path, consume=True)
+            if not batch:
+                return
+            with lock:
+                for reply in batch:
+                    seen[reply.id] += 1
+
+    workers = [threading.Thread(target=drain) for _ in range(16)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+
+    duplicated = {rid: n for rid, n in seen.items() if n > 1}
+    assert not duplicated, f"{len(duplicated)} replies delivered more than once"
+    assert sum(seen.values()) == total
+    assert len(seen) == total, f"lost {total - len(seen)} replies"
+
+
+def test_counting_replies_does_not_eat_them(tmp_path):
+    """Reverse sabotage for #73.
+
+    The fix deletes before delivering, so the obvious way to get it wrong
+    is to delete on the counting path too -- `/v1/relay/status` calls
+    `read_replies(consume=False)` on every status poll, and a status
+    endpoint that silently drains the operator's inbox would be a far
+    worse bug than the one being fixed.
+    """
+    msg = S.send_message(tmp_path, "question")
+    S.post_reply(tmp_path, msg.id, "answer")
+
+    for _ in range(5):
+        assert len(S.read_replies(tmp_path, consume=False)) == 1
+
+    consumed = S.read_replies(tmp_path, consume=True)
+    assert [m.body for m in consumed] == ["answer"]
+    assert S.read_replies(tmp_path, consume=False) == []

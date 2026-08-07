@@ -1,3 +1,40 @@
+## v4.166.2 — 2026-08-07
+
+### #73 -- the operator's replies were delivered more than once
+
+Found while answering the first real relay messages from the operator's
+Windows machine -- the end-to-end test the relay was built for. The
+agent's direction behaved: `inbox_depth` 3, three claims, no repeats, a
+fourth poll returning `null`. Reading the code on the way back through
+showed the other direction had never been fixed.
+
+`claim_next` was hardened in v4.166.0 after Windows CI reported
+`lost -29 message(s)` -- a negative loss, meaning duplicates -- and the
+fix stopped at the agent's side of the mailbox. `read_replies` kept the
+same shape that caused it: read the file, then unlink it. Two steps.
+Two readers that both finish step one before either reaches step two
+both return the same reply, and `unlink(missing_ok=True)` erases the
+evidence that anything went wrong.
+
+Measured on the unfixed code, 300 replies drained by 16 threads:
+
+    542 deliveries, 96 duplicated, 0 lost
+
+Two operator consoles long-polling `/v1/relay/replies` reach this, and
+so does one console plus a running `arena-relay`. A duplicated answer
+is the same class of harm as a duplicated instruction -- "yes, delete
+it" read twice is not the same conversation as read once.
+
+The fix uses the primitive the other direction already relies on:
+`os.unlink` is atomic, and exactly one caller can win the removal of a
+given path. Delete first, deliver only if the delete succeeded, skip
+the entry if someone else won it. `consume=False` -- which
+`/v1/relay/status` calls on every poll to report queue depth -- takes
+no locks and deletes nothing, so counting can never eat a reply.
+
+Both directions of the sabotage were run: restoring the read-then-unlink
+order fails the new concurrency gate with duplicate counts up to 8x, and
+making the counting path consume fails the non-destructive-read gates.
 ## v4.166.1 — 2026-08-07
 
 ### #72 -- two update installers copied into the same tree at once

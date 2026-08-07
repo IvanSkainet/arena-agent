@@ -242,7 +242,31 @@ def post_reply(root: Path, in_reply_to: str, body: str, *,
 
 def read_replies(root: Path, *, in_reply_to: str = "",
                  consume: bool = True) -> list[RelayMessage]:
-    """Collect replies, optionally filtered to one conversation."""
+    """Collect replies, optionally filtered to one conversation.
+
+    v4.166.2 (bug #73): the consuming path had exactly the defect
+    `claim_next` was hardened against in v4.166.0, and it survived
+    because the fix was applied to the agent's direction only. Reading
+    the file and then unlinking it is two steps; two readers that both
+    complete step one before either reaches step two both return the
+    same reply, and `unlink(missing_ok=True)` swallows the evidence.
+
+    Measured before the fix: 300 replies drained by 16 threads produced
+    **542 deliveries, 96 of them duplicates**. Two operator consoles
+    long-polling `/v1/relay/replies` at once -- or one console plus one
+    `arena-relay` -- is enough to hit it, and a duplicated answer is the
+    same class of harm as a duplicated instruction.
+
+    The fix is the same primitive: `os.unlink` is atomic, and exactly
+    one caller can succeed at removing a given path. Delete FIRST, and
+    only the winner of that delete gets to return the message. The read
+    happens before the unlink because the bytes must survive the
+    removal, but the *decision* to deliver rests solely on owning the
+    unlink.
+
+    `consume=False` (used by `/v1/relay/status` for a depth count) takes
+    no locks and deletes nothing, so counting can never eat a reply.
+    """
     _inbox, _claimed, replies = _dirs(root)
     found: list[RelayMessage] = []
     for path in sorted(replies.glob("*.json")):
@@ -252,9 +276,14 @@ def read_replies(root: Path, *, in_reply_to: str = "",
             continue
         if in_reply_to and (raw.get("meta") or {}).get("in_reply_to") != in_reply_to:
             continue
-        found.append(RelayMessage.from_dict(raw))
         if consume:
-            path.unlink(missing_ok=True)
+            try:
+                os.unlink(path)
+            except OSError:
+                # Someone else won the delete, so the reply is theirs to
+                # deliver. Not ours -- skip it rather than double-report.
+                continue
+        found.append(RelayMessage.from_dict(raw))
     return found
 
 
