@@ -1,3 +1,56 @@
+## Unreleased
+
+### An operator <-> agent mailbox (`arena-relay`), and what it deliberately is not
+
+From a thread in the project's Discord: the tunnel already carries data
+both ways, so why type at the agent in a browser tab instead of a
+terminal?
+
+**The part that cannot be built, stated first.** An Arena session cannot
+be started from this side. arena.ai has no public API, and its Terms of
+Use are explicit -- §5(vi) forbids accessing the Service "through
+programmatic or automated means", and §5(vii) forbids "spiders, robots,
+scrapers, crawlers, avatars" against it. A headless browser driving the
+site would breach both, break on the next redesign, and put the
+operator's account at risk. So the "turn Arena into a mini API" idea is
+declined on purpose rather than attempted and quietly shipped.
+
+What *is* ours is the bridge running on the operator's own machine, and
+the agent is already talking to it. `arena/relay/` is a mailbox with an
+optional wait: `arena-relay send "..."` queues a message, the agent's
+`poll` long-polls for up to 25s and claims it, `reply` answers, and
+`recv` collects. While a session is active the round trip feels like a
+chat; when none is, the message waits.
+
+The honesty requirement falls straight out of that. `send` reports
+whether an agent is actually polling and how deep the queue is, rather
+than printing "sent" to nobody. Claiming delivery when there is no
+listener is the same class of lie as the token-rotation note in bug #66.
+
+`arena/tasks/queue.py` was deliberately not reused. Verified against the
+operator's live bridge: posting a plain sentence to `/v1/tasks` came back
+`state: failed, exit_code: 1`, because that runner tries to execute what
+it is given. Prose needs a channel that executes nothing.
+
+Storage is one atomically-written JSON file per message. Claiming uses
+`os.rename`, so two sessions polling at once cannot both receive the same
+text -- a duplicated instruction is worse than a lost one. Proved with
+120 messages across 8 threads: none lost, none delivered twice.
+
+Sabotage found two of the tests toothless before this landed, which is
+the useful part of the exercise. Asserting "no `.tmp-` files remain"
+passes even with a plain `open(path, "w")`, because a crash mid-write
+leaves a *truncated real file*; the test now kills the serialiser partway
+and asserts the inbox is still empty. And a read-and-delete claim was
+caught only incidentally by a listing assertion, so the move-not-delete
+mechanism is now pinned directly. Byte-vs-character length is covered
+too: the operator writes Russian, where counting characters would allow
+messages twice the intended size.
+
+This is the store plus a CLI. Wiring the HTTP routes into the bridge is
+the next step and is not in this entry -- nothing claims to work over
+HTTP yet.
+
 ## v4.165.0 — 2026-08-07
 
 ### #71 -- the bridge ignored SIGTERM whenever the dashboard had been open

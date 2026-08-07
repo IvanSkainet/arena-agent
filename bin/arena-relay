@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""arena-relay — talk to the agent from a terminal instead of a browser tab.
+
+    arena-relay send "проверь, что вышло с CI"     # queue a message
+    arena-relay send --wait "как там сборка?"      # queue and block for a reply
+    arena-relay recv                               # read replies
+    arena-relay status                             # how many messages are waiting
+    arena-relay poll                               # (agent side) take the next one
+    arena-relay reply <id> "готово"                # (agent side) answer it
+
+What this is, precisely
+-----------------------
+A **mailbox**, not a remote control. It cannot start an Arena session:
+arena.ai is a website with no public API, and its Terms of Use forbid
+"programmatic or automated means" of access (§5(vi)) and automated
+agents/scrapers against the Service (§5(vii)). Driving it with a headless
+browser would violate that, break on any redesign, and risk the
+operator's account. So this tool does the half that is actually ours --
+the bridge on your own machine -- and is honest about the half that is
+not.
+
+In practice: while an agent session is running it polls, so `send --wait`
+feels like a chat. When no session is running the message sits in the
+inbox until one is, and `send` tells you the queue depth instead of
+implying somebody heard you.
+
+Transport: plain HTTP to your bridge, so it works over Tailscale,
+ZeroTier, cloudflared, ngrok or localhost -- whatever you already use.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+
+DEFAULT_URL = os.environ.get("ARENA_BRIDGE_URL", "http://127.0.0.1:8765")
+TIMEOUT_S = 30
+
+
+def _token() -> str:
+    tok = os.environ.get("ARENA_TOKEN", "").strip()
+    if tok:
+        return tok
+    for candidate in (
+        os.path.expanduser("~/arena-bridge/token.txt"),
+        os.path.expanduser("~/.arena/token.txt"),
+    ):
+        try:
+            with open(candidate, encoding="utf-8") as handle:
+                value = handle.read().strip()
+            if value:
+                return value
+        except OSError:
+            continue
+    sys.exit(
+        "no token: set ARENA_TOKEN, or put it in ~/arena-bridge/token.txt"
+    )
+
+
+def _call(method: str, path: str, body: dict | None = None,
+          *, base: str, timeout: int = TIMEOUT_S) -> tuple[int, dict]:
+    url = base.rstrip("/") + path
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Authorization", f"Bearer {_token()}")
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            return resp.status, json.loads(resp.read() or b"{}")
+    except urllib.error.HTTPError as exc:
+        try:
+            return exc.code, json.loads(exc.read() or b"{}")
+        except ValueError:
+            return exc.code, {"error": f"HTTP {exc.code}"}
+    except OSError as exc:
+        sys.exit(f"cannot reach the bridge at {base}: {exc}")
+
+
+def cmd_send(args) -> int:
+    body = " ".join(args.message).strip()
+    if not body:
+        print("nothing to send", file=sys.stderr)
+        return 2
+    status, res = _call("POST", "/v1/relay/send",
+                        {"body": body, "sender": args.sender}, base=args.url)
+    if status != 200 or not res.get("ok"):
+        print(f"send failed: {res.get('error', status)}", file=sys.stderr)
+        return 1
+    msg_id = res.get("id", "?")
+    waiting = res.get("inbox_depth", "?")
+    # Honesty first: say whether anyone is actually listening.
+    if res.get("agent_polling"):
+        print(f"sent {msg_id} — an agent is polling, it should pick this up now")
+    else:
+        print(f"queued {msg_id} — no agent is polling right now "
+              f"({waiting} message(s) waiting). It will be read when a "
+              f"session starts.")
+    if not args.wait:
+        return 0
+
+    deadline = time.monotonic() + args.wait
+    print(f"waiting up to {args.wait}s for a reply... (Ctrl+C to stop waiting)")
+    try:
+        while time.monotonic() < deadline:
+            left = max(1, int(deadline - time.monotonic()))
+            status, res = _call(
+                "GET", f"/v1/relay/replies?in_reply_to={msg_id}&wait={min(left, 25)}",
+                base=args.url, timeout=min(left, 25) + 10)
+            for reply in res.get("replies", []):
+                print(f"\n--- reply from {reply.get('sender', 'agent')} ---")
+                print(reply.get("body", ""))
+                return 0
+    except KeyboardInterrupt:
+        print("\nstopped waiting; the reply will still arrive in `recv`")
+        return 0
+    print("no reply yet — check later with: arena-relay recv")
+    return 0
+
+
+def cmd_recv(args) -> int:
+    status, res = _call("GET", "/v1/relay/replies?wait=0", base=args.url)
+    replies = res.get("replies", [])
+    if not replies:
+        print("no replies")
+        return 0
+    for reply in replies:
+        when = time.strftime("%H:%M:%S", time.localtime(reply.get("created_at", 0)))
+        print(f"[{when}] {reply.get('sender', 'agent')}: {reply.get('body', '')}")
+    return 0
+
+
+def cmd_status(args) -> int:
+    status, res = _call("GET", "/v1/relay/status", base=args.url)
+    if status != 200:
+        print(f"error: {res.get('error', status)}", file=sys.stderr)
+        return 1
+    print(f"bridge:        {args.url}")
+    print(f"waiting to be read: {res.get('inbox_depth', 0)}")
+    print(f"unread replies:     {res.get('reply_depth', 0)}")
+    last = res.get("last_poll_age_s")
+    if last is None:
+        print("agent polling:      never")
+    else:
+        print(f"agent polling:      {last:.0f}s ago"
+              + ("  (active)" if last < 60 else "  (idle)"))
+    return 0
+
+
+def cmd_poll(args) -> int:
+    """Agent side: claim the next message."""
+    status, res = _call("GET", f"/v1/relay/poll?wait={args.wait}",
+                        base=args.url, timeout=args.wait + 10)
+    msg = res.get("message")
+    if not msg:
+        print(json.dumps({"ok": True, "message": None}))
+        return 0
+    print(json.dumps({"ok": True, "message": msg}, ensure_ascii=False))
+    return 0
+
+
+def cmd_reply(args) -> int:
+    """Agent side: answer a claimed message."""
+    body = " ".join(args.message).strip()
+    status, res = _call("POST", "/v1/relay/reply",
+                        {"in_reply_to": args.id, "body": body,
+                         "sender": args.sender}, base=args.url)
+    print(json.dumps(res, ensure_ascii=False))
+    return 0 if res.get("ok") else 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="arena-relay", description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--url", default=DEFAULT_URL,
+                        help=f"bridge base URL (default {DEFAULT_URL})")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("send", help="queue a message for the agent")
+    p.add_argument("message", nargs="+")
+    p.add_argument("--sender", default="operator")
+    p.add_argument("--wait", type=int, default=0, metavar="SECONDS",
+                   help="block up to N seconds for a reply")
+    p.set_defaults(func=cmd_send)
+
+    p = sub.add_parser("recv", help="read replies")
+    p.set_defaults(func=cmd_recv)
+
+    p = sub.add_parser("status", help="queue depth and whether an agent is polling")
+    p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser("poll", help="(agent) claim the next message")
+    p.add_argument("--wait", type=int, default=25)
+    p.set_defaults(func=cmd_poll)
+
+    p = sub.add_parser("reply", help="(agent) answer a message")
+    p.add_argument("id")
+    p.add_argument("message", nargs="+")
+    p.add_argument("--sender", default="agent")
+    p.set_defaults(func=cmd_reply)
+
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
