@@ -1,0 +1,40 @@
+# Line-ending policy.
+#
+# There was no .gitattributes here at all, which means a Windows clone
+# with the default `core.autocrlf=true` checks shell scripts out with
+# CRLF. `scripts/install_termux.sh` is fetched from the repo onto an
+# Android phone and run by bash there; a CRLF copy dies immediately with
+#
+#     syntax error near unexpected token $'do\r'
+#
+# (verified locally: the LF copy parses clean, the CRLF copy does not).
+# The operator would see that on the phone, in Termux, far away from any
+# CI that could have caught it.
+#
+# Shell scripts, and anything else executed by a POSIX shell, are
+# therefore pinned to LF regardless of platform or checkout settings.
+* text=auto eol=lf
+
+*.sh      text eol=lf
+*.bash    text eol=lf
+
+# Windows-side helpers must keep CRLF: cmd.exe and PowerShell are the
+# consumers, and a .cmd file with bare LF can misbehave in older shells.
+*.cmd     text eol=crlf
+*.bat     text eol=crlf
+*.ps1     text eol=crlf
+
+# Binary assets must never be touched by line-ending conversion.
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.zip     binary
+*.gz      binary
+*.apk     binary
+*.pdf     binary
+*.woff    binary
+*.woff2   binary
+*.mp4     binary
+*.sigstore binary

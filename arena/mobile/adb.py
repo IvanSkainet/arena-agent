@@ -183,6 +183,22 @@ def quote_shell_args(args: list[str]) -> list[str]:
     return [args[0], *(shlex.quote(a) for a in args[1:])]
 
 
+def _on_device() -> bool:
+    """True when this process is running on the Android device itself.
+
+    Kept as a tiny indirection so tests can pin it. Import is local to
+    avoid a cycle: hostplatform is imported by capability reporting,
+    which imports the mobile package.
+    """
+    try:
+        from arena import hostplatform
+        return hostplatform.is_android()
+    except Exception:
+        # A detector that throws must never take the mobile stack with
+        # it; on any doubt, behave exactly as before.
+        return False
+
+
 def run(
     args: list[str],
     *,
@@ -207,6 +223,23 @@ def run(
     calls flow through the alias until the primary recovers. Callers that
     never register a fallback see identical behaviour to prior releases.
     """
+    # v4.167.3: when the bridge runs ON the phone (Termux), there is no
+    # adb and none is needed -- the "device" is this machine. Dispatch to
+    # the on-device backend before looking for a binary that will never
+    # exist there.
+    #
+    # The quoting happens first and applies to BOTH backends. That is not
+    # incidental: on-device shell verbs are joined and handed to `sh -c`
+    # exactly as adbd does it, so bug #40's fix has to be in force on the
+    # phone too. Quoting per-backend instead of here is one forgotten
+    # branch away from reopening a live RCE.
+    quoted = quote_shell_args(args)
+    if _on_device():
+        from arena.mobile import ondevice
+        return ondevice.execute(quoted, timeout=timeout,
+                                input_bytes=input_bytes,
+                                capture_binary=capture_binary)
+
     adb = find_adb()
     if adb is None:
         raise AdbNotFoundError(install_hint())
@@ -230,7 +263,7 @@ def run(
     cmd: list[str] = [adb]
     if effective:
         cmd += ["-s", effective]
-    cmd += quote_shell_args(args)
+    cmd += quoted
 
     kwargs: dict[str, Any] = {"timeout": timeout, **_SUBPROCESS_KWARGS}
     if capture_binary:

@@ -1,3 +1,71 @@
+## v4.167.3 — 2026-08-07
+
+### The Windows CI failure: `which("bash")` is not "bash works"
+
+Five Windows jobs failed `test_the_script_is_syntactically_valid` with
+`assert 1 == 0` and a blank message. `windows-latest` ships
+`C:\Windows\System32\bash.exe` -- the **WSL launcher stub**. `which`
+finds it, every invocation prints "Windows Subsystem for Linux has no
+installed distributions" to *stdout*, and exits 1. So `bash -n` returned
+1 with an empty stderr, which is exactly what the log showed.
+
+Reproduced locally with a stub bash that exits 1 with empty stderr: the
+signature matched. The gate now asks whether bash *runs* (`bash -c "exit
+0"`), not whether a file with that name exists. Two other tests in the
+same file had the identical `shutil.which` skip and were fixed with it.
+
+### A CRLF checkout would have broken the phone install
+
+There was no `.gitattributes` at all, so a Windows clone with the
+default `core.autocrlf=true` writes `install_termux.sh` with CRLF.
+Verified: the LF copy passes `bash -n`, the CRLF copy dies with
+`syntax error near unexpected token $'do\r'`. That failure would have
+surfaced on the operator's phone, in Termux, where no CI can see it.
+
+`.gitattributes` now pins `*.sh` to LF (and `*.cmd`/`*.ps1` to CRLF,
+since cmd.exe is their consumer), and a test asserts the committed
+installer contains no CRLF -- belt and braces, because the file is
+fetched onto the phone rather than checked out there.
+
+### On-device backend: the phone drives itself
+
+All 22 modules under `arena/mobile` reach the device through one
+function, `adb.run`. That is the seam. When `hostplatform.is_android()`
+is true, `run` now dispatches to `arena/mobile/ondevice.py` instead of
+looking for an `adb` binary that does not exist in Termux. No caller
+changes.
+
+Measured against the real device (POCO F7 Pro, Android 16, SDK 36,
+arm64-v8a) before writing a line: `ANDROID_ROOT=/system`,
+`ANDROID_DATA=/data`, `/system/bin/linker64` present, `com.termux`
+installed. The detector classifies all of those correctly.
+
+What the backend translates, and what it refuses:
+
+* `shell` / `exec-out` -- joined and handed to `sh -c`, reproducing
+  adbd's behaviour exactly. Callers such as `recording.py` build `sh -c`
+  payloads deliberately; exec'ing the argv directly would silently
+  change semantics for every one of them.
+* `push` / `pull` -- a local copy. With one machine there is no far side.
+* `get-state` -- `device`. We are the device.
+* `install`, `forward`, `tcpip`, `connect`, `root`, `remount`, ... --
+  **fail with a message**. These manage a host-to-device transport that
+  does not exist on the phone. Returning 0 would have the bridge report
+  a completed `install` that never happened, which is bug #66's
+  dishonesty wearing a different hat.
+
+**The quoting stays in `run`, above the dispatch.** That is load-bearing,
+not tidiness: on-device shell verbs are joined into a string and given
+to a shell, so bug #40's RCE fix must be in force on the phone too.
+Quoting per-backend is one forgotten branch away from a live RCE.
+Verified by execution -- `run(["shell", "ls /data & touch CANARY"])`
+creates no canary, and neither does the `exec-out` variant.
+
+Sabotage: moving the quoting below the dispatch fails three tests;
+making transport verbs return 0 fails four; exec'ing the argv instead of
+`sh -c` fails the join test; and forcing `_on_device()` true fails the
+reverse test that keeps desktops on adb -- without which the bridge
+would type into the operator's own machine instead of the phone.
 ## v4.167.2 — 2026-08-07
 
 ### Simulating a platform means simulating all of it

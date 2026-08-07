@@ -138,15 +138,64 @@ def test_psutil_is_optional_and_aiohttp_is_not():
     assert aiohttp_lines, "an aiohttp failure no longer aborts the install"
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+def _bash_actually_runs() -> bool:
+    """True only when `bash` on PATH is a working shell.
+
+    v4.167.3: `shutil.which("bash")` is not the same question. On
+    `windows-latest` GitHub ships `C:\\Windows\\System32\\bash.exe`, the
+    **WSL launcher stub** -- `which` finds it, and every invocation
+    prints "Windows Subsystem for Linux has no installed distributions."
+    to *stdout* and exits 1. So `bash -n script.sh` returned 1 with an
+    empty stderr and the assertion failed with a blank message on all
+    five Windows jobs, which is exactly how it read in the CI log.
+
+    Reproduced locally by stubbing a bash that exits 1 with an empty
+    stderr; the signature matched the CI failure exactly.
+
+    Asking "does bash work" instead of "does bash exist" is the fix.
+    Anything that cannot parse a trivial script is not a shell this test
+    can use.
+    """
+    if shutil.which("bash") is None:
+        return False
+    try:
+        probe = subprocess.run(["bash", "-c", "exit 0"],
+                               capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return probe.returncode == 0
+
+
+@pytest.mark.skipif(not _bash_actually_runs(),
+                    reason="no working bash (a WSL stub on PATH is not a shell)")
 def test_the_script_is_syntactically_valid():
     result = subprocess.run(["bash", "-n", str(SCRIPT)],
                             capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 0, (
+        f"bash -n failed rc={result.returncode}\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}")
+
+
+def test_the_installer_has_no_carriage_returns():
+    """CRLF would break the script on the phone, and git may introduce it.
+
+    There is no `.gitattributes` in this repo, so a Windows clone with
+    the default `core.autocrlf=true` checks `.sh` files out with CRLF.
+    Bash then fails on `for arg in "$@"; do\\r` -- verified locally: the
+    LF copy parses clean, the CRLF copy dies with
+    `syntax error near unexpected token $'do\\r'`.
+
+    The installer is fetched onto the phone, so this must be pinned in
+    the file itself rather than trusted to checkout settings.
+    """
+    raw = SCRIPT.read_bytes()
+    assert b"\r\n" not in raw, (
+        "install_termux.sh contains CRLF line endings; bash on the phone "
+        "will fail with `syntax error near unexpected token $'do\\r'`")
 
 
 @pytest.mark.skipif(
-    shutil.which("bash") is None or not sys.platform.startswith("linux"),
+    not _bash_actually_runs() or not sys.platform.startswith("linux"),
     reason="needs a POSIX shell on a Linux host: the installer's own "
            "self-check refuses to call a Darwin or Windows machine Android, "
            "which is correct behaviour and not something to stub out")
@@ -211,7 +260,7 @@ def test_it_runs_end_to_end_against_a_simulated_termux(tmp_path):
 
 
 @pytest.mark.skipif(
-    shutil.which("bash") is None or not sys.platform.startswith("linux"),
+    not _bash_actually_runs() or not sys.platform.startswith("linux"),
     reason="needs a POSIX shell on a Linux host")
 def test_it_refuses_a_non_termux_host(tmp_path):
     """Reverse sabotage: running this on a desktop must abort, not proceed."""
