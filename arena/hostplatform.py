@@ -100,17 +100,38 @@ def _is_termux(env: dict[str, str]) -> bool:
     return _TERMUX_PREFIX_MARKER in env.get("HOME", "")
 
 
-def detect_host_class(env: dict[str, str] | None = None) -> str:
+def detect_host_class(env: dict[str, str] | None = None,
+                      system: str | None = None) -> str:
     """Classify the host. Never raises; falls back to `platform.system()`.
 
-    `env` is injectable so tests can describe a phone without being one.
+    Both inputs are injectable, and that is not decoration. The first
+    version took only `env` and read the real OS internally, so every
+    Android case was untestable anywhere except Linux -- ten CI jobs on
+    Windows and macOS went red asserting `'macos' == 'android'`, because
+    the test could describe a phone's environment but not its operating
+    system. A detector that cannot be exercised on the platforms CI runs
+    is a detector CI cannot defend.
+
+    `system` takes `platform.system()`-style values ("Linux", "Windows",
+    "Darwin"); None means ask the real machine.
     """
     environ = dict(os.environ if env is None else env)
+    if system is None:
+        # sys.platform is checked too: it is the more reliable signal on
+        # frozen builds where platform.system() can be patched away.
+        if sys.platform == "win32":
+            resolved = "Windows"
+        elif sys.platform == "darwin":
+            resolved = "Darwin"
+        else:
+            resolved = platform.system()
+    else:
+        resolved = system
 
     # Windows and macOS are unambiguous and cannot be Android.
-    if sys.platform == "win32" or platform.system() == "Windows":
+    if resolved == "Windows":
         return WINDOWS
-    if sys.platform == "darwin" or platform.system() == "Darwin":
+    if resolved == "Darwin":
         return MACOS
 
     if _env_says_android(environ):
@@ -122,23 +143,25 @@ def detect_host_class(env: dict[str, str] | None = None) -> str:
     if _paths_say_android():
         return ANDROID
 
-    system = platform.system()
-    if system == "Linux":
+    if resolved == "Linux":
         return LINUX
-    return UNKNOWN if not system else system.lower()
+    return UNKNOWN if not resolved else resolved.lower()
 
 
-def is_android(env: dict[str, str] | None = None) -> bool:
-    return detect_host_class(env) == ANDROID
+def is_android(env: dict[str, str] | None = None,
+               system: str | None = None) -> bool:
+    return detect_host_class(env, system) == ANDROID
 
 
-def is_termux(env: dict[str, str] | None = None) -> bool:
+def is_termux(env: dict[str, str] | None = None,
+              system: str | None = None) -> bool:
     """Running *inside* Termux on the phone, as opposed to driving one."""
     environ = dict(os.environ if env is None else env)
-    return _is_termux(environ) and detect_host_class(environ) == ANDROID
+    return _is_termux(environ) and detect_host_class(environ, system) == ANDROID
 
 
-def has_systemd(env: dict[str, str] | None = None) -> bool:
+def has_systemd(env: dict[str, str] | None = None,
+                system: str | None = None) -> bool:
     """Whether `systemctl` is a meaningful thing to invoke here.
 
     Android has no systemd at all, so 21 call sites that shell out to
@@ -148,7 +171,7 @@ def has_systemd(env: dict[str, str] | None = None) -> bool:
     shim on PATH does not make PID 1 systemd.
     """
     environ = dict(os.environ if env is None else env)
-    if detect_host_class(environ) != LINUX:
+    if detect_host_class(environ, system) != LINUX:
         return False
     try:
         return Path("/run/systemd/system").is_dir()
@@ -167,16 +190,17 @@ def termux_prefix(env: dict[str, str] | None = None) -> str | None:
     return f"/data/data/{_TERMUX_PREFIX_MARKER}/files/usr"
 
 
-def describe(env: dict[str, str] | None = None) -> dict[str, Any]:
+def describe(env: dict[str, str] | None = None,
+             system: str | None = None) -> dict[str, Any]:
     """A JSON-safe summary for `/v1/capabilities` and the dashboard."""
     environ = dict(os.environ if env is None else env)
-    host_class = detect_host_class(environ)
+    host_class = detect_host_class(environ, system)
     summary: dict[str, Any] = {
         "class": host_class,
         "system": platform.system(),
         "machine": platform.machine(),
-        "termux": is_termux(environ),
-        "systemd": has_systemd(environ),
+        "termux": is_termux(environ, system),
+        "systemd": has_systemd(environ, system),
     }
     if host_class == ANDROID:
         summary["android_root"] = environ.get("ANDROID_ROOT") or None

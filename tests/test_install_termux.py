@@ -18,6 +18,7 @@ import pathlib
 import shutil
 import stat
 import subprocess
+import sys
 
 import pytest
 
@@ -144,7 +145,11 @@ def test_the_script_is_syntactically_valid():
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+@pytest.mark.skipif(
+    shutil.which("bash") is None or not sys.platform.startswith("linux"),
+    reason="needs a POSIX shell on a Linux host: the installer's own "
+           "self-check refuses to call a Darwin or Windows machine Android, "
+           "which is correct behaviour and not something to stub out")
 def test_it_runs_end_to_end_against_a_simulated_termux(tmp_path):
     """Execute it, do not just read it.
 
@@ -205,7 +210,9 @@ def test_it_runs_end_to_end_against_a_simulated_termux(tmp_path):
             assert line.count("--bind") <= 1, f"duplicated --bind: {line}"
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+@pytest.mark.skipif(
+    shutil.which("bash") is None or not sys.platform.startswith("linux"),
+    reason="needs a POSIX shell on a Linux host")
 def test_it_refuses_a_non_termux_host(tmp_path):
     """Reverse sabotage: running this on a desktop must abort, not proceed."""
     env = dict(os.environ)

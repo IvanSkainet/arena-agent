@@ -1,3 +1,29 @@
+## v4.167.2 — 2026-08-07
+
+### Simulating a platform means simulating all of it
+
+Ten CI jobs on Windows and macOS failed asserting `'macos' == 'android'`.
+The tests were describing a phone's *environment* while the detector
+read the *real* operating system underneath them, so on a Mac every
+Android case classified as macOS and every "must stay Linux" case
+classified as macOS too.
+
+`detect_host_class()` now takes `system=` alongside `env=`. Both are
+injectable, and that is not decoration: an Android detector that can
+only be exercised on Linux is a detector the Windows and macOS jobs
+cannot defend, which is exactly how the first version shipped red.
+
+Every case in `tests/test_hostplatform.py` pins `system=` explicitly,
+plus one new test that calls the zero-argument path -- because pinning
+everywhere else would let a broken default sail through unnoticed. The
+Windows short-circuit test became a parametrised Windows/Darwin pair.
+
+The installer's end-to-end test now skips on non-Linux hosts. It builds
+a fake `$PREFIX` tree and runs the real script, whose self-check
+correctly refuses to call a Darwin machine Android -- that refusal is
+the feature working, not something to stub around. Seven of its nine
+checks still run everywhere; only the two that need a POSIX shell and a
+Linux host skip.
 ## v4.167.1 — 2026-08-07
 
 ### The new installer gate went red on all fifteen CI jobs
