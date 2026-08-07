@@ -641,6 +641,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `subagent` | `subagent.spawn` — Spawn isolated subagent for delegated work; returns summary |
 | `sudo` | `sudo.run` — Run a command through 'sudo -n <cmd>' (non-interactive). Req |
 | `sys` | `sys.status` — Bridge/services/funnel status |
+| `relay` | `relay.check` / `relay.reply` / `relay.send` — Operator mailbox: read instructions left from the Dashboard or a terminal, answer them, or ask a question mid-task. Queued, not pushed — the agent has to look. |
 | `watch` | `watch.files` — List, add, or remove file watchers that emit realtime file c |
 | `workbench` | `workbench.status` — Show posture, runtimes, projects, sessions, recent artifacts, known limits, and next actions |
 | `ship` | `ship.status` / `ship.preflight` / `ship.smoke` — Whole-ship maps, readiness checks, Linux flight check, and real-machine smoke proof |

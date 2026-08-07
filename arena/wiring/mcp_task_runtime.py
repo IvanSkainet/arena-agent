@@ -43,6 +43,9 @@ def build_mcp_task_runtimes(g: MutableMapping[str, Any]) -> dict[str, Any]:
         version=env.VERSION,
         bin_dir=env.BIN,
         bridge_dir=env.BRIDGE_DIR,
+        # Same directory the REST handlers use -- see the comment on
+        # McpToolContext.relay_root.
+        relay_root=lambda: g["ROOT_AGENT"] / "relay",
         reports_dir=env.REPORTS_DIR,
         subprocess_kwargs=env._subprocess_kwargs,
         blocked_reason=env.blocked_reason,

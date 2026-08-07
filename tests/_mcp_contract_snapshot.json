@@ -693,6 +693,17 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_relay.py",
+    "handlers": [
+      "handle_relay_tool"
+    ],
+    "tool_names": [
+      "relay.check",
+      "relay.reply",
+      "relay.send"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_runtime.py",
     "handlers": [
       "handle_runtime_tool"

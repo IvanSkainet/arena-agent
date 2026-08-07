@@ -28,6 +28,7 @@ from arena.mcp.tool_registry_mobile import MOBILE_MCP_TOOLS
 from arena.mcp.tool_registry_net import NET_MCP_TOOLS
 from arena.mcp.tool_registry_ocr import OCR_MCP_TOOLS
 from arena.mcp.tool_registry_scenarios import SCENARIO_MCP_TOOLS
+from arena.mcp.tool_relay import RELAY_MCP_TOOLS
 from arena.mcp.tool_runtime import RUNTIME_TOOLS
 from arena.mcp.tool_service import SERVICE_TOOLS
 from arena.mcp.tool_ship import SHIP_TOOLS
@@ -267,3 +268,6 @@ MCP_TOOLS.extend(FOUNDRY_TOOLS)
 MCP_TOOLS.extend(CUSTOM_TOOL_MGMT_DEFS)
 MCP_TOOLS.extend(AUDIT_TOOLS)
 MCP_TOOLS.extend(INPUT_HELPER_TOOLS)
+# v4.166.0: operator mailbox. Listing it as a tool is what turns the relay
+# from a channel that exists into one the agent actually reaches for.
+MCP_TOOLS.extend(RELAY_MCP_TOOLS)

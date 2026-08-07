@@ -1,5 +1,50 @@
 ## Unreleased
 
+### The mailbox becomes a habit: MCP tools, README, AGENTS.md
+
+Three surfaces now share one queue -- HTTP, the CLI, and `relay.check` /
+`relay.reply` / `relay.send` as MCP tools the agent sees in its own tool
+list. That last part is the point: the relay already worked, but both
+older surfaces needed somebody to *remember* it existed.
+
+`relay.check` is **non-blocking by default**. A tool that costs 25
+seconds per call is a tool the agent quietly stops calling, so the
+default is "look now, answer in milliseconds" and `wait` is opt-in for
+when the agent has genuinely finished and wants a moment for a reply.
+`AGENTS.md` now tells the agent to check between long steps, to ask via
+`relay.send` instead of guessing at a decision only the operator can
+make, and -- most importantly -- that **silence is not agreement**: an
+unanswered message means nobody looked, not that they approved.
+
+**The bug this shipped with, found by running it.** The first version
+derived the mailbox directory from `ctx.bridge_dir`, because that is what
+MCP happens to be handed. The HTTP handlers use `ROOT_AGENT`, and on the
+operator's machine those are *different directories* -- so a message sent
+from the Dashboard was invisible to `relay.check`, and the agent's reply
+was invisible to the operator. Both halves looked healthy in isolation,
+which is worse than a crash. The fallback is gone: `_relay_root` now
+raises rather than guessing, and a test parses the wiring with `ast` to
+prove `relay_root` is actually passed. Sabotage found that gap too --
+deleting the wiring line broke nothing, because every unit test built its
+own context.
+
+**A gate that pointed at a script that could not fix it.** The
+description-fingerprint guard fails with "regenerate with
+scripts/refresh_mcp_contract_snapshot.py", but that script only ever
+wrote the *name* snapshot -- following its own instructions left the
+suite red with no further hint. It writes both now, and prints which
+descriptions were added, removed or edited, because these strings steer
+the model and a silent rewrite is exactly what the guard exists to
+prevent. Adding three tools made it obvious; a one-word wording fix would
+have hit the same wall.
+
+Four other project gates caught this change on the way in and all four
+were right: the namespace doc coverage check (relay had no README entry),
+the handler signature check (`ctx` must be keyword-only), the contract
+snapshot, and the quality ratchet (`Path(Any)` needed narrowing).
+
+## Unreleased
+
 ### The relay, wired up: five endpoints and a Dashboard tab
 
 The mailbox from the previous entry now works over HTTP and has a UI. A

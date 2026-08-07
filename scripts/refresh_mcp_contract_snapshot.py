@@ -78,6 +78,61 @@ def main() -> int:
           f"({len(snapshot)} tool modules, "
           f"{sum(len(e['handlers']) for e in snapshot)} handlers, "
           f"{sum(len(e['tool_names']) for e in snapshot)} tool names)")
+
+    # v4.166.0: also refresh the DESCRIPTION fingerprint.
+    #
+    # Two guards protect the catalogue -- this snapshot (names, handlers,
+    # modules) and tests/_mcp_description_fingerprint.json (the prose the
+    # model actually reads). The failure message on the second one points
+    # here, but this script only ever wrote the first, so following the
+    # instructions left the suite red with no further hint. Adding three
+    # tools made that obvious; it would have been just as broken for a
+    # one-word wording fix.
+    return _write_description_fingerprint()
+
+
+def _write_description_fingerprint() -> int:
+    """Record a hash per tool description, so prose edits stay deliberate."""
+    import hashlib
+
+    fingerprint_path = REPO / "tests" / "_mcp_description_fingerprint.json"
+    try:
+        sys.path.insert(0, str(REPO))
+        from arena.mcp.tool_registry import MCP_TOOLS
+    except Exception as exc:  # noqa: BLE001 -- report, do not half-write
+        print(f"[ERR] cannot import the tool registry: {exc}", file=sys.stderr)
+        print("      description fingerprint NOT updated", file=sys.stderr)
+        return 1
+
+    current = {
+        tool["name"]: hashlib.sha256(
+            str(tool.get("description") or "").encode("utf-8")).hexdigest()[:16]
+        for tool in MCP_TOOLS
+    }
+    previous = {}
+    if fingerprint_path.exists():
+        try:
+            previous = json.loads(fingerprint_path.read_text(encoding="utf-8"))
+        except ValueError:
+            previous = {}
+
+    added = sorted(set(current) - set(previous))
+    removed = sorted(set(previous) - set(current))
+    edited = sorted(n for n in set(current) & set(previous)
+                    if current[n] != previous[n])
+
+    fingerprint_path.write_text(
+        json.dumps(current, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"[OK] wrote {fingerprint_path.relative_to(REPO)} "
+          f"({len(current)} descriptions)")
+    # Print the diff rather than swallowing it: these strings steer the
+    # model, and a silent rewrite is exactly what the guard exists to stop.
+    if added:
+        print(f"     added:   {', '.join(added)}")
+    if removed:
+        print(f"     removed: {', '.join(removed)}")
+    if edited:
+        print(f"     EDITED:  {', '.join(edited)}  <- review these")
     return 0
 
 

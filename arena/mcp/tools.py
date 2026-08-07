@@ -46,6 +46,7 @@ from arena.mcp.tool_net import handle_net_tool
 from arena.mcp.tool_ocr import handle_ocr_tool
 from arena.mcp.tool_plan import handle_plan_tool
 from arena.mcp.tool_registry import MCP_TOOLS
+from arena.mcp.tool_relay import handle_relay_tool
 from arena.mcp.tool_runtime import handle_runtime_tool
 from arena.mcp.tool_scenarios import handle_scenario_tool
 from arena.mcp.tool_service import handle_service_tool
@@ -86,6 +87,13 @@ class McpToolContext:
     send_notification_sync: Callable[[str, str], dict[str, Any]]
     play_beep_sync: Callable[[str, int, int], dict[str, Any]]
     send_notification_sync: Callable[[str, str], dict[str, Any]]
+    # v4.166.0: the operator mailbox directory. Explicit rather than
+    # derived, because MCP is handed BRIDGE_DIR while the HTTP handlers
+    # use ROOT_AGENT -- and on this operator's machine those are
+    # different paths. Deriving it here split the mailbox in two: a
+    # message sent over HTTP was invisible to relay.check, verified by
+    # running both against one bridge.
+    relay_root: Callable[[], Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -182,6 +190,7 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                 lambda: handle_fs_tree_diff_tool(name, args, ctx=ctx),
                 lambda: handle_memory_export_import_tool(name, args, ctx=ctx),
                 lambda: handle_git_tool(name, args, ctx=ctx),
+                lambda: handle_relay_tool(name, args, ctx=ctx),
                 lambda: handle_browser_tool(name, args, ctx=ctx, run_local=run_local, run_sd=run_sd),
                 lambda: handle_memory_tool(name, args, ctx=ctx, run_local=run_local),
                 lambda: handle_plan_tool(name, args, ctx=ctx),

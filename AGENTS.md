@@ -110,6 +110,38 @@ env-variable reference. [CONTRIBUTING.md](CONTRIBUTING.md) has the
 "Security-sensitive areas" section pointing at every file that carries
 one of these invariants.
 
+## The operator can leave you messages (v4.166.0+)
+
+There is a mailbox between you and the operator. It is not a
+notification you will be shown -- **you have to look**.
+
+```
+relay.check                  # MCP tool: oldest unread message, non-blocking
+relay.check(wait=25)         # block briefly when you want an answer now
+relay.reply(in_reply_to=..., body=...)
+relay.send(body=...)         # ask a question mid-task instead of guessing
+```
+
+**Check it at the start of a session and between long steps.** The
+operator may have left an instruction while no session was running --
+overnight, or during a CI wait. `relay.check` with no arguments costs
+milliseconds and returns immediately when the box is empty, so there is
+no reason to ration it.
+
+**Use `relay.send` instead of guessing.** If a task hinges on a decision
+only the operator can make (which release to cut, whether to delete
+something), ask. A queued question the operator answers in ten minutes
+beats a confident wrong turn you spend an hour on. Say plainly that you
+are blocked and on what.
+
+**Do not treat silence as agreement.** A message sits in the queue until
+somebody reads it. If nobody replies, that means nobody has looked -- not
+that they approved. Same rule as everywhere else here: absence of a
+signal is not a signal.
+
+Same queue as the Dashboard **Relay** tab and `bin/arena-relay`, so a
+message is visible wherever the operator happens to be.
+
 ## Verification doctrine (v4.153.3+)
 
 **GREEN ≠ WORKS.** A passing suite proves only that the tests passed;
