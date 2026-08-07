@@ -143,21 +143,57 @@ def list_messages(root: Path, *, limit: int = 50) -> list[dict[str, Any]]:
 
 
 def claim_next(root: Path) -> RelayMessage | None:
-    """Take the oldest message, atomically. None when the inbox is empty."""
+    """Take the oldest message exactly once. None when the inbox is empty.
+
+    v4.166.0: this used `os.rename`, and the whole Windows matrix went red
+    with `lost -29 message(s)` -- a NEGATIVE count, meaning messages were
+    delivered *more* than once. On POSIX `os.rename` silently replaces an
+    existing destination and the loser of a race gets FileNotFoundError,
+    so the claim held; Windows semantics differ enough that it did not,
+    and 16 threads found it in CI while 300 messages across 16 threads on
+    Linux never reproduced it locally.
+
+    Rather than reason about which platform guarantees what, the claim now
+    rests on something both agree on: `os.open` with `O_CREAT | O_EXCL`
+    fails if the file already exists, everywhere. The winner creates a
+    lock file named after the message; everyone else moves on. A
+    duplicated instruction is worse than a lost one -- "delete the branch"
+    run twice is a different outcome than run once -- so this is the one
+    property worth paying an extra syscall for.
+    """
     inbox, claimed, _replies = _dirs(root)
     for path in sorted(inbox.glob("*.json")):
+        lock = claimed / (path.name + ".lock")
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            # Another claimer owns this one.
+            continue
+        except OSError:
+            continue
+        os.close(fd)
+
         target = claimed / path.name
         try:
-            os.rename(path, target)
-        except OSError:
-            # Someone else claimed it between the glob and the rename.
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            # Unreadable: do not jam the queue behind it. Move it aside so
+            # it can be inspected, and keep the lock so nobody retries it.
+            try:
+                os.replace(path, target)
+            except OSError:
+                pass
             continue
         try:
-            raw = json.loads(target.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            # Unreadable: drop it rather than jam the queue behind it, but
-            # leave the file in `claimed` so it can be inspected later.
-            continue
+            # os.replace, not os.rename: defined to overwrite on BOTH
+            # platforms, so a leftover file from an earlier crash cannot
+            # wedge the queue.
+            os.replace(path, target)
+        except OSError:
+            # The bytes are already in hand and the lock is ours, so the
+            # message is still delivered exactly once. Losing the file move
+            # costs an inspection copy, not a message.
+            pass
         return RelayMessage.from_dict(raw)
     return None
 

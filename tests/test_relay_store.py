@@ -23,6 +23,7 @@ sentence as a shell command. Prose needs its own channel.
 """
 from __future__ import annotations
 
+import collections
 import json
 import threading
 from pathlib import Path
@@ -103,7 +104,11 @@ def test_concurrent_claims_never_duplicate_a_message(root):
     `claim_next` relies on os.rename being atomic; this is the test that
     says so out loud.
     """
-    total = 120
+    # 120 messages / 8 threads passed on Linux while the Windows matrix
+    # was failing with "lost -29" -- duplicates, not losses. Wider and
+    # busier, plus a barrier so every thread starts inside the same glob
+    # window instead of politely queueing behind the first one.
+    total = 400
     for i in range(total):
         S.send_message(root, f"m{i}")
 
@@ -118,14 +123,45 @@ def test_concurrent_claims_never_duplicate_a_message(root):
             with lock:
                 seen.append(msg.body)
 
-    threads = [threading.Thread(target=worker) for _ in range(8)]
+    workers = 16
+    barrier = threading.Barrier(workers)
+
+    def synced_worker():
+        barrier.wait()
+        worker()
+
+    threads = [threading.Thread(target=synced_worker) for _ in range(workers)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
 
+    duplicates = [b for b, n in collections.Counter(seen).items() if n > 1]
+    assert not duplicates, (
+        f"{len(duplicates)} message(s) delivered more than once, e.g. "
+        f"{duplicates[:3]} -- a duplicated instruction is worse than a lost one"
+    )
     assert len(seen) == total, f"lost {total - len(seen)} message(s)"
-    assert len(set(seen)) == total, "a message was delivered more than once"
+
+
+def test_claiming_is_exclusive_even_when_the_rename_fails(root, monkeypatch):
+    """The claim must not depend on the file move succeeding.
+
+    Windows and POSIX disagree about os.rename semantics, which is what
+    produced duplicate deliveries in CI. The lock file is what makes the
+    claim exclusive; the move is bookkeeping. Break the move and the
+    exclusivity has to hold anyway.
+    """
+    S.send_message(root, "only once")
+
+    def failing_replace(src, dst):
+        raise OSError("simulated cross-device move failure")
+
+    monkeypatch.setattr(S.os, "replace", failing_replace)
+    first = S.claim_next(root)
+    second = S.claim_next(root)
+    assert first is not None and first.body == "only once"
+    assert second is None, "the same message was handed out twice"
 
 
 # --------------------------------------------------------------------
@@ -309,3 +345,35 @@ def test_listing_shows_which_state_each_message_is_in(root):
 def test_listing_an_empty_relay_is_empty_not_an_error(root):
     assert S.list_messages(root) == []
     assert S.inbox_depth(root) == 0
+
+
+def test_the_claim_uses_an_exclusive_create_not_a_rename():
+    """Pin the mechanism, because the race only reproduces on Windows.
+
+    Sabotage proved the behavioural test is not enough: swapping the lock
+    file back for a bare `os.rename` keeps every assertion above green on
+    Linux, where rename happens to behave. CI on Windows disagreed --
+    `lost -29 message(s)`, a negative count, meaning duplicate delivery.
+
+    `os.open(..., O_CREAT | O_EXCL)` is the one primitive both platforms
+    define identically: it fails if the file exists. That is what the
+    claim rests on now, so that is what this asserts.
+    """
+    import ast
+    import pathlib
+
+    source = pathlib.Path(S.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    claim = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "claim_next")
+    body = ast.dump(claim)
+
+    assert "O_EXCL" in body, (
+        "claim_next no longer takes an exclusive lock; on Windows a plain "
+        "rename delivered the same message to two claimers"
+    )
+    assert "'rename'" not in body, (
+        "os.rename is back in claim_next -- use os.replace, which is "
+        "defined to overwrite on both platforms"
+    )

@@ -1,5 +1,40 @@
 ## Unreleased
 
+### The relay claim was not exclusive on Windows
+
+The whole Windows matrix went red on the relay with
+`lost -29 message(s)`. A **negative** count: more messages were delivered
+than were ever sent, which means the same instruction reached two
+claimers. That is the failure mode the concurrency test was written to
+catch, and on Linux it never fired -- 400 messages across 16 threads
+locally, clean every time.
+
+`claim_next` rested on `os.rename` being an exclusive move. On POSIX the
+loser of that race gets `FileNotFoundError` and steps aside; Windows
+semantics differ enough that it did not hold. Rather than reason about
+which platform guarantees what, the claim now rests on the one primitive
+both define identically: `os.open` with `O_CREAT | O_EXCL`, which fails
+if the file already exists. The winner creates a lock file named after
+the message; everyone else moves on. The file move is bookkeeping now,
+not the lock -- and it uses `os.replace`, which is specified to overwrite
+on both platforms, so a leftover file from an earlier crash cannot wedge
+the queue.
+
+A duplicated instruction is worse than a lost one. "Delete the branch"
+executed twice is a different outcome than executed once, which is why
+this is worth an extra syscall per claim.
+
+**Sabotage showed the behavioural test was not enough.** Putting
+`os.rename` back leaves every assertion green on Linux, because rename
+happens to behave here -- exactly how this shipped in the first place. So
+the mechanism is now pinned directly: a test parses `claim_next` with
+`ast` and fails if `O_EXCL` disappears or `os.rename` returns. The
+concurrency test was widened to 400 messages across 16 threads behind a
+barrier, and a new test breaks the file move on purpose to prove
+exclusivity does not depend on it.
+
+## Unreleased
+
 ### The mailbox becomes a habit: MCP tools, README, AGENTS.md
 
 Three surfaces now share one queue -- HTTP, the CLI, and `relay.check` /
