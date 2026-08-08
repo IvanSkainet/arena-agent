@@ -53,6 +53,7 @@ deliberate.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import time
 from typing import Any
 
@@ -72,21 +73,40 @@ NARROWER = "cautious"
 # should not stay usable indefinitely.
 CONSENT_TTL_S = 300.0
 
-# Addresses that reach only this machine. Named rather than written
-# inline because devskim flags bare localhost literals as possible debug
-# code (alerts #320-#323) -- a fair heuristic, and the finding is a false
-# positive here: this is a security check that the bridge is NOT
-# reachable from the network, not a hardcoded debug endpoint. Naming it
-# says so once, in the place where the meaning lives.
-LOOPBACK_ADDRESSES: frozenset[str] = frozenset({
-    "127.0.0.1", "::1", "0:0:0:0:0:0:0:1",
-    "localhost",  # noqa: S104 -- a name being *classified*, not dialled
-})
+# Whether a bind address is reachable from other machines is a question
+# the standard library already answers. `ipaddress.ip_address().is_loopback`
+# knows about 127.0.0.0/8 in full -- not just 127.0.0.1 -- and about ::1
+# in every spelling, which a hand-written tuple of string literals does
+# not: 127.0.0.2 is loopback and would have been classified as exposed.
+#
+# It also removes the literals devskim kept flagging (#320-#326,
+# "accessing localhost could indicate debug code"). That heuristic is
+# reasonable and the finding was a false positive -- these lines check
+# that the bridge is NOT reachable, they do not dial anything -- but
+# suppressing a scanner is worse than not needing it. Deferring to
+# stdlib is both more correct and quieter.
+#
+# The hostname form is handled separately: it is a name, not an address,
+# so it cannot be parsed and is matched exactly.
+_LOOPBACK_HOSTNAMES: frozenset[str] = frozenset({"localhost"})
 
 
 def is_loopback(bind: str) -> bool:
     """True when this bind address is unreachable from other machines."""
-    return bind.strip().lower() in LOOPBACK_ADDRESSES
+    candidate = bind.strip().lower()
+    if not candidate:
+        # An empty bind is aiohttp's "all interfaces". Treating unknown
+        # as safe is how a bridge ends up exposed while reporting that
+        # it is not, so absence fails towards "exposed".
+        return False
+    if candidate in _LOOPBACK_HOSTNAMES:
+        return True
+    try:
+        return ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        # Not an address we understand -- a hostname, an interface name,
+        # something malformed. Fail closed: warn rather than reassure.
+        return False
 
 
 def _consent_phrase(target: str, bind: str, secret: str) -> str:

@@ -204,3 +204,62 @@ def test_every_switch_is_audited():
              and isinstance(node.func, ast.Attribute)}
     assert "audit" in calls, "the profile handler never audits"
     assert "profile.switch" in source, "audit event is not tagged"
+
+
+# ------------------------------------------------------- loopback classifier
+
+@pytest.mark.parametrize("address", [
+    "127.0.0.1",
+    "127.0.0.2",      # the whole 127.0.0.0/8 block is loopback
+    "127.255.255.254",
+    "::1",
+    "0:0:0:0:0:0:0:1",
+    "localhost",
+    "LOCALHOST",      # case must not matter
+])
+def test_loopback_addresses_are_recognised(address):
+    """v4.168.3: the hand-written literal list was wrong as well as noisy.
+
+    It listed exactly "127.0.0.1", so a bridge bound to 127.0.0.2 --
+    equally unreachable from the network -- was classified as exposed
+    and its consent phrase differed. Deferring to `ipaddress` fixes the
+    correctness problem and removes the literals devskim was flagging
+    (#320-#326) in one move.
+    """
+    assert ps.is_loopback(address) is True
+
+
+@pytest.mark.parametrize("address", [
+    "0.0.0.0",        # noqa: S104 -- the value under test
+    "192.168.1.5",
+    "10.5.1.2",
+    "::",
+    "auto",           # unresolved placeholder
+    "tailscale0",     # an interface name, not an address
+    "",               # absent
+    "   ",
+])
+def test_non_loopback_addresses_are_treated_as_exposed(address):
+    """Fail closed: anything not provably local is reported as exposed.
+
+    Reporting an unparseable bind as safe is how a bridge ends up on a
+    public interface while the UI says it is not -- reassurance is the
+    one thing this classifier must never invent.
+    """
+    assert ps.is_loopback(address) is False
+
+
+def test_the_classifier_has_no_hardcoded_address_list():
+    """The fix is deferring to stdlib, not hiding the literals.
+
+    A future edit that reintroduces a tuple of address strings would be
+    both less correct (missing 127.0.0.0/8) and would bring the scanner
+    findings back. Pin the mechanism.
+    """
+    import inspect
+
+    source = inspect.getsource(ps.is_loopback)
+    assert "ipaddress" in source, (
+        "is_loopback no longer defers to the standard library")
+    assert "127.0.0.1" not in source, (
+        "a hardcoded address literal is back in the classifier")

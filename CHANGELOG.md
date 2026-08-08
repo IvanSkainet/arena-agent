@@ -1,3 +1,33 @@
+## v4.168.3 — 2026-08-08
+
+### The loopback list was wrong, not just noisy
+
+devskim kept raising `accessing localhost could indicate debug code` on
+`arena/admin/profile_switch.py` (#320-#326). v4.168.1 answered by moving
+the literals into a named frozenset. The alerts came back, because the
+literals were still literals.
+
+Suppressing a scanner is worse than not needing it, so the second look
+asked what those lines were actually for -- and found a real defect
+hiding behind the noise. The list held exactly `"127.0.0.1"`, but the
+whole of `127.0.0.0/8` is loopback. A bridge bound to `127.0.0.2` is
+equally unreachable from the network and was being classified as
+**exposed**: the wrong warning in the Dashboard, and a different consent
+phrase for an identical security posture.
+
+`ipaddress.ip_address(...).is_loopback` knows all of this already. The
+classifier now defers to it, handles `localhost` as the hostname it is,
+and fails closed on anything it cannot parse -- an unresolved `auto`, an
+interface name, an empty string. Reassurance is the one thing this
+function must never invent.
+
+Correctness and quiet in the same move: no address literals left for a
+scanner to flag.
+
+Gates: eight loopback forms recognised, eight non-loopback forms
+reported as exposed, and one test pinning the mechanism itself.
+Sabotage -- reverting to a two-element literal tuple -- fails three of
+them, including on `127.255.255.254`, which the old code got wrong.
 ## v4.168.2 — 2026-08-08
 
 ### Ordering was the fix, and I got the ordering wrong
