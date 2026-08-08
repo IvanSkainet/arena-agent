@@ -60,6 +60,8 @@ class AdminHandlers:
     tunnels_probe_reset: Callable[..., Any]
     # v4.1.0: agent-facing "which URL should I use" endpoint.
     agent_config: Callable[..., Any]
+    profile_get: Callable[..., Any]
+    profile_post: Callable[..., Any]
     # v3.85.0: cross-platform auto-update.
     update_status: Callable[..., Any]
     update_check: Callable[..., Any]
@@ -622,6 +624,13 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
     from arena.admin.handlers_update import make_update_handlers
     _upd = make_update_handlers(ctx)
 
+    # v4.168.0: runtime profile switch. The operator could not reach the
+    # setting without editing a command line and restarting -- on a
+    # phone that means going back into Termux, which is precisely the
+    # thing a Dashboard exists to avoid.
+    from arena.admin.handlers_profile import make_profile_handlers
+    _prof = make_profile_handlers(ctx)
+
     # v3.96.0: ZeroTier Central management handlers live in a
     # sibling module too — same reason.
     from arena.admin.zerotier_central_handlers import make_zerotier_central_handlers
@@ -651,6 +660,8 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         tunnels_probe=handle_v1_tunnels_probe,
         tunnels_probe_reset=handle_v1_tunnels_probe_reset,
         agent_config=handle_v1_agent_config,
+        profile_get=_prof["profile_get"],
+        profile_post=_prof["profile_post"],
         update_status=_upd["update_status"],
         update_check=_upd["update_check"],
         update_apply=_upd["update_apply"],

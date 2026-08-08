@@ -25,6 +25,14 @@
 </style>
 <h1>Settings</h1>
 <div class="card">
+<h2>Access Profile <span id="profBadge" class="badge gray">checking...</span></h2>
+<p class="st-hint" id="profMeaning" style="margin:4px 0 10px 0">Loading…</p>
+<div id="profWarn" class="st-hint" style="display:none;background:var(--surface-warn);padding:10px 12px;border-radius:6px;margin:4px 0 10px 0;font-size:12px;line-height:1.5"></div>
+<button id="profWiden" class="sm" onclick="profileWiden()">Enable full shell</button>
+<button id="profNarrow" class="sm" onclick="profileNarrow()">Restore restrictions</button>
+<div id="profResult" class="mono" style="font-size:11px;margin-top:8px;color:var(--text3)"></div>
+</div>
+<div class="card">
 <h2>Bridge Info</h2>
 <p>Version: <strong id="setVersion">{{VERSION}}</strong></p>
 <p>Host: <strong>{{HOST}}</strong></p>

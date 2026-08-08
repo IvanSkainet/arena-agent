@@ -412,3 +412,85 @@ def test_it_refuses_a_non_termux_host(tmp_path):
                             text=True, env=env, cwd=str(tmp_path), timeout=120)
     assert result.returncode != 0, "installer ran happily on a non-phone"
     assert "Termux" in result.stderr or "Termux" in result.stdout
+
+
+# ------------------------------------------------------------ bootstrap
+
+BOOTSTRAP = ROOT / "scripts" / "bootstrap_android.sh"
+
+
+def test_the_one_command_bootstrap_exists_and_is_executable():
+    """v4.168.0: seven manual steps is a developer workflow, not an install.
+
+    The operator's verdict on the previous instructions -- install
+    unzip, mkdir, find the downloaded zip, unzip with the right
+    --strip-components, run a second script -- was "not everyone will
+    climb into Termux to get who-knows-what". He was right.
+    """
+    assert BOOTSTRAP.is_file(), "no one-command bootstrap script"
+    index = subprocess.run(["git", "ls-files", "-s", str(BOOTSTRAP)],
+                           cwd=str(ROOT), capture_output=True, text=True)
+    assert index.stdout.startswith("100755"), (
+        f"bootstrap is not committed executable: {index.stdout.strip()!r}")
+
+
+def test_the_bootstrap_verifies_what_it_downloads():
+    """An install that skips verification is remote code execution.
+
+    This one is piped from the internet into bash, so the archive it
+    then fetches must be checked against the digest GitHub reports --
+    and a mismatch must abort, not warn.
+    """
+    text = BOOTSTRAP.read_text(encoding="utf-8")
+    assert "sha256" in text.lower(), "the bootstrap does not hash the archive"
+    assert "DIGEST MISMATCH" in text, "a wrong digest does not abort"
+    assert "--require-hashes" in text, (
+        "dependencies are installed unpinned by the bootstrap")
+    assert "path traversal" in text, (
+        "the archive is unpacked without checking for escaping members")
+
+
+def test_the_bootstrap_does_not_expose_the_phone_by_default():
+    """A phone roams between untrusted networks."""
+    text = BOOTSTRAP.read_text(encoding="utf-8")
+    assert "--bind 127.0.0.1" in text, "bootstrap does not bind to loopback"
+    assert "--profile cautious" in text, (
+        "bootstrap starts with the restricted profile disabled")
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        assert "--bind 0.0.0.0" not in stripped, (
+            f"bootstrap binds to every interface: {stripped}")
+
+
+def test_the_bootstrap_proves_the_bridge_answers_before_claiming_success():
+    """"Green != works" applies hardest where CI cannot reach."""
+    text = BOOTSTRAP.read_text(encoding="utf-8")
+    assert "/v1/version" in text, (
+        "the bootstrap never checks that the bridge actually responds")
+    assert "did not answer" in text, (
+        "a bridge that never comes up is reported as success")
+
+
+def test_the_bootstrap_sets_up_autostart():
+    text = BOOTSTRAP.read_text(encoding="utf-8")
+    assert ".termux/boot" in text, "no autostart hook is installed"
+    assert "termux-wake-lock" in text, (
+        "the bridge will be frozen when the screen locks")
+
+
+@pytest.mark.skipif(not _bash_actually_runs(),
+                    reason="no working bash (a WSL stub is not a shell)")
+def test_the_bootstrap_is_syntactically_valid():
+    result = subprocess.run(["bash", "-n", str(BOOTSTRAP)],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, (
+        f"rc={result.returncode}\nstdout: {result.stdout}\n"
+        f"stderr: {result.stderr}")
+
+
+def test_the_bootstrap_has_no_carriage_returns():
+    assert b"\r\n" not in BOOTSTRAP.read_bytes(), (
+        "bootstrap_android.sh has CRLF endings; bash on the phone will "
+        "fail with `syntax error near unexpected token`")

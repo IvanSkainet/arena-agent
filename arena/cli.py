@@ -80,6 +80,12 @@ def serve(args: argparse.Namespace, ctx: CliContext) -> None:
         "token_file": str(token_file_used),
         "profile": args.profile,
         "root": root,
+        # v4.168.0: the bind address is part of the runtime config, not
+        # just a socket argument. The profile switch binds its consent
+        # phrase to it, so consent granted for a loopback bridge cannot
+        # silently authorise the same widening after a rebind to a
+        # public interface (bug #70's lesson).
+        "bind": args.bind,
         "port": args.port,
         "allow_any_cwd": args.allow_any_cwd,
         "timeout": args.timeout,
@@ -111,6 +117,11 @@ def serve(args: argparse.Namespace, ctx: CliContext) -> None:
         ctx.log_info("[bind] --bind=%r resolved to %s (%s)",
                      args.bind, effective_bind, bind_reason)
     args.bind = effective_bind
+    # Record the RESOLVED bind, not the requested one. `--bind auto`
+    # becomes a concrete address here, and the profile switch derives
+    # its consent phrase from this value -- binding consent to a literal
+    # "auto" would defeat the point.
+    cfg["bind"] = effective_bind
 
     # v4.1.1: opt-in ZeroTier auto-join. If ARENA_ZEROTIER_NETWORK is
     # set to a 16-hex network ID, join that network before starting

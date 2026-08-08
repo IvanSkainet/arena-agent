@@ -1,3 +1,94 @@
+## v4.168.0 — 2026-08-08
+
+### The button
+
+The operator's words: *"I cannot coexist with restrictions, however
+much I care about security. There is no button, and without it this is
+unusable."*
+
+He was right, and the honest reading is that the restriction was in the
+wrong place. `--profile` was fixed at launch. Changing it meant editing
+a command line and restarting the bridge -- on a phone, going back into
+Termux, which is precisely what a Dashboard exists to prevent. A safety
+control nobody can reach is not safety; it is an obstacle that gets
+routed around, and the workaround he asked for -- "a button that grants
+all permissions" -- would have been far worse than a precise one.
+
+So the profile became runtime state:
+
+    GET  /v1/admin/profile     what is in force, and what changing costs
+    POST /v1/admin/profile     switch it
+
+with a **Settings → Access Profile** card carrying two buttons. The
+safety moved from *impossible* into the interaction:
+
+* **Widening needs consent.** A server-generated phrase, echoed back,
+  same two-step shape as `update/apply`. The Dashboard's confirm dialog
+  spells out what is being granted -- making a human retype a hash
+  teaches copy-paste, not caution.
+* **The phrase is bound to the target profile, the bind address, and
+  the bridge token.** Consent obtained on a loopback bridge does not
+  survive a rebind to `0.0.0.0`. That is bug #70's lesson -- consent not
+  bound to what it approves -- applied where the grant is a shell.
+* **Narrowing needs nothing.** One click, always. Friction on the way to
+  *more* safety is how a control ends up permanently off.
+* **Everything is audited**, refusals included. A rejected privilege
+  request is evidence of an attempt.
+
+There is deliberately no third, wider level. `owner-shell` is what the
+desktop has always had: full shell for the token holder. Nothing wider
+exists to grant, and an unknown profile name is refused rather than
+quietly treated as "maximum".
+
+### One command, not seven
+
+The previous phone install was: install unzip, mkdir, find the zip you
+downloaded in a browser, unzip it with the right `--strip-components`,
+run a second script. His verdict -- *"not everyone will climb into
+Termux to get who-knows-what"* -- is the correct one. That is a
+developer workflow wearing an installer's clothes.
+
+    curl -fsSL .../scripts/bootstrap_android.sh | bash
+
+Packages, download, verification, unpack, dependencies, self-test,
+autostart, start, and it prints the Dashboard URL with the token. What
+it keeps: SHA-256 checked against the digest GitHub reports (a mismatch
+aborts), hash-pinned dependencies, path-traversal refusal when
+unpacking, loopback bind, `cautious` to begin with. What it adds:
+a `~/.termux/boot` hook so the bridge survives a reboot, and a real
+`/v1/version` probe before it claims success -- a bootstrap that reports
+"started" for a process that died two seconds later would be the exact
+failure this project keeps guarding against.
+
+### On "the phone is a mini console version"
+
+Measured, not assumed, against the bridge running on the operator's
+POCO F7 Pro:
+
+    endpoints advertised : 120
+    Dashboard at /gui    : HTTP 200, manifest 200
+    $PREFIX/bin binaries : 579
+    mobile backend       : on-device
+
+The full Dashboard -- Overview, Workspace, Terminal, Memory, Recall --
+renders in the phone's own browser. It is the same interface, not a
+cut-down one. The 17-command allowlist he was hitting is
+`arena/mobile/shell.py`, which governs driving a phone **over ADB from a
+desktop**; the bridge running *on* the phone uses the same `/v1/exec`
+handler as Windows and Linux, gated by the same profile that now has a
+button.
+
+Sabotage, six runs: widening without consent, consent unbound from the
+bind address, narrowing made to require consent, an unknown "god-mode"
+profile, a bootstrap binding to `0.0.0.0`, and a bootstrap skipping
+digest verification. Five failed their gates immediately.
+
+The sixth passed, and that was the useful one: the god-mode test
+asserted only `ok is False` -- but a *consent challenge* is also False.
+The broken build happily issued `required_consent: yes-god-mode-...`,
+which would have set the bogus profile on the second call. The test now
+asserts no phrase is offered at all, and that forcing the second step
+still refuses.
 ## v4.167.6 — 2026-08-07
 
 ### The first real on-device install failed, and only hardware could
