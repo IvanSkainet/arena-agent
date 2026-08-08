@@ -1,3 +1,48 @@
+## v4.169.3 — 2026-08-08
+
+### "It works, only there's no icon"
+
+The operator installed the extension in Firefox and it ran. It just
+looked unfinished: Chromium draws a grey puzzle piece and Firefox draws
+the first letter of the name when no icon is declared.
+
+Checked rather than guessed, and the answer was blunt -- the manifest
+had no `icons` block, no `action.default_icon`, and the directory
+contained **no image file of any kind**. Eighteen files, zero PNGs. The
+extension had shipped without an icon for its entire life.
+
+Four PNGs now ship: 16, 32, 48 and 128px, generated with a hand-rolled
+encoder (a PNG is a header, a zlib blob and a terminator; adding an
+imaging dependency to draw four circles would cost more than it saves).
+Colours come from the Dashboard's own palette so the icon does not look
+like it wandered in from a different project. The glyph is a bridge --
+two piers and a deck -- checked at 10x magnification to confirm it is
+still legible at 16px rather than assuming.
+
+Firefox needs the icon in three places: `icons`, `action.default_icon`
+and `sidebar_action.default_icon`. The last is easy to miss and leaves
+a blank row in the sidebar -- the same complaint one level down. The
+build script now copies all three and `verify()` rejects a manifest
+with none, so this cannot silently regress.
+
+Gates: icons declared, every declared file present, every PNG's IHDR
+matching its declared size (a generator writing all four at 128px would
+pass a filename check and look wrong in the toolbar), the Firefox build
+carrying all three keys, and both download zips containing the files.
+
+Sabotage, five runs: dropping `icons`, dropping `action.default_icon`,
+declaring a file that does not exist, writing a 128px image into the
+16px slot, and losing the sidebar icon in translation. All five failed.
+
+### Serena
+
+Connected over the operator's bridge (Tailscale was throwing TLS errors,
+so the ngrok tunnel carried it) and used for what it is good at:
+`get_diagnostics_for_file` across the five modules changed in the last
+three releases returned **0 errors, 0 warnings**, and
+`find_referencing_symbols` confirmed the new seams are wired where they
+should be. Nothing to fix -- which is a result worth recording, because
+the alternative was assuming.
 ## v4.169.2 — 2026-08-08
 
 ### The fix shipped, ran, and did nothing

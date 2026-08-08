@@ -41,7 +41,14 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "32": "icon32.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    },
+    "default_title": "Skainet Chat Bridge"
   },
   "side_panel": {
     "default_path": "sidepanel.html"
@@ -74,21 +81,11 @@
         "<all_urls>"
       ]
     }
-  ]
+  ],
+  "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

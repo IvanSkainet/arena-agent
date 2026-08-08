@@ -42,7 +42,14 @@
     ]
   },
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "32": "icon32.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    },
+    "default_title": "Skainet Chat Bridge"
   },
   "content_scripts": [
     {
@@ -73,9 +80,21 @@
       ]
     }
   ],
+  "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
   "sidebar_action": {
     "default_panel": "sidepanel.html",
-    "default_title": "Skainet Chat Bridge"
+    "default_title": "Skainet Chat Bridge",
+    "default_icon": {
+      "16": "icon16.png",
+      "32": "icon32.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
   },
   "browser_specific_settings": {
     "gecko": {

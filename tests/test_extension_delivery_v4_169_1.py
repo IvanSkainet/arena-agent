@@ -318,3 +318,109 @@ def test_a_real_payload_is_recognised(tmp_path):
     assert "chat_extension_firefox" in targets, (
         "a real payload was misread as an install root")
     assert "queue" not in targets and "memory" not in targets
+
+
+# ------------------------------------- v4.169.3: the extension had no icon
+
+ICON_SIZES = ("16", "32", "48", "128")
+
+
+def test_the_extension_ships_icons():
+    """The operator installed it and reported: "only there's no icon".
+
+    The manifest had no `icons` block and no `action.default_icon`, and
+    not a single PNG existed in the directory -- so Chromium drew a grey
+    puzzle piece and Firefox drew the first letter of the name. The
+    extension worked; it just looked like something half-finished, which
+    is its own kind of broken when the point is that other people try
+    this project.
+    """
+    ext = ROOT / "chat_extension"
+    manifest = json.loads((ext / "manifest.json").read_text(encoding="utf-8"))
+
+    assert manifest.get("icons"), "no icons block: browsers show a placeholder"
+    assert (manifest.get("action") or {}).get("default_icon"), (
+        "no action.default_icon: the toolbar button is blank")
+
+    for size in ICON_SIZES:
+        assert size in manifest["icons"], f"no {size}px icon declared"
+        path = ext / manifest["icons"][size]
+        assert path.is_file(), f"{path.name} is declared but missing"
+
+
+def test_every_declared_icon_is_a_real_png_of_the_right_size():
+    """Declaring a file is not shipping it, and a 16px slot needs 16px.
+
+    Checked by parsing the IHDR rather than trusting the filename: the
+    icons are generated, and a generator bug that wrote every size at
+    128px would pass a name check and look wrong in the toolbar.
+    """
+    import struct
+
+    ext = ROOT / "chat_extension"
+    manifest = json.loads((ext / "manifest.json").read_text(encoding="utf-8"))
+
+    for size, name in manifest["icons"].items():
+        blob = (ext / name).read_bytes()
+        assert blob[:8] == b"\x89PNG\r\n\x1a\n", f"{name} is not a PNG"
+        width, height = struct.unpack(">II", blob[16:24])
+        assert width == height == int(size), (
+            f"{name} is {width}x{height}, declared as {size}px")
+
+
+def test_the_firefox_build_carries_the_icons_too():
+    """Including the sidebar, which Firefox draws separately.
+
+    The toolbar icon and the sidebar icon are different manifest keys;
+    fixing only the first leaves a blank row in the sidebar -- the same
+    complaint one level down.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "build_ff", ROOT / "scripts" / "build_firefox_extension.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    source = json.loads(
+        (ROOT / "chat_extension" / "manifest.json").read_text(encoding="utf-8"))
+    generated = module.build_manifest(source)
+
+    assert generated.get("icons") == source["icons"]
+    assert (generated.get("action") or {}).get("default_icon")
+    assert (generated.get("sidebar_action") or {}).get("default_icon"), (
+        "the Firefox sidebar entry has no icon")
+    assert module.verify(generated) == []
+
+
+def test_the_builder_refuses_an_iconless_manifest():
+    """The gate that would have caught this before the operator did."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "build_ff2", ROOT / "scripts" / "build_firefox_extension.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    naked = {
+        "manifest_version": 3,
+        "name": "x",
+        "background": {"scripts": ["b.js"]},
+        "permissions": [],
+        "browser_specific_settings": {"gecko": {"id": "a@b"}},
+    }
+    problems = module.verify(naked)
+    assert any("icons" in p for p in problems), (
+        "a manifest with no icons passes verification")
+
+
+def test_the_download_includes_the_icons(tmp_path):
+    """The zip the operator actually receives must contain them."""
+    root = _fixture_install(tmp_path, with_firefox=True)
+    for firefox in (False, True):
+        payload, _name, _info = build_zip(root, firefox=firefox)
+        names = zipfile.ZipFile(io.BytesIO(payload)).namelist()
+        for size in ICON_SIZES:
+            assert f"icon{size}.png" in names, (
+                f"icon{size}.png missing from the "
+                f"{'firefox' if firefox else 'chromium'} download")

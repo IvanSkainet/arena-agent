@@ -69,10 +69,17 @@ def build_manifest(source: dict) -> dict:
     out["permissions"] = permissions
     side_panel = out.pop("side_panel", None)
     if side_panel and side_panel.get("default_path"):
-        out["sidebar_action"] = {
+        sidebar = {
             "default_panel": side_panel["default_path"],
             "default_title": out.get("name", "Skainet"),
         }
+        # Firefox draws the sidebar entry with its own icon, separate
+        # from the toolbar one. Without it the sidebar row is blank --
+        # a smaller version of the missing-toolbar-icon bug the operator
+        # reported ("it works, only there's no icon").
+        if out.get("icons"):
+            sidebar["default_icon"] = dict(out["icons"])
+        out["sidebar_action"] = sidebar
 
     # 3. the required gecko block
     out["browser_specific_settings"] = {
@@ -98,6 +105,13 @@ def verify(manifest: dict) -> list[str]:
     gecko = (manifest.get("browser_specific_settings") or {}).get("gecko") or {}
     if not gecko.get("id"):
         problems.append("browser_specific_settings.gecko.id is required")
+    # Not fatal to Firefox, but the operator's actual complaint about
+    # v4.169.1 was "it works, only there's no icon". A build that loads
+    # and looks broken is still a build that looks broken.
+    if not manifest.get("icons"):
+        problems.append("no `icons` block: the browser will show a placeholder")
+    if not (manifest.get("action") or {}).get("default_icon"):
+        problems.append("action.default_icon missing: blank toolbar button")
     return problems
 
 
