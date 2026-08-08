@@ -65,7 +65,7 @@ jobs:
           VERSION_BARE: ${{ steps.resolve.outputs.bare }}
         run: |
           set -euo pipefail
-          python3 - <<'PYEOF' >> "${GITHUB_OUTPUT}"
+          python3 - <<'PYEOF'
           import json, os, pathlib
 
           incoming = os.environ["VERSION_BARE"]
@@ -86,7 +86,13 @@ jobs:
 
           new, old = parts(incoming), parts(current)
           skip = bool(new and old and new < old)
-          print(f"skip={'true' if skip else 'false'}")
+          # v4.169.8: the whole block used to be redirected into GITHUB_OUTPUT,
+          # so the `::warning::` line landed in the output file too. GitHub
+          # rejects it ("Invalid format") and fails the step -- the guard
+          # worked, then killed the job for reporting that it worked. The
+          # output file gets only key=value now; the annotation goes to the log.
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"skip={'true' if skip else 'false'}\n")
           if skip:
               print(f"::warning::badge stayed at {current}; {incoming} is older "
                     "(releases/latest lagging behind a tag run)")

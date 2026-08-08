@@ -133,3 +133,69 @@ def test_ratchet_does_not_flag_honest_code() -> None:
     finally:
         probe.unlink(missing_ok=True)
     assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+# --- v4.169.8: $GITHUB_OUTPUT must receive key=value lines only ------------
+
+def test_github_output_ratchet_is_clean() -> None:
+    proc = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "github_output_ratchet.py")],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_github_output_ratchet_catches_the_badge_bug(tmp_path: Path) -> None:
+    """The exact shape that failed CI on v4.169.6 and v4.169.7."""
+    probe = REPO_ROOT / ".github" / "workflows" / "_github_output_probe.yml"
+    probe.write_text(
+        "name: probe\n"
+        "on: workflow_dispatch\n"
+        "permissions:\n  contents: read\n"
+        "jobs:\n  p:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - name: bad\n"
+        "        run: |\n"
+        "          python3 - <<'EOF' >> \"${GITHUB_OUTPUT}\"\n"
+        "          print('skip=false')\n"
+        "          EOF\n",
+        encoding="utf-8",
+    )
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "github_output_ratchet.py")],
+            capture_output=True, text=True, timeout=120,
+        )
+    finally:
+        probe.unlink(missing_ok=True)
+    assert proc.returncode == 1
+    assert "_github_output_probe.yml" in proc.stdout
+
+
+def test_badge_guard_writes_only_key_value_lines(tmp_path: Path) -> None:
+    """Run the badge workflow's own guard logic and inspect what it emits.
+
+    Older version: the annotation went into the output file and GitHub
+    rejected it. The step is expected to skip the write AND stay green.
+    """
+    workflow = (REPO_ROOT / ".github" / "workflows" / "version-badge.yml").read_text(encoding="utf-8")
+    start = workflow.index("import json, os, pathlib")
+    end = workflow.index("PYEOF", start)
+    body = "\n".join(line[10:] if line.startswith(" " * 10) else line
+                     for line in workflow[start:end].splitlines())
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "version.json").write_text('{"semver": "4.169.6"}', encoding="utf-8")
+    out = tmp_path / "out.txt"
+    out.write_text("", encoding="utf-8")
+    script = tmp_path / "guard.py"
+    script.write_text(body, encoding="utf-8")
+
+    proc = subprocess.run(
+        [sys.executable, str(script)], cwd=tmp_path, capture_output=True, text=True, timeout=60,
+        env={"PATH": "/usr/bin:/bin", "VERSION_BARE": "4.169.4", "GITHUB_OUTPUT": str(out)},
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    lines = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert lines == ["skip=true"], lines
+    assert "::warning::" in proc.stdout  # annotation goes to the log, not the file

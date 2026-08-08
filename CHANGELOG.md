@@ -1,3 +1,40 @@
+## v4.169.8 — 2026-08-08
+
+### The badge guard failed the job for working
+
+Two releases in a row finished with a red `refresh version badge` run
+next to a green CI, and both times the explanation was "that one is
+fine, ignore it". That habit is how a real failure gets waved through,
+so this time the log got read instead.
+
+Cutting a release fires the badge workflow twice -- once for the tag,
+once for the push to master -- and the push run asks the API for
+`releases/latest`, which lags. v4.158.0 added a guard that refuses to
+move the badge backwards, and the guard was doing its job correctly:
+
+    Resolved tag: v4.169.4
+    ##[error]Unable to process file command 'output' successfully.
+    ##[error]Invalid format '::warning::badge stayed at 4.169.6; 4.169.4 is older'
+
+The whole `python3` heredoc was redirected into `$GITHUB_OUTPUT`. The
+`skip=true` line belonged there. The `::warning::` annotation printed
+immediately after it did not -- GitHub only accepts `key=value` in that
+file, rejects anything else, and fails the step. The anti-race guard
+detected the race, announced it, and was killed for the announcement.
+
+The guard now appends `skip=` to the output file explicitly and leaves
+stdout for the log. Verified by execution rather than by reading: the
+extracted block was run against older, newer and equal versions, and in
+all three the output file holds exactly one `key=value` line. Reverse
+sabotage reproduced the old shape and got back the precise string CI
+choked on.
+
+`scripts/github_output_ratchet.py` fails the build on any `run:` step
+that pipes an interpreter heredoc into `$GITHUB_OUTPUT`. Sabotaged by
+reintroducing the bug (caught) and by a workflow that writes to
+`$GITHUB_OUTPUT` three legitimate ways (not flagged). It also refuses to
+pass if it scanned fewer than five workflow files.
+
 ## v4.169.7 — 2026-08-08
 
 ### `null` is valid JSON, and it was killing the mission list

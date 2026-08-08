@@ -76,6 +76,10 @@ CHECKS: list[Check] = [
           needs="actionlint",
           why="CI runs actionlint WITH shellcheck; without it SC2012 slipped "
               "through and reddened a build (17cec54e)"),
+    Check("github output", [PY, "scripts/github_output_ratchet.py"],
+          why="the badge workflow piped a whole heredoc into $GITHUB_OUTPUT; "
+              "the ::warning:: it printed landed in the output file and "
+              "GitHub failed the step for it, two releases running"),
     Check("workflow security", ["zizmor", "--offline", ".github/workflows"],
           needs="zizmor",
           why="unpinned actions and over-broad permissions"),
