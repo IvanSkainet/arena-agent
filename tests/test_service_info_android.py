@@ -129,3 +129,60 @@ def test_desktop_platforms_are_untouched():
 
     assert result["running_as"] == "systemd-user"
     assert "termux_boot" not in result
+
+
+def test_android_is_checked_before_any_sys_platform_branch():
+    """v4.168.2: ordering is the whole fix, so pin the ordering.
+
+    The first attempt put `elif _is_android()` after `if sys.platform ==
+    "win32"`. On Linux that worked; on Windows CI all five jobs went red
+    because the simulated-phone tests matched the win32 branch first and
+    ran `sc query`, which returned a Mock and blew up in
+    `arena/service/windows.py`.
+
+    That is not a test artefact. `_is_android()` answers "what machine is
+    this?", and every `sys.platform` comparison answers something
+    narrower. Asking the narrow question first means the broad answer can
+    never be reached -- the same class of mistake as reading
+    `platform.system()` and calling Android "Linux".
+
+    Checked structurally rather than by running it, because the property
+    only shows up on a host that is *both* -- which no single CI runner
+    is.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(info._service_info_sync)))
+    func = tree.body[0]
+
+    chain = [node for node in func.body if isinstance(node, ast.If)]
+    assert chain, "no branch chain in _service_info_sync"
+
+    def mentions_android(node) -> bool:
+        return any(isinstance(n, ast.Name) and n.id == "_is_android"
+                   for n in ast.walk(node))
+
+    def mentions_sys_platform(node) -> bool:
+        return any(isinstance(n, ast.Attribute) and n.attr == "platform"
+                   for n in ast.walk(node))
+
+    # Walk the if/elif chain in source order and record which test comes
+    # first: the host-class one, or a sys.platform one.
+    order: list[str] = []
+    current = chain[0]
+    while isinstance(current, ast.If):
+        if mentions_android(current.test):
+            order.append("android")
+        elif mentions_sys_platform(current.test):
+            order.append("sys.platform")
+        current = current.orelse[0] if (len(current.orelse) == 1
+                                        and isinstance(current.orelse[0], ast.If)) else None
+
+    assert "android" in order, "the Android branch disappeared"
+    assert order.index("android") == 0, (
+        f"a sys.platform test precedes the Android check (order: {order}). "
+        f"Android reports sys.platform == 'linux' and matches 'win32' "
+        f"never -- but on Windows the win32 branch wins first, so the "
+        f"phone path becomes unreachable.")

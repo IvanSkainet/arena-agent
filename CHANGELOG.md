@@ -1,3 +1,32 @@
+## v4.168.2 — 2026-08-08
+
+### Ordering was the fix, and I got the ordering wrong
+
+v4.168.1 added an Android branch to `_service_info_sync` — as an `elif`
+placed **after** `if sys.platform == "win32"`. Linux was green. All five
+Windows jobs went red: the simulated-phone tests matched the win32
+branch first, ran `sc query`, and died on a Mock in
+`arena/service/windows.py`.
+
+That is not a test artefact. `_is_android()` answers *"what machine is
+this?"*; every `sys.platform` comparison answers something narrower.
+Asking a narrow question first makes the broad answer unreachable —
+structurally the same mistake as reading `platform.system()` and
+concluding Android is Linux, which is the bug the whole Android branch
+exists to fix.
+
+The check now runs first, before any `sys.platform` test.
+
+A new gate walks the if/elif chain with `ast` and fails if a
+`sys.platform` test precedes the host-class one. Structural rather than
+behavioural on purpose: the property only manifests on a host that is
+*both* Windows and simulating Android, which no single runner is — so a
+runtime test cannot see it and CI would stay the only detector. That is
+the rule already written in AGENTS.md after bug #75, applied before it
+cost a second red matrix.
+
+Sabotage: moving the Android branch back below `win32` fails the new
+gate immediately.
 ## v4.168.1 — 2026-08-08
 
 ### The phone did not know what was supervising it

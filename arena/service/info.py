@@ -78,7 +78,19 @@ def _termux_boot_info() -> dict[str, Any]:
 def _service_info_sync() -> dict:
     """Detect under what service manager (NSSM/Scheduled Task/systemd/launchd/none) we run."""
     result: dict[str, Any] = {"ok": True, "running_as": "unknown"}
-    if sys.platform == "win32":
+    # Android first, deliberately. It reports sys.platform == "linux",
+    # so a later `elif` never runs -- and on Windows CI the win32 branch
+    # matched before it, sending simulated-phone tests into `sc query`.
+    # This is a host-class question ("what machine is this?"), not a
+    # sys.platform question, so it has to be asked before any of them.
+    #
+    # Termux has no systemd and no launchd. Its supervisor is
+    # Termux:Boot: an executable in ~/.termux/boot that the app runs at
+    # device start. Whether that exists is the honest answer to "what
+    # will restart this bridge".
+    if _is_android():
+        result.update(_termux_boot_info())
+    elif sys.platform == "win32":
         svc_name = os.environ.get("ARENA_SERVICE_NAME", "").strip() or "ArenaUnifiedBridge"
         task_name = os.environ.get("ARENA_TASK_NAME", "").strip() or svc_name
         result["candidate_service"] = svc_name
@@ -99,18 +111,6 @@ def _service_info_sync() -> dict:
             result["warning"] = "Windows service exists but is stopped; bridge may be running from Scheduled Task or manual start"
         elif task.get("exists"):
             result["running_as"] = "scheduled-task"
-    elif _is_android():
-        # Android reports sys.platform == "linux" but has no systemd and
-        # no launchd. Falling through to the Linux branch made every
-        # phone shell out to a `systemctl` that does not exist and then
-        # report `running_as: unknown` -- true but useless, and the
-        # Dashboard showed "Manual / unmanaged" even when the bridge was
-        # started by the boot hook.
-        #
-        # Termux's supervisor is Termux:Boot: an executable script in
-        # ~/.termux/boot that the app runs at device start. Its presence
-        # is the honest answer to "what will restart this bridge".
-        result.update(_termux_boot_info())
     elif sys.platform == "linux":
         try:
             result_run = subprocess.run(
