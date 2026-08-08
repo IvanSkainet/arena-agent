@@ -1,3 +1,41 @@
+## v4.169.9 — 2026-08-08
+
+### My own breakage, caught by the rule that exists for it
+
+v4.169.8 went red on exactly one of thirty-five jobs: Tests, Python 3.10,
+windows-latest.
+
+    Fatal Python error: _Py_HashRandomization_Init:
+    failed to get random numbers to initialize Python
+
+A test I had written the same day handed a subprocess
+`env={"PATH": "/usr/bin:/bin", ...}`. On Linux that is merely tidy. On
+Windows it deletes `SYSTEMROOT`, and CPython cannot seed its hash
+randomisation without it -- the interpreter dies before executing a
+single line. Three Linux jobs green, one Windows job red: the exact
+shape the platform rule in AGENTS.md was written for, and I walked into
+it anyway.
+
+### The one that was passing for the wrong reason
+
+Sweeping the suite for the same pattern found `test_mission_cli_exit_code`
+doing it too, and that one is worse than a crash. The test asserts a
+nonexistent mission exits nonzero. On Windows the interpreter never
+started, so the exit code was nonzero for a reason that has nothing to do
+with missions. The assertion passed. The test proved nothing on that
+platform and said nothing about it.
+
+Both now inherit `os.environ` and override only the keys they care about.
+
+The guard is a test, not a script gate, because it is a property of the
+test suite: any `subprocess.*` or `asyncio.create_subprocess*` call with a
+literal `env={...}` that does not spread `os.environ` fails the build.
+First cut matched on text and flagged three sites, two of which were an
+ordinary `env=` keyword on a plain helper function -- false positives, and
+a detector with those is worse than none. Rewritten against the AST to
+look only at subprocess launches. Sabotage: a fresh offender is caught;
+inheriting env, omitting env, and a plain helper kwarg are not.
+
 ## v4.169.8 — 2026-08-08
 
 ### The badge guard failed the job for working

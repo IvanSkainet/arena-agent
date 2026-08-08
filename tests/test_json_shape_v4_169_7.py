@@ -9,7 +9,9 @@ mission listing, not just the one bad mission.
 """
 from __future__ import annotations
 
+import ast
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -193,9 +195,50 @@ def test_badge_guard_writes_only_key_value_lines(tmp_path: Path) -> None:
 
     proc = subprocess.run(
         [sys.executable, str(script)], cwd=tmp_path, capture_output=True, text=True, timeout=60,
-        env={"PATH": "/usr/bin:/bin", "VERSION_BARE": "4.169.4", "GITHUB_OUTPUT": str(out)},
+        # v4.169.9: a hand-built POSIX env killed this on windows-latest --
+        # CPython needs SYSTEMROOT to seed its hash randomisation and dies
+        # before running a line. Inherit the real environment, override two keys.
+        env={**os.environ, "VERSION_BARE": "4.169.4", "GITHUB_OUTPUT": str(out)},
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     lines = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.strip()]
     assert lines == ["skip=true"], lines
     assert "::warning::" in proc.stdout  # annotation goes to the log, not the file
+
+
+def test_no_test_hands_a_handbuilt_env_to_a_python_subprocess() -> None:
+    """A stripped `env=` dict is a Windows landmine, not a POSIX detail.
+
+    v4.169.8 shipped a test with `env={"PATH": "/usr/bin:/bin", ...}`.
+    On windows-latest CPython could not even start:
+
+        Fatal Python error: _Py_HashRandomization_Init:
+        failed to get random numbers to initialize Python
+
+    because SYSTEMROOT was gone. Green on three Linux jobs, red on one
+    Windows job -- exactly the shape the platform rule exists for.
+    """
+    offenders = []
+    for path in sorted((REPO_ROOT / "tests").glob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:  # pragma: no cover
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = ast.unparse(node.func)
+            # Only subprocess launches matter: a plain `env={...}` argument to
+            # an ordinary helper is data, not a process environment.
+            if not func.startswith(("subprocess.", "asyncio.create_subprocess")):
+                continue
+            for kw in node.keywords:
+                if kw.arg != "env" or not isinstance(kw.value, ast.Dict):
+                    continue
+                if "os.environ" in ast.unparse(kw.value):
+                    continue  # inherits the real environment, fine
+                offenders.append(f"{path.name}:{node.lineno}: {func}(env={{...}})")
+    assert not offenders, (
+        "hand-built env dicts drop SYSTEMROOT and kill Python on Windows:\n  "
+        + "\n  ".join(offenders)
+    )

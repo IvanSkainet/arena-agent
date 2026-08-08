@@ -23,6 +23,7 @@ import ast
 import contextlib
 import io
 import json
+import os
 import subprocess
 import sys
 import types
@@ -106,7 +107,11 @@ def test_shim_exits_nonzero_end_to_end(tmp_path):
         [sys.executable, str(REPO / "scripts" / "mission_manager.py"),
          "run", "definitely-not-a-real-mission-id"],
         cwd=tmp_path, capture_output=True, text=True, timeout=120,
-        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path),
+        # v4.169.9: this used to be a hand-built POSIX env. On Windows the
+        # missing SYSTEMROOT killed the interpreter before it ran a line --
+        # the process exited nonzero, so the assertion below passed for
+        # entirely the wrong reason and the test proved nothing there.
+        env={**os.environ, "HOME": str(tmp_path),
              "PYTHONPATH": str(REPO),
              "ARENA_AGENT_HOME": str(tmp_path / "arena-bridge")},
     )
