@@ -1,3 +1,56 @@
+## v4.169.6 — 2026-08-08
+
+### The sweep, done properly this time
+
+Probe first, as promised: a deliberately broken file was planted in the
+install and the scanner was asked about it. Two errors came back, so the
+detector was demonstrably looking at something. Only then did the sweep
+run.
+
+All 654 modules, correct parser: **190 diagnostics in 120 files**.
+Ninety-one were `reportMissingImports` -- Pyright runs without the venv,
+so `aiohttp` and friends are unresolvable and that is noise, not a
+finding. Ninety-eight were real.
+
+Most of the ninety-eight are platform truths rather than defects:
+`AF_UNIX`, `os.getuid`, `resource.getrusage` genuinely do not exist on
+the Windows host Pyright is running on, and the code already guards
+them. Recording that they were reviewed, not dismissed unread.
+
+One was a live bug.
+
+### A timeout handler that crashed on a process it never started
+
+`arena/desktop/exec.py`, twenty-six lines, and Pyright had been flagging
+it on every run:
+
+    [reportPossiblyUnboundVariable]  "proc" is possibly unbound
+
+`create_subprocess_shell` can fail before `proc` is ever bound -- a
+missing shell (OSError), a locked-down profile (PermissionError), an
+event-loop policy without subprocess support (NotImplementedError), or
+a timeout during the spawn itself. The `except asyncio.TimeoutError`
+branch then called `proc.kill()` on a name that did not exist.
+
+Reproduced against the pre-fix code:
+
+    UnboundLocalError: cannot access local variable 'proc'
+
+So instead of the tidy `{"ok": false, "error": "Command timed out"}`
+the function promises, the caller got a traceback thrown from inside an
+exception handler -- the least helpful moment for one.
+
+Fixed by binding `proc` before the try. And while there: the timeout
+branch killed the child without awaiting it, which leaves a zombie and
+makes asyncio log "Task was destroyed but it is pending" at some
+unrelated later moment -- the kind of noise that sends someone
+debugging the wrong subsystem. It now reaps, and tolerates
+`ProcessLookupError` for the race where the process exits on its own
+between the timeout and the kill.
+
+Sabotage: restoring the unbound `proc` fails three tests, removing the
+reap fails one, and dropping the `ProcessLookupError` guard fails
+another.
 ## v4.169.5 — 2026-08-08
 
 ### A scan that found nothing was looking at nothing
