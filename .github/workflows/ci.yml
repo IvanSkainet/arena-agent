@@ -304,14 +304,22 @@ jobs:
       # It says nothing about whether that version was ever PUBLISHED --
       # and v4.169.5..9 were all tagged, all green, and all invisible,
       # because auto_update.py reads releases/latest and GitHub only
-      # counts published releases there. Runs on tags only: on ordinary
-      # master pushes the tree is legitimately ahead of the last release.
-      - name: Published release reachable by auto-update
-        if: startsWith(github.ref, 'refs/tags/v')
+      # counts published releases there.
+      #
+      # NOT tag-gated. The first cut was, and it would never have run
+      # even once: this workflow triggers on `push: branches: [master]`
+      # and on pull_request, so `refs/tags/v*` never matches. A gate
+      # wired to a condition that cannot occur is the empty scan for the
+      # third release running.
+      #
+      # Non-strict on purpose: one release of daylight is normal (the
+      # version bump lands before the release is cut). Two or more means
+      # the publishing step is being skipped, which is the actual defect.
+      - name: Published releases are not piling up unshipped
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          python scripts/release_published_check.py --strict
+          python scripts/release_published_check.py
 
   # ----------------------------------------------------------------
   # v4.66.0: CHANGELOG freshness guard. Catches the case where

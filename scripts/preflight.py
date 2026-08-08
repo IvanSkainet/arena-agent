@@ -80,6 +80,10 @@ CHECKS: list[Check] = [
           why="v4.169.5 through v4.169.9 were tagged, green on 35/35, and "
               "invisible: auto_update reads releases/latest, which only "
               "counts published releases, so every install sat on 4.169.4"),
+    Check("dead condition", [PY, "scripts/dead_condition_ratchet.py"],
+          why="the release gate was tag-gated inside a workflow that only "
+              "runs on master pushes -- it would never have fired once, "
+              "the third never-looks-at-anything gate in three releases"),
     Check("github output", [PY, "scripts/github_output_ratchet.py"],
           why="the badge workflow piped a whole heredoc into $GITHUB_OUTPUT; "
               "the ::warning:: it printed landed in the output file and "

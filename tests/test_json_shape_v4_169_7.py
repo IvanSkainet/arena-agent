@@ -246,15 +246,23 @@ def test_no_test_hands_a_handbuilt_env_to_a_python_subprocess() -> None:
 
 # --- v4.169.10: a tag is not a release -------------------------------------
 
-def test_release_check_is_wired_into_ci_on_tags() -> None:
-    """The gate must run on tag pushes -- that is the only moment it matters."""
+def test_release_check_runs_on_every_ci_run() -> None:
+    """The gate must not be gated on a ref this workflow never sees.
+
+    First cut had `if: startsWith(github.ref, 'refs/tags/v')` -- and CI
+    triggers only on `push: branches: [master]` and pull_request, so the
+    step would never have executed once. The test that "verified" the
+    wiring asserted the presence of that very condition, which is how a
+    test locks a bug in place.
+    """
     ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert "release_published_check.py --strict" in ci
-    block = ci[ci.index("Published release reachable by auto-update"):]
+    assert "release_published_check.py" in ci
+    head = ci.split("jobs:", 1)[0]
+    assert "tags:" not in head, "CI's triggers changed; revisit this reasoning"
+    block = ci[ci.index("Published releases are not piling up unshipped"):]
     block = block[:block.index("release_published_check.py")]
-    assert "startsWith(github.ref, 'refs/tags/v')" in block, (
-        "the check must be tag-gated: on a normal master push the tree is "
-        "legitimately ahead of the last published release"
+    assert "refs/tags" not in block, (
+        "a tag condition here can never be true: CI does not run on tags"
     )
 
 
@@ -292,3 +300,47 @@ def test_release_check_distinguishes_no_answer_from_no_problem() -> None:
     # And a tree far ahead of the published release is always a failure.
     module._api = lambda _p: {"tag_name": "v1.0.0", "assets": [{"name": "arena-agent.zip"}]}  # type: ignore[attr-defined]
     assert module.main([]) == 1
+
+
+def test_dead_condition_ratchet_catches_a_tag_gate_in_a_master_only_workflow() -> None:
+    """The exact mistake made while fixing the previous one."""
+    probe = REPO_ROOT / ".github" / "workflows" / "_dead_condition_probe.yml"
+    probe.write_text(
+        "name: probe\n"
+        "on:\n  push:\n    branches: [master]\n"
+        "permissions:\n  contents: read\n"
+        "jobs:\n  p:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - name: never runs\n"
+        "        if: startsWith(github.ref, 'refs/tags/v')\n"
+        "        run: echo hi\n",
+        encoding="utf-8",
+    )
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "dead_condition_ratchet.py")],
+            capture_output=True, text=True, timeout=120)
+    finally:
+        probe.unlink(missing_ok=True)
+    assert proc.returncode == 1
+    assert "_dead_condition_probe.yml" in proc.stdout
+
+
+def test_dead_condition_ratchet_allows_tag_gates_where_tags_actually_fire() -> None:
+    probe = REPO_ROOT / ".github" / "workflows" / "_live_condition_probe.yml"
+    probe.write_text(
+        "name: probe\n"
+        "on:\n  push:\n    tags: ['v*']\n"
+        "permissions:\n  contents: read\n"
+        "jobs:\n  p:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - name: does run\n"
+        "        if: startsWith(github.ref, 'refs/tags/v')\n"
+        "        run: echo hi\n",
+        encoding="utf-8",
+    )
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "dead_condition_ratchet.py")],
+            capture_output=True, text=True, timeout=120)
+    finally:
+        probe.unlink(missing_ok=True)
+    assert proc.returncode == 0, proc.stdout + proc.stderr

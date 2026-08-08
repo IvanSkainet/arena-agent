@@ -44,6 +44,33 @@ ago, wearing a different hat. It now names the rate limit specifically
 and refuses to pass in strict mode. Reverse sabotage: a tree *behind* the
 published release (a hotfix branch) is not flagged.
 
+### The gate I wired to a condition that can never be true
+
+The first cut of the release gate carried
+`if: startsWith(github.ref, 'refs/tags/v')`. CI triggers on
+`push: branches: [master]` and `pull_request`. Tags never match either,
+so the step would not have run once -- a gate that looks like protection,
+reports nothing, and lets the exact failure it was written for happen
+again. Caught by checking the CI trigger list instead of assuming, right
+after pushing it.
+
+Worse: the test I wrote to "verify the wiring" asserted that the tag
+condition was present. It passed. It was pinning the bug in place.
+
+That is three releases in a row of the same shape -- a detector that
+cannot tell "nothing wrong" from "I looked at nothing": the misspelled
+scan directory, the swallowed 403, and now the impossible condition. So
+`scripts/dead_condition_ratchet.py` now fails the build on any step gated
+on a tag ref inside a workflow that never triggers on tags. Sabotaged by
+reinstating the exact line (caught) and by putting the same condition in
+`version-badge.yml`, which does run on tags (not flagged).
+
+The release check runs on every CI run now, non-strict: one release of
+daylight is normal, since the version bump lands before the release is
+cut. Two or more means the publish step is being skipped, which is the
+defect.
+
+
 ## v4.169.9 — 2026-08-08
 
 ### My own breakage, caught by the rule that exists for it
