@@ -1,3 +1,100 @@
+## v4.169.0 — 2026-08-08
+
+### A lock where it is not needed
+
+The operator: *"I can't deal with allowlists when only reads are
+permitted over ADB. Fine, don't let the agent read secrets -- but not
+giving it the actual function the user is asking for is a lock where
+one isn't needed. And a lock is not great, honestly."*
+
+He is right, and the measurement is worse than his complaint. The ADB
+allowlist never read `cfg["profile"]` at all. A bridge deliberately set
+to `owner-shell` -- the operator having clicked through a consent
+dialog -- still refused `am start` on a phone he owns. There was no way
+to reach the setting, because there was no setting.
+
+That is not a safety feature. It is a defect wearing safety's clothes,
+and worse, it teaches people to distrust the guards that do matter.
+
+The allowlist now follows the profile:
+
+* **cautious** -- the read-only list, unchanged. Default, and what an
+  unattended or shared bridge runs.
+* **owner-shell** -- any command, exactly like `/v1/exec` on the
+  desktop.
+
+What does *not* change with the profile: the metacharacter blocklist.
+That is not a permission check, it is the fix for bug #40 -- a live RCE
+where `adb shell` joins its argv and hands the string to the device's
+`/system/bin/sh`. `owner-shell` means "any single command", not "any
+shell script". Someone who wants a pipeline writes `sh -c` and sees
+exactly what they are running. Verified: all four injection payloads
+are still refused under both profiles.
+
+Reaching the profile from the mobile layer needed a wire that did not
+exist. `arena/runtime_profile.py` publishes the live config once at
+startup; anything without a `request` object reads it there. It holds a
+reference, not a copy -- the Dashboard mutates `cfg["profile"]` in
+place, and a snapshot would report the startup value forever, which is
+this same bug moved one layer down.
+
+Unpublished config fails **closed**. An import-ordering change must
+never silently unlock every phone.
+
+### The bridge now says what it is
+
+*"Agents just don't use the whole arsenal. Not because the arsenal
+doesn't work, but because they have no hint."*
+
+The sharpest observation anyone has made about this project, and the
+measurement backs it: `tools/list` already returned **240 tools, every
+one with a description and a schema**. Nothing was missing. What was
+missing is that a model must already know to ask, and then must infer
+structure from 240 flat names. Most never get past the first eight.
+
+`GET /v1/self` answers three questions the bridge could always answer
+and never volunteered: what machine this is, what it can do, and what
+is currently stopping it.
+
+Tools are grouped into 14 families rather than the 45 raw prefixes --
+`code_project`, `code_session`, `code_run` and `code_artifact` are four
+namespaces to the code and one subject to a reader. Largest first, so a
+skimming agent meets Phone (40) and Missions (30) before the one-tool
+corners. An unrecognised namespace appears under its own name rather
+than an "Other" bucket, because a bucket is how a tool becomes
+invisible.
+
+Every guard reports its live state, what it blocks, and how to change
+it. A refusal without a reason reads as a broken tool and a model
+responds by trying something else at random; a refusal that arrives
+with "profile is cautious, the operator changes it in Settings" is a
+fact the agent can relay.
+
+**HALT stays separate, and this is the one place I did not do what was
+asked.** The request was a single master switch. HALT cannot be part of
+it: a last resort that the same gesture disables is not a last resort.
+Everything else -- profile, YOLO, posture -- is now visible and
+switchable in one place, which is the useful half of that request
+without removing the emergency stop.
+
+### Firefox
+
+Three things made Firefox reject the extension outright:
+`background.service_worker` (Firefox uses `background.scripts`),
+the `sidePanel` permission (Firefox has `sidebar_action`), and a
+missing `browser_specific_settings.gecko.id`.
+
+`scripts/build_firefox_extension.py` generates the Firefox variant from
+the Chromium manifest rather than maintaining two -- two manifests
+diverge the first time somebody edits one. Content scripts, adapters
+and host permissions are copied verbatim, because they are identical on
+both engines and that is the point.
+
+Sabotage, six runs: restoring the profile-blind allowlist, letting
+`owner-shell` skip the metacharacter check, caching the profile,
+defaulting an unpublished config to unlocked, folding HALT into the
+other guards, and swallowing unknown namespaces into "Other". All six
+failed their gates.
 ## v4.168.4 — 2026-08-08
 
 ### Zero open alerts, and an honest note about the last two

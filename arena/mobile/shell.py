@@ -9,6 +9,32 @@ The allowlist is defined by the first token of the command; anything
 after that is passed through untouched. So `getprop ro.product.model`
 is allowed, but `getprop; rm -rf /sdcard` is not (the semicolon breaks
 the token match).
+
+v4.169.0 -- the allowlist follows the profile
+---------------------------------------------
+
+It used to ignore `cfg["profile"]` entirely, so a bridge explicitly set
+to `owner-shell` still refused `am start` on a phone the operator owns.
+The operator's words: *"a lock where it is not needed"*, and he is
+right. A control the owner cannot reach after deliberately unlocking
+everything else is not a safety feature -- it is a bug that looks like
+one, and it teaches people to distrust the whole security surface.
+
+So:
+
+* **cautious** -- the read-only allowlist below, unchanged. This is the
+  default and what an unattended or shared bridge runs.
+* **owner-shell** -- any command, exactly like `/v1/exec` on the
+  desktop. The operator has already consented through the profile
+  switch; asking twice is theatre.
+
+What does NOT change with the profile: the metacharacter blocklist.
+That is not a permission check, it is the fix for bug #40, a live RCE
+where `adb shell` joins its argv and hands the string to the device's
+`/system/bin/sh`. Chaining stays refused in both profiles because a
+single call must remain a single command -- an operator who wants a
+pipeline can ask for `sh -c` explicitly and see exactly what they are
+running.
 """
 from __future__ import annotations
 
@@ -49,6 +75,23 @@ _IP_READ_VERBS = frozenset({"addr", "address", "-4", "-6", "route", "link", "nei
 
 def _err(msg: str) -> dict[str, Any]:
     return {"ok": False, "error": msg}
+
+
+def _profile() -> str:
+    """The exec profile currently in force.
+
+    Read at call time, never cached: the Dashboard switch changes this
+    live, and a cached value would leave the phone locked after the
+    operator unlocked the desktop.
+    """
+    try:
+        from arena.runtime_profile import current_profile
+        return current_profile()
+    except Exception:
+        # A broken lookup must fail CLOSED. Defaulting to owner-shell
+        # here would silently unlock every phone the moment an import
+        # went wrong.
+        return "cautious"
 
 
 def restricted_shell(serial: str, command: str, *, timeout: int = 15) -> dict[str, Any]:
@@ -100,6 +143,12 @@ def restricted_shell(serial: str, command: str, *, timeout: int = 15) -> dict[st
         return _err("command has no tokens")
 
     head = tokens[0]
+    # owner-shell means the operator has unlocked the machine. Skipping the
+    # allowlist here is the whole point of that switch; the
+    # metacharacter checks above still ran, so this is "any single
+    # command", not "any shell script".
+    if _profile() == "owner-shell":
+        return _dispatch(serial, tokens, timeout=timeout, profile="owner-shell")
     if head not in _ALLOWED_HEAD_COMMANDS:
         return _err(
             f"command {head!r} is not on the allowlist. "
@@ -117,7 +166,17 @@ def restricted_shell(serial: str, command: str, *, timeout: int = 15) -> dict[st
         if len(tokens) < 2 or tokens[1] not in _IP_READ_VERBS:
             return _err(f"only `ip {{{'|'.join(sorted(_IP_READ_VERBS))}}}` is allowed")
 
-    # Only now do we care whether adb is actually installed.
+    return _dispatch(serial, tokens, timeout=timeout, profile="cautious")
+
+
+def _dispatch(serial: str, tokens: list[str], *, timeout: int,
+              profile: str) -> dict[str, Any]:
+    """Run an already-validated command. Shared by both profiles.
+
+    Both paths converge here so there is exactly one place that spawns
+    adb -- a second copy for the unlocked path is how the quoting fix
+    from bug #40 would eventually diverge between them.
+    """
     if find_adb() is None:
         from arena.mobile.adb import install_hint
         return {"ok": False, "error": "adb not installed", "hint": install_hint()}
@@ -131,7 +190,8 @@ def restricted_shell(serial: str, command: str, *, timeout: int = 15) -> dict[st
 
     return {
         "ok": r.returncode == 0,
-        "command": command,
+        "command": " ".join(tokens),
+        "profile": profile,
         "stdout": r.stdout,
         "stderr": r.stderr,
         "exit_code": r.returncode,

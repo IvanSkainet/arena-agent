@@ -96,6 +96,14 @@ def serve(args: argparse.Namespace, ctx: CliContext) -> None:
         "active_exec": 0,
     }
 
+    # v4.169.0: publish the live config so layers without a `request`
+    # can read the profile. The mobile allowlist is the reason: it runs
+    # in an executor, several frames from any handler, and used to
+    # ignore `owner-shell` entirely -- the operator unlocked the desktop
+    # and the phone stayed locked with no way to reach the setting.
+    from arena.runtime_profile import publish as _publish_cfg
+    _publish_cfg(cfg)
+
     app = ctx.make_app(cfg)
 
     ctx.rotate_all_logs_on_startup()

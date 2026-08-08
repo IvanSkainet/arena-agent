@@ -1,0 +1,236 @@
+function send(type, body) {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage({type, body}, (response) => {
+        const err = chrome.runtime.lastError;
+        if (err) return resolve({ok: false, error: err.message || String(err)});
+        resolve(response || {ok: false, error: 'empty background response'});
+      });
+    } catch (error) {
+      resolve({ok: false, error: String(error)});
+    }
+  });
+}
+
+function statusText(text) {
+  document.getElementById('statusBox').textContent = text;
+}
+
+function statusJson(data) {
+  document.getElementById('statusBox').textContent = JSON.stringify(data, null, 2);
+}
+
+function currentModes() {
+  return {
+    autoPreview: document.getElementById('autoPreview').checked,
+    autoExecuteSafe: document.getElementById('autoExecuteSafe').checked,
+    autoInsertResult: document.getElementById('autoInsertResult').checked,
+    autoSubmitResult: document.getElementById('autoSubmitResult').checked,
+    insertStrategy: document.getElementById('insertStrategy').value || 'auto',
+    // v0.14.15: advanced/experimental toolbar dedup toggle. Read the
+    // checkbox state; default TRUE matches the pre-v0.14.14 behaviour.
+    dedupSemantic: document.getElementById('dedupSemantic').checked,
+    // v0.14.28 (v4.50.18): opt-in for the generic adapter on
+    // unlisted sites. Default FALSE. Explicit true required.
+    enableGenericAdapter: document.getElementById('enableGenericAdapter').checked,
+    // v0.14.29 (v4.51.0): fold inserted tool-result blocks in
+    // chat history. Default TRUE.
+    collapseToolResults: document.getElementById('collapseToolResults').checked,
+  };
+}
+
+function renderHistory(items) {
+  const box = document.getElementById('historyBox');
+  if (!items || !items.length) {
+    box.textContent = 'No history yet.';
+    return;
+  }
+  box.textContent = items.map((item) => {
+    const ts = item.at || '';
+    const kind = item.kind || 'event';
+    const detail = item.detail || '';
+    const site = item.site ? ` @ ${item.site}` : '';
+    return `[${ts}] ${kind}${site}${detail ? ' — ' + detail : ''}`;
+  }).join('\n');
+}
+
+async function loadConfig() {
+  const cfg = await send('arena.getConfig');
+  if (!cfg || cfg.ok === false) {
+    statusText(`Config load error: ${cfg?.error || 'unknown'}`);
+    return false;
+  }
+  document.getElementById('bridgeUrl').value = cfg.bridgeUrl || '';
+  document.getElementById('bridgeToken').value = cfg.bridgeToken || '';
+  const modes = cfg.modes || {};
+  ['autoPreview', 'autoExecuteSafe', 'autoInsertResult', 'autoSubmitResult'].forEach((id) => {
+    document.getElementById(id).checked = !!modes[id];
+  });
+  document.getElementById('insertStrategy').value = modes.insertStrategy || 'auto';
+  // v0.14.15: dedup toggle -- treat undefined as true so operators
+  // upgrading from v0.14.14 don't silently keep the "show everything"
+  // behaviour they got by accident.
+  document.getElementById('dedupSemantic').checked =
+    (modes.dedupSemantic === undefined) ? true : !!modes.dedupSemantic;
+  // v0.14.28 (v4.50.18): generic adapter opt-in checkbox. Default
+  // FALSE so operators upgrading from v0.14.27 keep the safe
+  // behaviour until they explicitly opt in.
+  document.getElementById('enableGenericAdapter').checked =
+    !!modes.enableGenericAdapter;
+  // v0.14.29 (v4.51.0): collapse tool results toggle. Default TRUE.
+  document.getElementById('collapseToolResults').checked =
+    (modes.collapseToolResults === undefined) ? true : !!modes.collapseToolResults;
+  statusText(`Loaded config. Modes: ${arenaModeSummary(modes)}`);
+  return true;
+}
+
+async function loadHistory() {
+  const result = await send('arena.getHistory');
+  if (!result || result.ok === false) {
+    renderHistory([]);
+    statusText(`History load error: ${result?.error || 'unknown'}`);
+    return false;
+  }
+  renderHistory(result.items || []);
+  return true;
+}
+
+async function notifyActiveTab(message) {
+  try {
+    const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
+    if (tab?.id) chrome.tabs.sendMessage(tab.id, message, () => void chrome.runtime.lastError);
+  } catch {}
+}
+
+async function saveConfig() {
+  statusText('Saving...');
+  const payload = {
+    bridgeUrl: document.getElementById('bridgeUrl').value.trim(),
+    bridgeToken: document.getElementById('bridgeToken').value.trim(),
+    modes: currentModes(),
+  };
+  const result = await send('arena.saveConfig', payload);
+  if (!result?.ok) {
+    statusText(`Save error: ${result?.error || 'unknown'}`);
+    return;
+  }
+  const verify = await send('arena.getConfig');
+  if (!verify || verify.ok === false) {
+    statusText(`Saved, but verify failed: ${verify?.error || 'unknown'}`);
+    return;
+  }
+  document.getElementById('bridgeUrl').value = verify.bridgeUrl || '';
+  document.getElementById('bridgeToken').value = verify.bridgeToken || '';
+  statusText(`Saved. Modes: ${arenaModeSummary(verify.modes)}`);
+  await notifyActiveTab({type: 'arena.controlsModeChanged'});
+}
+
+async function testConnection() {
+  statusText('Testing bridge...');
+  const result = await send('arena.testConnection');
+  statusJson(result);
+}
+
+async function loadPolicies() {
+  statusText('Loading policies...');
+  const result = await send('arena.policies');
+  statusJson(result);
+}
+
+async function copyInstructions(format) {
+  // v4.51.1: honour the catalog scope picker. When set, the copied
+  // text includes the full per-tool schema + example catalog for
+  // that category. Empty scope preserves the v0.14.0 base
+  // instructions.
+  const catEl = document.getElementById('catalogCategory');
+  const category = catEl ? catEl.value : '';
+  statusText(`Loading ${format} instructions${category ? ` (catalog: ${category})` : ''}...`);
+  const body = {format, style: 'full'};
+  if (category) body.category = category;
+  const result = await send('arena.instructions', body);
+  if (!result.ok) {
+    statusText(`Instructions error: ${result.error || 'unknown'}`);
+    return;
+  }
+  await navigator.clipboard.writeText(result.text || '');
+  const catNote = category ? ` + ${(result.catalog || []).length} tool(s) in ${category} catalog` : '';
+  statusText(`Copied ${format} instructions (${(result.text || '').length} chars)${catNote}.`);
+}
+
+// v4.51.1: catalog-only copy. Same handler as copyInstructions but
+// pastes ONLY the catalog block (no base preamble) so the user can
+// paste it into a chat where the base instructions already live.
+async function copyCatalog() {
+  const catEl = document.getElementById('catalogCategory');
+  const category = catEl ? catEl.value : '';
+  if (!category) {
+    statusText('Pick a catalog scope first (Copy Catalog is scope-only).');
+    return;
+  }
+  statusText(`Loading ${category} catalog...`);
+  const result = await send('arena.instructions', {format: 'arena', style: 'short', category});
+  if (!result.ok) {
+    statusText(`Catalog error: ${result.error || 'unknown'}`);
+    return;
+  }
+  const text = result.catalog_text || '';
+  if (!text) {
+    statusText(`Catalog scope "${category}" is empty (no matching tools).`);
+    return;
+  }
+  await navigator.clipboard.writeText(text);
+  statusText(`Copied ${category} catalog: ${(result.catalog || []).length} tool(s), ${text.length} chars.`);
+}
+
+
+async function scanPage() {
+  statusText('Scanning active page...');
+  const result = await send('arena.scanPage');
+  statusJson(result);
+  await loadHistory();
+}
+
+async function openPanel() {
+  const result = await send('arena.openSidePanel');
+  statusText(result.ok ? 'Opened side panel.' : `Panel error: ${result.error || 'unknown'}`);
+}
+
+
+async function clearPageControls() {
+  await notifyActiveTab({type: 'arena.clearPageControls'});
+  statusText('Page controls hidden. Reload, new chat, or Show Page Controls brings them back.');
+}
+
+async function showPageControls() {
+  await notifyActiveTab({type: 'arena.showPageControls'});
+  statusText('Page controls restored.');
+}
+
+async function clearHistory() {
+  const result = await send('arena.clearHistory');
+  statusText(result.ok ? 'History cleared.' : `Error: ${result.error || 'unknown'}`);
+  await loadHistory();
+}
+
+document.getElementById('saveBtn').addEventListener('click', saveConfig);
+document.getElementById('testBtn').addEventListener('click', testConnection);
+document.getElementById('policyBtn').addEventListener('click', loadPolicies);
+document.getElementById('arenaInstructionsBtn').addEventListener('click', () => copyInstructions('arena'));
+document.getElementById('jsonlInstructionsBtn').addEventListener('click', () => copyInstructions('jsonl'));
+document.getElementById('copyCatalogBtn').addEventListener('click', copyCatalog);
+document.getElementById('panelBtn').addEventListener('click', openPanel);
+document.getElementById('scanBtn').addEventListener('click', scanPage);
+document.getElementById('pageControlsBtn').addEventListener('click', clearPageControls);
+document.getElementById('showControlsBtn').addEventListener('click', showPageControls);
+document.getElementById('clearBtn').addEventListener('click', clearHistory);
+
+(async () => {
+  statusText('Loading config...');
+  const ok = await loadConfig();
+  if (ok) await loadHistory();
+})().catch((error) => {
+  statusText(`Popup error: ${String(error)}`);
+});
+
+
+

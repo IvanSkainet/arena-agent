@@ -1,0 +1,86 @@
+{
+  "manifest_version": 3,
+  "name": "Skainet Chat Bridge",
+  "version": "0.14.42",
+  "description": "Detects tool blocks in web chats and executes them through a local Skainet Bridge. Independent project, not affiliated with any chat provider.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8765/*",
+    "http://localhost:8765/*",
+    "https://*.ts.net/*",
+    "https://*.trycloudflare.com/*",
+    "https://chat.openai.com/*",
+    "https://chatgpt.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://aistudio.google.com/*",
+    "https://grok.com/*",
+    "https://www.perplexity.ai/*",
+    "https://perplexity.ai/*",
+    "https://openrouter.ai/*",
+    "https://chat.deepseek.com/*",
+    "https://t3.chat/*",
+    "https://github.com/copilot/*",
+    "https://chat.mistral.ai/*",
+    "https://kimi.com/*",
+    "https://www.kimi.com/*",
+    "https://chat.qwen.ai/*",
+    "https://chat.z.ai/*",
+    "https://arena.ai/*",
+    "https://www.arena.ai/*",
+    "https://duck.ai/*",
+    "https://duckduckgo.com/*"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "adapter_sites.js",
+        "parser.js",
+        "adapters.js",
+        "insert_strategies.js",
+        "settings.js",
+        "insert_history.js",
+        "shadow_toolbar.js",
+        "diag.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "shadow_toolbar.css"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "sidebar_action": {
+    "default_panel": "sidepanel.html",
+    "default_title": "Skainet Chat Bridge"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "skainet-chat-bridge@skainet.local",
+      "strict_min_version": "115.0"
+    }
+  }
+}

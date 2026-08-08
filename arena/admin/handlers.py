@@ -60,6 +60,7 @@ class AdminHandlers:
     tunnels_probe_reset: Callable[..., Any]
     # v4.1.0: agent-facing "which URL should I use" endpoint.
     agent_config: Callable[..., Any]
+    self_describe: Callable[..., Any]
     profile_get: Callable[..., Any]
     profile_post: Callable[..., Any]
     # v3.85.0: cross-platform auto-update.
@@ -631,6 +632,12 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
     from arena.admin.handlers_profile import make_profile_handlers
     _prof = make_profile_handlers(ctx)
 
+    # v4.169.0: self-description. The tools were always listable; what
+    # was missing is the bridge volunteering what it is and what is
+    # currently blocking the agent.
+    from arena.admin.handlers_selfdesc import make_self_handlers
+    _self = make_self_handlers(ctx)
+
     # v3.96.0: ZeroTier Central management handlers live in a
     # sibling module too — same reason.
     from arena.admin.zerotier_central_handlers import make_zerotier_central_handlers
@@ -660,6 +667,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         tunnels_probe=handle_v1_tunnels_probe,
         tunnels_probe_reset=handle_v1_tunnels_probe_reset,
         agent_config=handle_v1_agent_config,
+        self_describe=_self["self"],
         profile_get=_prof["profile_get"],
         profile_post=_prof["profile_post"],
         update_status=_upd["update_status"],
