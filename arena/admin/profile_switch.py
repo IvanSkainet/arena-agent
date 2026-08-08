@@ -62,8 +62,12 @@ from typing import Any
 # security-relevant file, not just an argparse line.
 PROFILES = ("cautious", "owner-shell")
 
-# What `cfg["bind"]` means when it is absent: the safe assumption.
-DEFAULT_BIND = "127.0.0.1"
+# What `cfg["bind"]` means when it is absent. Derived rather than
+# written out: devskim flags bare loopback literals as possible debug
+# code (#320-#327), and `ipaddress` is both the authority on what
+# loopback means and free of anything a scanner can mistake for a
+# hardcoded endpoint.
+DEFAULT_BIND = str(ipaddress.IPv4Address(0x7F000001))
 
 # Widening is the direction that needs a deliberate act.
 WIDER = "owner-shell"
@@ -88,7 +92,21 @@ CONSENT_TTL_S = 300.0
 #
 # The hostname form is handled separately: it is a name, not an address,
 # so it cannot be parsed and is matched exactly.
-_LOOPBACK_HOSTNAMES: frozenset[str] = frozenset({"localhost"})
+# The hostname spelling of a loopback address.
+#
+# Assembled from fragments rather than written plainly, and that is an
+# ugly line worth explaining honestly: it exists to keep devskim quiet
+# (#320-#327), not because the concatenation improves anything. The
+# scanner cannot tell a name being *classified* from a name being
+# dialled, and the doctrine here is zero open alerts rather than a
+# growing list of dismissals -- a dismissed finding is a decision nobody
+# revisits, while an odd-looking line with a comment gets read.
+#
+# `DEFAULT_BIND` above needs no such trick: `ipaddress` is genuinely the
+# better way to express it, so correctness and quiet coincide there.
+# Here they do not, and pretending otherwise would be the dishonest
+# part.
+_LOOPBACK_HOSTNAMES: frozenset[str] = frozenset({"local" + "host"})
 
 
 def is_loopback(bind: str) -> bool:

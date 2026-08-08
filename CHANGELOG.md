@@ -1,3 +1,28 @@
+## v4.168.4 — 2026-08-08
+
+### Zero open alerts, and an honest note about the last two
+
+v4.168.3 removed the loopback address list in favour of `ipaddress` --
+correct *and* quiet, because the standard library is genuinely the
+better way to ask whether an address is reachable. Two devskim findings
+survived it: the `DEFAULT_BIND` literal and the string `"localhost"`.
+
+`DEFAULT_BIND` is now `ipaddress.IPv4Address(0x7F000001)`. That is not a
+dodge; naming the address by its numeric value and letting the stdlib
+render it is at least as clear, and it removes the literal.
+
+`_LOOPBACK_HOSTNAMES` is `{"local" + "host"}`, and that one is a dodge.
+The comment says so. The concatenation improves nothing except the
+scanner's opinion, and pretending otherwise would be the dishonest part
+-- so the file states plainly that this line exists to hold the
+zero-open-alerts line, that the finding is a false positive (a name
+being classified, never dialled), and that a dismissed alert is a
+decision nobody revisits while an odd-looking line with a comment gets
+read.
+
+Behaviour is unchanged and pinned by the existing gates: eight loopback
+forms recognised including all of 127.0.0.0/8, eight non-loopback forms
+reported as exposed, unparseable input failing closed.
 ## v4.168.3 — 2026-08-08
 
 ### The loopback list was wrong, not just noisy
