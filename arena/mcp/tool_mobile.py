@@ -19,6 +19,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from arena.jsonshape import loads_object
 from arena.mcp.tool_utils import text_content
 
 
@@ -37,7 +38,7 @@ def _bridge_get_json(ctx, path: str, params: dict[str, Any] | None = None) -> di
         method="GET",
     )
     with urllib.request.urlopen(req, timeout=60) as resp:  # nosec B310 -- loopback bridge URL for local MCP tool  # nosemgrep: dynamic-urllib-use-detected -- loopback-only fixed prefix, same rationale as tool_desktop._bridge_get
-        return json.loads(resp.read().decode("utf-8", "replace"))
+        return loads_object(resp.read().decode("utf-8", "replace"))
 
 
 def _bridge_get_bytes(ctx, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -86,7 +87,7 @@ def _bridge_post(ctx, path: str, payload: dict[str, Any] | None = None) -> dict[
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=120) as resp:  # nosec B310 -- loopback  # nosemgrep: dynamic-urllib-use-detected -- loopback-only fixed prefix
-        return json.loads(resp.read().decode("utf-8", "replace"))
+        return loads_object(resp.read().decode("utf-8", "replace"))
 
 
 def _require_serial(args: dict[str, Any]) -> tuple[str | None, dict[str, Any] | None]:

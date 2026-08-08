@@ -8,6 +8,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from arena.jsonshape import loads_object
 from arena.mcp_client.client import McpError, McpStdioClient
 
 
@@ -174,7 +175,8 @@ def _mcp_config_path() -> Path:
 
 def _load_mcp_config() -> dict[str, Any]:
     try:
-        return json.loads(_mcp_config_path().read_text(encoding="utf-8"))
+        return loads_object(_mcp_config_path().read_text(encoding="utf-8"),
+                            default={"mcpServers": {}})
     except Exception:
         return {"mcpServers": {}}
 

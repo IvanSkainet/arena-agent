@@ -29,6 +29,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from arena.jsonshape import loads_object
 from arena.mcp.tool_utils import text_content
 
 
@@ -83,7 +84,7 @@ def _load_sessions() -> dict[str, Any]:
     if not _STATE_FILE.exists():
         return {}
     try:
-        return json.loads(_STATE_FILE.read_text())
+        return loads_object(_STATE_FILE.read_text())
     except (OSError, json.JSONDecodeError):
         return {}
 

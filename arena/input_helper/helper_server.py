@@ -339,7 +339,10 @@ class InputHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         if length == 0:
             return {}
-        return json.loads(self.rfile.read(length).decode("utf-8"))
+        # Runs as a standalone script (python arena/input_helper/helper_server.py),
+        # so `arena` is not importable here -- narrow the shape inline.
+        data = json.loads(self.rfile.read(length).decode("utf-8"))
+        return data if isinstance(data, dict) else {}
 
     def do_GET(self):
         if not self._check_auth():

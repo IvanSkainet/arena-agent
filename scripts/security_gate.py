@@ -34,7 +34,10 @@ def _load(path: str) -> dict:
         print(f"error: report file not found: {path}", file=sys.stderr)
         sys.exit(2)
     try:
-        return json.loads(p.read_text())
+        data = json.loads(p.read_text())
+        # A valid-but-not-an-object report (``null``, a bare list) must not
+        # reach callers annotated ``-> dict``; treat it as an empty report.
+        return data if isinstance(data, dict) else {}
     except Exception as e:  # noqa: BLE001
         print(f"error: could not parse {path}: {e}", file=sys.stderr)
         sys.exit(2)

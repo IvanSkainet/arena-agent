@@ -12,6 +12,7 @@ from arena.browser.cdp_client.common import (
     json,
     urllib,
 )
+from arena.jsonshape import loads_array
 
 
 def list_tabs(port: int = DEFAULT_PORT) -> List[Dict[str, Any]]:
@@ -19,7 +20,7 @@ def list_tabs(port: int = DEFAULT_PORT) -> List[Dict[str, Any]]:
     url = f"http://127.0.0.1:{port}/json/list"
     try:
         with urllib.request.urlopen(url, timeout=5) as r:  # nosec B310 -- loopback CDP endpoint (127.0.0.1:<devtools_port>)  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
-            return json.loads(r.read().decode())
+            return loads_array(r.read().decode())
     except Exception:
         return []
 

@@ -19,6 +19,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from arena.jsonshape import loads_object
+
 # Guards concurrent read/write of run JSON files: without it a reader can
 # observe a half-written file and a concurrent writer can lose an update.
 _file_lock = threading.Lock()
@@ -60,7 +62,7 @@ def _load(run_id: str) -> dict[str, Any]:
         p = _run_path(run_id)
         if not p.exists():
             raise FileNotFoundError(run_id)
-        return json.loads(p.read_text(encoding="utf-8"))
+        return loads_object(p.read_text(encoding="utf-8"))
 
 
 def _missing_run(run_id: str) -> dict[str, Any]:

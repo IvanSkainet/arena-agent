@@ -1,3 +1,71 @@
+## v4.169.7 — 2026-08-08
+
+### `null` is valid JSON, and it was killing the mission list
+
+Pyright now runs inside the sandbox instead of over the bridge: the full
+sweep of `arena/` and `scripts/` takes 26 seconds locally, against the
+several-minute round trip through Serena on Ivan's machine. Same
+diagnostics, no network in the loop. 119 errors, and this time the tail
+of the list got read rather than the head.
+
+The find was in `arena/resources/mission_catalog.py`. `load_mission_json`
+is annotated `-> dict[str, Any]` and ended in `return json.loads(...)`.
+A `mission.json` holding the four bytes `null` is not corrupt -- it is
+valid JSON -- so the parse succeeded and the function returned `None`
+behind an annotation that says it cannot. Reproduced before touching
+anything:
+
+    load -> None
+    CRASH AttributeError 'NoneType' object has no attribute 'get'
+
+The crash lands in `summarize_mission_dir`, one frame away from the
+file that caused it, on a line that is doing nothing wrong. And because
+the listing walks every mission directory in a loop, one placeholder
+file -- an interrupted write, a half-synced folder -- takes down the
+whole mission list, not just its own entry.
+
+### The class, not the instance
+
+An AST sweep found eighteen functions promising `dict` or `list` and
+returning whatever `json.loads` happened to produce: the MCP tool
+bridges, the input-helper client, the mcp-client config loader, the
+autopilot store, the workbench artifact reader, three gate scripts.
+Every one of them a crash waiting for a file to be written badly once.
+
+`arena/jsonshape.py` holds `loads_object` / `loads_array`: parse, then
+check the shape the caller actually declared. Malformed JSON still
+raises -- callers already handle that. A valid document of the wrong
+shape is not an exception, it is simply not what was promised, so the
+default is returned.
+
+Three of the eighteen live in `scripts/`, which runs without `arena` on
+`sys.path`, and they got an inline `isinstance` narrowing instead of the
+import. So did `arena/input_helper/helper_server.py` -- it sits inside
+the package but is launched as a standalone script, which the test suite
+caught by starting it in a subprocess and watching it die on
+`ModuleNotFoundError`. Being in `arena/` does not mean being imported as
+`arena`.
+
+### The gate, and what sabotaging it exposed
+
+`scripts/json_shape_ratchet.py` fails the build when a function annotated
+`dict`/`list` returns `json.loads(...)` directly. Baseline is empty and
+must stay that way. `dict[...] | None` is not flagged -- that annotation
+is telling the truth.
+
+Four sabotage runs. Reintroducing the bug in `workbench/artifacts.py`:
+caught. Honest code -- optional annotations, inline narrowing, unannotated
+functions: not flagged, no false positives. Then the third one, which
+found a hole in the gate itself: misspelling a scan directory made it
+report OK while scanning nothing. A detector that silently examines zero
+files reports success forever. It now refuses to pass below 400 files
+scanned and dies outright on a missing directory, and both failure modes
+are pinned by tests.
+
+The quality ratchet then caught a type error in the new gate on its first
+run -- `ast.unparse(fn.returns)` where `returns` is `expr | None`. The gate
+that checks annotations was itself lying about one.
+
 ## v4.169.6 — 2026-08-08
 
 ### The sweep, done properly this time

@@ -60,6 +60,10 @@ CHECKS: list[Check] = [
           why="170 releases and nothing had ever been deleted; Serena found "
               "twelve public functions with zero callers, two written the "
               "day before"),
+    Check("json shape", [PY, "scripts/json_shape_ratchet.py"],
+          why="a mission.json holding the four bytes `null` is valid JSON; "
+              "load_mission_json promised a dict, returned None, and the "
+              "whole mission listing died on an unrelated line"),
     Check("claim order", [PY, "scripts/claim_order_ratchet.py"],
           why="bug #73 was the v4.166.0 `lost -29` defect a second time, in "
               "the mirror direction: a value escaping before the file is "

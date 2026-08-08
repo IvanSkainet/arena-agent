@@ -56,7 +56,8 @@ def _parse(kind: str, body: str) -> dict:
         return {"ip": body}
     if kind == "json":
         try:
-            return json.loads(body)
+            data = json.loads(body)
+            return data if isinstance(data, dict) else {"raw": body}
         except Exception:
             return {"raw": body}
     if kind == "trace":

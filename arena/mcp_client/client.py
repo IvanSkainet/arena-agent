@@ -34,6 +34,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from arena.jsonshape import loads_object
+
 # Commands the client is allowed to spawn. Mirrors the marketplace `test`
 # allowlist so a tampered mcp.json cannot run an arbitrary binary. Full paths
 # are permitted as long as their basename (sans .exe/.cmd/.bat) is allowed --
@@ -415,7 +417,8 @@ class McpClientManager:
     def _load_config(self) -> dict[str, Any]:
         if self.config_path.exists():
             try:
-                return json.loads(self.config_path.read_text(encoding="utf-8"))
+                return loads_object(self.config_path.read_text(encoding="utf-8"),
+                                    default={"mcpServers": {}})
             except json.JSONDecodeError:
                 return {"mcpServers": {}}
         return {"mcpServers": {}}

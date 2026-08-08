@@ -58,7 +58,8 @@ def workflow_refs() -> dict[str, list[str]]:
 def load_manifest() -> dict[str, str]:
     if not MANIFEST.exists():
         return {}
-    return json.loads(MANIFEST.read_text(encoding="utf-8"))
+    data = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    return data if isinstance(data, dict) else {}
 
 
 def _get(url: str) -> str | None:

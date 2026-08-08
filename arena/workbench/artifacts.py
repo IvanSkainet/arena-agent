@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from arena.jsonshape import loads_object
+
 
 def home() -> Path:
     return Path(os.environ.get("ARENA_AGENT_HOME") or (Path.home() / "arena-bridge")).expanduser()
@@ -60,7 +62,7 @@ def run_info(run_id: str) -> dict[str, Any]:
     p = runs_root() / safe_run_id(run_id) / "run.json"
     if not p.exists():
         return {"ok": False, "error": "run not found"}
-    return json.loads(p.read_text(encoding="utf-8"))
+    return loads_object(p.read_text(encoding="utf-8"))
 
 
 def read_artifact(run_id: str, path: str, *, max_bytes: int = 128 * 1024) -> dict[str, Any]:

@@ -1,9 +1,10 @@
 """Mission file/catalog helpers shared across mission lifecycle surfaces."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
+
+from arena.jsonshape import loads_object
 
 
 def mission_dir(missions_dir: Path, name: str) -> Path:
@@ -18,7 +19,7 @@ def load_mission_json(path: Path) -> dict[str, Any]:
     if not mission_file.exists():
         return {}
     try:
-        return json.loads(mission_file.read_text(encoding="utf-8"))
+        return loads_object(mission_file.read_text(encoding="utf-8"))
     except Exception:
         return {}
 

@@ -11,6 +11,8 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from arena.jsonshape import loads_object
+
 _DEFAULT_PORT = 19222
 
 
@@ -33,7 +35,7 @@ def _call(path: str, body: dict[str, Any] | None = None, *, method: str = "POST"
         headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 -- loopback-only helper; nosemgrep: dynamic-urllib-use-detected -- URL is fixed to 127.0.0.1 loopback with only the port variable
-        return json.loads(resp.read().decode("utf-8", "replace"))
+        return loads_object(resp.read().decode("utf-8", "replace"))
 
 
 def is_available() -> bool:

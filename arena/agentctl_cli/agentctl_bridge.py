@@ -46,6 +46,7 @@ from arena.agentctl_cli.agentctl_common import (
     BRIDGE_URL,
     bridge_get,  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 )
+from arena.jsonshape import loads_object
 
 _HELP = """Usage: agentctl bridge <verb> [args]
 
@@ -233,7 +234,7 @@ def _fetch_config_from(url: str) -> dict[str, Any]:
     if ctx is not None:
         kwargs["context"] = ctx
     with urllib.request.urlopen(req, **kwargs) as resp:  # nosec B310 -- operator-configured BRIDGE_URL; TLS-verified per arena/agentctl_cli/tls.py  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
-        return json.loads(resp.read().decode("utf-8"))
+        return loads_object(resp.read().decode("utf-8"))
 
 
 def _fetch_config() -> dict[str, Any]:
