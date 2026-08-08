@@ -13,7 +13,7 @@ from arena.browser.cdp_client.common import (
     base64,
     logger,
 )
-from arena.browser.cdp_client.tabs_http import close_tab, get_new_tab_url, list_tabs
+from arena.browser.cdp_client.tabs_http import get_new_tab_url
 
 
 class CDPBrowserPageMixin(CDPBrowserInputMixin):
@@ -108,10 +108,6 @@ class CDPBrowserPageMixin(CDPBrowserInputMixin):
             return res["result"]["result"].get("value")
         return None
 
-    async def get_tabs(self) -> List[Dict[str, Any]]:
-        """List all open browser tabs."""
-        return list_tabs(self.port)
-
     async def new_tab(self, url: str = "about:blank") -> Optional[str]:
         """Open a new browser tab and optionally navigate to a URL.
 
@@ -124,10 +120,6 @@ class CDPBrowserPageMixin(CDPBrowserInputMixin):
         """
         ws_url = get_new_tab_url(self.port)
         return ws_url
-
-    async def close_tab_by_id(self, tab_id: str) -> bool:
-        """Close a tab by its target ID."""
-        return close_tab(tab_id, self.port)
 
     async def get_cookies(self, timeout: Optional[float] = None) -> List[Dict]:
         """Get all cookies for the current page."""

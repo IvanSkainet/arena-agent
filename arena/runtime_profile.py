@@ -43,11 +43,6 @@ def current_profile() -> str:
     return value if isinstance(value, str) and value else DEFAULT_PROFILE
 
 
-def is_unlocked() -> bool:
-    """True when the operator has deliberately enabled full shell."""
-    return current_profile() == "owner-shell"
-
-
 def reset_for_tests() -> None:
     """Forget the published config. Tests only."""
     global _CONFIG

@@ -146,9 +146,6 @@ class AnnexBSplitter:
             return None
         return self._nals.pop(0)
 
-    def has_pending(self) -> bool:
-        return bool(self._nals)
-
     def flush(self) -> None:
         """Force-emit any trailing partial NAL as a complete one.
 

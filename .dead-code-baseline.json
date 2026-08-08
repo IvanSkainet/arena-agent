@@ -1,0 +1,4 @@
+{
+  "max_orphans": 11,
+  "note": "raise only with a reason; lower it freely"
+}

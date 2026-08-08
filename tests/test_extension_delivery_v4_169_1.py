@@ -424,3 +424,50 @@ def test_the_download_includes_the_icons(tmp_path):
             assert f"icon{size}.png" in names, (
                 f"icon{size}.png missing from the "
                 f"{'firefox' if firefox else 'chromium'} download")
+
+
+# ---------------------------------- v4.169.4: the dead-code ratchet itself
+
+def test_the_dead_code_ratchet_is_wired_into_preflight():
+    """A gate nobody runs is a gate that never fires."""
+    source = (ROOT / "scripts" / "preflight.py").read_text(encoding="utf-8")
+    assert "dead_code_ratchet.py" in source
+
+
+def test_framework_overrides_are_not_reported_as_dead():
+    """`do_DELETE` and `https_open` have no caller and never will.
+
+    http.server dispatches on the method name and urllib picks its
+    handler the same way. Reporting them would be a false positive, and
+    a gate with false positives gets switched off -- which is worse than
+    not having it.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "dead_ratchet", ROOT / "scripts" / "dead_code_ratchet.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    for name in ("do_DELETE", "do_GET", "https_open", "http_open"):
+        assert module.FRAMEWORK_OVERRIDES.match(name), (
+            f"{name} would be reported as dead code")
+
+    reported = {name for name, _f, _l in module.orphans()}
+    assert "do_DELETE" not in reported
+    assert "https_open" not in reported
+
+
+def test_the_baseline_exists_and_matches_reality():
+    """The floor must be a measured number, not an aspiration."""
+    import importlib.util
+
+    baseline_file = ROOT / ".dead-code-baseline.json"
+    assert baseline_file.is_file(), "no dead-code baseline recorded"
+    floor = json.loads(baseline_file.read_text(encoding="utf-8"))["max_orphans"]
+
+    spec = importlib.util.spec_from_file_location(
+        "dead_ratchet2", ROOT / "scripts" / "dead_code_ratchet.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert len(module.orphans()) <= floor

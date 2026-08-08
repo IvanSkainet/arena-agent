@@ -153,12 +153,6 @@ class CDPNetworkMonitor(CDPNetworkHarMixin):
         """Get currently in-flight requests."""
         return list(self._requests.values())
 
-    def get_request_by_id(self, request_id: str) -> Optional[NetworkRequest]:
-        """Get a specific request by its ID."""
-        return self._requests.get(request_id) or next(
-            (r for r in self._finished if r.request_id == request_id), None
-        )
-
     def total_requests(self) -> int:
         """Total number of finished requests."""
         return len(self._finished)

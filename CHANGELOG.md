@@ -1,3 +1,50 @@
+## v4.169.4 — 2026-08-08
+
+### First deletion in 170 releases
+
+Serena was connected over the operator's own bridge and pointed at the
+thing it is actually good at: not reading files, but resolving symbol
+references. `find_referencing_symbols` across every public function in
+`arena/` -- 1545 of them -- returned **zero callers** for twelve.
+
+Not "no obvious caller". Zero: nothing in `arena/`, nothing in tests,
+nothing in the dashboard, no string in any registry, MCP table or JSON
+manifest. Checked three ways before touching anything -- Serena's
+reference graph, a repo-wide token count, and a grep for the name as a
+string in case something dispatched dynamically.
+
+Two of the twelve were written the previous day. By me.
+
+Deleted: `exec_bridge`, `run_script`, `get_tabs`, `close_tab_by_id`,
+`clear_rules`, `block_urls`, `add_redirect`, `mock_endpoint`,
+`get_request_by_id`, `cached_host_class`, `is_unlocked`, `has_pending`.
+Ninety-five lines, and three orphaned imports that went with them.
+
+This project has shipped 170 versions and had never removed anything.
+That is the finding, more than the twelve functions.
+
+### The ratchet, and why it is deliberately crude
+
+Dead code does not arrive in batches. It accumulates one abandoned
+helper at a time, each reasonable on the day it was written, and nobody
+notices because nothing breaks. So `scripts/dead_code_ratchet.py`
+records the count and fails when it grows -- deleting lowers the floor,
+adding an uncalled helper raises it and needs a reason.
+
+It counts identifier-shaped tokens across the whole repo rather than
+building an import graph. A real call graph would flag everything
+reached through `getattr`, a registry dict, an MCP tool table or a
+Dashboard fetch, and the gate would be uninstallable within a week. The
+crude version errs the safe way: mentioned anywhere in any form, not
+reported.
+
+Two names it must never report, learned by running it: `do_DELETE` and
+`https_open`. `http.server` dispatches on the verb and `urllib` picks
+its handler by method name, so both have no caller in this repository
+and never will. A gate that cries wolf gets switched off, which is
+worse than not having one.
+
+Baseline: 11. Sabotage -- adding a function nobody calls -- fails it.
 ## v4.169.3 — 2026-08-08
 
 ### "It works, only there's no icon"

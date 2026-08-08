@@ -56,6 +56,10 @@ CHECKS: list[Check] = [
           why="lint debt must not grow"),
     Check("quality ratchet", [PY, "scripts/quality_ratchet.py"],
           why="pyrefly/vulture debt must not grow"),
+    Check("dead code", [PY, "scripts/dead_code_ratchet.py"],
+          why="170 releases and nothing had ever been deleted; Serena found "
+              "twelve public functions with zero callers, two written the "
+              "day before"),
     Check("claim order", [PY, "scripts/claim_order_ratchet.py"],
           why="bug #73 was the v4.166.0 `lost -29` defect a second time, in "
               "the mirror direction: a value escaping before the file is "

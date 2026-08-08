@@ -35,7 +35,6 @@ that throws on an unusual machine is worse than one that says "linux".
 """
 from __future__ import annotations
 
-import functools
 import os
 import platform
 import sys
@@ -209,9 +208,3 @@ def describe(env: dict[str, str] | None = None,
         # on-device means the bridge IS the phone.
         summary["role"] = "on-device" if summary["termux"] else "android-host"
     return summary
-
-
-@functools.lru_cache(maxsize=1)
-def cached_host_class() -> str:
-    """`detect_host_class()` for hot paths. Only valid for the real env."""
-    return detect_host_class()

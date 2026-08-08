@@ -143,18 +143,6 @@ def bridge_post(path: str, data: dict, token: bool = True, timeout: int = 20) ->
         return json.loads(resp.read().decode())
 
 
-def exec_bridge(cmd: str, timeout: int = 30) -> dict:
-    return bridge_post("/v1/exec", {"cmd": cmd, "timeout": timeout})
-
-
-def run_script(script: str, args: list[str] | None = None) -> None:
-    py = sys.executable or "python3"
-    try:
-        subprocess.run([py, str(SCRIPTS / script)] + (args or []), check=True)  # nosemgrep: dangerous-subprocess-use-tainted-env-args -- command string built from a hard-coded literal or from operator-side CLI input (see bandit B602/B603 nosec on the same line)
-    except subprocess.CalledProcessError as e:
-        sys.exit(e.returncode)
-
-
 def run_bin(tool: str, args: list[str] | None = None) -> None:
     py = sys.executable or "python3"
     tool_path = BIN / tool
