@@ -1,3 +1,61 @@
+## v4.169.5 — 2026-08-08
+
+### A scan that found nothing was looking at nothing
+
+The previous release swept all 654 modules with Serena's Pyright
+integration and reported a clean tree. It was clean because the parser
+was wrong.
+
+Serena returns diagnostics as `{path: {severity: {symbol: [items]}}}`.
+The sweep read them as a flat list, got zero every time, and printed
+"0 errors, 0 warnings" for 654 files in a row. A green result and an
+empty result look identical from the outside, which is the whole
+problem -- the same shape as a test that passes because it asserts
+nothing.
+
+Caught by writing a deliberately broken file and checking the scanner
+saw it. It did not. That probe is the only reason this was found, and
+it should have been the first thing run, not the last.
+
+Re-parsed correctly, the first 60 files produced **11 findings**. Most
+were `aiohttp could not be resolved` -- environment noise, since Pyright
+runs without the venv. Two were real.
+
+### The bridge told a halted agent it was running
+
+`/v1/self` imported `control_status` from `arena.control`. No such
+function exists there; the module has `_control_halt`, `_control_unhalt`
+and a private `_control_state`. The import sat inside a bare
+`except Exception`, so it failed silently on **every single call** and
+the guard block reported `halt: inactive` unconditionally.
+
+Verified live on the operator's machine with HALT genuinely engaged:
+
+    /v1/control/status  ->  agent_halted: true
+    /v1/self            ->  halt: active=false, blocking=false
+
+Of everything a self-description can get wrong, the emergency stop is
+the worst one. An agent told it is not halted keeps trying, concludes
+its tools are broken, and reports that to the operator.
+
+`arena.control` now exposes a real `is_halted()`, and the handler
+imports it **outside** any try block. A missing symbol must break in
+tests, not degrade into a wrong answer in production -- the silent
+`except` is what let this ship.
+
+Pyright had been reporting `reportAttributeAccessIssue` on that exact
+line the entire time. Nobody was reading Pyright.
+
+### Also: `sys` possibly unbound
+
+`arena/agentctl_extras/integrations.py` used `sys.stderr` at line 11 and
+imported `sys` locally at line 113. It happened to work because `sys`
+also arrives via `from ...common import ... sys`, so the local import
+was both redundant and misleading. Removed.
+
+Sabotage: restoring the `control_status` import fails two gates, making
+`is_halted()` return a constant fails a third, and dropping halt from
+the blocking set fails two more.
 ## v4.169.4 — 2026-08-08
 
 ### First deletion in 170 releases

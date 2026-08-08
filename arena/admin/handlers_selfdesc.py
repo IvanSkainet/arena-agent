@@ -44,12 +44,13 @@ def make_self_handlers(ctx):
         except Exception:
             pass
 
-        halted = False
-        try:
-            from arena.control import control_status
-            halted = bool((control_status() or {}).get("agent_halted"))
-        except Exception:
-            pass
+        # No bare `except Exception` around this import. That is exactly
+        # how the previous version hid a NameError for `control_status`,
+        # a function that never existed, and reported "not halted" on a
+        # halted bridge. A missing symbol here must break loudly in
+        # tests, not degrade quietly in production.
+        from arena.control import is_halted
+        halted = is_halted()
 
         posture: dict = {}
         try:

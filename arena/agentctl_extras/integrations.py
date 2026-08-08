@@ -110,7 +110,6 @@ def known_aliases() -> dict[str, str]:
 def cmd_beep(args: list[str]) -> int:
     try:
         import platform
-        import sys
         import time
 
         beep_type = "success"

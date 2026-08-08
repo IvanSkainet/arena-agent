@@ -33,6 +33,27 @@ _control_state: dict[str, Any] = {
 _control_lock = _threading.Lock()
 
 
+def is_halted() -> bool:
+    """True when the agent kill-switch is engaged.
+
+    v4.169.5: `/v1/self` imported a `control_status` that does not exist
+    in this module. The import sat inside a bare `except Exception`, so
+    it failed silently on every call and the self-description reported
+    `halt: inactive` while the bridge was genuinely halted -- verified
+    live: `/v1/control/status` said `agent_halted: true` and `/v1/self`
+    said `false` at the same moment.
+
+    Pyright had been reporting it as `reportAttributeAccessIssue` the
+    whole time. Nobody was reading Pyright.
+
+    An agent that has been stopped and is told it has not been stopped
+    is the worst possible failure of a self-description: it will keep
+    trying, blame the tools, and report the wrong thing to the operator.
+    """
+    with _control_lock:
+        return bool(_control_state["agent_halted"])
+
+
 def _control_check() -> dict | None:
     """Check if agent control is currently allowed.
     Returns None if OK, or an error dict if paused/revoked."""
