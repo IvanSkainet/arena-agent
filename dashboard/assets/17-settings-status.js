@@ -25,12 +25,37 @@ async function refreshSettings() {
         "scheduled-task": ["Windows Scheduled Task", "warn"],
         "systemd-user":   ["systemd-user (Linux)", "ok"],
         "launchd":        ["launchd (macOS)", "ok"],
-        "unknown":        ["Manual / unmanaged", "warn"],
+        // v4.168.1: Android. The bridge used to report "unknown" on
+        // every phone because it fell into the Linux branch and asked
+        // systemd, which Termux does not have. The hook-only state is
+        // called out separately on purpose: a boot script with no
+        // Termux:Boot app looks exactly like working autostart until
+        // the phone reboots and the bridge does not come back.
+        "termux-boot":           ["Termux:Boot (autostart)", "ok"],
+        "termux-boot-hook-only": ["Hook installed, Termux:Boot missing", "warn"],
+        "manual":                ["Manual / unmanaged", "warn"],
+        "unknown":               ["Manual / unmanaged", "warn"],
       };
       const [label, kind] = labels[mode] || [mode, "gray"];
       el.className = "badge " + kind;
       el.textContent = label + (si.pid ? "  (PID " + si.pid + ")" : "");
       el.title = JSON.stringify(si, null, 2);
+
+      // Say what to do about it, where the operator is already looking.
+      const note = si.termux_boot && si.termux_boot.note;
+      let hint = document.getElementById("setServiceHint");
+      if (note) {
+        if (!hint) {
+          hint = document.createElement("p");
+          hint.id = "setServiceHint";
+          hint.className = "st-hint";
+          hint.style.cssText = "margin:4px 0 0 0;font-size:12px";
+          el.parentElement.parentElement.appendChild(hint);
+        }
+        hint.textContent = note;
+      } else if (hint) {
+        hint.remove();
+      }
     }
   } catch (e) { /* ignore */ }
 

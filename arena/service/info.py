@@ -10,6 +10,71 @@ from arena.service.windows import _sc_query_running, _windows_bridge_processes, 
 from arena.util import _subprocess_kwargs
 
 
+def _is_android() -> bool:
+    """True on Android, which lies about being plain Linux."""
+    try:
+        from arena import hostplatform
+        return hostplatform.is_android()
+    except Exception:
+        # Detection must never take the service surface down with it.
+        return False
+
+
+def _termux_boot_info() -> dict[str, Any]:
+    """What supervises the bridge on a phone, stated honestly.
+
+    Three distinguishable states, because "unknown" helps nobody:
+
+      * `termux-boot`  -- the hook exists AND the Termux:Boot app is
+        installed, so a reboot really does bring the bridge back.
+      * `termux-boot-hook-only` -- the script is there but the app is
+        not, so nothing will run it. This is the state the bootstrap
+        leaves behind when the operator has not installed Termux:Boot
+        from F-Droid yet, and saying so is the difference between a
+        working autostart and a believed one.
+      * `manual` -- neither.
+    """
+    from pathlib import Path
+
+    hook = Path(os.path.expanduser("~/.termux/boot/arena-bridge.sh"))
+    hook_present = hook.is_file()
+    app_present = Path("/data/data/com.termux.boot").exists()
+    if not app_present:
+        # The data dir is only readable by the app itself on some
+        # devices; fall back to asking the package manager.
+        try:
+            probe = subprocess.run(
+                ["pm", "path", "com.termux.boot"],
+                capture_output=True, text=True, timeout=5,
+                **_subprocess_kwargs(),
+            )
+            app_present = probe.returncode == 0 and "package:" in (probe.stdout or "")
+        except Exception:
+            app_present = False
+
+    if hook_present and app_present:
+        running_as = "termux-boot"
+        note = "Termux:Boot will restart the bridge after a reboot."
+    elif hook_present:
+        running_as = "termux-boot-hook-only"
+        note = ("The boot hook is installed but the Termux:Boot app is "
+                "not. Install it from F-Droid; nothing runs the hook "
+                "until then.")
+    else:
+        running_as = "manual"
+        note = "No autostart configured. Re-run scripts/bootstrap_android.sh."
+
+    return {
+        "running_as": running_as,
+        "termux_boot": {
+            "hook": str(hook),
+            "hook_present": hook_present,
+            "app_installed": app_present,
+            "note": note,
+        },
+    }
+
+
 def _service_info_sync() -> dict:
     """Detect under what service manager (NSSM/Scheduled Task/systemd/launchd/none) we run."""
     result: dict[str, Any] = {"ok": True, "running_as": "unknown"}
@@ -34,6 +99,18 @@ def _service_info_sync() -> dict:
             result["warning"] = "Windows service exists but is stopped; bridge may be running from Scheduled Task or manual start"
         elif task.get("exists"):
             result["running_as"] = "scheduled-task"
+    elif _is_android():
+        # Android reports sys.platform == "linux" but has no systemd and
+        # no launchd. Falling through to the Linux branch made every
+        # phone shell out to a `systemctl` that does not exist and then
+        # report `running_as: unknown` -- true but useless, and the
+        # Dashboard showed "Manual / unmanaged" even when the bridge was
+        # started by the boot hook.
+        #
+        # Termux's supervisor is Termux:Boot: an executable script in
+        # ~/.termux/boot that the app runs at device start. Its presence
+        # is the honest answer to "what will restart this bridge".
+        result.update(_termux_boot_info())
     elif sys.platform == "linux":
         try:
             result_run = subprocess.run(

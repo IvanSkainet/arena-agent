@@ -61,6 +61,9 @@ from typing import Any
 # security-relevant file, not just an argparse line.
 PROFILES = ("cautious", "owner-shell")
 
+# What `cfg["bind"]` means when it is absent: the safe assumption.
+DEFAULT_BIND = "127.0.0.1"
+
 # Widening is the direction that needs a deliberate act.
 WIDER = "owner-shell"
 NARROWER = "cautious"
@@ -68,6 +71,22 @@ NARROWER = "cautious"
 # Consent phrases expire. A phrase left in a chat log or a shell history
 # should not stay usable indefinitely.
 CONSENT_TTL_S = 300.0
+
+# Addresses that reach only this machine. Named rather than written
+# inline because devskim flags bare localhost literals as possible debug
+# code (alerts #320-#323) -- a fair heuristic, and the finding is a false
+# positive here: this is a security check that the bridge is NOT
+# reachable from the network, not a hardcoded debug endpoint. Naming it
+# says so once, in the place where the meaning lives.
+LOOPBACK_ADDRESSES: frozenset[str] = frozenset({
+    "127.0.0.1", "::1", "0:0:0:0:0:0:0:1",
+    "localhost",  # noqa: S104 -- a name being *classified*, not dialled
+})
+
+
+def is_loopback(bind: str) -> bool:
+    """True when this bind address is unreachable from other machines."""
+    return bind.strip().lower() in LOOPBACK_ADDRESSES
 
 
 def _consent_phrase(target: str, bind: str, secret: str) -> str:
@@ -89,8 +108,8 @@ def _consent_phrase(target: str, bind: str, secret: str) -> str:
 def describe(cfg: dict[str, Any]) -> dict[str, Any]:
     """Current profile plus what changing it would involve."""
     current = cfg.get("profile", NARROWER)
-    bind = str(cfg.get("bind", "") or "127.0.0.1")
-    exposed = bind not in ("127.0.0.1", "localhost", "::1")
+    bind = str(cfg.get("bind", "") or DEFAULT_BIND)
+    exposed = not is_loopback(bind)
     return {
         "ok": True,
         "profile": current,
@@ -139,7 +158,7 @@ def switch(cfg: dict[str, Any], *, target: str, consent: str | None,
         return {"ok": True, "profile": NARROWER, "changed": True,
                 "note": "restrictions re-enabled"}
 
-    bind = str(cfg.get("bind", "") or "127.0.0.1")
+    bind = str(cfg.get("bind", "") or DEFAULT_BIND)
     secret = str(cfg.get("token", ""))
     required = _consent_phrase(target, bind, secret)
 

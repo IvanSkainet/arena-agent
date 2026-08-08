@@ -1,3 +1,56 @@
+## v4.168.1 — 2026-08-08
+
+### The phone did not know what was supervising it
+
+Measured on the operator's POCO F7 Pro running v4.168.0:
+
+    /v1/service/info  ->  running_as: "unknown"
+
+Android sets `sys.platform == "linux"`, so the bridge fell into the
+Linux branch and asked `systemctl` -- which does not exist in Termux.
+The exception was swallowed and every phone reported "unknown", which
+the Dashboard rendered as "Manual / unmanaged" even with the boot hook
+in place.
+
+"unknown" is not a lie, but it hides the distinction that matters. The
+bootstrap writes `~/.termux/boot/arena-bridge.sh`, and **nothing runs
+that hook unless the Termux:Boot app is installed from F-Droid**. A
+bridge with a hook and no app is indistinguishable from working
+autostart right up until the phone reboots and the bridge does not come
+back -- bug #66's shape, claiming a durability it does not have.
+
+Three states now, and they stay distinguishable:
+
+* `termux-boot` -- hook present *and* app installed. A reboot really
+  does bring it back.
+* `termux-boot-hook-only` -- the state the bootstrap actually leaves
+  behind, with a note naming F-Droid.
+* `manual` -- neither.
+
+The app check consults `pm path com.termux.boot` when
+`/data/data/com.termux.boot` is unreadable, which it is on some devices;
+relying on the directory alone would have told operators to install
+something they already have.
+
+The Settings badge now shows these, with the note printed underneath —
+the operator should not have to open a terminal to find out whether
+autostart is real.
+
+### Scorecard #320-#323: four devskim alerts on the profile switch
+
+`Accessing localhost could indicate debug code`, raised on the bare
+`127.0.0.1` / `localhost` literals. A fair heuristic and a false
+positive here: those lines are the check that the bridge is *not*
+reachable from the network, not a hardcoded debug endpoint. Rather than
+dismiss four alerts, the literals became `LOOPBACK_ADDRESSES` and an
+`is_loopback()` predicate — the meaning is now stated once, in the place
+where it lives, and a scanner has nothing to flag. Back to 0 open.
+
+Sabotage, five runs: restoring the Linux fallthrough, reporting
+hook-only as working autostart, dropping the `pm` fallback, forcing
+`_is_android()` true so desktops lose their systemd detection, and
+making `is_loopback()` return True for everything. All five failed their
+gates.
 ## v4.168.0 — 2026-08-08
 
 ### The button
