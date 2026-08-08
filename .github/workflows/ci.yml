@@ -300,6 +300,19 @@ jobs:
         run: |
           python scripts/version_sync.py --repo-root .
 
+      # v4.169.10: version-sync proves the four in-repo sources agree.
+      # It says nothing about whether that version was ever PUBLISHED --
+      # and v4.169.5..9 were all tagged, all green, and all invisible,
+      # because auto_update.py reads releases/latest and GitHub only
+      # counts published releases there. Runs on tags only: on ordinary
+      # master pushes the tree is legitimately ahead of the last release.
+      - name: Published release reachable by auto-update
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/release_published_check.py --strict
+
   # ----------------------------------------------------------------
   # v4.66.0: CHANGELOG freshness guard. Catches the case where
   # the most recent dated entry in CHANGELOG.md / CHANGELOG.ru.md

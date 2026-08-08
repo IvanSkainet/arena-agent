@@ -1,3 +1,49 @@
+## v4.169.10 — 2026-08-08
+
+### Five releases nobody could install
+
+`releases/latest` said **v4.169.4**. The tree was on v4.169.9. Every one
+of the five releases in between had been tagged, pushed, and confirmed
+green on 35/35 CI jobs -- and not one of them existed as a published
+release, which is the only thing `arena/admin/auto_update.py` looks at.
+GitHub's `releases/latest` counts published releases; it knows nothing
+about tags. So the mission-listing crash fix, the badge fix, the Windows
+env fix -- all of it sat in the repository, reachable by nobody, while
+every install in the world quietly stayed on 4.169.4.
+
+Each of those releases looked complete from the inside. Green CI. Correct
+tag. Changelog in both languages. The missing step was the only one users
+actually consume, and nothing in the pipeline said a word about it. That
+is the "green is not working" doctrine failing in the widest possible
+way: not a test that passed for the wrong reason, but a whole release
+process that reported success while shipping nothing.
+
+v4.169.9 is now published, carrying .5 through .9, with both zips --
+`arena-agent-v4.169.9.zip` and the unversioned `arena-agent.zip` the
+README one-liner downloads by exact name. Verified by execution, not by
+listing: the archive was unpacked and `summarize_mission_dir` was run
+against a `mission.json` containing `null` *from the extracted release*,
+the public URL was fetched with no token like an ordinary user would,
+and its SHA256 was compared against the published `SHA256SUMS` file. All
+three agree. Sigstore signed all nine assets.
+
+### The gate
+
+`scripts/release_published_check.py` compares `arena/constants.py`
+against `releases/latest` and fails when the tree is ahead, or when the
+published release is missing the unversioned alias. In CI it is gated on
+`refs/tags/v*` -- on an ordinary master push the tree is legitimately
+ahead of the last release, and a gate that cries wolf on every commit
+gets ignored by the third day.
+
+Sabotage caught a real hole. The first draft treated any failure as
+"offline" and exited 0, and an anonymous GitHub request gets HTTP 403
+rate-limited -- so under `--strict` it cheerfully reported nothing wrong
+while seeing nothing at all. Same failure as the empty scan two releases
+ago, wearing a different hat. It now names the rate limit specifically
+and refuses to pass in strict mode. Reverse sabotage: a tree *behind* the
+published release (a hotfix branch) is not flagged.
+
 ## v4.169.9 — 2026-08-08
 
 ### My own breakage, caught by the rule that exists for it

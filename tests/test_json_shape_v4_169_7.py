@@ -242,3 +242,53 @@ def test_no_test_hands_a_handbuilt_env_to_a_python_subprocess() -> None:
         "hand-built env dicts drop SYSTEMROOT and kill Python on Windows:\n  "
         + "\n  ".join(offenders)
     )
+
+
+# --- v4.169.10: a tag is not a release -------------------------------------
+
+def test_release_check_is_wired_into_ci_on_tags() -> None:
+    """The gate must run on tag pushes -- that is the only moment it matters."""
+    ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "release_published_check.py --strict" in ci
+    block = ci[ci.index("Published release reachable by auto-update"):]
+    block = block[:block.index("release_published_check.py")]
+    assert "startsWith(github.ref, 'refs/tags/v')" in block, (
+        "the check must be tag-gated: on a normal master push the tree is "
+        "legitimately ahead of the last published release"
+    )
+
+
+def test_release_check_is_wired_into_preflight() -> None:
+    source = (REPO_ROOT / "scripts" / "preflight.py").read_text(encoding="utf-8")
+    assert "release_published_check.py" in source
+
+
+def test_release_check_distinguishes_no_answer_from_no_problem() -> None:
+    """A rate-limited or offline check must not report success.
+
+    Sabotage found this: an anonymous 403 is indistinguishable from being
+    offline, and the first draft swallowed both and exited 0 even under
+    --strict. A gate that cannot tell "no data" from "all good" is the
+    empty-scan failure again, wearing a different hat.
+
+    Checked without touching the network -- a gate whose own test needs
+    GitHub to be reachable is a flake, and a flaky gate gets ignored.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "release_check_probe", REPO_ROOT / "scripts" / "release_published_check.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def boom(_path: str) -> dict:
+        raise RuntimeError("GitHub rate-limited this anonymous request")
+
+    module._api = boom  # type: ignore[attr-defined]
+    assert module.main(["--strict"]) == 1, "strict mode must refuse to pass blind"
+    assert module.main([]) == 0, "offline preflight must not fail on connectivity"
+
+    # And a tree far ahead of the published release is always a failure.
+    module._api = lambda _p: {"tag_name": "v1.0.0", "assets": [{"name": "arena-agent.zip"}]}  # type: ignore[attr-defined]
+    assert module.main([]) == 1

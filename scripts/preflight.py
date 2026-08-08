@@ -76,6 +76,10 @@ CHECKS: list[Check] = [
           needs="actionlint",
           why="CI runs actionlint WITH shellcheck; without it SC2012 slipped "
               "through and reddened a build (17cec54e)"),
+    Check("release published", [PY, "scripts/release_published_check.py"],
+          why="v4.169.5 through v4.169.9 were tagged, green on 35/35, and "
+              "invisible: auto_update reads releases/latest, which only "
+              "counts published releases, so every install sat on 4.169.4"),
     Check("github output", [PY, "scripts/github_output_ratchet.py"],
           why="the badge workflow piped a whole heredoc into $GITHUB_OUTPUT; "
               "the ::warning:: it printed landed in the output file and "
