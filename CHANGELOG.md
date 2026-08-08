@@ -1,3 +1,54 @@
+## v4.169.2 — 2026-08-08
+
+### The fix shipped, ran, and did nothing
+
+v4.169.1 updated cleanly on the operator's machine. Then:
+
+    chat_extension          18 files
+    chat_extension_firefox  MISSING
+
+Still. The mover log showed the copy step naming sixteen targets --
+the old hand-maintained list, because **the mover script is written by
+the OLD bridge**. A change to what gets copied cannot take effect
+during its own update; it needs the release after. That is expected and
+I should have said so instead of reporting success.
+
+What was not expected is what the new code did once it was installed.
+Asked to discover targets, it returned:
+
+    relay, code-sessions, code-runs, flight-records, autonomy,
+    autopilot, ship-chain, out, runtime, tools, mcp-ext, mcp-servers
+
+Twelve runtime directories, created since the deny-list was written,
+every one of which `robocopy /MIR` would have **deleted** on the next
+update. The v4.169.1 fix would have destroyed a year of the operator's
+runtime state the moment it actually ran.
+
+A deny-list was the wrong shape. It enumerates the half that keeps
+growing; the release side is the half that is knowable. The right
+question is not *"is this operator state?"* but *"did this arrive in
+the release?"*, and only the payload can answer that -- by containing
+it.
+
+So discovery reads the payload and refuses to treat an install root as
+one.
+
+### The marker mistake, which is the more useful lesson
+
+`queue/` and `memory/` look like obvious "this is a live install"
+markers. Both are wrong: the release ships them, with a `.gitkeep` and
+an empty `facts.db`. Keying on them made every real payload look like
+an install root -- the fix would have compiled, passed, and silently
+done nothing, exactly like the release before it.
+
+Caught by checking the actual v4.169.1 zip rather than reasoning about
+what a release probably contains. The markers are now files a release
+never ships: `token.txt`, `audit.jsonl`, `requests.jsonl`, `bridge.log`.
+A test asserts that no release-shipped directory is used as a marker,
+so the next person cannot repeat it.
+
+Sabotage: removing the install-root guard fails the twelve-directory
+test; restoring `queue`/`memory` as markers fails the real-payload test.
 ## v4.169.1 — 2026-08-08
 
 ### "The files aren't there" was a bug, not a mistake

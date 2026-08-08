@@ -250,3 +250,71 @@ def test_android_firefox_limitation_is_stated_not_hidden():
     handler = (ROOT / "arena" / "admin"
                / "handlers_extension_download.py").read_text(encoding="utf-8")
     assert "android_firefox" in handler
+
+
+# ------------------------------- v4.169.2: discovery must read the PAYLOAD
+
+def test_an_install_root_is_never_mistaken_for_a_payload(tmp_path):
+    """v4.169.2, found by watching the fix fail on the real machine.
+
+    The first version compared names against a deny-list of operator
+    state. A deny-list enumerates the half that keeps growing: measured
+    on the operator's install root, discovery returned `relay`,
+    `code-sessions`, `code-runs`, `flight-records`, `autonomy`,
+    `autopilot`, `ship-chain`, `out`, `runtime`, `tools`, `mcp-ext` and
+    `mcp-servers` -- twelve runtime directories created since that list
+    was written, every one of which `robocopy /MIR` would have deleted.
+
+    The right question is not "is this operator state?" but "did this
+    arrive in the release?", and only the payload can answer it.
+    """
+    install = tmp_path / "install"
+    (install / "arena").mkdir(parents=True)
+    for runtime_dir in ("relay", "code-sessions", "flight-records",
+                        "autopilot", "ship-chain"):
+        (install / runtime_dir).mkdir()
+    (install / "token.txt").write_text("qaz_x", encoding="utf-8")
+
+    targets = au.replace_targets(install)
+    for runtime_dir in ("relay", "code-sessions", "flight-records",
+                        "autopilot", "ship-chain"):
+        assert runtime_dir not in targets, (
+            f"{runtime_dir!r} would be handed to robocopy /MIR and deleted")
+    assert targets == au._STATIC_REPLACE_TARGETS
+
+
+def test_the_install_markers_are_things_a_release_never_ships():
+    """The second mistake, and the more instructive one.
+
+    `queue/` and `memory/` looked like obvious "this is an install root"
+    markers. Both are wrong: the release ships them, with a `.gitkeep`
+    and an empty `facts.db`. Keying on them made every real payload look
+    like an install root, so the fix compiled, passed its own tests, and
+    did nothing.
+
+    Checked against the actual release tree rather than assumed.
+    """
+    release_dirs = {"queue", "memory", "skills", "projects", "hooks"}
+    from arena.admin import update_targets
+
+    source = Path(update_targets.__file__).read_text(encoding="utf-8")
+    marker_block = source.split("looks_like_install", 1)[1].split(")", 1)[0]
+    for shipped in release_dirs:
+        assert f'"{shipped}"' not in marker_block, (
+            f"{shipped!r} is used as an install-root marker but the release "
+            f"ships it -- every payload would be misread as an install root")
+
+
+def test_a_real_payload_is_recognised(tmp_path):
+    """The other half: a genuine payload must still be discovered."""
+    payload = tmp_path / "payload"
+    (payload / "arena").mkdir(parents=True)
+    (payload / "chat_extension_firefox").mkdir()
+    (payload / "queue" / "inbox").mkdir(parents=True)
+    (payload / "queue" / "inbox" / ".gitkeep").write_text("", encoding="utf-8")
+    (payload / "memory").mkdir()
+
+    targets = au.replace_targets(payload)
+    assert "chat_extension_firefox" in targets, (
+        "a real payload was misread as an install root")
+    assert "queue" not in targets and "memory" not in targets

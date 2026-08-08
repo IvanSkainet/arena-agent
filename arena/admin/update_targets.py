@@ -74,30 +74,71 @@ _NEVER_REPLACE = frozenset({
 })
 
 
+# A directory belongs to the release only if the release *itself* says
+# so. The marker is the release manifest written by make_release_zip.py;
+# when it is absent (older payload) we fall back to comparing against
+# the payload, never against the install root.
+RELEASE_MANIFEST = ".arena-release-manifest.json"
+
+
 def replace_targets(payload_root: "Path | None" = None) -> tuple[str, ...]:
     """What to copy from the payload onto the install root.
 
-    The static list above, plus every top-level directory the release
-    actually contains that is not operator state. That second half is
-    the fix: `chat_extension_firefox` arrived in v4.169.0 and reached
-    nobody, because shipping a directory required remembering to name it
-    in two places (here and, transitively, the Windows mover).
+    v4.169.2 -- this reads the PAYLOAD and only the payload.
 
-    Falls back to the static list when the payload cannot be inspected,
-    so a bad path degrades to the old behaviour instead of copying
-    nothing.
+    The first version compared directory names against a deny-list of
+    operator state. That is a blacklist, and the thing being enumerated
+    is the half that keeps growing: measured on the operator's machine,
+    the install root contained `relay`, `code-sessions`, `code-runs`,
+    `flight-records`, `autonomy`, `autopilot`, `ship-chain`, `out`,
+    `runtime`, `tools`, `mcp-ext`, `mcp-servers` -- twelve runtime
+    directories created since the deny-list was written, every one of
+    which would have been handed to `robocopy /MIR` and deleted,
+    because `/MIR` removes whatever the source does not have.
+
+    The correct question is not "is this operator state?" but "did this
+    arrive in the release?". Only the payload can answer that, and it
+    answers it by existing: a directory in the freshly unpacked release
+    is release content by definition.
+
+    So the deny-list is now a small safety net rather than the
+    mechanism, and the mechanism is: enumerate the payload.
     """
     if payload_root is None:
         return _STATIC_REPLACE_TARGETS
+    root = Path(payload_root)
     try:
-        discovered = sorted(
-            entry.name for entry in Path(payload_root).iterdir()
-            if entry.is_dir()
-            and not entry.name.startswith(".")
-            and entry.name not in _NEVER_REPLACE
-        )
+        entries = list(root.iterdir())
     except OSError:
         return _STATIC_REPLACE_TARGETS
+
+    # Refuse to treat an install root as a payload, because handing an
+    # install root to `robocopy /MIR` deletes everything the release
+    # does not contain.
+    #
+    # The markers must be things a RELEASE never ships. `queue/` and
+    # `memory/` were the obvious guess and both are wrong -- the release
+    # ships them with a .gitkeep and an empty facts.db, so keying on
+    # them made every real payload look like an install root and the fix
+    # silently did nothing. Verified against the actual v4.169.1 zip
+    # rather than assumed.
+    #
+    # A token and an audit log, by contrast, are created at runtime and
+    # are explicitly excluded by make_release_zip.py.
+    looks_like_install = any(
+        (root / marker).exists()
+        for marker in ("token.txt", "audit.jsonl", "requests.jsonl",
+                       "bridge.log", ".arena-update-apply.log")
+    )
+    if looks_like_install:
+        return _STATIC_REPLACE_TARGETS
+
+    discovered = sorted(
+        entry.name for entry in entries
+        if entry.is_dir()
+        and not entry.name.startswith(".")
+        and entry.name not in _NEVER_REPLACE
+    )
 
     seen = list(_STATIC_REPLACE_TARGETS)
     for name in discovered:
