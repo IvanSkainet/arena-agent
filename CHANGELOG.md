@@ -1,3 +1,86 @@
+## v4.169.1 — 2026-08-08
+
+### "The files aren't there" was a bug, not a mistake
+
+The operator: *"I can't install the extension yet, the needed files
+aren't there. Installing through Termux is really inconvenient."*
+
+Measured on his Windows machine after a clean v4.169.0 update:
+
+    chat_extension          18 files
+    chat_extension_firefox  MISSING
+
+`auto_update` copies a **hand-maintained tuple of directory names**.
+The Firefox build shipped inside the release zip and reached nobody
+because nobody added its name to that tuple. Worse: `chat_extension`
+was missing from it too, so the browser extension had never been
+updated by auto-update at all -- only by a fresh install. Every
+operator who updated rather than reinstalled has been running whatever
+extension shipped the day they first installed.
+
+A hand-maintained list of what to ship is a list that silently stops
+shipping things.
+
+Directories are now discovered from the payload. Adding a directory to
+the release is enough; there is no second place to remember.
+
+**The dangerous half of that change, handled first.** Windows copies
+with `robocopy /MIR`, which deletes anything at the destination that is
+not in the source. Several directories both ship with the release *and*
+accumulate the operator's own work -- `skills`, `projects`,
+`subagents`, `hooks`, `mcp`. Mirroring those would delete a skill
+someone wrote. They are on an explicit never-replace list, and a test
+asserts each one by name. Losing an operator's work to an update is far
+worse than shipping a stale bundled example.
+
+### The bridge hands over the extension itself
+
+Even with the files present, getting at them on a phone means reaching
+into Termux's private directory tree, which no browser can browse. That
+is the other half of "Termux is inconvenient", and it is not solved by
+better instructions.
+
+    GET /v1/extension/download                  Chromium build
+    GET /v1/extension/download?browser=firefox  Firefox build
+    GET /v1/extension/status                    what is installable here
+
+Built in memory from the install root, served as a ZIP the browser
+saves normally. Two buttons in Settings. No file manager, no shell, no
+knowing where anything lives.
+
+On an install that predates `chat_extension_firefox` -- his, right now
+-- the Firefox manifest is generated on the fly rather than returning
+404. "That folder does not exist on your computer" is technically
+honest and completely useless.
+
+`token.txt`, `.env` and `*.log` are never packed, because someone
+debugging will eventually drop one in that folder.
+
+**Stated rather than hidden:** Firefox for Android cannot side-load
+extensions from a file at all -- it installs from addons.mozilla.org
+only. Offering the download without saying so would send him into a
+dead end. The phone does not need the extension; the Dashboard works in
+its browser.
+
+### A test that told us to delete it
+
+Splitting the replace-target list into `arena/admin/update_targets.py`
+removed the circular import between `auto_update` and
+`auto_update_windows` -- both now import a third module instead of each
+other.
+
+`tests/test_e402_deliberate.py` existed to document that cycle: it
+hoisted the late import, asserted the ImportError, and its failure
+message read *"the circular dependency is gone. Remove the noqa and
+this test, and hoist the import for real."* It failed exactly as
+designed, so the import is hoisted and the test is deleted. A test
+whose subject no longer exists is not a test, and its instructions were
+right.
+
+Sabotage, five runs: restoring the hand-maintained list, dropping the
+never-replace entries so `robocopy /MIR` would eat operator skills,
+reverting the Windows mover, removing the on-the-fly Firefox manifest,
+and letting secrets into the archive. All five failed their gates.
 ## v4.169.0 — 2026-08-08
 
 ### A lock where it is not needed

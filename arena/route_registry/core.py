@@ -101,6 +101,8 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_get("/v1/agent/config", h["handle_v1_agent_config"])
     # --- v3.85.0: auto-update ---
     app.router.add_get("/v1/self",                  h["handle_v1_self"])
+    app.router.add_get("/v1/extension/download",    h["handle_v1_extension_download"])
+    app.router.add_get("/v1/extension/status",      h["handle_v1_extension_status"])
     app.router.add_get("/v1/admin/profile",         h["handle_v1_admin_profile_get"])
     app.router.add_post("/v1/admin/profile",        h["handle_v1_admin_profile_post"])
     app.router.add_get("/v1/admin/update/status",   h["handle_v1_admin_update_status"])

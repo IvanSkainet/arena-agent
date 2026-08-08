@@ -25,6 +25,13 @@
 </style>
 <h1>Settings</h1>
 <div class="card">
+<h2>Browser Extension <span id="extBadge" class="badge gray">checking...</span></h2>
+<p class="st-hint" id="extHint" style="margin:4px 0 10px 0">Loading…</p>
+<button class="sm" onclick="extensionDownload('chromium')">Download for Chrome / Edge</button>
+<button class="sm" onclick="extensionDownload('firefox')">Download for Firefox</button>
+<div id="extSteps" class="mono" style="font-size:11px;margin-top:8px;color:var(--text3);white-space:pre-wrap"></div>
+</div>
+<div class="card">
 <h2>Access Profile <span id="profBadge" class="badge gray">checking...</span></h2>
 <p class="st-hint" id="profMeaning" style="margin:4px 0 10px 0">Loading…</p>
 <div id="profWarn" class="st-hint" style="display:none;background:var(--surface-warn);padding:10px 12px;border-radius:6px;margin:4px 0 10px 0;font-size:12px;line-height:1.5"></div>

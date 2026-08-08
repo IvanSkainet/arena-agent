@@ -61,6 +61,8 @@ class AdminHandlers:
     # v4.1.0: agent-facing "which URL should I use" endpoint.
     agent_config: Callable[..., Any]
     self_describe: Callable[..., Any]
+    extension_download: Callable[..., Any]
+    extension_status: Callable[..., Any]
     profile_get: Callable[..., Any]
     profile_post: Callable[..., Any]
     # v3.85.0: cross-platform auto-update.
@@ -638,6 +640,14 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
     from arena.admin.handlers_selfdesc import make_self_handlers
     _self = make_self_handlers(ctx)
 
+    # v4.169.1: hand the browser extension over as a ZIP. On a phone the
+    # files live inside Termux's private tree where no browser can reach
+    # them, which is half of why the operator called Termux inconvenient.
+    from arena.admin.handlers_extension_download import (
+        make_extension_download_handlers,
+    )
+    _ext = make_extension_download_handlers(ctx)
+
     # v3.96.0: ZeroTier Central management handlers live in a
     # sibling module too — same reason.
     from arena.admin.zerotier_central_handlers import make_zerotier_central_handlers
@@ -668,6 +678,8 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         tunnels_probe_reset=handle_v1_tunnels_probe_reset,
         agent_config=handle_v1_agent_config,
         self_describe=_self["self"],
+        extension_download=_ext["download"],
+        extension_status=_ext["status"],
         profile_get=_prof["profile_get"],
         profile_post=_prof["profile_post"],
         update_status=_upd["update_status"],

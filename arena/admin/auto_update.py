@@ -49,6 +49,17 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+# v4.169.1: both of these used to sit at the bottom of the file behind
+# a lint suppression for E402, because auto_update_windows imported
+# _REPLACE_TARGETS
+# back from here -- a genuine cycle, documented by a test that hoisted
+# the import and asserted the ImportError.
+#
+# Extracting the replace-target list into `update_targets` dissolved
+# that cycle: both modules now import a third one instead of each
+# other. The test correctly failed the moment the cycle disappeared and
+# told us to hoist for real, which is this.
+from arena.admin.auto_update_windows import _write_windows_installer
 from arena.admin.update_github import (
     fetch_asset_size as _fetch_asset_size,
     fetch_changelog_section as _fetch_changelog_section,
@@ -56,6 +67,12 @@ from arena.admin.update_github import (
     http_get_json as _http_get_json,
     pick_asset as _pick_asset,
     resolve_latest_via_redirect as _resolve_latest_via_redirect,
+)
+from arena.admin.update_targets import (  # noqa: F401
+    _NEVER_REPLACE,
+    _REPLACE_TARGETS,
+    _STATIC_REPLACE_TARGETS,
+    replace_targets,
 )
 from arena.constants import VERSION as _CURRENT_VERSION
 
@@ -72,27 +89,8 @@ _HTTP_TIMEOUT = 15
 # version so telemetry-friendly forks can see the fleet mix.
 _USER_AGENT = f"arena-agent-auto-update/{_CURRENT_VERSION}"
 
-# Files/directories that get REPLACED wholesale on install. Everything
-# else in the install root is left untouched (config, tokens, logs,
-# bridge home).
-_REPLACE_TARGETS = (
-    "arena",
-    "dashboard",
-    "docs",
-    "scripts",
-    "bin",
-    "unified_bridge.py",
-    "pyproject.toml",
-    "README.md",
-    "README.ru.md",
-    "CHANGELOG.md",
-    "CHANGELOG.ru.md",
-    "assets",
-    "install.sh",
-    "install.bat",
-    "uninstall.sh",
-    "uninstall.bat",
-)
+
+__all_helpers = [_write_windows_installer]  # keep import visible to linters
 
 
 from arena.admin.auto_update_fetch import download_release  # noqa: E402
@@ -349,7 +347,7 @@ def _swap_unix(payload_root: Path, install_root: Path) -> dict[str, Any]:
     swapped: list[str] = []
     backups: list[tuple[Path, Path]] = []
     try:
-        for name in _REPLACE_TARGETS:
+        for name in replace_targets(payload_root):
             src = payload_root / name
             dst = install_root / name
             if not src.exists():
@@ -383,14 +381,6 @@ def _swap_unix(payload_root: Path, install_root: Path) -> dict[str, Any]:
     return {"ok": True, "swapped": swapped}
 
 
-# v4.60.4: moved to auto_update_windows.py for the 600-line runtime cap.
-# The bottom placement is deliberate, not overlooked: that module imports
-# _REPLACE_TARGETS back from here, so hoisting this triggers a circular
-# import at init. Proven by tests/test_e402_deliberate.py, which performs
-# the hoist and asserts the ImportError.
-from arena.admin.auto_update_windows import _write_windows_installer  # noqa: E402
-
-__all_helpers = [_write_windows_installer]  # keep import visible to linters
 
 
 

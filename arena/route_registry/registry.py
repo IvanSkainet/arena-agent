@@ -357,6 +357,8 @@ ROUTES: list[Route] = [
     ('POST'  , '/v1/mission/schedules'                           , 'handle_v1_mission_schedules'                , 'domain', None),
     ('DELETE', '/v1/mission/schedules'                           , 'handle_v1_mission_schedules'                , 'domain', None),
     ('POST'  , '/v1/mission/schedules/tick'                      , 'handle_v1_mission_schedules_tick'           , 'domain', None),
+    ('GET'   , '/v1/extension/download'                          , 'handle_v1_extension_download'               , 'core', None),
+    ('GET'   , '/v1/extension/status'                            , 'handle_v1_extension_status'                 , 'core', None),
     ('GET'   , '/v1/extension/policies'                          , 'handle_v1_extension_policies'               , 'domain', None),
     ('GET'   , '/v1/extension/instructions'                      , 'handle_v1_extension_instructions'           , 'domain', None),
     ('POST'  , '/v1/extension/preview'                           , 'handle_v1_extension_preview'                , 'domain', None),

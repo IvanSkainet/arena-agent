@@ -25,7 +25,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from arena.admin.auto_update import _REPLACE_TARGETS
+# From a third module, not from auto_update: importing back into
+# auto_update here is the circular dependency that
+# used to document (removed in v4.169.1 once the cycle was gone).
+from arena.admin.update_targets import replace_targets
 
 
 def _write_windows_installer(payload_root: Path, install_root: Path,
@@ -100,7 +103,14 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
     # Per-target copy step, expressed as a straight-line sequence of
     # ``if EXPR goto :label`` — no ``if ( ) else ( )`` blocks, so the
     # parens in ``arena-agent (2)`` never close a block early.
-    for idx, name in enumerate(_REPLACE_TARGETS):
+    # v4.169.1: discover from the payload rather than a hand-maintained
+    # list. `chat_extension_firefox` shipped in v4.169.0 and reached
+    # nobody because it was never named here -- and `chat_extension`
+    # itself had never been updated by auto-update at all.
+    # Imported here, not at module scope: auto_update imports THIS
+    # module at its own bottom (see the comment there), so a top-level
+    # import back into it is a circular import at init --
+    for idx, name in enumerate(replace_targets(payload_root)):
         s = f"{src}\\{name}"
         d = f"{dst}\\{name}"
         as_file = f"as_file_{idx}"
