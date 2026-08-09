@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,34 @@ def _run(cmd: list[str], timeout: int = 15) -> dict[str, Any]:
 
 def _root() -> Path:
     return Path(os.environ.get("ARENA_AGENT_HOME") or Path(__file__).resolve().parents[2]).resolve()
+
+
+def _python_for_scheduler() -> str:
+    """An interpreter the Task Scheduler can actually find.
+
+    The launcher used to emit a bare ``python``. That resolves fine in a
+    logged-in shell, where ``PATH`` carries
+    ``%LOCALAPPDATA%\\Programs\\Python\\Python314``. The Task Scheduler
+    does not inherit that PATH, so the same line dies with
+    ``"python" is not recognized`` -- into a hidden window created by
+    ``wscript``, where nobody sees it. The task reports Last Result 0,
+    because ``wscript`` started successfully; what it started did not.
+
+    That is why the PC failed to come back from three consecutive
+    updates while every layer reported success: v4.169.21 taught the
+    mover to poll the port instead of trusting an exit code, and it
+    correctly found nothing listening -- but the reason was one word in
+    a batch file.
+
+    ``sys.executable`` is an absolute path to the interpreter that is
+    running right now, which is by definition the right one. ``py -3``
+    is the fallback: the launcher lives in ``System32`` and is on every
+    PATH, including the scheduler's.
+    """
+    candidate = sys.executable
+    if candidate and Path(candidate).is_file():
+        return f'"{candidate}"'
+    return "py -3"
 
 
 def write_windows_launchers(root: Path, *, port: int = 8765,
@@ -43,7 +72,7 @@ def write_windows_launchers(root: Path, *, port: int = 8765,
     bat = root / "start_bridge.bat"
     vbs = root / "start_hidden.vbs"
     token_file = os.environ.get("ARENA_TOKEN_FILE") or str(root / "token.txt")
-    python = os.environ.get("ARENA_PYTHON") or "python"
+    python = os.environ.get("ARENA_PYTHON") or _python_for_scheduler()
 
     if not bat.exists():
         bat.write_bytes((
@@ -107,6 +136,52 @@ def status() -> dict[str, Any]:
     return {"ok": False, "platform": sysname, "error": "unsupported platform"}
 
 
+def repair_bare_python(root: Path) -> dict[str, Any]:
+    """Rewrite a launcher whose interpreter the scheduler cannot find.
+
+    ``write_windows_launchers`` never overwrites an existing file, which
+    is right -- a hand-tuned launcher outranks a default. But a file
+    written by an older version invokes a bare ``python``, and that is
+    not a preference, it is a launcher that cannot launch. Leaving it
+    alone means the machine keeps failing to come back in exactly the
+    way that was just diagnosed.
+
+    Only the interpreter token is replaced, and only when it is bare.
+    An absolute path, a ``py -3``, or anything else the operator chose
+    is left untouched.
+    """
+    bat = root / "start_bridge.bat"
+    if not bat.is_file():
+        return {"ok": False, "reason": "start_bridge.bat does not exist"}
+    try:
+        text = bat.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return {"ok": False, "reason": f"unreadable: {exc}"}
+
+    lines = text.splitlines()
+    fixed: list[str] = []
+    changed = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("python ") or stripped.startswith("python\t"):
+            fixed.append(line.replace("python", _python_for_scheduler(), 1))
+            changed = True
+        else:
+            fixed.append(line)
+    if not changed:
+        return {"ok": True, "changed": False,
+                "reason": "interpreter is already absolute or launcher-based"}
+
+    backup = root / "start_bridge.bat.bak"
+    try:
+        backup.write_text(text, encoding="utf-8")
+        bat.write_bytes(("\r\n".join(fixed) + "\r\n").encode("utf-8"))
+    except OSError as exc:
+        return {"ok": False, "reason": f"could not write: {exc}"}
+    return {"ok": True, "changed": True, "backup": str(backup),
+            "interpreter": _python_for_scheduler()}
+
+
 def repair() -> dict[str, Any]:
     sysname = platform.system().lower()
     if sysname == "windows":
@@ -116,6 +191,10 @@ def repair() -> dict[str, Any]:
         # is not an instruction a remote agent -- or an operator whose
         # bridge is already down -- can act on.
         written = write_windows_launchers(root)
+        # An existing launcher is not overwritten above, so a bare
+        # `python` written by an older version survives untouched --
+        # and that is the exact defect that kept the PC down.
+        bare = repair_bare_python(root)
         if not written["ok"]:
             return {"ok": False, "error": "could not create start_hidden.vbs / "
                                           "start_bridge.bat",
@@ -129,7 +208,8 @@ def repair() -> dict[str, Any]:
             fallback = _run(["schtasks", "/Create", "/TN", TASK, "/TR", tr, "/SC", "ONLOGON", "/F"], timeout=20)
         _run(["schtasks", "/Run", "/TN", TASK], timeout=10)
         return {"ok": bool(res.get("ok") or (fallback and fallback.get("ok"))),
-                "platform": "windows", "launchers": written, "primary": res,
+                "platform": "windows", "launchers": written,
+                "bare_python_fix": bare, "primary": res,
                 "fallback": fallback, "status": _windows_status()}
     if sysname == "linux":
         res = _run(["systemctl", "--user", "enable", "--now", "arena-bridge.service"], timeout=20)

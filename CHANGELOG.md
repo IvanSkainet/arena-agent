@@ -1,3 +1,62 @@
+## v4.169.23 — 2026-08-09
+
+### One word in a batch file kept the PC down three times
+
+Three consecutive updates ended with the bridge exiting and never
+returning, and every layer reported success on the way there:
+`update/apply` returned `applied_version: 4.169.22`, `update/restart`
+returned `{"restart": "scheduled", "mechanism": "scheduled_task",
+"can_restart": true}`, and the Scheduled Task itself recorded
+`Last Result: 0`.
+
+The task runs `wscript.exe start_hidden.vbs`, which runs
+`start_bridge.bat`, which ran a bare `python`. Asked on the machine:
+
+    where python                          -> ...\Python314\python.exe
+    set PATH=C:\Windows\system32 & where python
+                                          -> could not find files
+
+The interpreter lives under `%LOCALAPPDATA%`, which is on a logged-in
+shell's PATH and not on the Task Scheduler's. `wscript` started
+correctly -- that is what Last Result 0 describes -- and the batch file
+it spawned died on a missing command, inside a window opened with
+`WshShell.Run(..., 0, False)`: hidden, no console, no log, nobody to
+tell.
+
+v4.169.21 had already stopped the mover trusting exit codes and taught
+it to poll the port instead. That was the right instinct and it worked:
+it found nothing listening. But the reason lived one process deeper than
+anything was looking.
+
+Launchers now embed `sys.executable` -- an absolute path to the
+interpreter already running, which is by definition the correct one --
+falling back to `py -3`, whose launcher lives in `System32` and is
+therefore on every PATH including the scheduler's.
+
+`write_windows_launchers` deliberately never overwrites an existing
+file, so that fix alone would not have helped a machine that already had
+the broken one. `repair_bare_python` rewrites just the interpreter
+token, only when it is bare, keeps a `.bak`, and leaves an operator's
+deliberate choice of interpreter alone.
+
+Verified on the PC, not reasoned about: the repaired launcher was run
+with `PATH` stripped to `C:\Windows\system32`, and it started the
+bridge and got as far as
+
+    OSError: [Errno 10048] error while attempting to bind on
+    address ('127.0.0.1', 8765)
+
+-- failing only because the running bridge already holds the port. Before
+the fix it died on `"python" is not recognized`. That is the whole
+difference between a machine that comes back and one that does not.
+
+A test suite of nine pins it: the generator, the fallback when
+`sys.executable` is empty, the repair against a byte-for-byte copy of
+the launcher that was actually on the PC, idempotency, refusal to touch
+a deliberate interpreter, the missing-file case, the wiring into
+`repair()`, and a check of the premise itself -- an absolute interpreter
+path still works with no usable PATH.
+
 ## v4.169.22 — 2026-08-09
 
 ### A test killed pytest, and CI called it fifteen successes
