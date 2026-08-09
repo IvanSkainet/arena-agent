@@ -195,3 +195,70 @@ def test_access_handler_passes_the_provider_callables() -> None:
                  "zerotier_status_sync", "ngrok_status_sync", "bore_status_sync"):
         assert name in src, f"{name} is not forwarded; that provider stays unwired"
     assert "run_in_executor" in src, "the provider probes shell out; do not block the loop"
+
+
+# --- v4.169.18: the tailnet address was missing from its own report -------
+
+def test_tailnet_address_is_probed_not_just_the_default_route() -> None:
+    """The phone omitted the interface that was carrying the request.
+
+    `/v1/access` on the phone listed only 192.168.50.181 while I was
+    reading that very response through its tailnet address,
+    100.65.233.7, proxied from the PC. Both probes -- getaddrinfo on the
+    hostname and a UDP connect to 8.8.8.8 -- follow the default route,
+    which goes out wlan0. tun0 is never consulted, so a Tailscale
+    address is invisible to an endpoint whose whole job is listing where
+    the bridge can be reached.
+
+    Same shape as v4.169.16, where the endpoint denied being reachable
+    through the tunnel it was replying over. Probing Tailscale's MagicDNS
+    resolver (100.100.100.100) reveals the tun0 source address, because
+    that destination routes over the tailnet rather than the LAN.
+    """
+    # Read the probe tuple itself, not the source text. The first cut
+    # asserted the string appeared anywhere in the function -- and the
+    # comment above the loop explains what 100.100.100.100 is, so
+    # deleting the probe left the test green. Four releases running a
+    # gate has flagged or been fooled by its own prose; check the AST.
+    import ast
+    import inspect
+
+    from arena.mobile import access_info
+
+    tree = ast.parse(inspect.getsource(access_info.local_addresses).lstrip())
+    probes: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.For) and isinstance(node.iter, ast.Tuple):
+            for element in node.iter.elts:
+                if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                    probes.append(element.value)
+    assert "100.100.100.100" in probes, (
+        f"no probe reaches tun0, so a tailnet address can never be listed; "
+        f"probes are {probes}"
+    )
+    # And it must be tried first: the public probes answer over wlan0.
+    assert probes.index("100.100.100.100") < probes.index("8.8.8.8"), probes
+
+
+def test_cgnat_addresses_are_labelled_tailnet(monkeypatch) -> None:
+    """A tailnet address is reachable from a different place than a LAN one."""
+    from arena.mobile import access_info
+
+    assert access_info._classify("100.65.233.7") == "tailnet"
+    assert access_info._classify("192.168.50.181") == "lan"
+    assert access_info._classify("8.8.8.8") == "public"
+
+
+def test_access_lists_every_probed_address(monkeypatch) -> None:
+    """Both the LAN and the tailnet address must appear, not just one."""
+    from arena.mobile import access_info
+
+    monkeypatch.setattr(
+        access_info, "local_addresses",
+        lambda: [{"address": "192.168.50.181", "kind": "lan"},
+                 {"address": "100.65.233.7", "kind": "tailnet"}],
+    )
+    info = access_info.describe(bind="0.0.0.0", port=8765, tunnels={})
+    kinds = {a["kind"] for a in info["addresses"]}
+    assert kinds == {"lan", "tailnet"}
+    assert "http://100.65.233.7:8765" in info["lan_urls"]

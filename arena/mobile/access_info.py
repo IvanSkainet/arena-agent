@@ -66,7 +66,17 @@ def local_addresses() -> list[dict[str, str]]:
     # getaddrinfo misses interfaces the hostname does not resolve to,
     # which on a phone is most of them. A UDP socket to a routable
     # address reveals the source IP without sending a packet.
-    for probe in ("8.8.8.8", "1.1.1.1"):
+    # 100.100.100.100 is Tailscale's MagicDNS resolver, always inside the
+    # tailnet. Probing it reveals the tun0 source address, which the
+    # public-internet probes below never see: the default route goes out
+    # wlan0, so they only ever report the LAN IP.
+    #
+    # Found by using it. The phone was answering this very request over
+    # its tailnet address while `addresses` listed only 192.168.50.181 --
+    # the endpoint omitting the interface that was carrying it. Same
+    # shape as v4.169.16, where /v1/access denied being reachable through
+    # the tunnel it was replying over.
+    for probe in ("100.100.100.100", "8.8.8.8", "1.1.1.1"):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             try:

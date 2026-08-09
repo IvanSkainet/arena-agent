@@ -1,3 +1,56 @@
+## v4.169.18 — 2026-08-09
+
+### Reachable from the sandbox at last, and the address that was missing
+
+The phone is now controllable end to end from here: `/v1/self` over a
+public URL with the phone's own token, 237 tools, `host.class: android`,
+`termux: true`, `systemd: false`. `/v1/exec` runs and returns
+`Linux localhost 6.1.138-android14 ... aarch64 Android`.
+
+Getting there took four dead ends worth recording, because each one was
+a fact about the platform rather than a bug in the code:
+
+  * **bore.pub is blocked.** `bore` installs from Termux
+    (`bore 0.6.0-1 aarch64`) but its control port 7835 is refused on
+    Ivan's connection while `bore.pub:443` opens fine -- a blocked port,
+    not a blocked host, and `--port` selects the *remote* port, not the
+    control channel. No way around it from the client side.
+  * **ngrok is single-tunnel** on the free tier, and the PC is using it.
+  * **`tailscale serve --set-path` silently turned Funnel off.** The
+    command succeeded, printed the new path, and dropped the public
+    listener in the same breath; `pc.tail328f18.ts.net` went dark until
+    it was re-enabled with the new CLI syntax.
+  * **Funnel only proxies to loopback.** Pointed straight at
+    `100.65.233.7:8765` it returns 502, even though the PC reaches that
+    address fine. A `netsh portproxy` on 127.0.0.1:8766 bridges the gap.
+
+So the route is: sandbox → `https://pc.tail328f18.ts.net/phone/` →
+PC's Funnel → portproxy → phone over the tailnet. Auth was checked in
+all three directions: a wrong token, the PC's token and the phone's old
+token all return 401.
+
+### The endpoint left out the interface it was answering on
+
+With that working, `/v1/access` on the phone reported
+`addresses: [192.168.50.181]` -- the LAN address only -- in a response
+travelling over `100.65.233.7`. Both probes follow the default route,
+which goes out wlan0; nothing ever consults tun0. Probing Tailscale's
+MagicDNS resolver at 100.100.100.100 reveals the tailnet source address,
+because that destination routes over the tunnel.
+
+This is the third time an access endpoint has described the connection
+it was refuting: v4.169.16 denied being reachable through the tunnel
+carrying the reply, v4.169.17 reported no tunnels at all, and now the
+address list omitted the address in use. All three were found by using
+the endpoint rather than reading it.
+
+The test for it was also wrong at first, in the way this project keeps
+tripping over: it asserted `"100.100.100.100" in source`, and the
+comment above the loop explains what that address is -- so deleting the
+probe left the test green. Rewritten to parse the probe tuple out of the
+AST. Both sabotages (removing the probe, and moving it last) now fail
+the build.
+
 ## v4.169.17 — 2026-08-09
 
 ### The tunnel readout was wired to nothing
