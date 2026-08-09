@@ -1,3 +1,26 @@
+## v4.169.17 — 2026-08-09
+
+### The tunnel readout was wired to nothing
+
+`/v1/access` called `tunnels_status()` with no arguments. Every provider
+callable has to be passed in from the handler context, so all five came
+back `"provider callable not wired"` and the endpoint reported no
+tunnels -- on a bridge whose Tailscale funnel was carrying the request
+being answered.
+
+`/v1/tunnels/status`, three hundred lines away in the same file, had
+always forwarded them. I wrote the new handler by reasoning about the
+function signature instead of reading the one caller that already
+worked.
+
+Found by comparing the two endpoints against each other rather than
+trusting an empty list, which is the only reason it was found at all: an
+empty `tunnel_urls` looks exactly like a bridge with no tunnels.
+
+A test now asserts all five callables are forwarded and that the probes
+run in the executor -- they shell out, and blocking the event loop on
+`tailscale status` would stall every other request.
+
 ## v4.169.16 — 2026-08-09
 
 ### The endpoint refuted itself, over the tunnel it said was impossible

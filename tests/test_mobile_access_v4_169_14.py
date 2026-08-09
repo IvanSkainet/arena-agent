@@ -180,3 +180,18 @@ def test_android_beep_uses_the_only_player_that_exists_there() -> None:
         result = snd.linux_play_beep("success", 800, 200)
     assert result["method"] == "termux-media-player"
     assert calls and calls[0][:2] == ["termux-media-player", "play"]
+
+
+def test_access_handler_passes_the_provider_callables() -> None:
+    """v4.169.17: without them every provider is 'callable not wired'.
+
+    The first version called tunnels_status() bare, so /v1/access
+    reported no tunnels on a bridge whose Tailscale funnel was serving
+    the request being answered. /v1/tunnels/status, three hundred lines
+    away in the same file, had always passed them.
+    """
+    src = (REPO_ROOT / "arena" / "admin" / "handlers_access.py").read_text(encoding="utf-8")
+    for name in ("sys_funnel_status_sync", "cloudflared_status_sync",
+                 "zerotier_status_sync", "ngrok_status_sync", "bore_status_sync"):
+        assert name in src, f"{name} is not forwarded; that provider stays unwired"
+    assert "run_in_executor" in src, "the provider probes shell out; do not block the loop"

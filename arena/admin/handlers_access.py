@@ -24,16 +24,39 @@ def make_access_handlers(ctx):
 
         tunnels: dict = {}
         try:
+            import asyncio
+            import functools
+
             from arena.admin import tunnels as _tun
-            snap = _tun.tunnels_status() or {}
+
+            # The provider callables have to be passed in from ctx. The
+            # first version called tunnels_status() bare, and every
+            # provider came back "provider callable not wired" -- so the
+            # endpoint reported no tunnels on a bridge whose Tailscale
+            # funnel was serving the very request. Caught by comparing
+            # against /v1/tunnels/status instead of trusting the empty
+            # list.
+            loop = asyncio.get_running_loop()
+            snap = await loop.run_in_executor(
+                ctx.executor,
+                functools.partial(
+                    _tun.tunnels_status,
+                    port=int(cfg.get("port", 8765) or 8765),
+                    sys_funnel_status_sync=getattr(ctx, "sys_funnel_status_sync", None),
+                    cloudflared_status_sync=getattr(ctx, "cloudflared_status_sync", None),
+                    zerotier_status_sync=getattr(ctx, "zerotier_status_sync", None),
+                    ngrok_status_sync=getattr(ctx, "ngrok_status_sync", None),
+                    bore_status_sync=getattr(ctx, "bore_status_sync", None),
+                ),
+            ) or {}
             providers = snap.get("providers")
             if isinstance(providers, dict):
                 tunnels = providers
             elif isinstance(providers, list):
                 tunnels = {
-                    str(p.get("provider", i)): p
-                    for i, p in enumerate(providers)
-                    if isinstance(p, dict)
+                    str(item.get("provider", idx)): item
+                    for idx, item in enumerate(providers)
+                    if isinstance(item, dict)
                 }
         except Exception:
             # A tunnel provider that throws must not take the address
