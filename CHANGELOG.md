@@ -1,3 +1,63 @@
+## v4.169.11 — 2026-08-09
+
+### Android is Linux, except where it isn't
+
+Ivan reported the phone build as "very buggy: it thinks the system is
+Linux, systemd and hardware don't show properly, sound errors, mission
+dir fail, and it can't see Tailscale at all". Two of those turned out to
+be the same mistake made in opposite directions.
+
+Fourteen probes gated themselves on `platform.system() == "Linux"`.
+Python 3.13 under Termux answers `"Android"` -- honestly and correctly --
+so every one of them switched off and reported
+`"kernel modules probe is Linux-only"`. Checked on the device:
+`/proc/modules`, `/proc/meminfo` and `/proc/stat` are all readable. The
+probes were refusing to read files that were sitting right there.
+
+The opposite error lives next door: `systemctl` and `journalctl` really
+are absent on Android, and lumping both questions into one string
+comparison is what produced a phone that reports systemd state it cannot
+have. So there are now two questions instead of one --
+`has_linux_kernel()` for anything reading `/proc` or `/sys`, and the
+existing `has_systemd()` for anything shelling out to systemd. The error
+messages name what is actually missing rather than a distro.
+
+### Tailscale has no CLI on a phone
+
+`arena/admin/tailscale.py` answers "is Tailscale here?" by locating and
+running the `tailscale` binary. On Android there is no binary: Tailscale
+is an ordinary app, `com.tailscale.ipn`, routing through VpnService.
+The lookup failed, the transport list said "tailscale not found", and
+Ivan was right that the earlier check was worthless -- I had reached the
+phone over Wi-Fi ADB from the PC and called that a Tailscale test.
+
+Confirmed on the device: the package is installed, and
+`ip addr show tailscale0` reports the interface does not exist, because
+VpnService does not create a named one. So `arena/mobile/tailscale_android.py`
+reports two separate facts: the package being installed, and whether a
+100.64.0.0/10 CGNAT address -- the range Tailscale hands out -- is
+configured. Installed does not imply connected, and it is not allowed to:
+a phone with the app and the VPN switched off says `installed: true,
+connected: false` with the reason spelled out, rather than guessing.
+
+### What the tests caught
+
+Written to run on Linux CI while impersonating Android, per the platform
+rule. They immediately failed on my own code twice.
+
+The CGNAT parser matched `line.startswith("inet ")` -- but `ip addr`
+indents those lines under each interface, so it matched nothing and read
+as "no tailnet here". A detector that always answers "no" is the empty
+scan again, in its fourth costume this week.
+
+And the test that verified the probe gates sliced function bodies with
+`str.index`, which ran past the end and swallowed the neighbouring
+functions -- the exact trap already written down in AGENTS.md. Rewritten
+against the AST.
+
+Both defects are now pinned by sabotage: reinstating the distro gate is
+caught, and so is inferring `connected` from a package listing.
+
 ## v4.169.10 — 2026-08-08
 
 ### Five releases nobody could install

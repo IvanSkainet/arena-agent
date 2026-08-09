@@ -35,6 +35,8 @@ import socket
 from collections.abc import Callable
 from typing import Any
 
+from arena.hostplatform import is_android
+
 # v4.1.0: ZeroTier moved ahead of cloudflared in the default order.
 # Cloudflared quick-tunnels routinely disconnect on flaky ISP links,
 # leaving agents stuck; ZeroTier's overlay is far more stable
@@ -79,6 +81,13 @@ def _priority_from_env() -> tuple[str, ...]:
 # leaking here.
 # ---------------------------------------------------------------------------
 def _tailscale_snapshot(sys_funnel_status_sync: Callable[[], dict[str, Any]] | None) -> dict[str, Any]:
+    # v4.169.11: on Android there is no `tailscale` binary to run -- the
+    # tunnel is an app (com.tailscale.ipn) behind VpnService. The desktop
+    # path below shells out to the CLI, fails with "tailscale not found",
+    # and the phone reports Tailscale as absent while the VPN is up.
+    if is_android():
+        from arena.mobile import tailscale_android
+        return tailscale_android.status()
     if sys_funnel_status_sync is None:
         return {
             "provider": "tailscale",

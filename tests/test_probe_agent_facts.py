@@ -58,20 +58,31 @@ def test_boot_time_uses_psutil_boot_time():
 
 def test_systemd_failed_returns_error_on_non_linux():
     m = _mod()
-    with patch.object(m, "platform") as pm:
-        pm.system.return_value = "Windows"
+    with patch.object(m, "has_systemd", return_value=False):
         result = m.get_systemd_failed()
     assert result["available"] is False
-    assert "linux" in (result.get("error") or "").lower()
+    # The message names what is actually absent (systemd), not a distro.
+    assert "systemd" in (result.get("error") or "").lower()
 
 
 def test_kernel_modules_returns_error_on_non_linux():
+    # v4.169.11: the gate moved from platform.system() to
+    # hostplatform.has_linux_kernel(), because Android answers "Android"
+    # while its /proc/modules reads perfectly well.
     m = _mod()
-    with patch.object(m, "platform") as pm:
-        pm.system.return_value = "Darwin"
+    with patch.object(m, "has_linux_kernel", return_value=False):
         result = m.get_kernel_modules()
     assert result["available"] is False
-    assert "linux" in (result.get("error") or "").lower()
+    assert "linux kernel" in (result.get("error") or "").lower()
+
+
+def test_kernel_modules_runs_on_android(tmp_path):
+    """Android is a Linux kernel: the probe must not refuse outright."""
+    m = _mod()
+    with patch.object(m, "has_linux_kernel", return_value=True):
+        result = m.get_kernel_modules()
+    assert "is-only" not in (result.get("error") or "")
+    assert "needs a Linux kernel" not in (result.get("error") or "")
 
 
 def test_sections_include_new_agent_probes():
@@ -148,17 +159,15 @@ def test_containers_reports_missing_runtime():
 
 def test_systemd_timers_off_linux():
     m = _mod()
-    with patch.object(m, "platform") as pm:
-        pm.system.return_value = "Darwin"
+    with patch.object(m, "has_systemd", return_value=False):
         result = m.get_systemd_timers()
     assert result["available"] is False
-    assert "linux" in result["error"].lower()
+    assert "systemd" in result["error"].lower()
 
 
 def test_cpu_vulnerabilities_off_linux():
     m = _mod()
-    with patch.object(m, "platform") as pm:
-        pm.system.return_value = "Windows"
+    with patch.object(m, "has_linux_kernel", return_value=False):
         result = m.get_cpu_vulnerabilities()
     assert result["available"] is False
 

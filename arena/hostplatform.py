@@ -178,6 +178,26 @@ def has_systemd(env: dict[str, str] | None = None,
         return False
 
 
+def has_linux_kernel(env: dict[str, str] | None = None,
+                     system: str | None = None) -> bool:
+    """Whether ``/proc`` and ``/sys`` behave like Linux here.
+
+    Android *is* Linux: ``/proc/modules``, ``/proc/meminfo``,
+    ``/proc/stat`` and ``/sys/devices`` all read normally on the phone
+    (verified on the POCO F7 Pro, Android 16, aarch64). But fourteen
+    probes gated themselves on ``platform.system() == "Linux"``, and
+    Python 3.13 on Termux honestly answers ``"Android"`` -- so every one
+    of them switched itself off and reported
+    ``"kernel modules probe is Linux-only"`` on a machine whose kernel
+    modules were sitting right there in ``/proc/modules``.
+
+    That is the wrong axis. ``systemctl`` and ``journalctl`` genuinely
+    do not exist on Android -- use :func:`has_systemd` for those. Reading
+    ``/proc`` is a different question, and this is it.
+    """
+    return detect_host_class(env, system) in (LINUX, ANDROID)
+
+
 def termux_prefix(env: dict[str, str] | None = None) -> str | None:
     """Termux's `$PREFIX`, or None when not in Termux."""
     environ = dict(os.environ if env is None else env)

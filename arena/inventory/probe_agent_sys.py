@@ -6,6 +6,7 @@ return {"available": bool, ...}.
 """
 from __future__ import annotations
 
+from arena.hostplatform import has_linux_kernel, has_systemd, is_android
 from arena.inventory.probe_common import (
     Any,
     Path,
@@ -78,8 +79,10 @@ def get_dns_resolvers() -> dict:
 def get_dmesg_errors(limit: int = 30) -> dict:
     """Recent kernel-level errors from dmesg / journalctl -k. Linux only."""
     info: dict[str, Any] = {"available": False, "errors": []}
-    if platform.system() != "Linux":
-        info["error"] = "dmesg is Linux-only"
+    # Android has a kernel log too; journalctl below simply will not be
+    # found there and the dmesg fallback takes over.
+    if not has_linux_kernel():
+        info["error"] = "dmesg needs a Linux kernel"
         return info
 
     # `journalctl -k -p err -n 30` is the modern way; falls back to dmesg.
@@ -137,8 +140,9 @@ def _has_message_body(line: str) -> bool:
 def get_journal_errors(limit: int = 30) -> dict:
     """Recent systemd service errors (Linux only)."""
     info: dict[str, Any] = {"available": False, "errors": []}
-    if platform.system() != "Linux":
-        info["error"] = "journalctl is Linux-only"
+    if not has_systemd():
+        info["error"] = ("systemd journal is not present here"
+                         + (" (Android has no systemd)" if is_android() else ""))
         return info
     if not _which("journalctl"):
         info["error"] = "journalctl not on PATH"

@@ -137,11 +137,10 @@ def test_dmesg_off_linux():
     _mod()
     # dmesg lives in probe_agent_sys after the v3.88.5 split.
     from arena.inventory import probe_agent_sys as sys_mod
-    with patch.object(sys_mod, "platform") as pm:
-        pm.system.return_value = "Windows"
+    with patch.object(sys_mod, "has_linux_kernel", return_value=False):
         r = sys_mod.get_dmesg_errors()
     assert r["available"] is False
-    assert "linux" in r["error"].lower()
+    assert "linux kernel" in r["error"].lower()
 
 
 def test_firewall_status_reports_backend_or_missing():

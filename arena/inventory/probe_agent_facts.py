@@ -11,13 +11,13 @@ gracefully.
 """
 from __future__ import annotations
 
+from arena.hostplatform import has_linux_kernel, has_systemd, is_android
 from arena.inventory.probe_common import (
     Any,
     Path,
     _run,
     _which,
     json,
-    platform,
     re,
 )
 
@@ -139,8 +139,9 @@ def get_systemd_failed() -> dict:
     that Docker just died before trying to run a container.
     """
     info: dict[str, Any] = {"available": False, "system_failed": [], "user_failed": []}
-    if platform.system() != "Linux":
-        info["error"] = "systemd is Linux-only"
+    if not has_systemd():
+        info["error"] = ("systemd is not present here"
+                         + (" (Android has no systemd)" if is_android() else ""))
         return info
     if not _which("systemctl"):
         info["error"] = "systemctl not on PATH"
@@ -191,8 +192,11 @@ def get_kernel_modules(limit: int = 200) -> dict:
     ``btrfs`` is loaded before it plans a snapshot.
     """
     info: dict[str, Any] = {"available": False, "modules": [], "count": 0}
-    if platform.system() != "Linux":
-        info["error"] = "kernel modules probe is Linux-only"
+    # Android is Linux: /proc/modules reads fine on the phone. The old
+    # `platform.system() != "Linux"` check switched this off there,
+    # because Python on Termux honestly answers "Android".
+    if not has_linux_kernel():
+        info["error"] = "kernel modules probe needs a Linux kernel"
         return info
 
     p = Path("/proc/modules")
@@ -288,8 +292,9 @@ def get_containers() -> dict:
 def get_systemd_timers(limit: int = 20) -> dict:
     """Active systemd timers with next/last fire time (Linux only)."""
     info: dict[str, Any] = {"available": False, "timers": []}
-    if platform.system() != "Linux":
-        info["error"] = "systemd is Linux-only"
+    if not has_systemd():
+        info["error"] = ("systemd is not present here"
+                         + (" (Android has no systemd)" if is_android() else ""))
         return info
     if not _which("systemctl"):
         info["error"] = "systemctl not on PATH"
@@ -478,8 +483,8 @@ def get_cpu_vulnerabilities() -> dict:
     is real.
     """
     info: dict[str, Any] = {"available": False, "mitigations": {}}
-    if platform.system() != "Linux":
-        info["error"] = "vulnerability sysfs is Linux-only"
+    if not has_linux_kernel():
+        info["error"] = "vulnerability sysfs needs a Linux kernel"
         return info
 
     base = Path("/sys/devices/system/cpu/vulnerabilities")
