@@ -1,3 +1,59 @@
+## v4.169.24 — 2026-08-09
+
+### The update endpoint's own guards had no tests
+
+A mutation sweep over `arena/admin/handlers_update.py` -- the file
+behind `/v1/admin/update/apply` -- killed **5 mutants and let 213
+survive**. Two of the survivors were live holes:
+
+    - if not expected and not accept_no_verification:
+    + if     expected and not accept_no_verification:
+
+    - expected_sha256=expected or None
+    + expected_sha256=expected and None
+
+The first inverts the digest requirement: an update with no
+`expected_sha256` installs, and one that supplies a digest is refused.
+The second is worse, because it is invisible -- `x and None` is always
+None, so `apply_update` runs with **no digest at all** while the consent
+prompt the operator approved still displayed the real SHA and the audit
+line still said `verification: sha256`. An unverified install behind a
+verified-looking paper trail, on the endpoint that unpacks an archive
+over the bridge's own code.
+
+Both survived because nothing ever called the handler.
+`test_auto_update_digest_required` covers `download_release`, one layer
+below. `test_handlers_update_v4_60_13` read the source as text. The HTTP
+layer, where the decision is actually made, had no test.
+
+Fifteen tests now drive the real coroutine through `make_mocked_request`
+and assert on the response. Both directions, deliberately: a test that
+only checks the refusal still passes on an inverted condition, because
+inverting it rejects exactly what a correct one accepts.
+
+### The sweep was inventing survivors
+
+Removing `@authed(ctx)` from a handler showed up as a survivor -- and
+`test_auth_surface_guard.py` fails on that mutation immediately. The
+sweep builds its runner from the per-file test list in `TARGETS`, so
+suite-wide guards were never in it.
+
+That is a worse failure than a missing test. It sends you writing tests
+that already exist and buries the real gaps in noise. `CROSS_CUTTING_GUARDS`
+is now appended to every run.
+
+### What is left, honestly
+
+66 killed against 152 surviving, up from 5 against 213. Of those 152,
+**124 are string renames** -- mutmut rewriting `"ok"` to `"XXokXX"` in a
+response key nothing asserts on. Those are not weak tests, they are
+mutmut measuring something that does not matter here.
+
+The remaining ~28 are worth a look and are not yet closed. Naming that
+rather than claiming the file is done: the number that matters went from
+2% to 30%, and the two mutations that could have shipped an unverified
+update are dead.
+
 ## v4.169.23 — 2026-08-09
 
 ### One word in a batch file kept the PC down three times

@@ -86,6 +86,17 @@ TARGETS: dict[str, tuple[str, ...]] = {
     "arena/workbench/runtime_fetch.py": (
         "tests/test_workbench_runtime_downloads.py",
     ),
+    # v4.169.24: 213 survivors against 5 kills before this entry existed.
+    # Two of them were live holes -- inverting the digest requirement and
+    # defaulting `force` to True -- and both survived because nothing
+    # called the HTTP handler at all.
+    "arena/admin/handlers_update.py": (
+        "tests/test_update_apply_guards_v4_169_24.py",
+        "tests/test_handlers_update_v4_60_13.py",
+        "tests/test_auto_update_diagnostics_v4_60_14.py",
+        "tests/test_update_consent_binds_the_source.py",
+        "tests/test_post_update_smoke_and_autostart.py",
+    ),
     "arena/admin/auto_update_fetch.py": (
         "tests/test_auto_update_digest_required.py",
         "tests/test_auto_update.py",

@@ -11,6 +11,30 @@
    "tool": "mutmut 2.5.1",
    "total": 72
   },
+  "arena/admin/handlers_update.py": {
+   "fingerprint": "93313e8bee6f05ee75a93cede69fbdabe07762050310bae845c3bdec3f4c9849",
+   "reason": "sweep",
+   "survived": 152,
+   "tests": [
+    "tests/test_auto_update_diagnostics_v4_60_14.py",
+    "tests/test_handlers_update_v4_60_13.py",
+    "tests/test_post_update_smoke_and_autostart.py",
+    "tests/test_update_apply_guards_v4_169_24.py",
+    "tests/test_update_consent_binds_the_source.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 218
+  },
+  "arena/browser/cdp_client/tabs_http.py": {
+   "fingerprint": "eaf54b934f8bff13e26f8fb8f17ef587afa2b1601ce530cedb794ac61754df7a",
+   "reason": "sweep",
+   "survived": 25,
+   "tests": [
+    "tests/test_cdp_websocket_url_is_loopback.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 49
+  },
   "arena/files/sandbox.py": {
    "fingerprint": "e2e3e73d7d5356c9b03e998a21b2392d3ce1798dd2cc9c33bc3c232dacfa428a",
    "reason": "fresh run",

@@ -152,3 +152,4 @@ coverage.xml
 # it is rebuilt from android_app/ by scripts/build_android_apk.sh, and a
 # committed binary would be a second source of truth nobody diffs.
 android_app/build/
+.mutation-sweep-original

@@ -110,11 +110,58 @@ def discover_targets() -> dict[str, tuple[str, ...]]:
     return targets
 
 
+# Suite-wide guards that protect every handler, not one file. They are
+# not listed per-target in TARGETS -- nobody would remember to -- so a
+# sweep that omitted them reported mutants as survivors when a test was
+# already killing them.
+#
+# Measured on arena/admin/handlers_update.py: removing `@authed(ctx)`
+# from a handler showed up as a survivor, while
+# test_auth_surface_guard.py fails on that mutation immediately. The
+# sweep was overstating the gap, which is its own kind of lie: it sends
+# you writing tests that already exist.
+#
+# Applied only to files that are DELIBERATE gate targets, and only when
+# the file looks like it serves HTTP. Two rounds of measurement got here:
+#
+#   * adding the guard everywhere took the whole-tree shard from 76
+#     seconds to a hard timeout -- the auth guard builds the full app and
+#     walks ~510 routes at 1.3s a run, and mutmut re-runs the suite once
+#     per mutant;
+#   * narrowing it to "filename mentions handlers" still caught 18 files
+#     in a single shard, which was also a timeout.
+#
+# The whole-tree sweep exists to *find* weak spots cheaply. Precision
+# there is worth less than finishing. On a curated TARGETS entry, where
+# the point is an accurate number for a file someone chose to care
+# about, the extra 1.3s is affordable.
+CROSS_CUTTING_GUARDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tests/test_auth_surface_guard.py", ("handlers", "_handler")),
+)
+
+
+def _guards_for(source: str, *, curated: bool = False) -> list[str]:
+    """Cross-cutting guards worth running for this particular file.
+
+    ``curated`` is True for files listed in ``mutation_gate.TARGETS``.
+    A whole-tree sweep passes False and gets none of them, because
+    finishing matters more there than a precise count on 640 files.
+    """
+    if not curated:
+        return []
+    return [guard for guard, markers in CROSS_CUTTING_GUARDS
+            if any(marker in source for marker in markers)
+            and (ROOT / guard).exists()]
+
+
 def _run_one(source: str, tests: tuple[str, ...], *,
-             timeout: int) -> dict[str, int | str]:
+             timeout: int, curated: bool = False) -> dict[str, int | str]:
     existing = [t for t in tests if (ROOT / t).exists()]
     if not existing:
         return {"error": "no guarding tests exist"}
+    for guard in _guards_for(source, curated=curated):
+        if guard not in existing:
+            existing.append(guard)
 
     CACHE.unlink(missing_ok=True)
     runner = ("python3 -m pytest -x -q --no-cov -p no:randomly "
@@ -129,6 +176,18 @@ def _run_one(source: str, tests: tuple[str, ...], *,
     # the original bytes are held and put back unconditionally.
     target = ROOT / source
     original = target.read_bytes()
+    # `finally` covers a timeout or an exception. It does NOT cover this
+    # process being killed -- SIGKILL from a job runner, an outer
+    # `timeout` command, the OOM reaper -- and then the mutant is simply
+    # left in the working tree. Seen twice while wiring
+    # handlers_update.py into TARGETS: an interrupted sweep left
+    # `"source"` rewritten to `"XXsourceXX"`, and the next run cached its
+    # result against the *mutated* file's hash, so the cache silently
+    # stopped matching. A sidecar copy lets `--restore` put things back
+    # without needing git, which matters when the sweep runs somewhere
+    # the checkout is not clean to begin with.
+    stash = ROOT / ".mutation-sweep-original"
+    stash.write_bytes(original)
     try:
         proc = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
             ["mutmut", "run", "--paths-to-mutate", source,
@@ -141,6 +200,7 @@ def _run_one(source: str, tests: tuple[str, ...], *,
     finally:
         if target.read_bytes() != original:
             target.write_bytes(original)
+        stash.unlink(missing_ok=True)
     elapsed = int(time.time() - started)
 
     if not CACHE.exists():
@@ -315,7 +375,8 @@ def main() -> int:
                          "total": cached["total"]})
             continue
 
-        outcome = _run_one(source, tests, timeout=args.per_file_timeout)
+        outcome = _run_one(source, tests, timeout=args.per_file_timeout,
+                           curated=source in TARGETS)
         if "error" in outcome:
             rows.append({"source": source, "status": "error",
                          "detail": outcome["error"]})

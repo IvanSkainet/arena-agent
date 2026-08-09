@@ -62,7 +62,7 @@ def test_all_errors_means_exit_one(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.shutil, "which", lambda name: "/usr/bin/mutmut")
     monkeypatch.setattr(
         mod, "_run_one",
-        lambda source, tests, timeout: {"error": "zero mutants generated"},
+        lambda source, tests, timeout, curated=False: {"error": "zero mutants generated"},
     )
     monkeypatch.setattr(mod.mutation_cache, "lookup", lambda s, t: None)
     monkeypatch.setattr(
@@ -80,7 +80,7 @@ def test_a_real_result_still_passes(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.shutil, "which", lambda name: "/usr/bin/mutmut")
     monkeypatch.setattr(
         mod, "_run_one",
-        lambda source, tests, timeout: {
+        lambda source, tests, timeout, curated=False: {
             "survived": 3, "killed": 9, "total": 12, "seconds": 5},
     )
     monkeypatch.setattr(mod.mutation_cache, "lookup", lambda s, t: None)
@@ -222,7 +222,7 @@ def test_a_mutant_left_on_disk_fails_the_sweep(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.shutil, "which", lambda name: "/usr/bin/mutmut")
     monkeypatch.setattr(
         mod, "_run_one",
-        lambda source, tests, timeout: {
+        lambda source, tests, timeout, curated=False: {
             "survived": 1, "killed": 1, "total": 2, "seconds": 1},
     )
     monkeypatch.setattr(mod.mutation_cache, "lookup", lambda s, t: None)
