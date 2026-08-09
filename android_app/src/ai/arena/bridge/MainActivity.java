@@ -190,10 +190,13 @@ public class MainActivity extends Activity {
                             // tunnels are up, so say that plainly rather
                             // than showing an address that cannot work.
                             if (Boolean.TRUE.equals(loopback)) {
-                                sb.append("\n\nReachable from: this phone only")
-                                  .append("\nThe bridge is bound to 127.0.0.1. Restart it")
-                                  .append("\nwith --bind 0.0.0.0 to allow access from")
-                                  .append("\nother machines or through a tunnel.");
+                                // A tunnel agent runs on this device and
+                                // dials loopback itself, so it still works;
+                                // only direct LAN access needs a wider bind.
+                                sb.append("\n\nDirect access from other machines: no")
+                                  .append("\nThe bridge is bound to 127.0.0.1. A tunnel")
+                                  .append("\nstill works (its agent runs here). For LAN")
+                                  .append("\naccess restart with --bind 0.0.0.0.");
                             } else if (Boolean.FALSE.equals(loopback)) {
                                 sb.append("\n\nReachable from other machines:");
                                 sb.append("\n  http://").append(lan == null ? "?" : lan)

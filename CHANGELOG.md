@@ -1,3 +1,29 @@
+## v4.169.16 — 2026-08-09
+
+### The endpoint refuted itself, over the tunnel it said was impossible
+
+`/v1/access` shipped in v4.169.14 saying a loopback bind meant
+unreachable "not even through a tunnel". Then I used it on the PC to
+check the release -- through ngrok -- and it answered
+`bind: 127.0.0.1, reachable_remotely: false` in a response that had
+just travelled through the tunnel it declared useless.
+
+The reasoning was wrong in a way that sounded careful. A tunnel agent
+runs *on the same host*: it connects to 127.0.0.1 locally and forwards
+from outside. Loopback blocks other machines dialling in directly; it
+does nothing to a local forwarder. Being conservative is not the same as
+being correct, and a confident sentence contradicted by the body it is
+printed in is exactly the failure this project keeps auditing for.
+
+So the two claims are separated: `reachable_on_lan` follows the bind,
+`reachable_remotely` follows the tunnels. Both wordings now say which
+kind of access they mean. The Android screen was rewritten to match --
+"direct access from other machines: no" rather than the flat "this phone
+only" it had been showing.
+
+Caught by using the thing rather than reading it. Nothing in the tests
+would have found it: they asserted the wrong rule confidently.
+
 ## v4.169.15 — 2026-08-09
 
 ### My test assumed Linux, and five Windows jobs said so

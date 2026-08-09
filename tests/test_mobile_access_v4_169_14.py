@@ -30,16 +30,31 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # --- /v1/access ------------------------------------------------------------
 
-def test_loopback_bind_is_never_called_reachable() -> None:
-    """Even with a live tunnel: it forwards to a socket nobody can open."""
+def test_a_tunnel_reaches_a_loopback_bridge() -> None:
+    """Caught by using the endpoint on the PC, over ngrok, while it said
+    the opposite.
+
+    The first version claimed a loopback bind was unreachable "not even
+    through a tunnel" -- and the response saying so arrived through a
+    tunnel. A tunnel agent runs on the same host and dials 127.0.0.1
+    itself; loopback blocks direct LAN access, not local forwarders.
+    """
     info = access_info.describe(
         bind="127.0.0.1", port=8765,
         tunnels={"ngrok": {"active": True, "public_url": "https://x.ngrok.dev"}},
     )
     assert info["loopback_only"] is True
-    assert info["reachable_remotely"] is False
+    assert info["reachable_remotely"] is True, "the tunnel does forward"
+    assert info["reachable_on_lan"] is False, "but no other machine connects directly"
     assert info["lan_urls"] == []
-    assert "not even through a tunnel" in info["why"]
+    assert "tunnel forwards" in info["why"]
+
+
+def test_loopback_without_a_tunnel_is_unreachable() -> None:
+    info = access_info.describe(bind="127.0.0.1", port=8765, tunnels={})
+    assert info["reachable_remotely"] is False
+    assert info["reachable_on_lan"] is False
+    assert "no other machine can connect directly" in info["why"]
 
 
 def test_open_bind_with_a_tunnel_is_reachable() -> None:

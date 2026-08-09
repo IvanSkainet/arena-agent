@@ -98,11 +98,21 @@ def _classify(addr: str) -> str:
 def describe(*, bind: str, port: int, tunnels: dict[str, Any] | None = None) -> dict[str, Any]:
     """Everything the phone app needs to render a working address.
 
-    ``reachable_remotely`` is deliberately conservative: a loopback bind
-    makes it False regardless of how many tunnels report themselves up,
-    because a tunnel pointed at a socket nothing else can open forwards
-    nothing. Reporting otherwise would be the "green is not working"
-    failure in its purest form.
+    ``reachable_remotely`` follows the tunnels, not the bind -- and that
+    correction came from catching myself lying.
+
+    The first version declared that a loopback bind meant unreachable
+    "not even through a tunnel". It was written, shipped, and then used
+    to inspect the PC bridge *over ngrok*, which reported
+    ``bind: 127.0.0.1`` while answering the very request that proved it
+    wrong. A tunnel client runs on the same host: it connects to
+    127.0.0.1 locally and forwards from outside. Loopback blocks direct
+    LAN access; it does not block a local tunnel agent.
+
+    So the two are reported as what they are: ``reachable_on_lan``
+    depends on the bind, ``reachable_remotely`` depends on a tunnel
+    being up. Conflating them produced a confident sentence that the
+    response body itself refuted.
     """
     loopback = _is_loopback(bind)
     addrs = [] if loopback else local_addresses()
@@ -127,14 +137,24 @@ def describe(*, bind: str, port: int, tunnels: dict[str, Any] | None = None) -> 
         "addresses": addrs,
         "lan_urls": urls,
         "tunnel_urls": tunnel_urls,
-        "reachable_remotely": bool(tunnel_urls) and not loopback,
+        # A tunnel agent runs locally and dials 127.0.0.1, so it works
+        # regardless of the bind. Only direct LAN access needs the wider
+        # bind.
+        "reachable_remotely": bool(tunnel_urls),
         "reachable_on_lan": bool(urls),
     }
-    if loopback:
+    if loopback and tunnel_urls:
         info["why"] = (
-            f"the bridge is bound to {bind or '127.0.0.1'}, so nothing outside "
-            f"this device can connect -- not even through a tunnel. Restart it "
-            f"with --bind 0.0.0.0 to allow remote access."
+            f"bound to {bind or '127.0.0.1'}: no direct connections from other "
+            f"machines, but the tunnel forwards from outside because its agent "
+            f"runs on this device and dials loopback itself."
+        )
+    elif loopback:
+        info["why"] = (
+            f"the bridge is bound to {bind or '127.0.0.1'}, so no other machine "
+            f"can connect directly. Either start a tunnel -- its agent runs here "
+            f"and can reach loopback -- or restart with --bind 0.0.0.0 for LAN "
+            f"access."
         )
     elif not urls and not tunnel_urls:
         info["why"] = "bound for remote access, but this device has no usable address yet"
