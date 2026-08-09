@@ -1,3 +1,37 @@
+## v4.169.12 — 2026-08-09
+
+### Opening the probe broke it differently
+
+v4.169.11 stopped fourteen probes from refusing to read `/proc` on
+Android. Verified on the phone immediately afterwards, and the fix
+crashed:
+
+    PermissionError: [Errno 13] Permission denied: '/proc/modules'
+      File ".../probe_agent_facts.py", line 203, in get_kernel_modules
+        if not p.exists():
+
+`/proc/modules` is listed by `ls` and refuses to be stat-ed by an
+unprivileged Android app. The read itself was inside a `try`. The
+`Path.exists()` check above it was not -- and `exists()` calls `stat()`,
+so it raised and the exception escaped the probe entirely, taking the
+caller with it. Previously the probe skipped itself with a wrong reason;
+now it took down the whole inventory. Strictly worse, and only visible
+because the fix was run on the device instead of being declared done.
+
+`get_cpu_vulnerabilities` had the identical shape one function over:
+`is_dir()` and `iterdir()` bare, the reads guarded.
+
+Both now do the read directly and let a single `try` cover existence,
+permission and contents. The messages distinguish "not present" from
+"present but not readable by this process", because on a phone those are
+different facts.
+
+A third test enforces the rule generally: in any probe opened for
+Android, a call to `exists`/`is_dir`/`iterdir`/`stat` must sit inside a
+`try`. Checked over the AST rather than by eye, so the next probe cannot
+reintroduce it quietly. Sabotage restores the bare `exists()` and both
+the behavioural test and the structural one go red.
+
 ## v4.169.11 — 2026-08-09
 
 ### Android is Linux, except where it isn't

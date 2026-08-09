@@ -152,3 +152,80 @@ def test_tunnels_still_uses_the_cli_adapter_off_android(monkeypatch) -> None:
                                                 "funnel": {"active": True}})
     assert info.get("platform") != "android"
     assert info["connected"] is True
+
+
+# --- opening a probe for Android must not let its errors escape ------------
+
+def test_unreadable_proc_modules_is_reported_not_raised(monkeypatch) -> None:
+    """Android lists /proc/modules but refuses to stat it.
+
+    Found on the device, by my own fix: opening the probe for Android
+    turned "silently skipped" into `PermissionError: [Errno 13]
+    /proc/modules` escaping the probe and killing the caller. The read
+    was guarded; `Path.exists()` above it was not, and exists() stats.
+    """
+    from pathlib import Path
+
+    from arena.inventory import probe_agent_facts
+
+    def boom(*_a, **_k):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(probe_agent_facts, "has_linux_kernel", lambda: True)
+    monkeypatch.setattr(Path, "read_text", boom)
+    monkeypatch.setattr(Path, "exists", boom)
+    monkeypatch.setattr(Path, "stat", boom)
+
+    result = probe_agent_facts.get_kernel_modules()
+    assert result["available"] is False
+    assert "not readable" in result["error"]
+
+
+def test_unreadable_sysfs_vulnerabilities_is_reported_not_raised(monkeypatch) -> None:
+    from pathlib import Path
+
+    from arena.inventory import probe_agent_facts
+
+    def boom(*_a, **_k):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(probe_agent_facts, "has_linux_kernel", lambda: True)
+    monkeypatch.setattr(Path, "iterdir", boom)
+    monkeypatch.setattr(Path, "is_dir", boom)
+
+    result = probe_agent_facts.get_cpu_vulnerabilities()
+    assert result["available"] is False
+    assert "not readable" in result["error"]
+
+
+def test_no_probe_opened_for_android_stats_a_path_outside_a_try(monkeypatch) -> None:
+    """The general rule, so the next probe does not repeat it.
+
+    On Android every /proc and /sys read can raise PermissionError, so a
+    bare exists()/is_dir() ahead of a guarded read reintroduces exactly
+    this crash one function over.
+    """
+    import ast
+
+    from arena.inventory import probe_agent_facts
+
+    text = open(probe_agent_facts.__file__ or "", encoding="utf-8").read()
+    tree = ast.parse(text)
+    opened = {"get_kernel_modules", "get_cpu_vulnerabilities"}
+    for fn in tree.body:
+        if not isinstance(fn, ast.FunctionDef) or fn.name not in opened:
+            continue
+        guarded: list[ast.AST] = []
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Try):
+                guarded.extend(ast.walk(node))
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Call):
+                continue
+            call = ast.unparse(node.func)
+            if not call.endswith((".exists", ".is_dir", ".iterdir", ".stat")):
+                continue
+            assert node in guarded, (
+                f"{fn.name}: {call}() runs outside a try block; on Android "
+                f"that raises PermissionError instead of returning False"
+            )

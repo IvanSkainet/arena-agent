@@ -199,14 +199,23 @@ def get_kernel_modules(limit: int = 200) -> dict:
         info["error"] = "kernel modules probe needs a Linux kernel"
         return info
 
+    # Path.exists() calls stat(), and on Android stat("/proc/modules")
+    # raises PermissionError rather than returning False -- the file is
+    # listed but unreadable by an unprivileged app. Guarding the read
+    # while leaving the existence check bare meant the exception escaped
+    # the probe and took down the whole caller. Do the read directly and
+    # let one try block cover both.
     p = Path("/proc/modules")
-    if not p.exists():
-        info["error"] = "/proc/modules not readable"
-        return info
-
     try:
         text = p.read_text(encoding="utf-8", errors="replace")
-    except Exception as e:
+    except PermissionError:
+        info["error"] = ("/proc/modules exists but is not readable by this "
+                         "process (normal for an unprivileged Android app)")
+        return info
+    except FileNotFoundError:
+        info["error"] = "/proc/modules not present"
+        return info
+    except OSError as e:
         info["error"] = f"{type(e).__name__}: {e}"
         return info
 
@@ -487,13 +496,24 @@ def get_cpu_vulnerabilities() -> dict:
         info["error"] = "vulnerability sysfs needs a Linux kernel"
         return info
 
+    # is_dir() and iterdir() both stat, and sysfs on Android answers
+    # PermissionError instead of False -- same shape as /proc/modules.
     base = Path("/sys/devices/system/cpu/vulnerabilities")
-    if not base.is_dir():
+    try:
+        entries = sorted(base.iterdir())
+    except PermissionError:
+        info["error"] = ("/sys/devices/system/cpu/vulnerabilities is not "
+                         "readable by this process (normal on Android)")
+        return info
+    except (FileNotFoundError, NotADirectoryError):
         info["error"] = "/sys/devices/system/cpu/vulnerabilities not present " \
                         "(kernel too old or non-x86)"
         return info
+    except OSError as e:
+        info["error"] = f"{type(e).__name__}: {e}"
+        return info
 
-    for entry in sorted(base.iterdir()):
+    for entry in entries:
         try:
             info["mitigations"][entry.name] = entry.read_text(
                 encoding="utf-8", errors="replace"
