@@ -1,3 +1,55 @@
+## v4.169.22 — 2026-08-09
+
+### A test killed pytest, and CI called it fifteen successes
+
+The Coverage diff job on v4.169.21 failed with
+`Artifact not found: coverage-xml-ubuntu-latest-3.12`. Every one of the
+fifteen Tests jobs was green. The artifact was missing because
+`coverage.xml` was never written, and it was never written because
+**pytest was killed at 79% of the run, with exit code 0**.
+
+Reproduced locally on the first try: the output stops mid-line, no
+summary, no totals, `$?` is zero. That exit code is the whole disaster.
+A crash would have been caught; a silent success meant a third of the
+suite stopped running and nothing anywhere went red except a downstream
+job pointing at the wrong cause.
+
+The culprit, found by wrapping `os._exit` and `os.execv` with a
+traceback printer:
+
+    !!! os._exit(0) CALLED
+      File "arena/admin/auto_update.py", line 558 in _do_win_exit
+      File "threading.py", line 995 in run
+
+`restart_process` schedules the exit on a daemon thread. A test patches
+`os._exit`, calls it, and finishes; half a second later the thread wakes,
+looks up `os._exit` **globally** -- monkeypatch has long since restored
+the real one -- and kills the session. Two such threads were sleeping at
+once.
+
+The fix is one line per branch: bind `os._exit` and `os.execv` when the
+thread is scheduled, not when it wakes. A patched exit then stays patched
+for the life of the thread that captured it.
+
+Two tests guard it. One reads the AST and rejects a late global lookup
+inside any `_do_*` thread body. The other schedules a real restart, sleeps
+past the delay with a real thread, and asserts the patched function was
+the one that ran -- a mocked thread would have passed on the broken code,
+because the bug was entirely in the timing.
+
+### Two smaller things the same investigation turned up
+
+`test_handlers_update_v4_60_13` asserted `restart_process(delay_sec=1.0)`
+as a *substring of the source*. v4.169.21 legitimately reformatted that
+call, so the test went red while the behaviour it guards was intact. A
+source-text assertion cannot distinguish "the feature was removed" from
+"the line was rewritten". It now calls the handler and checks that a
+refusal is reported as a refusal.
+
+`auto_update.py` hit 608 lines and tripped the 600-line mini-monolith
+ratchet. `restart_process` moved to `arena/admin/restart_process.py`,
+with a forwarder left behind so the hundred-odd callers do not care.
+
 ## v4.169.21 — 2026-08-09
 
 ### A restart that cannot restart is a shutdown

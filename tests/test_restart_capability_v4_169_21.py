@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from arena.admin import auto_update, restart_capability
+from arena.admin import auto_update, restart_capability, restart_process as restart_process_mod
 
 
 @pytest.fixture()
@@ -34,6 +34,11 @@ def fake_windows(monkeypatch):
     """Pretend to be Windows without touching the real platform checks."""
     monkeypatch.setattr(restart_capability, "_WIN", True)
     monkeypatch.setattr(auto_update, "_WIN", True)
+    # v4.169.22: the implementation moved to arena.admin.restart_process
+    # when auto_update crossed the 600-line ratchet. auto_update keeps a
+    # forwarder, so callers are unaffected -- but a test that patches the
+    # module attribute has to patch the module that now owns the code.
+    monkeypatch.setattr(restart_process_mod, "_WIN", True)
     monkeypatch.setattr(restart_capability, "_scheduled_task_exists", lambda _n: False)
     return monkeypatch
 
@@ -69,7 +74,7 @@ def test_scheduled_task_alone_is_enough(fake_windows, tmp_path: Path) -> None:
 def test_restart_refuses_when_nothing_can_relaunch(fake_windows, tmp_path: Path) -> None:
     """The whole point: do not exit into an unreachable machine."""
     exited: list[bool] = []
-    fake_windows.setattr(auto_update.os, "_exit", lambda _c: exited.append(True))
+    fake_windows.setattr(restart_process_mod.os, "_exit", lambda _c: exited.append(True))
 
     result = auto_update.restart_process(install_root=tmp_path)
 
@@ -81,7 +86,7 @@ def test_restart_refuses_when_nothing_can_relaunch(fake_windows, tmp_path: Path)
 
 def test_force_stops_anyway_and_says_so(fake_windows, tmp_path: Path) -> None:
     """An operator may want the bridge down; they must not be misled."""
-    fake_windows.setattr(auto_update.os, "_exit", lambda _c: None)
+    fake_windows.setattr(restart_process_mod.os, "_exit", lambda _c: None)
 
     result = auto_update.restart_process(install_root=tmp_path, force=True)
 
@@ -93,7 +98,7 @@ def test_force_stops_anyway_and_says_so(fake_windows, tmp_path: Path) -> None:
 def test_hint_names_the_mechanism_that_exists(fake_windows, tmp_path: Path) -> None:
     """The old hint listed what the mover would try, and was false here."""
     (tmp_path / "start_bridge.bat").write_text("rem stub\n", encoding="utf-8")
-    fake_windows.setattr(auto_update.os, "_exit", lambda _c: None)
+    fake_windows.setattr(restart_process_mod.os, "_exit", lambda _c: None)
 
     result = auto_update.restart_process(install_root=tmp_path)
 
@@ -245,3 +250,69 @@ def test_waitport_is_bounded(tmp_path: Path) -> None:
     """An unbounded wait would hang the mover instead of falling through."""
     text = _mover_script(tmp_path)
     assert "if %_tries% GEQ 15 exit /b 1" in text
+
+
+# --- v4.169.22: the thread outlived the patch and killed pytest -----------
+
+def test_exit_hooks_are_bound_at_schedule_time_not_when_the_thread_wakes() -> None:
+    """A daemon thread must not look up os._exit after the test ends.
+
+    The failure was invisible in the worst way. A test patched
+    ``os._exit``, called ``restart_process``, and finished; the thread it
+    started slept half a second, by which time monkeypatch had restored
+    the real function, looked it up globally, and killed pytest **mid
+    run, with exit code 0**. CI read that as fifteen successful Tests
+    jobs while a third of the suite never executed, no coverage.xml was
+    written, and the Coverage diff job failed on a missing artifact --
+    the only red square, and it pointed at the wrong thing.
+
+    Binding the reference when the thread is scheduled makes a patched
+    exit stay patched for the life of that thread.
+    """
+    import ast
+    import inspect
+
+    source = inspect.getsource(restart_process_mod.restart_process)
+    tree = ast.parse(source.lstrip())
+
+    late_lookups: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef) or not node.name.startswith("_do_"):
+            continue
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Call):
+                call = ast.unparse(inner.func)
+                if call in ("os._exit", "os.execv"):
+                    late_lookups.append(f"{node.name}: {call}")
+    assert not late_lookups, (
+        "these run on a background thread and resolve the attribute when "
+        f"they wake, long after any patch is gone: {late_lookups}"
+    )
+
+
+def test_no_restart_thread_survives_this_test(fake_windows, tmp_path: Path) -> None:
+    """Behavioural half: schedule one, then prove it cannot kill us.
+
+    Uses a real thread and a real sleep, because the bug was entirely in
+    the timing -- a mocked thread would have passed on the broken code.
+    """
+    import threading
+    import time as _time
+
+    exited: list[int] = []
+    fake_windows.setattr(restart_process_mod.os, "_exit", lambda code: exited.append(code))
+    (tmp_path / "start_bridge.bat").write_text("rem stub\n", encoding="utf-8")
+
+    result = restart_process_mod.restart_process(install_root=tmp_path, delay_sec=0.5)
+    assert result["restart"] == "scheduled"
+
+    # Outlive the thread's sleep. If the binding regressed, the real
+    # os._exit runs here and the whole session dies -- which is exactly
+    # what happened in CI, so the assertion below is the polite version.
+    _time.sleep(1.2)
+    assert exited == [0], (
+        "the scheduled exit did not reach the patched function; a real "
+        "os._exit would have taken the test session with it"
+    )
+    assert not [t for t in threading.enumerate()
+                if t.name == "arena-win-exit" and t.is_alive()]

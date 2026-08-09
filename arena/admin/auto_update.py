@@ -42,7 +42,6 @@ import os
 import platform
 import shutil
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -509,80 +508,13 @@ def apply_update(*, asset_url: str, asset_name: str,
 
 def restart_process(*, delay_sec: float = 0.5, force: bool = False,
                     install_root: Path | str | None = None) -> dict[str, Any]:
-    """Best-effort restart of the current Python process.
+    """Re-exported from :mod:`arena.admin.restart_process`.
 
-    On Unix we re-exec into `sys.argv`; the systemd unit picks it up
-    as a clean restart.
-
-    On Windows (v4.60.4 fix) we schedule an os._exit() in a background
-    thread so the HTTP response can flush first, then the process
-    dies. The paired mover .cmd script (see _write_windows_installer)
-    sees our PID disappear, robocopies files, and re-launches the
-    bridge via the Scheduled Task or start_hidden.vbs.
-
-    Prior to v4.60.4 this returned {"restart":"pending"} without
-    doing anything — dashboard Install button reported success but
-    the mover script waited for our PID forever, files never got
-    copied, and the running version never changed.
+    Kept as a thin forwarder because handlers, tests and the dashboard
+    all import it from here; moving the implementation should not break
+    a caller that has worked for a hundred releases.
     """
-    if _WIN:
-        # v4.169.21: verify something can bring us back BEFORE dying.
-        # Twice in a row this returned {"restart": "scheduled"} on a host
-        # where the mover's three relaunch mechanisms were all absent --
-        # the install came from a release zip, not install.bat -- so the
-        # bridge exited, the mover logged "no relaunch mechanism found",
-        # and the machine stayed down until a human started it. A restart
-        # that cannot restart is a shutdown, and it must not be reported
-        # as the former.
-        from arena.admin import restart_capability
+    from arena.admin import restart_process as _rp
 
-        capability = restart_capability.describe(install_root)
-        if not capability["can_restart"] and not force:
-            return {
-                "ok": False,
-                "restart": "refused",
-                "error": "no relaunch mechanism on this host",
-                "capability": capability,
-                "hint": ("Run install.bat to create the autostart artefacts, "
-                         "or resend with force=true to stop the bridge anyway "
-                         "-- it will not come back on its own."),
-            }
-
-        # Fire-and-return: HTTP handler wants a JSON body back, so we
-        # can't call os._exit synchronously here. Schedule it a moment
-        # later and let the response drain.
-        import threading
-
-        def _do_win_exit():
-            time.sleep(max(0.5, delay_sec))
-            os._exit(0)
-
-        threading.Thread(target=_do_win_exit, daemon=True).start()
-        return {"ok": True, "restart": "scheduled",
-                "platform": "windows",
-                "delay_sec": max(0.5, delay_sec),
-                "capability": capability,
-                "forced": bool(force and not capability["can_restart"]),
-                # Name the mechanism that was actually found, rather than
-                # listing what the mover will try. The old wording read
-                # like a guarantee and was false on this very host.
-                "hint": (f"Bridge will exit; relaunch via "
-                         f"{capability['mechanism']}."
-                         if capability["can_restart"] else
-                         "Bridge will exit and will NOT come back: forced "
-                         "with no relaunch mechanism available.")}
-    # Give the HTTP handler a moment to flush its response before we
-    # replace ourselves.
-    import threading
-
-    def _do_restart():
-        time.sleep(max(0.05, delay_sec))
-        try:
-            # nosemgrep: dangerous-os-exec-tainted-env-args -- sys.argv is our own launch argv snapshot, not attacker input; this is a self-restart into the same process image after the auto-update swap.
-            os.execv(sys.executable, [sys.executable, *sys.argv])
-        except Exception:
-            os._exit(0)
-
-    threading.Thread(target=_do_restart, daemon=True).start()
-    return {"ok": True, "restart": "scheduled",
-            "delay_sec": delay_sec, "argv": sys.argv[:1]}
+    return _rp.restart_process(delay_sec=delay_sec, force=force,
+                               install_root=install_root)

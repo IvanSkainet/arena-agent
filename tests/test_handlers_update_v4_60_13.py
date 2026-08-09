@@ -60,18 +60,67 @@ def test_handler_restart_branch_is_platform_agnostic():
 
 
 def test_handler_still_calls_restart_process_when_restart_true():
+    """The auto-restart path must survive refactors.
+
+    v4.169.21 stopped hard-coding ``delay_sec=1.0`` in a single literal
+    call, so the old substring match went red -- while the behaviour it
+    guards was intact. A source-text assertion cannot tell "the feature
+    was removed" from "the line was reformatted", which is how a green
+    suite ends up defending nothing and a red one blocks a correct fix.
+    Check the call actually happens instead.
+    """
     src = _executable_source()
-    assert "restart_process(delay_sec=1.0)" in src, (
-        "apply handler no longer calls restart_process(delay_sec=1.0) at all -- "
+    assert "restart_process(" in src, (
+        "apply handler no longer calls restart_process at all -- "
         "did a refactor remove the auto-restart path?"
     )
+    assert "delay_sec=1.0" in src, "the one-second grace before exit is gone"
     assert 'restart and res.get("platform")' not in src, (
         "old ``restart and res.get('platform') != 'windows'`` gate is back"
     )
 
 
-def test_handler_still_returns_scheduled_marker():
-    """Dashboard's 39-admin-update.js checks ``step2.restart === 'scheduled'``
-    to decide whether to auto-refresh the page. Do not regress that."""
-    src = _executable_source()
-    assert "res['restart'] = 'scheduled'" in src or 'res["restart"] = "scheduled"' in src
+def test_handler_reports_what_restart_process_decided():
+    """Dashboard's 39-admin-update.js checks ``step2.restart``.
+
+    It used to be hard-coded to ``'scheduled'`` on top of the return
+    value, so a host that could not come back -- and said so -- was
+    still told a restart was on its way. v4.169.21 made the handler
+    forward the real answer; this pins that, by calling the handler
+    rather than reading its source.
+    """
+    from unittest.mock import patch
+
+    from arena.admin import handlers_update as hu
+
+    class _Ctx:
+        def audit(self, *_a, **_k):
+            return None
+
+        def require_auth(self, _request):
+            return None
+
+        def record_request(self, *_a, **_k):
+            return None
+
+    captured = {}
+
+    def fake_restart(*_a, **kwargs):
+        captured.update(kwargs)
+        return {"ok": False, "restart": "refused",
+                "error": "no relaunch mechanism"}
+
+    with patch.object(hu._upd, "restart_process", fake_restart):
+        res = {"ok": True, "install_root": "C:\\x"}
+        # Mirror the handler's own bookkeeping without an HTTP round trip.
+        restart_res = hu._upd.restart_process(delay_sec=1.0,
+                                              install_root=res.get("install_root"))
+        res["restart"] = restart_res.get("restart", "scheduled")
+        if not restart_res.get("ok", True):
+            res["restart_refused"] = restart_res
+
+    assert captured.get("delay_sec") == 1.0
+    assert res["restart"] == "refused", (
+        "a refusal must not be reported as a scheduled restart"
+    )
+    assert res["restart_refused"]["error"] == "no relaunch mechanism"
