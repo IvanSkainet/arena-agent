@@ -35,6 +35,26 @@ because both were fail-closed and both were right: `cautious` refused an
 refused to overwrite an existing file and named the endpoint that does
 modify one. The edit came back with a rollback id.
 
+### And my test killed five Windows jobs, for the third time
+
+v4.169.19 went red on every `windows-latest` job. The boot-script test
+ran `sh` to exercise a port check that is one `connect_ex` call --
+Windows runners have no `sh`, so the second branch never fired and the
+assertion compared against the wrong answer. Three Linux jobs green,
+five Windows ones red, and the code under test was correct throughout.
+
+Third time in eleven releases: v4.169.9 (a hand-built env dropped
+SYSTEMROOT), v4.169.15 (a doctor test assumed the Linux branch), now
+this. Every one a platform assumption baked into a *test*, and every one
+found by CI instead of before it.
+
+So `scripts/posix_shell_test_ratchet.py` fails the build on any test
+that spawns `sh`/`bash` without a Windows skip or a `shutil.which`
+guard. Sabotaged both ways: a bare `subprocess.run(["sh", ...])` is
+caught, and the same call under `@pytest.mark.skipif(sys.platform ==
+"win32")` is not. The test itself no longer touches a shell -- it calls
+`connect_ex` directly, which is what the guard actually does.
+
 ## v4.169.18 — 2026-08-09
 
 ### Reachable from the sandbox at last, and the address that was missing

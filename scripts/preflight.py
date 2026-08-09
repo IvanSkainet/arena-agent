@@ -85,6 +85,10 @@ CHECKS: list[Check] = [
               "ProcessBuilder; the sandbox forbids it, every check answered "
               "'absent', and the app announced 'Termux installed: no' on a "
               "phone that was serving the bridge"),
+    Check("posix shell in tests", [PY, "scripts/posix_shell_test_ratchet.py"],
+          why="three releases in eleven died on windows-latest because a "
+              "TEST assumed POSIX -- there is no sh on those five jobs, and "
+              "the code under test was fine every time"),
     Check("dead condition", [PY, "scripts/dead_condition_ratchet.py"],
           why="the release gate was tag-gated inside a workflow that only "
               "runs on master pushes -- it would never have fired once, "

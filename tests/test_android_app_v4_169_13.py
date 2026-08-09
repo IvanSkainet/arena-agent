@@ -239,37 +239,44 @@ def test_boot_script_refuses_to_start_a_second_copy() -> None:
 
 
 def test_boot_script_port_check_behaves_both_ways(tmp_path: Path) -> None:
-    """Run the generated logic rather than trusting the shell text."""
+    """Run the guard's logic rather than trusting the shell text.
+
+    The Android boot script is `sh`, and Windows runners have no `sh` --
+    the first cut of this test shelled out and every windows-latest job
+    went red while three Linux ones passed. Third time this exact shape
+    has bitten (v4.169.9, v4.169.15, now this), so the shell is gone:
+    the check is one `connect_ex` call, and that is what gets exercised.
+    """
     import socket
-    import subprocess
-    import sys as _sys
 
     port = 18771
-    probe = tmp_path / "boot.sh"
-    probe.write_text(
-        "#!/bin/sh\n"
-        f"if {_sys.executable} -c \"import socket,sys; s=socket.socket(); "
-        f"sys.exit(0 if s.connect_ex(('127.0.0.1', {port}))==0 else 1)\" 2>/dev/null; then\n"
-        "    echo already-serving\n"
-        "    exit 0\n"
-        "fi\n"
-        "echo would-start\n",
-        encoding="utf-8",
-    )
 
-    free = subprocess.run(["sh", str(probe)], capture_output=True, text=True, timeout=60)
-    assert free.stdout.strip() == "would-start", free.stdout
+    def guard_says_already_serving() -> bool:
+        """Exactly what the boot script's python -c evaluates."""
+        probe = socket.socket()
+        try:
+            return probe.connect_ex(("127.0.0.1", port)) == 0
+        finally:
+            probe.close()
+
+    assert guard_says_already_serving() is False, "nothing should be listening yet"
 
     srv = socket.socket()
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", port))
     srv.listen(5)
     try:
-        busy = subprocess.run(["sh", str(probe)], capture_output=True, text=True, timeout=60)
+        assert guard_says_already_serving() is True
     finally:
         srv.close()
-    assert busy.stdout.strip() == "already-serving", busy.stdout
-    assert busy.returncode == 0, "an already-running bridge is success, not failure"
+
+    # And the script must act on that answer by exiting 0, not by
+    # starting a second copy: an already-running bridge is success.
+    script = (REPO_ROOT / "scripts" / "bootstrap_android.sh").read_text(encoding="utf-8")
+    start_at = script.index('cat > "$BOOT_DIR/arena-bridge.sh"')
+    heredoc = script[start_at:script.index("BOOTEOF", start_at + 40)]
+    guard = heredoc[heredoc.index("connect_ex"):heredoc.index("termux-wake-lock")]
+    assert "exit 0" in guard, guard
 
 
 def test_bootstrap_points_at_the_apk_for_autostart() -> None:
@@ -277,3 +284,28 @@ def test_bootstrap_points_at_the_apk_for_autostart() -> None:
     script = (REPO_ROOT / "scripts" / "bootstrap_android.sh").read_text(encoding="utf-8")
     assert "ai.arena.bridge" in script
     assert "arena-bridge.apk" in script
+
+
+def test_posix_shell_ratchet_is_wired_and_catches_a_bare_shell(tmp_path: Path) -> None:
+    """The gate for the class, not just this instance."""
+    import subprocess
+    import sys as _sys
+
+    assert "posix_shell_test_ratchet.py" in (
+        REPO_ROOT / "scripts" / "preflight.py").read_text(encoding="utf-8")
+
+    probe = REPO_ROOT / "tests" / "test_zz_posix_shell_probe.py"
+    probe.write_text(
+        "import subprocess\n\n\ndef test_bad():\n"
+        '    subprocess.run(["sh", "-c", "echo hi"])\n',
+        encoding="utf-8",
+    )
+    try:
+        proc = subprocess.run(
+            [_sys.executable, str(REPO_ROOT / "scripts" / "posix_shell_test_ratchet.py")],
+            capture_output=True, text=True, timeout=300,
+        )
+    finally:
+        probe.unlink(missing_ok=True)
+    assert proc.returncode == 1
+    assert "test_zz_posix_shell_probe.py" in proc.stdout
