@@ -75,7 +75,10 @@ def test_falls_back_to_py_launcher_when_sys_executable_is_gone(monkeypatch) -> N
 
 
 def test_repair_rewrites_the_exact_launcher_that_was_on_the_pc(tmp_path: Path) -> None:
-    (tmp_path / "start_bridge.bat").write_text(BARE_LAUNCHER, encoding="utf-8")
+    # write_bytes, not write_text: on Windows the text layer turns
+    # \r\n into \r\r\n, so the fixture would not match the file the
+    # PC actually had. Five windows-latest jobs said so.
+    (tmp_path / "start_bridge.bat").write_bytes(BARE_LAUNCHER.encode("utf-8"))
 
     result = autostart_doctor.repair_bare_python(tmp_path)
 
@@ -95,7 +98,10 @@ def test_repair_rewrites_the_exact_launcher_that_was_on_the_pc(tmp_path: Path) -
 
 def test_repair_is_idempotent(tmp_path: Path) -> None:
     """Running it twice must not double-substitute or re-backup."""
-    (tmp_path / "start_bridge.bat").write_text(BARE_LAUNCHER, encoding="utf-8")
+    # write_bytes, not write_text: on Windows the text layer turns
+    # \r\n into \r\r\n, so the fixture would not match the file the
+    # PC actually had. Five windows-latest jobs said so.
+    (tmp_path / "start_bridge.bat").write_bytes(BARE_LAUNCHER.encode("utf-8"))
     autostart_doctor.repair_bare_python(tmp_path)
     first = (tmp_path / "start_bridge.bat").read_bytes()
 
@@ -111,7 +117,7 @@ def test_repair_leaves_a_deliberate_interpreter_alone(tmp_path: Path) -> None:
         "@echo off\r\n"
         '"C:\\Tools\\Python\\python.exe" -u unified_bridge.py serve\r\n'
     )
-    (tmp_path / "start_bridge.bat").write_text(chosen, encoding="utf-8")
+    (tmp_path / "start_bridge.bat").write_bytes(chosen.encode("utf-8"))
 
     result = autostart_doctor.repair_bare_python(tmp_path)
 
@@ -164,3 +170,31 @@ def test_bare_python_really_is_unreachable_from_a_stripped_path() -> None:
         "an absolute interpreter path must work with no usable PATH -- "
         "that is the whole point of the fix"
     )
+
+
+def test_backup_is_a_byte_exact_copy(tmp_path: Path) -> None:
+    """A backup that does not match what it replaced is not a backup.
+
+    `read_text` normalises CRLF to LF and `write_text` on Windows expands
+    LF back to CRLF, so round-tripping the content through strings
+    produced `\\r\\r\\n` in the .bak -- corrupting the one file whose job
+    is to be restorable. Caught because five windows-latest jobs failed
+    on the same conversion happening in the test fixture.
+    """
+    original = BARE_LAUNCHER.encode("utf-8")
+    (tmp_path / "start_bridge.bat").write_bytes(original)
+
+    autostart_doctor.repair_bare_python(tmp_path)
+
+    assert (tmp_path / "start_bridge.bat.bak").read_bytes() == original
+
+
+def test_rewritten_launcher_keeps_crlf_line_endings(tmp_path: Path) -> None:
+    """cmd.exe tolerates LF, but a mixed file is nobody's intent."""
+    (tmp_path / "start_bridge.bat").write_bytes(BARE_LAUNCHER.encode("utf-8"))
+
+    autostart_doctor.repair_bare_python(tmp_path)
+
+    body = (tmp_path / "start_bridge.bat").read_bytes()
+    assert b"\r\r\n" not in body
+    assert body.count(b"\r\n") == body.count(b"\n")

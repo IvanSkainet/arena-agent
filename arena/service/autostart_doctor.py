@@ -174,7 +174,11 @@ def repair_bare_python(root: Path) -> dict[str, Any]:
 
     backup = root / "start_bridge.bat.bak"
     try:
-        backup.write_text(text, encoding="utf-8")
+        # write_bytes: `text` came from read_text, which normalised CRLF
+        # to LF, and write_text on Windows would re-expand every LF back
+        # to CRLF -- a "backup" that does not match what was replaced.
+        # Read the original bytes again so the copy is exact.
+        backup.write_bytes(bat.read_bytes())
         bat.write_bytes(("\r\n".join(fixed) + "\r\n").encode("utf-8"))
     except OSError as exc:
         return {"ok": False, "reason": f"could not write: {exc}"}
