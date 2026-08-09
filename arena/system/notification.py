@@ -17,6 +17,8 @@ import subprocess
 import sys
 from typing import Any
 
+from arena.hostplatform import is_android
+
 # PowerShell's registered AppUserModelID. A desktop process can only show a
 # toast under an AUMID that Windows knows about; an arbitrary string is
 # dropped without error. PowerShell's AUMID is always registered, so the
@@ -104,6 +106,38 @@ def notify_linux(title: str, message: str) -> tuple[bool, str]:
         return False, str(e)[:300]
 
 
+def notify_android(title: str, message: str) -> tuple[bool, str]:
+    """Post a notification through Termux:API.
+
+    Android went down the Linux branch and looked for `notify-send`,
+    which does not exist there -- so `/v1/notify` on the phone always
+    returned `ok: false, method: notify-send`. Same shape as v4.169.11:
+    Android is Linux for the kernel and is not Linux for the userland
+    that ships with a desktop.
+
+    `termux-notification` comes from the `termux-api` package plus the
+    Termux:API app. When either is missing the command is absent or
+    hangs, so the timeout is short and the failure names the fix rather
+    than reporting a generic "could not display".
+    """
+    if not shutil.which("termux-notification"):
+        return False, ("termux-notification not found -- install the Termux:API "
+                       "app and run: pkg install termux-api")
+    try:
+        subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
+            ["termux-notification", "--title", title, "--content", message],
+            capture_output=True, timeout=10, check=True, text=True,
+        )
+        return True, ""
+    except subprocess.TimeoutExpired:
+        return False, ("termux-notification timed out -- the Termux:API app is "
+                       "probably not installed alongside the termux-api package")
+    except subprocess.CalledProcessError as e:
+        return False, (e.stderr or "").strip()[:300] or f"exit {e.returncode}"
+    except OSError as e:
+        return False, str(e)[:300]
+
+
 def send_notification(title: str, message: str) -> dict[str, Any]:
     title = title or "Arena Bridge"
     message = message or ""
@@ -113,6 +147,12 @@ def send_notification(title: str, message: str) -> dict[str, Any]:
     elif sys.platform == "darwin":
         ok, detail = notify_macos(title, message)
         method = "osascript"
+    elif is_android():
+        # Checked before the Linux branch: Android reports as Linux to
+        # sys.platform on older interpreters, and notify-send is a
+        # desktop package that is never present there.
+        ok, detail = notify_android(title, message)
+        method = "termux-notification"
     else:
         ok, detail = notify_linux(title, message)
         method = "notify-send"

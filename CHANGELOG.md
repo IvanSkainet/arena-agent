@@ -1,3 +1,38 @@
+## v4.169.20 — 2026-08-09
+
+### The fallback channel could not deliver the message about the outage
+
+Ivan asked for a desktop notification when a long run finishes, which is
+reasonable and was already built: `/v1/notify` works on the PC and
+produced a toast on the first try.
+
+Then the PC went down mid-update -- `update/apply` succeeded,
+`update/restart` scheduled the exit, and nothing relaunched the bridge.
+Trying to say so through the phone, the only channel still up, returned
+`ok: false, method: notify-send`. Android had been falling into the
+Linux branch and looking for a freedesktop tool that Termux does not
+ship, so notifications from the phone had never worked at all.
+
+Exactly the shape of the fourteen probes in v4.169.11: Android is Linux
+for the kernel and is not Linux for the desktop userland. It now uses
+`termux-notification`, checked before the Linux branch, and when
+Termux:API is absent the error names the two things to install rather
+than saying "could not be displayed".
+
+### What the outage did prove
+
+The phone stayed reachable while the PC was dead, over
+`pc.tail328f18.ts.net/phone` -- the Funnel lives in `tailscaled`, not in
+the bridge, so the tunnel survives the bridge it usually points at. Two
+independent vantage points confirmed the PC was really down rather than
+merely unreachable from here: the sandbox saw 502, and the phone, asked
+over the tunnel, could not reach `100.126.244.9:8765` either.
+
+The Windows auto-update path is the open problem: it applies the payload
+and exits, and the hint it prints ("a supervisor must relaunch it") is
+accurate but not a plan. That needs fixing before the next in-place
+update, not after.
+
 ## v4.169.19 — 2026-08-09
 
 ### The boot script started a second copy and died quietly

@@ -229,3 +229,48 @@ def test_no_probe_opened_for_android_stats_a_path_outside_a_try(monkeypatch) -> 
                 f"{fn.name}: {call}() runs outside a try block; on Android "
                 f"that raises PermissionError instead of returning False"
             )
+
+
+# --- v4.169.20: /v1/notify on the phone always failed ----------------------
+
+def test_android_notifications_do_not_go_through_notify_send(monkeypatch) -> None:
+    """Android fell into the Linux branch and looked for a desktop tool.
+
+    `/v1/notify` on the phone returned `ok: false, method: notify-send`
+    every time -- notify-send is a freedesktop package that Termux does
+    not ship. Found by trying to tell Ivan the PC had gone down: the
+    fallback channel could not deliver the message.
+
+    Same shape as the fourteen probes in v4.169.11. Android is Linux for
+    the kernel and is not Linux for the desktop userland.
+    """
+    from arena.system import notification
+
+    monkeypatch.setattr(notification.sys, "platform", "linux")
+    monkeypatch.setattr(notification, "is_android", lambda: True)
+    monkeypatch.setattr(notification, "notify_android", lambda t, m: (True, ""))
+
+    result = notification.send_notification("t", "m")
+    assert result["method"] == "termux-notification"
+    assert result["ok"] is True
+
+
+def test_desktop_linux_still_uses_notify_send(monkeypatch) -> None:
+    """Reverse check: a real Linux desktop must not be redirected."""
+    from arena.system import notification
+
+    monkeypatch.setattr(notification.sys, "platform", "linux")
+    monkeypatch.setattr(notification, "is_android", lambda: False)
+    monkeypatch.setattr(notification, "notify_linux", lambda t, m: (True, ""))
+
+    assert notification.send_notification("t", "m")["method"] == "notify-send"
+
+
+def test_missing_termux_api_names_the_fix(monkeypatch) -> None:
+    """A failure that does not say what to install is a dead end."""
+    from arena.system import notification
+
+    monkeypatch.setattr(notification.shutil, "which", lambda _n: None)
+    ok, detail = notification.notify_android("t", "m")
+    assert ok is False
+    assert "termux-api" in detail
