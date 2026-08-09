@@ -83,6 +83,28 @@ def linux_play_beep(beep_type: str, freq: int, dur: int, *, subprocess_kwargs_fn
             except Exception:
                 pass
 
+    # v4.169.14: Android has neither ALSA nor PulseAudio, so paplay and
+    # aplay are never present -- every beep on the phone fell through to
+    # "simulated". termux-media-player is the platform's answer, and it
+    # plays a file rather than synthesising a tone, so the generated WAV
+    # is written out and handed to it.
+    if shutil.which("termux-media-player"):
+        try:
+            combined = _combine_wav_notes(notes)
+            tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            tmp.write(combined)
+            tmp.close()
+            try:
+                subprocess.run(["termux-media-player", "play", tmp.name],
+                               timeout=5, **subprocess_kwargs_fn())
+                return {"ok": True, "type": beep_type, "method": "termux-media-player"}
+            finally:
+                # Deleting immediately would race the player, which reads
+                # the file asynchronously. Leave it to TMPDIR cleanup.
+                pass
+        except Exception:
+            pass
+
     if shutil.which("beep"):
         try:
             for note_freq, note_dur in notes:

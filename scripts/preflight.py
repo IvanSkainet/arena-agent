@@ -80,6 +80,11 @@ CHECKS: list[Check] = [
           why="v4.169.5 through v4.169.9 were tagged, green on 35/35, and "
               "invisible: auto_update reads releases/latest, which only "
               "counts published releases, so every install sat on 4.169.4"),
+    Check("android lint", [PY, "scripts/android_lint.py"],
+          why="the first BridgeService tried to run Termux's python through "
+              "ProcessBuilder; the sandbox forbids it, every check answered "
+              "'absent', and the app announced 'Termux installed: no' on a "
+              "phone that was serving the bridge"),
     Check("dead condition", [PY, "scripts/dead_condition_ratchet.py"],
           why="the release gate was tag-gated inside a workflow that only "
               "runs on master pushes -- it would never have fired once, "

@@ -184,6 +184,7 @@ ROUTES: list[Route] = [
     ('POST'  , '/v1/tunnels/probe/reset'                         , 'handle_v1_tunnels_probe_reset'              , 'core', None),
     ('GET'   , '/v1/agent/config'                                , 'handle_v1_agent_config'                     , 'core', None),
     ('GET'   , '/v1/self'                                         , 'handle_v1_self'                             , 'core', None),
+    ('GET'   , '/v1/access'                                       , 'handle_v1_access'                           , 'core', None),
     ('GET'   , '/v1/admin/profile'                                , 'handle_v1_admin_profile_get'                , 'core', None),
     ('POST'  , '/v1/admin/profile'                                , 'handle_v1_admin_profile_post'               , 'core', None),
     ('GET'   , '/v1/admin/update/status'                         , 'handle_v1_admin_update_status'              , 'core', None),

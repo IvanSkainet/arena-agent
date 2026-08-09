@@ -31,8 +31,26 @@ def run_doctor(
     checks.append({"name": "Bridge running", "ok": True, "detail": f"v{version}"})
     checks.append({"name": "Token", "ok": bool(token), "detail": f"{len(token)} chars" if token else "missing"})
     checks.append({"name": "Python", "ok": True, "detail": sys.version.split()[0]})
-    for name, path in [("Bridge dir", bridge_dir), ("Memory dir", memory_dir), ("Missions dir", missions_dir)]:
-        checks.append({"name": name, "ok": path.exists(), "detail": str(path)})
+    # v4.169.14: a runtime directory that has never been used does not
+    # exist yet, and that is not a fault. On a fresh phone install the
+    # doctor reported "Missions dir" red before a single mission had
+    # been created -- a red light with nothing wrong behind it, which
+    # teaches the operator to ignore red lights.
+    #
+    # Bridge dir is different: it is created by the installer, so its
+    # absence really is broken. Missions and memory are created on
+    # first use, so report them as ok-but-empty.
+    checks.append({"name": "Bridge dir", "ok": bridge_dir.exists(),
+                   "detail": str(bridge_dir)})
+    for name, path in [("Memory dir", memory_dir), ("Missions dir", missions_dir)]:
+        present = path.exists()
+        checks.append({
+            "name": name,
+            "ok": True,
+            "detail": str(path) if present else f"{path} (not created yet)",
+            "status": "ok" if present else "empty",
+            "critical": False,
+        })
 
     try:
         fact_count = facts_count_fn()
@@ -50,8 +68,26 @@ def run_doctor(
         except ImportError:
             checks.append({"name": "Sound", "ok": False, "detail": "winsound not available", "critical": False})
     else:
-        sound_ok = bool(shutil.which("beep") or shutil.which("paplay"))
-        checks.append({"name": "Sound", "ok": sound_ok, "detail": "beep/paplay available" if sound_ok else "no sound device", "critical": False})
+        from arena.hostplatform import is_android
+        if is_android():
+            # Android has no ALSA or PulseAudio, so paplay/beep will never
+            # be there. Reporting "no sound device" as a failure on every
+            # phone is a permanently red check that means nothing.
+            # termux-media-player is the real answer when termux-api is
+            # installed; without it the bridge simply has no audio, which
+            # is a fact about the platform, not a defect.
+            player = shutil.which("termux-media-player")
+            checks.append({
+                "name": "Sound",
+                "ok": True,
+                "detail": ("termux-media-player available" if player else
+                           "no audio on Android without termux-api (not a fault)"),
+                "status": "ok" if player else "empty",
+                "critical": False,
+            })
+        else:
+            sound_ok = bool(shutil.which("beep") or shutil.which("paplay"))
+            checks.append({"name": "Sound", "ok": sound_ok, "detail": "beep/paplay available" if sound_ok else "no sound device", "critical": False})
 
     try:
         disk = shutil.disk_usage(str(home_dir or Path.home()))

@@ -34,12 +34,30 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
     async def handle_v1_version(request: web.Request) -> web.Response:
         try:
             ctx.record_request()
+            # v4.169.14: `loopback_only` is published here, on the one
+            # unauthenticated endpoint, because the Android app has no
+            # way to hold the token -- it lives inside Termux's private
+            # tree, which another app may not read. Whether a socket
+            # accepts non-local connections is not a secret: anyone who
+            # can ask this question can already reach the port. The
+            # addresses themselves stay behind /v1/access.
+            # Read the bind from the live app config, not from ctx: the
+            # system context has no bind field, so getattr would default
+            # to "" and this would report loopback_only on every bridge
+            # in the world -- a detector that always says the same thing
+            # is the empty-scan failure again.
+            from arena.app_keys import APP_CFG
+            from arena.mobile.access_info import LOOPBACK_BINDS
+            cfg = request.app[APP_CFG]
+            bind = str(cfg.get("bind", "") or "")
+            loopback_only = bind in LOOPBACK_BINDS
             return ctx.cors_json_response({
                 "ok": True,
                 "version": ctx.version,
                 "service": "arena-unified-bridge",
                 "python": sys.version.split()[0],
                 "platform": ctx.clean_platform_name(),
+                "loopback_only": loopback_only,
             })
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)

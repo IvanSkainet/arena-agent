@@ -170,6 +170,8 @@ public class MainActivity extends Activity {
                 final String version = BridgeProbe.version();
                 final boolean up = version != null
                         || BridgeProbe.portOpen(BridgePaths.PORT, 700);
+                final Boolean loopback = BridgeProbe.loopbackOnly();
+                final String lan = LocalAddress.best();
                 handler.post(new Runnable() {
                     @Override
                     public void run() {
@@ -182,6 +184,26 @@ public class MainActivity extends Activity {
                         sb.append("\n\nTermux installed: ").append(termux ? "yes" : "no");
                         sb.append("\nBattery exemption: ")
                           .append(isExempt() ? "granted" : "NOT granted");
+                        if (up) {
+                            // Three separate facts. A phone bound to
+                            // loopback is unreachable no matter how many
+                            // tunnels are up, so say that plainly rather
+                            // than showing an address that cannot work.
+                            if (Boolean.TRUE.equals(loopback)) {
+                                sb.append("\n\nReachable from: this phone only")
+                                  .append("\nThe bridge is bound to 127.0.0.1. Restart it")
+                                  .append("\nwith --bind 0.0.0.0 to allow access from")
+                                  .append("\nother machines or through a tunnel.");
+                            } else if (Boolean.FALSE.equals(loopback)) {
+                                sb.append("\n\nReachable from other machines:");
+                                sb.append("\n  http://").append(lan == null ? "?" : lan)
+                                  .append(":").append(BridgePaths.PORT);
+                                sb.append("\nThe token is in Termux:")
+                                  .append("\n  cat ~/arena-bridge/token.txt");
+                            } else {
+                                sb.append("\n\nBind: unknown (bridge older than 4.169.14)");
+                            }
+                        }
                         if (!termux) {
                             sb.append("\n\nTermux supplies the python runtime. Install "
                                     + "Termux, then run the bootstrap script inside it.");

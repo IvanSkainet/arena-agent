@@ -164,6 +164,7 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         "handle_v1_tunnels_stop": handlers.tunnels_stop,
         # v3.85.0: auto-update.
         "handle_v1_self":                 handlers.self_describe,
+        "handle_v1_access":               handlers.access_describe,
         "handle_v1_extension_download":   handlers.extension_download,
         "handle_v1_extension_status":     handlers.extension_status,
         "handle_v1_admin_profile_get":    handlers.profile_get,

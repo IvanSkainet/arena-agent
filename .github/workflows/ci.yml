@@ -1149,3 +1149,84 @@ jobs:
 
       - name: Run property-based spec-kit parser test
         run: pip install hypothesis && pytest -q -o addopts="-q --strict-markers" tests/test_spec_kit_parser_property.py
+
+  # ----------------------------------------------------------------
+  # v4.169.14: the project now ships an Android app, so CI has to know
+  # about it. Two jobs' worth of work in one, on purpose:
+  #
+  #   * `android_lint.py` refuses the two designs that were already
+  #     built, shipped to the phone, and proven impossible there --
+  #     executing Termux's python, and stat-ing another app's data
+  #     directory. Neither is visible to javac; both cost a
+  #     build-install-screenshot round trip to discover.
+  #
+  #   * the real build. A gate that only reads source cannot tell that
+  #     the manifest still links, that the java still compiles against
+  #     android.jar, or that the APK signs. Those are exactly the
+  #     failures that reach the phone.
+  #
+  # The SDK download is ~600 MB, so this job is deliberately separate:
+  # it must not slow the thirty-odd jobs that have nothing to do with
+  # Android.
+  # ----------------------------------------------------------------
+  android:
+    name: Android app (lint + real APK build)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      # Source checks first: they need no toolchain, so a mistake in the
+      # app fails in seconds instead of after a 600 MB download.
+      - name: Android source and manifest lint
+        run: python scripts/android_lint.py
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          packages: "platforms;android-34 build-tools;34.0.0"
+
+      - name: Build and sign the APK
+        run: bash scripts/build_android_apk.sh
+
+      # Reading the built APK back is the point: "the build exited 0" is
+      # not the same claim as "the package declares what we think it
+      # declares". v4.169.13 shipped a manifest whose <queries> block was
+      # missing, and the app reported Termux as absent on a phone running
+      # it -- a check on the built artifact would have caught that.
+      - name: Verify the built package
+        run: |
+          set -euo pipefail
+          BT="$ANDROID_HOME/build-tools/34.0.0"
+          APK=android_app/build/arena-bridge.apk
+          "$BT/aapt2" dump badging "$APK" > /tmp/badging.txt
+          grep -q "package: name='ai.arena.bridge'" /tmp/badging.txt
+          grep -q "uses-permission: name='android.permission.FOREGROUND_SERVICE_SPECIAL_USE'" /tmp/badging.txt
+          grep -q "uses-permission: name='android.permission.RECEIVE_BOOT_COMPLETED'" /tmp/badging.txt
+          grep -q "launchable-activity: name='ai.arena.bridge.MainActivity'" /tmp/badging.txt
+          "$BT/apksigner" verify "$APK"
+          echo "APK verified:"
+          sed -n '1p' /tmp/badging.txt
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: arena-bridge-apk
+          path: android_app/build/arena-bridge.apk
+          if-no-files-found: error

@@ -61,6 +61,7 @@ class AdminHandlers:
     # v4.1.0: agent-facing "which URL should I use" endpoint.
     agent_config: Callable[..., Any]
     self_describe: Callable[..., Any]
+    access_describe: Callable[..., Any]
     extension_download: Callable[..., Any]
     extension_status: Callable[..., Any]
     profile_get: Callable[..., Any]
@@ -640,6 +641,13 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
     from arena.admin.handlers_selfdesc import make_self_handlers
     _self = make_self_handlers(ctx)
 
+    # v4.169.14: /v1/self says what the bridge is; this says where it can
+    # be reached from. The phone needed it: after a reboot it dropped off
+    # wireless ADB, so the only way to learn whether remote access worked
+    # was to ask the bridge itself from its own screen.
+    from arena.admin.handlers_access import make_access_handlers
+    _access = make_access_handlers(ctx)
+
     # v4.169.1: hand the browser extension over as a ZIP. On a phone the
     # files live inside Termux's private tree where no browser can reach
     # them, which is half of why the operator called Termux inconvenient.
@@ -678,6 +686,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         tunnels_probe_reset=handle_v1_tunnels_probe_reset,
         agent_config=handle_v1_agent_config,
         self_describe=_self["self"],
+        access_describe=_access["access"],
         extension_download=_ext["download"],
         extension_status=_ext["status"],
         profile_get=_prof["profile_get"],

@@ -46,9 +46,15 @@ public final class BridgeProbe {
      * Termux's {@code token.txt}, which it could not do anyway.
      */
     public static String version() {
+        String body = fetch(BridgePaths.versionUrl());
+        return body == null ? null : extract(body, "version");
+    }
+
+    /** GET a URL, returning the body or null. Never throws. */
+    static String fetch(String url) {
         HttpURLConnection conn = null;
         try {
-            conn = (HttpURLConnection) new URL(BridgePaths.versionUrl()).openConnection();
+            conn = (HttpURLConnection) new URL(url).openConnection();
             conn.setConnectTimeout(1200);
             conn.setReadTimeout(1200);
             conn.setRequestMethod("GET");
@@ -62,7 +68,7 @@ public final class BridgeProbe {
                 while ((n = in.read(buf)) > 0 && out.size() < 8192) {
                     out.write(buf, 0, n);
                 }
-                return extract(out.toString("UTF-8"), "version");
+                return out.toString("UTF-8");
             }
         } catch (Exception e) {
             return null;
@@ -71,6 +77,54 @@ public final class BridgeProbe {
                 conn.disconnect();
             }
         }
+    }
+
+    /**
+     * True when the bridge is bound to loopback and therefore reachable
+     * by nothing outside the phone.
+     *
+     * <p>Published on the unauthenticated /v1/version because this app
+     * cannot hold the bridge token: it lives inside Termux's private
+     * tree, which the sandbox forbids reading. Returns null when the
+     * bridge is too old to report it -- not false, because "I could not
+     * tell" and "it is open" are different answers and conflating them
+     * is how a status screen starts lying.
+     */
+    public static Boolean loopbackOnly() {
+        String body = fetch(BridgePaths.versionUrl());
+        if (body == null) {
+            return null;
+        }
+        String value = extractRaw(body, "loopback_only");
+        if (value == null) {
+            return null;
+        }
+        return Boolean.valueOf("true".equals(value));
+    }
+
+    /** Read a bare (unquoted) JSON value: true, false, a number. */
+    static String extractRaw(String json, String key) {
+        if (json == null) {
+            return null;
+        }
+        String needle = "\"" + key + "\"";
+        int at = json.indexOf(needle);
+        if (at < 0) {
+            return null;
+        }
+        int colon = json.indexOf(':', at + needle.length());
+        if (colon < 0) {
+            return null;
+        }
+        int i = colon + 1;
+        while (i < json.length() && Character.isWhitespace(json.charAt(i))) {
+            i++;
+        }
+        int start = i;
+        while (i < json.length() && "truefalsenul0123456789.-".indexOf(json.charAt(i)) >= 0) {
+            i++;
+        }
+        return i > start ? json.substring(start, i) : null;
     }
 
     /**

@@ -1,3 +1,79 @@
+## v4.169.14 — 2026-08-09
+
+### The phone came back from a reboot and locked me out
+
+The BootReceiver worked -- the bridge was up on its own after a restart,
+which is the first thing this app was built for. But the same reboot
+switched wireless ADB back off (Android does that), and the bridge binds
+`127.0.0.1`. So the phone was serving happily and was reachable by
+absolutely nothing, with no way in from outside to fix it.
+
+That is the whole lesson of this release: whatever the app shows on its
+own screen has to be sufficient, because there is no second channel.
+
+`GET /v1/access` answers the question directly, and keeps three facts
+apart rather than blending them into one hopeful "you're online":
+
+  * **the bind** -- `127.0.0.1` means unreachable, full stop;
+  * **the addresses** -- a LAN address dies when the phone leaves the
+    house, a 100.64/10 tailnet address does not, so they are labelled
+    differently;
+  * **the tunnels** -- the only answer that survives leaving the house.
+
+`reachable_remotely` is false for a loopback bind no matter how many
+tunnels report themselves up, because a tunnel pointed at a socket
+nothing else can open forwards nothing.
+
+`loopback_only` also appears on the unauthenticated `/v1/version`,
+because the Android app cannot hold the bridge token -- it lives in
+Termux's private tree, which the sandbox forbids reading. Whether a
+socket accepts non-local connections is not a secret; anyone who can ask
+already reached the port. The addresses stay behind the token.
+
+The first attempt at that read the bind off the handler context, which
+has no bind field, so `getattr` defaulted to `""` and every bridge in
+the world would have reported loopback. Caught by running it against
+both binds instead of reading the diff.
+
+### Two checks that were red for no reason
+
+Both from the same family as everything else this month: a report that
+cannot tell "broken" from "not applicable here".
+
+**"Missions dir"** went red on a fresh install. A runtime directory that
+has never been used does not exist yet -- that is not a fault, and a
+permanently red light is how an operator learns to ignore red lights.
+Missions and memory now report ok-with-status-empty. Bridge dir stays a
+real failure, because the installer creates it.
+
+**"Sound: no sound device"** went red on every Android phone forever.
+Android has neither ALSA nor PulseAudio, so `paplay` and `beep` can
+never be present; the check was reporting a property of the platform as
+a defect. And the beep itself always fell through to "simulated" --
+`termux-media-player` is the platform's actual answer, so it is used
+when present.
+
+### CI knows about Android now
+
+Two things, deliberately in one job.
+
+`scripts/android_lint.py` refuses the two designs that were already
+built, shipped to the phone, and proven impossible there: executing
+Termux's python through ProcessBuilder, and stat-ing another app's data
+directory. Neither is visible to javac, both cost a
+build-install-screenshot round trip, and both are one careless edit from
+returning. It also fails on a missing `<queries>` block or
+`foregroundServiceType`, each of which silently disables the app.
+
+And the real build: aapt2, javac, d8, apksigner, then `aapt2 dump
+badging` on the *built* APK to confirm the package name, the permissions
+and the launcher activity are actually in there. "The build exited 0" is
+not the same claim.
+
+The three new actions were pinned at versions running node20, which
+GitHub retired -- the runtime ratchet caught it immediately and they now
+sit on node24.
+
 ## v4.169.13 — 2026-08-09
 
 ### An app, because Termux was never the answer
