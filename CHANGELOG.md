@@ -1,3 +1,40 @@
+## v4.169.19 — 2026-08-09
+
+### The boot script started a second copy and died quietly
+
+Updating the phone in place left the old process holding 8765. The boot
+script exec'd anyway, and aiohttp raised
+
+    OSError: [Errno 98] error while attempting to bind on address
+    ('127.0.0.1', 8765): address already in use
+
+into `boot.log`, which nobody reads. The result is the worst kind of
+failure this project keeps finding: a phone that reports "started" and
+serves nothing.
+
+It now probes the port first and exits 0 when something already answers
+-- because an already-running bridge is success, not an error. Verified
+on the device through the tunnel: running the script against a live
+bridge prints `already serving; not starting a second copy`, exits 0,
+and the bridge is still up afterwards.
+
+The bootstrap also stopped telling people to install Termux:Boot from
+F-Droid. The APK carries its own boot receiver and the battery
+exemption, so the second hand-installed app is no longer the answer.
+
+### Working on the phone without the screen
+
+Everything above was done over `https://pc.tail328f18.ts.net/phone/` --
+`/v1/exec` to read the script, `/v1/fs/edit` to patch it. No more typing
+base64 into a terminal through `input text` and reading the result off a
+screenshot.
+
+Two guards fired correctly while doing it, which is worth recording
+because both were fail-closed and both were right: `cautious` refused an
+`/v1/exec` payload containing shell metacharacters, and `/v1/fs/create`
+refused to overwrite an existing file and named the endpoint that does
+modify one. The edit came back with a rollback id.
+
 ## v4.169.18 — 2026-08-09
 
 ### Reachable from the sandbox at last, and the address that was missing

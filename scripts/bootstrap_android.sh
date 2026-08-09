@@ -196,7 +196,17 @@ BOOT_DIR="$HOME/.termux/boot"
 mkdir -p "$BOOT_DIR"
 cat > "$BOOT_DIR/arena-bridge.sh" <<BOOTEOF
 #!/data/data/com.termux/files/usr/bin/sh
-# Auto-start the Arena bridge at boot (needs the Termux:Boot app).
+# Auto-start the Arena bridge at boot.
+#
+# Refuse to start a second copy. v4.169.18: after an in-place update the
+# old process was still holding the port, this script exec'd anyway, and
+# aiohttp died with "[errno 98] address already in use" -- into a log
+# nobody reads, leaving a phone that looked started and served nothing.
+# Exiting 0 on "already running" is correct: the bridge IS up.
+if python3 -c "import socket,sys; s=socket.socket(); sys.exit(0 if s.connect_ex(('127.0.0.1', $PORT))==0 else 1)" 2>/dev/null; then
+    echo "arena-bridge: port $PORT is already serving; not starting a second copy"
+    exit 0
+fi
 termux-wake-lock
 cd "$BRIDGE_DIR" || exit 1
 exec python3 unified_bridge.py serve --port $PORT \\
@@ -204,11 +214,14 @@ exec python3 unified_bridge.py serve --port $PORT \\
 BOOTEOF
 chmod +x "$BOOT_DIR/arena-bridge.sh"
 
-if [ -d /data/data/com.termux.boot ] || pm path com.termux.boot >/dev/null 2>&1; then
+if pm path ai.arena.bridge >/dev/null 2>&1; then
+    say "Autostart: enabled (the Arena Bridge app is installed)."
+elif [ -d /data/data/com.termux.boot ] || pm path com.termux.boot >/dev/null 2>&1; then
     say "Autostart: enabled (Termux:Boot found)."
 else
-    warn "Autostart hook written, but the Termux:Boot app is not installed."
-    warn "Install it from F-Droid and the bridge will start on boot."
+    warn "Autostart hook written, but nothing will run it at boot."
+    warn "Install arena-bridge.apk from the release page -- it carries its"
+    warn "own boot receiver and the battery exemption HyperOS needs."
 fi
 
 # ---------------------------------------------------------------- run

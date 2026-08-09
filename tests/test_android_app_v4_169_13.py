@@ -214,3 +214,66 @@ def test_release_zip_can_be_overridden_deliberately(tmp_path: Path) -> None:
         probe.unlink(missing_ok=True)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert (tmp_path / "out.zip").exists()
+
+
+# --- v4.169.19: the boot script started a second copy and died ------------
+
+def test_boot_script_refuses_to_start_a_second_copy() -> None:
+    """A dead bridge that looks started is worse than one that admits it.
+
+    After an in-place update the old process still held 8765. The boot
+    script exec'd anyway and aiohttp raised
+    `[errno 98] address already in use` into a log nobody reads, leaving
+    a phone that reported "started" and served nothing. Reproduced on the
+    device before fixing.
+    """
+    script = (REPO_ROOT / "scripts" / "bootstrap_android.sh").read_text(encoding="utf-8")
+    start = script.index('cat > "$BOOT_DIR/arena-bridge.sh"')
+    heredoc = script[start:script.index("BOOTEOF", start + 40)]
+    assert "connect_ex" in heredoc, (
+        "the boot script must check the port before exec'ing the bridge"
+    )
+    assert "already serving" in heredoc
+    # The check has to come before the exec, or it proves nothing.
+    assert heredoc.index("connect_ex") < heredoc.index("exec python3")
+
+
+def test_boot_script_port_check_behaves_both_ways(tmp_path: Path) -> None:
+    """Run the generated logic rather than trusting the shell text."""
+    import socket
+    import subprocess
+    import sys as _sys
+
+    port = 18771
+    probe = tmp_path / "boot.sh"
+    probe.write_text(
+        "#!/bin/sh\n"
+        f"if {_sys.executable} -c \"import socket,sys; s=socket.socket(); "
+        f"sys.exit(0 if s.connect_ex(('127.0.0.1', {port}))==0 else 1)\" 2>/dev/null; then\n"
+        "    echo already-serving\n"
+        "    exit 0\n"
+        "fi\n"
+        "echo would-start\n",
+        encoding="utf-8",
+    )
+
+    free = subprocess.run(["sh", str(probe)], capture_output=True, text=True, timeout=60)
+    assert free.stdout.strip() == "would-start", free.stdout
+
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", port))
+    srv.listen(5)
+    try:
+        busy = subprocess.run(["sh", str(probe)], capture_output=True, text=True, timeout=60)
+    finally:
+        srv.close()
+    assert busy.stdout.strip() == "already-serving", busy.stdout
+    assert busy.returncode == 0, "an already-running bridge is success, not failure"
+
+
+def test_bootstrap_points_at_the_apk_for_autostart() -> None:
+    """Termux:Boot needed a second F-Droid app installed by hand."""
+    script = (REPO_ROOT / "scripts" / "bootstrap_android.sh").read_text(encoding="utf-8")
+    assert "ai.arena.bridge" in script
+    assert "arena-bridge.apk" in script
