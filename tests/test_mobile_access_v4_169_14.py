@@ -108,7 +108,16 @@ def test_a_missing_bridge_dir_is_still_a_real_failure() -> None:
 
 
 def test_sound_is_not_a_failure_on_android() -> None:
-    with patch("arena.hostplatform.is_android", return_value=True):
+    """Android has no ALSA, so paplay/beep can never be there.
+
+    `sys.platform` is faked as well as the host class: on a Windows
+    runner the doctor takes the winsound branch long before it asks
+    whether this is Android, so a test that only patched is_android
+    passed on Linux and failed on all five Windows jobs. Same shape as
+    v4.169.9 -- a platform assumption baked into a test.
+    """
+    with patch("arena.system.doctor.sys.platform", "linux"), \
+         patch("arena.hostplatform.is_android", return_value=True):
         checks = _doctor()
     sound = checks["Sound"]
     assert sound["ok"] is True, "every Android phone would be permanently red"
@@ -119,10 +128,18 @@ def test_sound_is_not_a_failure_on_android() -> None:
 def test_sound_is_still_reported_honestly_off_android() -> None:
     """Reverse check: a Linux box with no audio should still say so."""
     import shutil as _shutil
-    with patch("arena.hostplatform.is_android", return_value=False), \
+    with patch("arena.system.doctor.sys.platform", "linux"), \
+         patch("arena.hostplatform.is_android", return_value=False), \
          patch.object(_shutil, "which", return_value=None):
         checks = _doctor()
     assert checks["Sound"]["ok"] is False
+
+
+def test_windows_keeps_its_own_sound_branch() -> None:
+    """And the Windows path must not be collateral damage."""
+    with patch("arena.system.doctor.sys.platform", "win32"):
+        checks = _doctor()
+    assert "Sound" in checks
 
 
 def test_android_beep_uses_the_only_player_that_exists_there() -> None:

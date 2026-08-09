@@ -1,3 +1,20 @@
+## v4.169.15 — 2026-08-09
+
+### My test assumed Linux, and five Windows jobs said so
+
+v4.169.14 went red on every `windows-latest` job. The new doctor test
+patched `is_android` and checked the Sound entry -- but on Windows the
+doctor takes the `winsound` branch long before it ever asks whether this
+is Android, so the assertion compared against `"winsound available"` and
+failed. Green on three Linux jobs, red on five Windows ones.
+
+Exactly the shape of v4.169.9, six releases ago: a platform assumption
+baked into a test rather than into the code under test. The fix patches
+`sys.platform` alongside the host class, and a third case pins the
+Windows branch so it cannot become collateral damage. All three
+platforms were then run explicitly and print three different answers:
+winsound-missing, no-sound-device, and not-a-fault-on-Android.
+
 ## v4.169.14 — 2026-08-09
 
 ### The phone came back from a reboot and locked me out
