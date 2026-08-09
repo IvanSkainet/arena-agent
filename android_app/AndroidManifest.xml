@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Arena Bridge for Android.
+
+  Why this app exists at all: the bridge currently runs as a python
+  process inside Termux, and the operator's verdict on that was
+  blunt and correct: installing through Termux is genuinely awkward, and
+  HyperOS kills the process anyway. `termux-wake-lock` keeps the CPU awake; it does not stop
+  Xiaomi's own background policy from reaping the process. A partial
+  wake lock is not the same permission as an exemption from being killed, and only an
+  app with a foreground service and a battery-optimisation exemption can
+  ask for the second one.
+
+  FOREGROUND_SERVICE_SPECIAL_USE is the honest category here (API 34
+  requires one). This is not media playback or navigation; it is a
+  long-running local server the device owner deliberately started.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="ai.arena.bridge"
+    android:versionCode="1"
+    android:versionName="4.169.13">
+
+  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+
+  <!--
+    Android 11 hides other packages by default. Without this block
+    getPackageInfo("com.termux") throws NameNotFoundException on a phone
+    with Termux installed and running, and the status screen said
+    "Termux installed: no" while talking to the bridge Termux was
+    serving. Declaring the exact package we integrate with is the
+    narrowest form of the query: it grants visibility of one package,
+    not the QUERY_ALL_PACKAGES blanket.
+  -->
+  <queries>
+    <package android:name="com.termux" />
+  </queries>
+
+  <!-- The server listens on a socket and the UI shows its URL. -->
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+  <!-- Restart the bridge after a reboot without the user opening anything. -->
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+  <!-- Keep serving while the screen is off. -->
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <!-- Asked for explicitly, from a button, never silently: this is the
+       one that actually stops HyperOS from reaping the process. -->
+  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+  <application
+      android:label="@string/app_name"
+      android:icon="@drawable/icon"
+      android:allowBackup="false"
+      android:usesCleartextTraffic="true">
+
+    <activity
+        android:name=".MainActivity"
+        android:exported="true"
+        android:launchMode="singleTask">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
+      </intent-filter>
+    </activity>
+
+    <service
+        android:name=".BridgeService"
+        android:exported="false"
+        android:foregroundServiceType="specialUse">
+      <property
+          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+          android:value="Local HTTP control server started by the device owner" />
+    </service>
+
+    <receiver
+        android:name=".BootReceiver"
+        android:exported="true"
+        android:enabled="true">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+      </intent-filter>
+    </receiver>
+  </application>
+</manifest>

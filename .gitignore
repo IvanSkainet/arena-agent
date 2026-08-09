@@ -147,3 +147,8 @@ coverage.xml
 # the cache: CI reuses a verdict this repo already earned. This file is
 # per-run state and would just churn.
 .mutmut-cache
+
+# Android build output. The APK is a release artefact, not a source file:
+# it is rebuilt from android_app/ by scripts/build_android_apk.sh, and a
+# committed binary would be a second source of truth nobody diffs.
+android_app/build/

@@ -1,3 +1,62 @@
+## v4.169.13 — 2026-08-09
+
+### An app, because Termux was never the answer
+
+Installing through Termux is awkward -- Ivan said so plainly -- and
+HyperOS reaps the process regardless of `termux-wake-lock`. A partial
+wake lock keeps the CPU awake; it is not an exemption from Xiaomi's
+background policy. Only an app holding a foreground service can carry
+that exemption, and only the user can grant it. So: `android_app/`, five
+Java sources, no Gradle, built by `scripts/build_android_apk.sh` with
+aapt2 + javac + d8 + apksigner. 17 KB signed.
+
+The first design was wrong, and the device said so in one screenshot.
+
+It planned to launch the bridge with `ProcessBuilder` on
+`/data/data/com.termux/files/usr/bin/python3`. Android's per-app sandbox
+forbids executing -- or even `stat`-ing -- another app's files. Every
+existence check returned false, and the status screen reported
+**"Termux installed: no"** on a phone that was running Termux and
+serving the bridge. The same shape as every other defect this month: a
+check that cannot tell absence from "I am not allowed to look", and
+reports the first.
+
+The device also runs the Google Play build of Termux
+(`versionName=googleplay.2026.06.21`), which ships without RUN_COMMAND,
+so the documented IPC route is absent too. Both doors shut.
+
+What crosses the sandbox is a loopback socket -- confirmed from a
+different UID on the device, `GET /v1/version` on 127.0.0.1:8765 answered
+200. So the division of labour changed: Termux keeps running python, the
+app supplies the two things Termux cannot (foreground status, a wake
+lock the platform respects) and reports what the port says rather than
+what it hopes. `BridgeLauncher` was deleted rather than patched.
+
+Then the honest lookup gave the same wrong answer, because Android 11+
+hides other packages unless the manifest declares them. Fixed with a
+`<queries>` block naming `com.termux` -- one package, not the
+QUERY_ALL_PACKAGES blanket.
+
+Verified on the phone: `isForeground=true`, `startForegroundCount=1`,
+type `specialUse`, notification registered, "Termux installed: yes",
+bridge version read over the socket. `BootReceiver` replaces Termux:Boot,
+so the second F-Droid app installed by hand is no longer needed.
+
+### The release builder was packing the working tree
+
+Building v4.169.12 produced **1142 files instead of 1105** -- the
+unfinished Android app, java sources and a keystore included, inside an
+archive labelled with a tag that contained none of them. `make_release_zip.py`
+walks the filesystem, not the commit, so anything lying around ships.
+
+Caught by counting files against the previous release, not by any check.
+The archive was discarded and rebuilt from a clean clone of the tag, and
+the builder now refuses when untracked files would be packed. There is
+an `--allow-untracked` escape hatch, because a gate with no override
+gets worked around instead of used.
+
+v4.169.12 is published, from the clean rebuild.
+
 ## v4.169.12 — 2026-08-09
 
 ### Opening the probe broke it differently
