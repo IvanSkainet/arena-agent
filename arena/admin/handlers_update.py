@@ -211,15 +211,32 @@ def make_update_handlers(ctx):
                 "platform": res.get("platform"),
                 "delay_sec": 1.0,
             })
-            _upd.restart_process(delay_sec=1.0)
-            res["restart"] = "scheduled"
+            # v4.169.21: report what restart_process actually decided.
+            # This used to hard-code "scheduled" over the top of the
+            # return value, so a refusal -- or a host with no way to come
+            # back -- still told the caller a restart was on its way.
+            restart_res = _upd.restart_process(
+                delay_sec=1.0, install_root=res.get("install_root"))
+            res["restart"] = restart_res.get("restart", "scheduled")
+            if not restart_res.get("ok", True):
+                res["restart_refused"] = restart_res
+                ctx.audit({
+                    "type": "admin.update.apply.restart_refused",
+                    "tag": tag,
+                    "reason": restart_res.get("error"),
+                })
         return ctx.cors_json_response(res)
 
     @authed(ctx)
     async def handle_update_restart(request: web.Request) -> web.Response:
         """POST /v1/admin/update/restart -- manual restart trigger.
         Used for testing and for the Windows "installer done" callback."""
-        res = await _run(ctx, _upd.restart_process)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        force = bool(isinstance(body, dict) and body.get("force", False))
+        res = await _run(ctx, lambda: _upd.restart_process(force=force))
         ctx.audit({
             "type": "admin.update.restart",
             "ok": res.get("ok"),

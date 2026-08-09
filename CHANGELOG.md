@@ -1,3 +1,44 @@
+## v4.169.21 — 2026-08-09
+
+### A restart that cannot restart is a shutdown
+
+Twice in a row `update/restart` on the PC answered
+
+    {"ok": true, "restart": "scheduled",
+     "hint": "the mover will relaunch it via Scheduled Task or start_hidden.vbs"}
+
+and twice the bridge exited and never came back. Nine minutes of 502 on
+both tunnels the first time, fifteen the second, and a human had to
+start it by hand on both occasions.
+
+The mover was not at fault. It tries three mechanisms -- a Scheduled
+Task, `start_hidden.vbs`, `start_bridge.bat` -- and when none exists it
+writes `WARN no relaunch mechanism found` into a log file, on a machine
+that is by then unreachable. None of the three existed because that
+install came from unzipping a release, not from running `install.bat`.
+That is the documented quick start.
+
+The defect was the sentence above it. `restart_process` killed the
+process without ever asking whether anything could bring it back, and
+the handler then wrote `res["restart"] = "scheduled"` over whatever the
+call returned -- so even an explicit refusal would have been reported as
+a scheduled restart.
+
+`arena/admin/restart_capability.py` now answers that question first:
+does the scheduled task exist, is there a `start_hidden.vbs`, is there a
+`start_bridge.bat`. With none of them the restart is refused, the reply
+names `install.bat` as the fix, and the bridge stays up. An operator who
+really does want it stopped passes `force=true` and gets told plainly
+that it will not come back. When a mechanism *is* present the hint names
+the one that was actually found, rather than listing what will be tried.
+
+Sabotage both ways: removing the capability check makes the refusal test
+fail, restoring the hard-coded `"scheduled"` makes the handler test
+fail, and a host with any one of the three artefacts is not blocked.
+
+The tests fake Windows on Linux CI, per the platform rule -- the third
+time in this series that rule has earned its place.
+
 ## v4.169.20 — 2026-08-09
 
 ### The fallback channel could not deliver the message about the outage
