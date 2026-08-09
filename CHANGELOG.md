@@ -39,6 +39,46 @@ fail, and a host with any one of the three artefacts is not blocked.
 The tests fake Windows on Linux CI, per the platform rule -- the third
 time in this series that rule has earned its place.
 
+### The real cause: an exit code that meant nothing
+
+The capability check above was built on a wrong guess. The PC *did* have
+all three relaunch mechanisms -- scheduled task, `start_hidden.vbs`,
+`start_bridge.bat` -- and the mover log proved it had used one:
+
+    17:08:43 copy done, launching relaunch
+    17:08:43 relaunched via schtasks
+    17:08:43 mover-done
+
+Two seconds, clean exit, `LastTaskResult: 0`. And no python process. The
+bridge log has nothing between 16:35 and 17:33, so it never started and
+never crashed -- `schtasks /Run` on an ONLOGON task reports success and
+launches nothing. Reproduced live: fired the task against a running
+bridge, got "SUCCESS", and no second process appeared.
+
+So the mover now verifies instead of trusting: after each mechanism it
+polls the port for up to 30 seconds and falls through to the next when
+nothing answers. The exit code is no longer evidence of anything.
+
+Two probes were wrong before one was right, and both were caught on the
+target machine rather than in review:
+
+  * `? :` is PowerShell 7 syntax and Windows 10 ships 5.1. Checked
+    `$PSVersionTable` first: 5. That probe would have reported "down"
+    unconditionally.
+  * `Test-NetConnection -InformationLevel Quiet` returns `$true` in an
+    interactive shell but sets errorlevel **1** from inside a .cmd
+    against a port that is demonstrably listening. Written to disk and
+    run on the PC while the bridge was up: `TNC_RC=1`, `TCPCLIENT_RC=0`.
+
+The shipped probe is a raw `Net.Sockets.TcpClient` connect, verified in
+both directions on Ivan's PC: `WAITPORT_RC=0` immediately on the live
+port, `WAITPORT_RC=1` after the timeout on a free one.
+
+The capability check stays. It was aimed at the wrong cause, but
+"refuse to exit when nothing can bring you back" is correct on its own
+terms, and `repair()` can now write the launchers instead of answering
+"rerun install.bat" to an operator whose bridge is already down.
+
 ## v4.169.20 — 2026-08-09
 
 ### The fallback channel could not deliver the message about the outage

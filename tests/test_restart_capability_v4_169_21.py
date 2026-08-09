@@ -121,3 +121,127 @@ def test_handler_does_not_overwrite_a_refusal() -> None:
         encoding="utf-8")
     assert 'res["restart"] = restart_res.get("restart", "scheduled")' in source
     assert 'res["restart"] = "scheduled"' not in source
+
+
+# --- the launchers can now be created, not only diagnosed -----------------
+
+def test_repair_writes_the_launchers_instead_of_refusing(tmp_path: Path) -> None:
+    """"Rerun install.bat" is not actionable from a bridge that is down.
+
+    `repair()` used to return that string when the two launcher files
+    were missing -- which is exactly the state a release-zip install is
+    in, and exactly when repair is needed.
+    """
+    from arena.service import autostart_doctor
+
+    result = autostart_doctor.write_windows_launchers(tmp_path, port=8765)
+    assert result["ok"] is True
+    assert sorted(result["created"]) == ["start_bridge.bat", "start_hidden.vbs"]
+
+    # read_bytes, not read_text: universal-newline translation hides the
+    # very thing being asserted, and a .bat with bare LF line endings
+    # misbehaves under some Windows shells.
+    raw = (tmp_path / "start_bridge.bat").read_bytes()
+    # EVERY line, not just one: the trailing terminator alone satisfied
+    # a `b"\r\n" in raw` check even with LF-joined body lines, so that
+    # assertion passed while the file was wrong.
+    assert b"\n" in raw
+    assert b"\r\n" in raw
+    lone_lf = raw.replace(b"\r\n", b"")
+    assert b"\n" not in lone_lf, "a .bat needs CRLF on every line, not just the last"
+    bat = raw.decode("utf-8")
+    assert "unified_bridge.py serve" in bat
+    assert "--port 8765" in bat
+    assert str(tmp_path) in bat
+
+    vbs = (tmp_path / "start_hidden.vbs").read_text(encoding="utf-8")
+    assert "WScript.Shell" in vbs
+    assert "start_bridge.bat" in vbs
+
+
+def test_existing_launchers_are_never_overwritten(tmp_path: Path) -> None:
+    """A hand-tuned launcher outranks the generated default."""
+    from arena.service import autostart_doctor
+
+    custom = b"@echo off\r\nrem hand written\r\n"
+    (tmp_path / "start_bridge.bat").write_bytes(custom)
+
+    result = autostart_doctor.write_windows_launchers(tmp_path)
+    assert result["created"] == ["start_hidden.vbs"]
+    assert (tmp_path / "start_bridge.bat").read_bytes() == custom
+
+
+def test_written_launchers_satisfy_the_capability_check(tmp_path: Path,
+                                                        monkeypatch) -> None:
+    """The two halves must actually meet: writing them un-refuses restart."""
+    from arena.service import autostart_doctor
+
+    monkeypatch.setattr(restart_capability, "_WIN", True)
+    monkeypatch.setattr(restart_capability, "_scheduled_task_exists", lambda _n: False)
+
+    assert restart_capability.describe(tmp_path)["can_restart"] is False
+    autostart_doctor.write_windows_launchers(tmp_path)
+    after = restart_capability.describe(tmp_path)
+    assert after["can_restart"] is True
+    assert after["mechanism"] == "start_hidden.vbs"
+
+
+# --- the mover trusted an exit code that meant nothing --------------------
+
+def _mover_script(tmp_path: Path, port: int = 8765) -> str:
+    from arena.admin.auto_update_windows import _write_windows_installer
+
+    payload = tmp_path / "payload"
+    (payload / "arena").mkdir(parents=True)
+    (payload / "arena" / "x.py").write_text("x = 1\n", encoding="utf-8")
+    install = tmp_path / "install"
+    install.mkdir()
+    script = _write_windows_installer(payload, install, install / "done.marker",
+                                      port=port)
+    return script.read_text(encoding="utf-8")
+
+
+def test_mover_verifies_the_port_after_every_relaunch_attempt(tmp_path: Path) -> None:
+    """`schtasks /Run` returning 0 does not mean a process started.
+
+    Measured on the PC: the mover logged "relaunched via schtasks" at
+    17:08:43, LastTaskResult was 0, the task went back to Ready -- and no
+    python process existed. The bridge was down for 25 minutes because
+    the exit code was treated as proof.
+    """
+    text = _mover_script(tmp_path)
+    # One call per mechanism: schtasks, start_hidden.vbs, start_bridge.bat.
+    assert text.count("call :waitport") == 3
+    assert "schtasks fired but nothing is listening" in text
+    assert "start_hidden.vbs did not bring the port up" in text
+    # The subroutine must exist as a label on its own line.
+    assert any(line.strip() == ":waitport" for line in text.splitlines())
+
+
+def test_mover_probe_avoids_powershell_7_only_syntax(tmp_path: Path) -> None:
+    """Windows 10 ships PowerShell 5.1; `? :` arrived in 7.
+
+    A probe using the ternary fails to parse and reports "down" on every
+    call, which would send the mover through all three mechanisms and
+    then declare failure on a host where the first one worked.
+    """
+    text = _mover_script(tmp_path)
+    probe = next(ln for ln in text.splitlines() if "TcpClient" in ln)
+    assert " ? " not in probe, "PowerShell 7 ternary is unavailable on 5.1"
+    assert "Test-NetConnection" not in text, (
+        "Test-NetConnection -Quiet sets errorlevel 1 from inside a .cmd even "
+        "against a listening port -- measured on the target machine"
+    )
+    assert "$c.Connected" in probe
+
+
+def test_mover_probe_targets_the_configured_port(tmp_path: Path) -> None:
+    text = _mover_script(tmp_path, port=9111)
+    probe = next(ln for ln in text.splitlines() if "TcpClient" in ln)
+    assert "9111" in probe
+
+
+def test_waitport_is_bounded(tmp_path: Path) -> None:
+    """An unbounded wait would hang the mover instead of falling through."""
+    text = _mover_script(tmp_path)
+    assert "if %_tries% GEQ 15 exit /b 1" in text

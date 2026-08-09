@@ -24,6 +24,51 @@ def _root() -> Path:
     return Path(os.environ.get("ARENA_AGENT_HOME") or Path(__file__).resolve().parents[2]).resolve()
 
 
+def write_windows_launchers(root: Path, *, port: int = 8765,
+                            profile: str = "owner-shell") -> dict[str, Any]:
+    """Create `start_bridge.bat` and `start_hidden.vbs` if they are missing.
+
+    Only `install.bat` used to write these, so an install made by
+    unzipping a release -- the documented quick start -- had no way to
+    relaunch the bridge after `update/restart`. The PC went down that
+    way twice (see v4.169.21), and `repair()` could only answer
+    "rerun install.bat", which is not something a remote agent can do.
+
+    They are two short files and everything they need is knowable here,
+    so there is no reason for their absence to be terminal. Existing
+    files are never overwritten: a hand-tuned launcher on someone's
+    machine outranks this default.
+    """
+    created: list[str] = []
+    bat = root / "start_bridge.bat"
+    vbs = root / "start_hidden.vbs"
+    token_file = os.environ.get("ARENA_TOKEN_FILE") or str(root / "token.txt")
+    python = os.environ.get("ARENA_PYTHON") or "python"
+
+    if not bat.exists():
+        bat.write_bytes((
+            "\r\n".join([
+                "@echo off",
+                f'cd /d "{root}"',
+                f"set ARENA_AGENT_HOME={root}",
+                f"set ARENA_TOKEN_FILE={token_file}",
+                f'{python} -u unified_bridge.py serve --profile {profile} '
+                f"--port {port}",
+            ]) + "\r\n").encode("utf-8"))
+        created.append(bat.name)
+
+    if not vbs.exists():
+        vbs.write_bytes((
+            "\r\n".join([
+                'Set WshShell = CreateObject("WScript.Shell")',
+                f'WshShell.Run """{bat}""", 0, False',
+            ]) + "\r\n").encode("utf-8"))
+        created.append(vbs.name)
+
+    return {"ok": bat.exists() and vbs.exists(), "created": created,
+            "start_bridge_bat": str(bat), "start_hidden_vbs": str(vbs)}
+
+
 def _windows_status() -> dict[str, Any]:
     q = _run(["schtasks", "/Query", "/TN", TASK, "/XML"], timeout=10)
     raw = q.get("stdout") or ""
@@ -67,9 +112,14 @@ def repair() -> dict[str, Any]:
     if sysname == "windows":
         root = _root()
         vbs = root / "start_hidden.vbs"
-        bat = root / "start_bridge.bat"
-        if not vbs.exists() or not bat.exists():
-            return {"ok": False, "error": "start_hidden.vbs/start_bridge.bat not found; rerun install.bat", "root": str(root)}
+        # v4.169.21: write them rather than refusing. "Rerun install.bat"
+        # is not an instruction a remote agent -- or an operator whose
+        # bridge is already down -- can act on.
+        written = write_windows_launchers(root)
+        if not written["ok"]:
+            return {"ok": False, "error": "could not create start_hidden.vbs / "
+                                          "start_bridge.bat",
+                    "root": str(root), "write": written}
         _run(["schtasks", "/Delete", "/TN", TASK, "/F"], timeout=10)
         tr = f'wscript.exe "{vbs}"'
         cmd = ["schtasks", "/Create", "/TN", TASK, "/TR", tr, "/SC", "ONLOGON", "/RL", "HIGHEST", "/F"]
@@ -78,7 +128,9 @@ def repair() -> dict[str, Any]:
         if not res.get("ok"):
             fallback = _run(["schtasks", "/Create", "/TN", TASK, "/TR", tr, "/SC", "ONLOGON", "/F"], timeout=20)
         _run(["schtasks", "/Run", "/TN", TASK], timeout=10)
-        return {"ok": bool(res.get("ok") or (fallback and fallback.get("ok"))), "platform": "windows", "primary": res, "fallback": fallback, "status": _windows_status()}
+        return {"ok": bool(res.get("ok") or (fallback and fallback.get("ok"))),
+                "platform": "windows", "launchers": written, "primary": res,
+                "fallback": fallback, "status": _windows_status()}
     if sysname == "linux":
         res = _run(["systemctl", "--user", "enable", "--now", "arena-bridge.service"], timeout=20)
         return {"ok": bool(res.get("ok")), "platform": "linux", "result": res, "status": _linux_status()}

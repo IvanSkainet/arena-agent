@@ -31,8 +31,17 @@ from pathlib import Path
 from arena.admin.update_targets import replace_targets
 
 
+def _bridge_port() -> int:
+    """The port the mover should wait on before declaring victory."""
+    raw = (os.environ.get("ARENA_PORT") or os.environ.get("PORT") or "8765").strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return 8765
+
+
 def _write_windows_installer(payload_root: Path, install_root: Path,
-                             done_marker: Path) -> Path:
+                             done_marker: Path, *, port: int | None = None) -> Path:
     """Windows can't overwrite files that a running Python process has
     open. We write a .cmd script that waits for our PID to exit, then
     robocopies (dirs) / ``copy /Y`` (files) the payload over the install
@@ -43,6 +52,7 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
     postmortem in the module docstring).
     """
     script = install_root / ".arena-update-apply.cmd"
+    port = _bridge_port() if port is None else port
     pid = os.getpid()
     src = payload_root.as_posix().replace("/", "\\")
     dst = install_root.as_posix().replace("/", "\\")
@@ -143,20 +153,59 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
     )
     vbs = f"{dst}\\start_hidden.vbs"
     bat = f"{dst}\\start_bridge.bat"
+    # v4.169.21: `schtasks /Run` exiting 0 does NOT mean a process started.
+    # Measured on Ivan's PC: the mover logged "relaunched via schtasks" at
+    # 17:08:43, `LastTaskResult` was 0, the task went straight back to
+    # `Ready` -- and no python process existed. The bridge stayed down for
+    # 25 minutes across two separate updates, because the mover trusted the
+    # exit code and stopped trying.
+    #
+    # An ONLOGON task is not reliably launchable on demand. So the exit
+    # code is no longer the signal: after firing it we wait for the port
+    # to answer, and fall through to the next mechanism when it does not.
+    # Each step is now verified by the only thing that matters -- something
+    # is listening on the port.
+    # Probing the port turns out to be the fiddly part, and both obvious
+    # answers were wrong on the target machine:
+    #
+    #   * `? :` is PowerShell 7 syntax. Windows 10 ships 5.1 -- checked,
+    #     $PSVersionTable said 5 -- so that probe fails to parse and
+    #     reports "down" unconditionally.
+    #   * `Test-NetConnection -InformationLevel Quiet` returns $true from
+    #     an interactive shell but sets errorlevel 1 from inside a .cmd
+    #     against a port that is demonstrably listening. Written to disk
+    #     and executed on Ivan's PC while the bridge was up: TNC_RC=1,
+    #     TCPCLIENT_RC=0.
+    #
+    # So: a raw TcpClient connect, which answered correctly in the same
+    # test. Single quotes inside, double outside -- nesting them the other
+    # way is how cmd.exe eats the argument.
+    probe = (
+        'powershell -NoProfile -Command "$ErrorActionPreference='
+        "'SilentlyContinue'; $c=New-Object Net.Sockets.TcpClient; try { "
+        f"$c.Connect('127.0.0.1',{port}); $ok=$c.Connected }} catch {{ "
+        '$ok=$false }; $c.Close(); if ($ok) { exit 0 } else { exit 1 }"'
+    )
     lines.extend([
-        # 1) schtasks
+        # 1) schtasks -- fire, then VERIFY rather than trusting errorlevel.
         f'schtasks /Run /TN "{task_name}" >NUL 2>&1',
+        f'echo [%DATE% %TIME%] fired schtasks, waiting for port {port} >> "{log}"',
+        'call :waitport',
         f'if not errorlevel 1 (echo [%DATE% %TIME%] relaunched via schtasks >> "{log}") & if not errorlevel 1 goto :relaunched',
+        f'echo [%DATE% %TIME%] schtasks fired but nothing is listening -- next >> "{log}"',
         # 2) start_hidden.vbs
         f'if not exist "{vbs}" goto :try_bat',
         f'wscript.exe "{vbs}"',
-        f'echo [%DATE% %TIME%] relaunched via start_hidden.vbs >> "{log}"',
-        "goto :relaunched",
+        'call :waitport',
+        f'if not errorlevel 1 (echo [%DATE% %TIME%] relaunched via start_hidden.vbs >> "{log}") & if not errorlevel 1 goto :relaunched',
+        f'echo [%DATE% %TIME%] start_hidden.vbs did not bring the port up -- next >> "{log}"',
         ":try_bat",
         # 3) start_bridge.bat
         f'if not exist "{bat}" goto :no_relaunch',
         f'start "" /B "{bat}"',
-        f'echo [%DATE% %TIME%] relaunched via start_bridge.bat >> "{log}"',
+        'call :waitport',
+        f'if not errorlevel 1 (echo [%DATE% %TIME%] relaunched via start_bridge.bat >> "{log}") & if not errorlevel 1 goto :relaunched',
+        f'echo [%DATE% %TIME%] WARN start_bridge.bat did not bring the port up >> "{log}"',
         "goto :relaunched",
         ":no_relaunch",
         f'echo [%DATE% %TIME%] WARN no relaunch mechanism found >> "{log}"',
@@ -169,6 +218,19 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
         f'echo [%DATE% %TIME%] mover-done >> "{log}"',
         "endlocal",
         "exit /b 0",
+        "",
+        # Poll the port for ~30s. Returns errorlevel 0 once something
+        # answers, 1 on timeout. Placed after `exit /b 0` so it runs only
+        # when called.
+        ":waitport",
+        "set /a _tries=0",
+        ":waitport_loop",
+        f'{probe}',
+        "if not errorlevel 1 exit /b 0",
+        "set /a _tries+=1",
+        "if %_tries% GEQ 15 exit /b 1",
+        "timeout /t 2 /nobreak >NUL",
+        "goto :waitport_loop",
     ])
 
     # Write with explicit CRLF; earlier code did ``"\r\n".join`` then
