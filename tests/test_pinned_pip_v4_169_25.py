@@ -188,3 +188,57 @@ def test_the_urls_stay_http_because_that_is_what_works() -> None:
     assert "https://{a[" not in code, (
         "the bridge has no TLS listener; an https URL would not connect"
     )
+
+
+# --- the alerts themselves: nothing was reading them ---------------------
+
+def test_alert_check_never_reports_clean_when_it_could_not_look() -> None:
+    """"No alerts" and "no permission" must not look the same.
+
+    This is the failure that let thirteen alerts sit open: a signal
+    nobody consumed. A checker that answers "clean" on a 401 would be
+    strictly worse than no checker, because it would look like coverage.
+    """
+    import subprocess as sp
+    import sys as _sys
+
+    env = {"PATH": "/usr/bin:/bin", "GITHUB_TOKEN": "ghp_definitely_invalid"}
+    import os as _os
+    proc = sp.run([_sys.executable,
+                   str(REPO_ROOT / "scripts" / "security_alerts_check.py")],
+                  capture_output=True, text=True, timeout=120,
+                  env={**_os.environ, **env})
+    assert "SKIPPED" in proc.stdout, proc.stdout
+    assert "OK (no open alerts" not in proc.stdout, (
+        "an unauthorised read was reported as a clean repository"
+    )
+
+
+def test_alert_check_is_wired_into_ci_and_preflight() -> None:
+    ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    assert "security_alerts_check.py" in ci
+    assert "--max-severity" in ci
+    pre = (REPO_ROOT / "scripts" / "preflight.py").read_text(encoding="utf-8")
+    assert "security_alerts_check.py" in pre
+
+
+def test_severity_ranking_orders_the_levels_it_receives() -> None:
+    """GitHub uses two vocabularies across the three feeds.
+
+    code-scanning says note/warning/error, dependabot says
+    low/moderate/high/critical, and `security_severity_level` says
+    low/medium/high/critical. Comparing them by string would put
+    'critical' below 'note'.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "alerts_probe", REPO_ROOT / "scripts" / "security_alerts_check.py")
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    assert mod._rank("critical") > mod._rank("medium") > mod._rank("note")
+    assert mod._rank("error") > mod._rank("warning")
+    assert mod._rank(None) == mod._rank("note")
+    assert mod._rank("nonsense-level") == 0

@@ -89,6 +89,12 @@ CHECKS: list[Check] = [
           why="three releases in eleven died on windows-latest because a "
               "TEST assumed POSIX -- there is no sh on those five jobs, and "
               "the code under test was fine every time"),
+    Check("security alerts", [PY, "scripts/security_alerts_check.py",
+                              "--max-severity", "medium"],
+          why="thirteen code-scanning alerts sat open for 25 releases -- "
+              "every one of them verified 36/36 in CI, because the alert "
+              "list is not part of any pipeline. Ivan found them, the "
+              "process did not"),
     Check("pinned pip", [PY, "scripts/pinned_pip_ratchet.py"],
           why="Scorecard flagged pipCommand not pinned by hash; eight "
               "installs across CI resolved whatever PyPI served that "

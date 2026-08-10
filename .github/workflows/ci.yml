@@ -315,6 +315,16 @@ jobs:
       # Non-strict on purpose: one release of daylight is normal (the
       # version bump lands before the release is cut). Two or more means
       # the publishing step is being skipped, which is the actual defect.
+      # v4.169.25: the code-scanning list is not part of any pipeline,
+      # so thirteen alerts stayed open across 25 fully-verified releases.
+      # Informational below `medium` on purpose: a `note` about
+      # 127.0.0.1 in a bridge that listens on loopback is noise, and a
+      # gate that fails on noise gets bypassed within a week.
+      - name: Open security alerts (fails at medium and above)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/security_alerts_check.py --max-severity medium
+
       - name: Published releases are not piling up unshipped
         env:
           GITHUB_TOKEN: ${{ github.token }}
