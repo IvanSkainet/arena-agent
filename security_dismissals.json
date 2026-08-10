@@ -1,0 +1,267 @@
+{
+  "_comment": [
+    "Baseline of code-scanning alerts that were dismissed through the GitHub web UI.",
+    "",
+    "Why this file exists: security_alerts_check.py asked for state=open and",
+    "reported 'OK (no open alerts in any feed)' while 294 alerts sat in the",
+    "dismissed state -- 78 of them high or critical. Ivan could see them in the",
+    "UI; the gate could not, because a human pressing Dismiss removes an alert",
+    "from the only query the gate ran. That makes the button a silent override of",
+    "the release gate: any future finding can be closed by hand and CI stays green.",
+    "",
+    "So the dismissals become data in the repository. Each rule id records how",
+    "many alerts were dismissed against it and under which reason. The gate",
+    "compares live GitHub state to this file and fails when a rule gains",
+    "dismissals that were never written down, or when a rule appears that is not",
+    "here at all. Dismissing an alert is still allowed -- it just has to be",
+    "committed, reviewed as a diff, and carry the same weight as changing code.",
+    "",
+    "Shrinking numbers are fine and never fail: fixing an alert for real should",
+    "not require editing this file. Run scripts/dismissed_alerts_gate.py --update",
+    "to re-record the baseline after a deliberate dismissal."
+  ],
+  "rules": {
+    "BranchProtectionID": {
+      "severity": "high",
+      "dismissed": 1,
+      "reasons": {
+        "won't fix": 1
+      }
+    },
+    "CIIBestPracticesID": {
+      "severity": "low",
+      "dismissed": 1,
+      "reasons": {
+        "won't fix": 1
+      }
+    },
+    "CodeReviewID": {
+      "severity": "high",
+      "dismissed": 1,
+      "reasons": {
+        "won't fix": 1
+      }
+    },
+    "DS126858": {
+      "severity": "error",
+      "dismissed": 1,
+      "reasons": {
+        "won't fix": 1
+      }
+    },
+    "DS130822": {
+      "severity": "error",
+      "dismissed": 2,
+      "reasons": {
+        "won't fix": 2
+      }
+    },
+    "DS137138": {
+      "severity": "warning",
+      "dismissed": 12,
+      "reasons": {
+        "won't fix": 12
+      }
+    },
+    "DS162092": {
+      "severity": "note",
+      "dismissed": 113,
+      "reasons": {
+        "false positive": 4,
+        "won't fix": 109
+      }
+    },
+    "DS173237": {
+      "severity": "error",
+      "dismissed": 1,
+      "reasons": {
+        "won't fix": 1
+      }
+    },
+    "DS176209": {
+      "severity": "note",
+      "dismissed": 5,
+      "reasons": {
+        "won't fix": 5
+      }
+    },
+    "DS197836": {
+      "severity": "error",
+      "dismissed": 2,
+      "reasons": {
+        "won't fix": 2
+      }
+    },
+    "FuzzingID": {
+      "severity": "medium",
+      "dismissed": 1,
+      "reasons": {
+        "won't fix": 1
+      }
+    },
+    "MaintainedID": {
+      "severity": "high",
+      "dismissed": 1,
+      "reasons": {
+        "won't fix": 1
+      }
+    },
+    "PinnedDependenciesID": {
+      "severity": "medium",
+      "dismissed": 45,
+      "reasons": {
+        "false positive": 19,
+        "won't fix": 26
+      }
+    },
+    "SASTID": {
+      "severity": "medium",
+      "dismissed": 1,
+      "reasons": {
+        "won't fix": 1
+      }
+    },
+    "TokenPermissionsID": {
+      "severity": "high",
+      "dismissed": 8,
+      "reasons": {
+        "false positive": 3,
+        "won't fix": 5
+      }
+    },
+    "VulnerabilitiesID": {
+      "severity": "high",
+      "dismissed": 1,
+      "reasons": {
+        "won't fix": 1
+      }
+    },
+    "js/disabling-certificate-validation": {
+      "severity": "high",
+      "dismissed": 2,
+      "reasons": {
+        "false positive": 2
+      }
+    },
+    "js/incomplete-sanitization": {
+      "severity": "high",
+      "dismissed": 1,
+      "reasons": {
+        "won't fix": 1
+      }
+    },
+    "js/xss": {
+      "severity": "high",
+      "dismissed": 1,
+      "reasons": {
+        "won't fix": 1
+      }
+    },
+    "js/xss-through-dom": {
+      "severity": "high",
+      "dismissed": 5,
+      "reasons": {
+        "won't fix": 5
+      }
+    },
+    "py/bad-tag-filter": {
+      "severity": "high",
+      "dismissed": 2,
+      "reasons": {
+        "used in tests": 2
+      }
+    },
+    "py/command-line-injection": {
+      "severity": "critical",
+      "dismissed": 5,
+      "reasons": {
+        "won't fix": 5
+      }
+    },
+    "py/http-response-splitting": {
+      "severity": "medium",
+      "dismissed": 2,
+      "reasons": {
+        "false positive": 2
+      }
+    },
+    "py/incomplete-url-substring-sanitization": {
+      "severity": "high",
+      "dismissed": 15,
+      "reasons": {
+        "used in tests": 15
+      }
+    },
+    "py/insecure-protocol": {
+      "severity": "high",
+      "dismissed": 3,
+      "reasons": {
+        "used in tests": 3
+      }
+    },
+    "py/path-injection": {
+      "severity": "high",
+      "dismissed": 31,
+      "reasons": {
+        "false positive": 15,
+        "won't fix": 16
+      }
+    },
+    "py/reflective-xss": {
+      "severity": "high",
+      "dismissed": 1,
+      "reasons": {
+        "false positive": 1
+      }
+    },
+    "py/stack-trace-exposure": {
+      "severity": "medium",
+      "dismissed": 1,
+      "reasons": {
+        "false positive": 1
+      }
+    },
+    "zizmor/archived-uses": {
+      "severity": "warning",
+      "dismissed": 1,
+      "reasons": {
+        "won't fix": 1
+      }
+    },
+    "zizmor/artipacked": {
+      "severity": "note",
+      "dismissed": 22,
+      "reasons": {
+        "false positive": 22
+      }
+    },
+    "zizmor/dependabot-cooldown": {
+      "severity": "warning",
+      "dismissed": 1,
+      "reasons": {
+        "won't fix": 1
+      }
+    },
+    "zizmor/ref-version-mismatch": {
+      "severity": "warning",
+      "dismissed": 1,
+      "reasons": {
+        "won't fix": 1
+      }
+    },
+    "zizmor/template-injection": {
+      "severity": "note",
+      "dismissed": 3,
+      "reasons": {
+        "false positive": 3
+      }
+    },
+    "zizmor/unpinned-uses": {
+      "severity": "error",
+      "dismissed": 1,
+      "reasons": {
+        "false positive": 1
+      }
+    }
+  }
+}

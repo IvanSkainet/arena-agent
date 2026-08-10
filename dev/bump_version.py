@@ -7,6 +7,7 @@ per the AGENTS.md release rule:
   1. ``arena/constants.py``          — ``VERSION = "…"``
   2. ``pyproject.toml``              — ``version = "…"``
   3. ``tests/_version_matrix.py``    — append to ``BRIDGE_VERSIONS`` tuple
+  4. ``android_app/AndroidManifest.xml`` — ``android:versionName``
 
 Usage
 -----
@@ -40,6 +41,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CONSTANTS_PY = REPO_ROOT / "arena" / "constants.py"
 PYPROJECT_TOML = REPO_ROOT / "pyproject.toml"
 VERSION_MATRIX_PY = REPO_ROOT / "tests" / "_version_matrix.py"
+ANDROID_MANIFEST = REPO_ROOT / "android_app" / "AndroidManifest.xml"
 
 # Extension files (only touched by --extension)
 CHAT_EXT_DIR = REPO_ROOT / "chat_extension"
@@ -82,6 +84,45 @@ def _bump_pyproject(new: str, *, dry_run: bool) -> str:
     if not dry_run:
         PYPROJECT_TOML.write_text(updated, encoding="utf-8")
     return f"{PYPROJECT_TOML.relative_to(REPO_ROOT)}: {old} -> {new}"
+
+
+def _bump_android_manifest(new: str, *, dry_run: bool) -> str:
+    """Keep the APK's versionName in step with the bridge.
+
+    v4.169.29 was bumped and the full suite failed on
+    ``test_app_version_matches_the_bridge``: this script knew about three
+    files, and the Android manifest -- added two releases after it was
+    written -- was not one of them. The test was right and the tooling
+    was incomplete, which is the failure mode that costs a CI round trip
+    every single release until somebody fixes the bumper instead of the
+    manifest.
+
+    versionCode is deliberately left alone. It is a monotonic integer
+    Android uses to order installs and has no relationship to a semantic
+    version; deriving one from the other guesses at a rule nobody wrote.
+    """
+    def _label() -> str:
+        try:
+            return str(ANDROID_MANIFEST.relative_to(REPO_ROOT))
+        except ValueError:
+            # A test may point REPO_ROOT at a scratch copy. Reporting a
+            # path is a convenience; it must never be the thing that
+            # raises inside a release bump.
+            return ANDROID_MANIFEST.name
+
+    if not ANDROID_MANIFEST.exists():
+        return f"{_label()}: absent, skipped"
+    src = ANDROID_MANIFEST.read_text(encoding="utf-8")
+    m = re.search(r'android:versionName="([^"]+)"', src)
+    if not m:
+        _die(f"{ANDROID_MANIFEST} has no android:versionName")
+    old = m.group(1)
+    if old == new:
+        return f"{_label()}: already at {new}"
+    updated = src[: m.start()] + f'android:versionName="{new}"' + src[m.end():]
+    if not dry_run:
+        ANDROID_MANIFEST.write_text(updated, encoding="utf-8")
+    return f"{_label()}: {old} -> {new}"
 
 
 def _bump_version_matrix(new: str, *, dry_run: bool) -> str:
@@ -284,6 +325,7 @@ def main(argv: list[str] | None = None) -> int:
             _bump_constants(args.version, dry_run=args.dry_run),
             _bump_pyproject(args.version, dry_run=args.dry_run),
             _bump_version_matrix(args.version, dry_run=args.dry_run),
+            _bump_android_manifest(args.version, dry_run=args.dry_run),
         ]
         summary = f"Bridge bumped to {args.version}."
 

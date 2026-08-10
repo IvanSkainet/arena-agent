@@ -1,3 +1,90 @@
+## v4.169.29 — 2026-08-10
+
+### The dismiss button was a silent override of the release gate
+
+Ivan said the alerts were still there. The gate said otherwise: `security
+alerts: OK (no open alerts in any feed)`, and all three API feeds agreed
+— zero open, in code scanning, secret scanning and Dependabot alike.
+
+Both were right. The gate asks GitHub for `state=open`, and pressing
+Dismiss on the website is precisely the act of removing an alert from
+that query. Behind it sat **294 dismissed alerts, 78 of them high or
+critical** — command injection, path injection, XSS in the dashboard
+assets. Each one closed by hand, each one invisible to every pipeline in
+the repository.
+
+That is worse than the thirteen alerts of v4.169.25. Those were a gap in
+coverage. This looked like coverage: a green check whose query had been
+edited out from under it by a button press that left no diff, no commit
+and no review.
+
+`security_dismissals.json` now records every dismissal by rule id — the
+count and the reason given — and `scripts/dismissed_alerts_gate.py`
+compares live GitHub state against it on every run of CI and preflight.
+Dismissing an alert is still allowed. It just has to arrive as a commit
+that a human can read, weighed like any other change to the code.
+
+Keyed by rule id, not alert number: numbers are reassigned when an
+analysis re-runs, and a baseline that churns on every scan teaches
+everyone to regenerate it without looking.
+
+A shrinking count never fails. Fixing an alert for real must not force
+an edit to a baseline, or the baseline turns into paperwork and then
+into a lie.
+
+Sabotage, six ways: lowering a rule's count by six is caught as "6 new";
+deleting a critical rule outright is caught as "not recorded at all";
+inflating a count to 999 — the shape of honest repair work — stays
+green; no token and a bad token both report SKIPPED rather than clean,
+because "could not look" and "nothing there" must never print the same
+sentence.
+
+### The bumper knew about three files and the tree had four
+
+The version bump landed clean and the suite went red on
+`test_app_version_matches_the_bridge`: the APK manifest still said
+4.169.28. `dev/bump_version.py` was written before `android_app/`
+existed and was never taught about it, so every release since would have
+spent a preflight round trip discovering the same thing.
+
+Editing the manifest by hand fixes this release. Teaching the bumper
+fixes the rest. `versionCode` is left alone deliberately — it is a
+monotonic integer Android uses to order installs, unrelated to a
+semantic version, and deriving one from the other invents a rule nobody
+wrote.
+
+### Every action and scanner brought up to current
+
+Ivan asked whether the CI components were up to date. Nine of the
+twenty-three action pins were behind, and four scanners were resolving
+older releases than PyPI had:
+
+* `actions/checkout` v6 → v7.0.1, `setup-python` v6 → v7.0.0,
+  `download-artifact` v7 → v8.0.1, `setup-node` v6 → v7.0.0,
+  `stale` v10 → v11.0.0
+* `harden-runner` v2.20.0 → v2.20.1, `scorecard-action` v2.4.1 → v2.4.4,
+  `cosign-installer` v3.9.2 → v4.1.2, `trufflehog` v3.88.27 → v3.96.0,
+  `zizmor-action` v0.6.0 → v0.6.2, `osv-scanner` v2.1.0 → v2.5.0,
+  `codeql-action` v4.37.4 → v4.37.6, `SocketDev/action` v1.3.1 → v1.3.2
+* `bandit` 1.9.2 → 1.9.4, `pip-audit` 2.9.0 → 2.10.1,
+  `semgrep` 1.145.0 → 1.172.0, `ruff` 0.16.1 → 0.16.2
+
+Every SHA was read from the GitHub API at pin time, not recalled. The
+majors were checked for breakage rather than assumed safe:
+`setup-python` v7 drops the `pip-install` input, which this repo never
+used; `download-artifact` v8 now errors on a digest mismatch instead of
+warning, which is the behaviour we want; `cosign-installer` v4 defaults
+to cosign 3.x, where `sign-blob` requires `--bundle`, so the existing
+explicit `cosign-release: v2.4.1` pin keeps the signing command correct.
+
+bandit 1.9.4 was run against the full tree through the same gate CI
+uses before the bump landed: 497 LOW, zero at HIGH or MEDIUM. Ruff 0.16.2
+finds nothing new. An upgraded scanner that fails the build is a thing to
+discover here, not on a tag.
+
+The action-runtime manifest was refreshed alongside the pins and now
+records 23 actions, 15 of them on node24 and none on the retired node20.
+
 ## v4.169.28 — 2026-08-10
 
 ### The suppressions suppressed nothing

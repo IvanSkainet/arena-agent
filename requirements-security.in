@@ -15,6 +15,6 @@
 #
 # Regenerate: uv pip compile --universal --generate-hashes --strip-extras \
 #   --output-file=requirements-security.lock requirements-security.in
-bandit==1.9.2
-pip-audit==2.9.0
-semgrep==1.145.0
+bandit==1.9.4
+pip-audit==2.10.1
+semgrep==1.172.0

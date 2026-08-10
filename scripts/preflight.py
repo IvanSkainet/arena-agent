@@ -95,6 +95,11 @@ CHECKS: list[Check] = [
               "every one of them verified 36/36 in CI, because the alert "
               "list is not part of any pipeline. Ivan found them, the "
               "process did not"),
+    Check("dismissed alerts", [PY, "scripts/dismissed_alerts_gate.py"],
+          why="the gate above asks for state=open, and Dismiss is exactly "
+              "the act of leaving that query -- it printed 'no open alerts' "
+              "with 294 dismissed, 78 of them high or critical, so a button "
+              "on a web page was overriding the release gate in silence"),
     Check("pinned pip", [PY, "scripts/pinned_pip_ratchet.py"],
           why="Scorecard flagged pipCommand not pinned by hash; eight "
               "installs across CI resolved whatever PyPI served that "

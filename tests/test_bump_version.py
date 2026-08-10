@@ -58,6 +58,13 @@ def repo_copy(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "CONSTANTS_PY", dst / "arena" / "constants.py")
     monkeypatch.setattr(mod, "PYPROJECT_TOML", dst / "pyproject.toml")
     monkeypatch.setattr(mod, "VERSION_MATRIX_PY", dst / "tests" / "_version_matrix.py")
+    (dst / "android_app").mkdir(parents=True, exist_ok=True)
+    (dst / "android_app" / "AndroidManifest.xml").write_text(
+        (REPO_ROOT / "android_app" / "AndroidManifest.xml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(mod, "ANDROID_MANIFEST",
+                        dst / "android_app" / "AndroidManifest.xml")
     monkeypatch.setattr(mod, "CHAT_EXT_DIR", dst / "chat_extension")
     monkeypatch.setattr(mod, "EXT_MANIFEST_JSON", dst / "chat_extension" / "manifest.json")
     monkeypatch.setattr(mod, "EXT_CONTENT_JS", dst / "chat_extension" / "content.js")
