@@ -1,3 +1,13 @@
+## Unreleased
+
+### BrowserAct: subprocess options are forwarded again
+
+The synchronous BrowserAct probes accepted `subprocess_kwargs` from the
+runtime but ignored it when invoking the CLI. On Windows this disabled the
+shared `CREATE_NO_WINDOW` flag and could flash a console window during status
+or doctor checks. The options now reach both calls; executable tests cover
+status and handshake, and sabotage removing the forwarding was caught.
+
 ## v4.169.33 — 2026-08-10
 
 ### Mutation debt in the file sandbox: 89 survivors -> 0

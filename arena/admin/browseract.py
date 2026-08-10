@@ -22,7 +22,7 @@ import os
 import platform
 import shutil
 import subprocess
-from typing import Any
+from typing import Any, Callable
 
 DEFAULT_TIMEOUT = 10
 UPSTREAM_PACKAGE = "browser-act-cli"
@@ -85,13 +85,17 @@ def _cli_source(path: str) -> str:
     return "unknown"
 
 
-def _get_version(cli_path: str) -> str | None:
+def _get_version(
+    cli_path: str,
+    *, subprocess_kwargs: Callable[[], dict[str, Any]] | None = None,
+) -> str | None:
     try:
         proc = subprocess.run(
             [cli_path, "--version"],
             capture_output=True,
             text=True,
             timeout=DEFAULT_TIMEOUT,
+            **_subprocess_options(subprocess_kwargs),
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return None
@@ -142,7 +146,16 @@ def _update_hint(source: str) -> str:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-def browseract_status(*, subprocess_kwargs=None) -> dict[str, Any]:
+def _subprocess_options(
+    subprocess_kwargs: Callable[[], dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Return host-specific subprocess options supplied by the runtime."""
+    return subprocess_kwargs() if subprocess_kwargs is not None else {}
+
+
+def browseract_status(
+    *, subprocess_kwargs: Callable[[], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Return BrowserAct install/version status in a stable, cross-platform shape."""
     system = platform.system().lower()
     result: dict[str, Any] = {
@@ -164,12 +177,14 @@ def browseract_status(*, subprocess_kwargs=None) -> dict[str, Any]:
     result["installed"] = True
     result["cli_path"] = cli
     result["cli_source"] = _cli_source(cli)
-    result["version"] = _get_version(cli)
+    result["version"] = _get_version(cli, subprocess_kwargs=subprocess_kwargs)
     result["update_hint"] = _update_hint(result["cli_source"])
     return result
 
 
-def browseract_doctor(*, subprocess_kwargs=None) -> dict[str, Any]:
+def browseract_doctor(
+    *, subprocess_kwargs: Callable[[], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Deeper self-check: version + handshake with the tool's own skill manifest."""
     status = browseract_status(subprocess_kwargs=subprocess_kwargs)
     if not status.get("installed"):
@@ -184,6 +199,7 @@ def browseract_doctor(*, subprocess_kwargs=None) -> dict[str, Any]:
             capture_output=True,
             text=True,
             timeout=DEFAULT_TIMEOUT,
+            **_subprocess_options(subprocess_kwargs),
         )
         if proc.returncode == 0 and proc.stdout:
             handshake_ok = True

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -80,3 +81,49 @@ def test_doctor_contract_when_not_installed():
 def test_platform_string_is_documented_value():
     result = browseract_status()
     assert result["platform"] in ("windows", "darwin", "linux")
+
+
+def test_status_forwards_host_subprocess_options(monkeypatch):
+    """Windows child-window suppression must reach the version probe."""
+    import arena.admin.browseract as mod
+
+    seen = []
+    monkeypatch.setattr(mod, "_cli_candidates", lambda: ["browser-act"])
+    monkeypatch.setattr(mod, "_cli_source", lambda _path: "test")
+    monkeypatch.setattr(
+        mod.subprocess,
+        "run",
+        lambda *args, **kwargs: (
+            seen.append((args, kwargs))
+            or SimpleNamespace(returncode=0, stdout="browser-act 2.0.2", stderr="")
+        ),
+    )
+    options = {"creationflags": 0x1234}
+
+    result = mod.browseract_status(subprocess_kwargs=lambda: options)
+
+    assert result["version"] == "2.0.2"
+    assert seen[0][1]["creationflags"] == 0x1234
+
+
+def test_doctor_forwards_host_subprocess_options(monkeypatch):
+    """The handshake must use the same Windows-safe subprocess policy."""
+    import arena.admin.browseract as mod
+
+    seen = []
+    monkeypatch.setattr(mod, "_cli_candidates", lambda: ["browser-act"])
+    monkeypatch.setattr(mod, "_cli_source", lambda _path: "test")
+    monkeypatch.setattr(
+        mod.subprocess,
+        "run",
+        lambda *args, **kwargs: (
+            seen.append((args, kwargs))
+            or SimpleNamespace(returncode=0, stdout="ok", stderr="")
+        ),
+    )
+    options = {"creationflags": 0x5678}
+
+    result = mod.browseract_doctor(subprocess_kwargs=lambda: options)
+
+    assert result["handshake"] is True
+    assert [call[1]["creationflags"] for call in seen] == [0x5678, 0x5678]
