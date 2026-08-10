@@ -23,6 +23,7 @@ Two former equivalent-mutant families were removed from the module itself
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -43,27 +44,26 @@ EXPECTED_PACKAGE = "browser-act-cli"
 
 HOME = "/h"
 
-
-def _portable_paths(paths):
-    """Compare path ordering without depending on the host separator."""
-    return [str(path).replace("\\\\", "/") for path in paths]
-
-
-EXPECTED_WINDOWS_NAMES = ["browser-act.exe", "browser-act.bat", "browser-act.cmd", "browser-act"]
-EXPECTED_POSIX_NAMES = ["browser-act"]
-
+# Expected candidate paths are joined with the runtime's os.path.join on
+# purpose: the module joins the same way, so on a Windows runner both sides
+# use backslashes (CI v4.169.34 red cell proved literal "/" expectations
+# fail there). The SEGMENTS stay test-side literal copies -- a mutant that
+# edits any segment still diverges and dies on any OS.
 EXPECTED_WINDOWS_FALLBACKS = [
-    "/h/.local/bin/browser-act.exe",
-    "/h/AppData/Roaming/uv/tools/browser-act-cli/Scripts/browser-act.exe",
-    "/h/AppData/Local/pipx/venvs/browser-act-cli/Scripts/browser-act.exe",
+    os.path.join(HOME, ".local", "bin", "browser-act.exe"),
+    os.path.join(HOME, "AppData", "Roaming", "uv", "tools", "browser-act-cli", "Scripts", "browser-act.exe"),
+    os.path.join(HOME, "AppData", "Local", "pipx", "venvs", "browser-act-cli", "Scripts", "browser-act.exe"),
 ]
 EXPECTED_POSIX_FALLBACKS = [
-    "/h/.local/bin/browser-act",
-    "/h/.local/share/uv/tools/browser-act-cli/bin/browser-act",
-    "/h/.local/pipx/venvs/browser-act-cli/bin/browser-act",
+    os.path.join(HOME, ".local", "bin", "browser-act"),
+    os.path.join(HOME, ".local", "share", "uv", "tools", "browser-act-cli", "bin", "browser-act"),
+    os.path.join(HOME, ".local", "pipx", "venvs", "browser-act-cli", "bin", "browser-act"),
     "/usr/local/bin/browser-act",
     "/opt/homebrew/bin/browser-act",
 ]
+
+EXPECTED_WINDOWS_NAMES = ["browser-act.exe", "browser-act.bat", "browser-act.cmd", "browser-act"]
+EXPECTED_POSIX_NAMES = ["browser-act"]
 
 EXPECTED_INSTALL_HINT_WINDOWS = (
     "Install BrowserAct CLI: `winget install --id=astral-sh.uv` "
@@ -135,8 +135,8 @@ def _patch_env(monkeypatch, system="Linux", which_map=None, files=(), execs=()):
     """Replace every host probe _cli_candidates performs. Nothing real runs."""
     env = _Env()
     which_map = which_map or {}
-    files_set = {ba.os.path.normpath(path) for path in files}
-    execs_set = {ba.os.path.normpath(path) for path in execs}
+    files_set = set(files)
+    execs_set = set(execs)
 
     monkeypatch.setattr(ba.platform, "system", lambda: system)
 
@@ -175,7 +175,7 @@ def test_module_constants_are_pinned():
 def test_candidates_windows_fallbacks_exact(monkeypatch):
     env = _patch_env(monkeypatch, system="Windows", which_map={},
                      files=EXPECTED_WINDOWS_FALLBACKS, execs=EXPECTED_WINDOWS_FALLBACKS)
-    assert _portable_paths(ba._cli_candidates()) == _portable_paths(EXPECTED_WINDOWS_FALLBACKS)
+    assert ba._cli_candidates() == EXPECTED_WINDOWS_FALLBACKS
     assert env.which_args == EXPECTED_WINDOWS_NAMES
     assert env.expand_args == ["~"]
 
@@ -183,7 +183,7 @@ def test_candidates_windows_fallbacks_exact(monkeypatch):
 def test_candidates_posix_fallbacks_exact(monkeypatch):
     env = _patch_env(monkeypatch, system="Linux", which_map={},
                      files=EXPECTED_POSIX_FALLBACKS, execs=EXPECTED_POSIX_FALLBACKS)
-    assert _portable_paths(ba._cli_candidates()) == _portable_paths(EXPECTED_POSIX_FALLBACKS)
+    assert ba._cli_candidates() == EXPECTED_POSIX_FALLBACKS
     assert env.which_args == EXPECTED_POSIX_NAMES
     assert env.expand_args == ["~"]
 
@@ -191,14 +191,14 @@ def test_candidates_posix_fallbacks_exact(monkeypatch):
 def test_candidates_darwin_uses_posix_fallbacks(monkeypatch):
     env = _patch_env(monkeypatch, system="Darwin", which_map={},
                      files=EXPECTED_POSIX_FALLBACKS, execs=EXPECTED_POSIX_FALLBACKS)
-    assert _portable_paths(ba._cli_candidates()) == _portable_paths(EXPECTED_POSIX_FALLBACKS)
+    assert ba._cli_candidates() == EXPECTED_POSIX_FALLBACKS
     assert env.which_args == EXPECTED_POSIX_NAMES
 
 
 def test_candidates_system_name_is_lowercased(monkeypatch):
     env = _patch_env(monkeypatch, system="WINDOWS", which_map={},
                      files=EXPECTED_WINDOWS_FALLBACKS, execs=EXPECTED_WINDOWS_FALLBACKS)
-    assert _portable_paths(ba._cli_candidates()) == _portable_paths(EXPECTED_WINDOWS_FALLBACKS)
+    assert ba._cli_candidates() == EXPECTED_WINDOWS_FALLBACKS
     assert env.which_args == EXPECTED_WINDOWS_NAMES
 
 
@@ -207,7 +207,7 @@ def test_candidates_which_hit_comes_first(monkeypatch):
     all_paths = [hit] + EXPECTED_POSIX_FALLBACKS
     _patch_env(monkeypatch, system="Linux", which_map={"browser-act": hit},
                files=all_paths, execs=all_paths)
-    assert _portable_paths(ba._cli_candidates()) == _portable_paths(all_paths)
+    assert ba._cli_candidates() == all_paths
 
 
 def test_candidates_windows_which_hit_comes_first(monkeypatch):
@@ -216,21 +216,21 @@ def test_candidates_windows_which_hit_comes_first(monkeypatch):
     _patch_env(monkeypatch, system="Windows",
                which_map={"browser-act.exe": hit},
                files=all_paths, execs=all_paths)
-    assert _portable_paths(ba._cli_candidates()) == _portable_paths(all_paths)
+    assert ba._cli_candidates() == all_paths
 
 
 def test_candidates_dedup_keeps_first_occurrence(monkeypatch):
     hit = EXPECTED_POSIX_FALLBACKS[0]  # shutil.which returns the same path as a fallback
     _patch_env(monkeypatch, system="Linux", which_map={"browser-act": hit},
                files=EXPECTED_POSIX_FALLBACKS, execs=EXPECTED_POSIX_FALLBACKS)
-    assert _portable_paths(ba._cli_candidates()) == _portable_paths(EXPECTED_POSIX_FALLBACKS)
+    assert ba._cli_candidates() == EXPECTED_POSIX_FALLBACKS
 
 
 def test_candidates_non_executable_file_dropped(monkeypatch):
     _patch_env(monkeypatch, system="Linux", which_map={},
                files=EXPECTED_POSIX_FALLBACKS,
                execs=EXPECTED_POSIX_FALLBACKS[1:])
-    assert _portable_paths(ba._cli_candidates()) == _portable_paths(EXPECTED_POSIX_FALLBACKS)[1:]
+    assert ba._cli_candidates() == EXPECTED_POSIX_FALLBACKS[1:]
 
 
 def test_candidates_non_file_dropped_even_if_accessible(monkeypatch):
@@ -238,7 +238,7 @@ def test_candidates_non_file_dropped_even_if_accessible(monkeypatch):
     _patch_env(monkeypatch, system="Linux", which_map={},
                files=EXPECTED_POSIX_FALLBACKS[1:],
                execs=EXPECTED_POSIX_FALLBACKS)
-    assert _portable_paths(ba._cli_candidates()) == _portable_paths(EXPECTED_POSIX_FALLBACKS)[1:]
+    assert ba._cli_candidates() == EXPECTED_POSIX_FALLBACKS[1:]
 
 
 def test_candidates_nothing_found_returns_empty(monkeypatch):

@@ -12,7 +12,7 @@
    "total": 72
   },
   "arena/admin/browseract.py": {
-   "fingerprint": "a9f0452ffbd27e98fedca9ef7db2e84204594d3add6217740dc80a2c510292e1",
+   "fingerprint": "2998ce8941a1a4f1cee3ae17ed0c806eb0f7a05732f489e861171f4e09057f60",
    "reason": "fresh run",
    "survived": 0,
    "tests": [
