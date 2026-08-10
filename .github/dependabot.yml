@@ -56,6 +56,15 @@ updates:
         # executed it — this would have merged green and broken the sweep
         # silently, discoverable only the next time someone ran it by hand.
         versions: [">=3.0"]
+      - dependency-name: "mypy"
+        # v4.169.32: the package is gone entirely -- it was installed by
+        # every CI job and executed by none. This entry is belt and braces
+        # in case a transitive dependency drags it back: an upgrade PR for
+        # a tool that produces no verdict is pure noise. PR #5 proposed it
+        # inside a group, PR #6 proposed it again on its own the moment #5
+        # was closed. The [tool.mypy] SECTION in pyproject.toml stays --
+        # it is pyrefly's config, guarded by
+        # scripts/pyrefly_preset_ratchet.py.
       - dependency-name: "websockets"
         # websockets 17.0 requires Python >= 3.11; this package promises
         # requires-python = ">=3.10" and CI keeps a 3.10 matrix cell to

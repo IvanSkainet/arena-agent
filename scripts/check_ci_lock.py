@@ -23,7 +23,7 @@ REQUIRED_MARKER_PINS = {
     "async-timeout": r"async-timeout==[\d.]+\s*;\s*python.*<\s*'3\.11'",
     # pytest/hypothesis dep on older interpreters
     "exceptiongroup": r"exceptiongroup==[\d.]+\s*;\s*python.*<\s*'3\.11'",
-    # pytest/mypy on <3.11, coverage on <=3.11
+    # pytest on <3.11, coverage on <=3.11 (mypy was removed in v4.169.32)
     "tomli": r"tomli==[\d.]+\s*;\s*python.*<\s*=?\s*'3\.11",
 }
 # packages that must simply be present (no marker expectation)

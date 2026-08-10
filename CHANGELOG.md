@@ -1,3 +1,67 @@
+## v4.169.32 — 2026-08-10
+
+### A type checker installed by every job and run by none
+
+Dependabot proposed mypy 1.19.1 → 2.3.0 twice: inside a group (PR #5) and
+again on its own the moment that was closed (PR #6). Chasing the second
+one down answered why the bump felt empty.
+
+mypy is installed by `requirements-ci.lock` in every CI job and executed
+in none of them. The only references in the whole tree were a
+`[tool.mypy]` config section, two comments in `dependabot.yml`, and a
+`.mypy_cache` exclusion. Type checking here is pyrefly's, gated by
+`scripts/quality_ratchet.py`. So the PR proposed upgrading a tool that
+produces no verdict, paying an install across 36 jobs for nothing.
+
+The package is gone — `mypy`, `mypy-extensions` and `librt` drop out of
+the lock with it.
+
+### The section that looks like leftovers and is not
+
+The obvious follow-up cleanup is the trap. pyrefly has no config of its
+own in this repository: it imports `[tool.mypy]`, and the mere PRESENCE
+of that section selects the `legacy` preset.
+
+Measured on this tree, not assumed:
+
+| state | preset | result |
+| --- | --- | --- |
+| with `[tool.mypy]` | `legacy` | 0 errors |
+| without it | `basic` | quality ratchet fails, +11 `missing-import` |
+
+`basic` reports fewer errors while checking less — it drops call and
+assignment checks, the exact class of bug this project keeps finding. A
+`pyrefly.toml` carrying `preset = "legacy"` is not an equivalent
+replacement either; it produced a different result again (4 errors), so
+the import path is load-bearing exactly as it stands.
+
+`scripts/pyrefly_preset_ratchet.py` now fails closed if the section
+disappears or if pyrefly stops resolving to `legacy`. It runs pyrefly and
+reads the preset, because checking the file proves nothing about what the
+tool decides.
+
+That guard shipped with a hole of its own, found by sabotage rather than
+by reading it: dropping in a `pyrefly.toml` made pyrefly stop printing the
+preset line entirely, so "could not measure" was reported as a SKIP and
+the run exited 0 with the preset silently changed. Absence of evidence
+was being read as evidence. A `pyrefly.toml` appearing is now a failure in
+itself.
+
+One of the new tests failed on its own explanation before it failed on
+anything real — it asserted that `[tool.mypy]` was absent from the file
+after sabotage, and matched the prose above the section that names it.
+Same shape as the DevSkim docstring problem in v4.169.28: check the code,
+put the history in prose, and make the assertion specific enough to tell
+them apart.
+
+### Housekeeping
+
+`.github/dependabot.yml` now ignores mypy outright, so a third PR cannot
+arrive for a package that no longer exists here. Twenty-one fully-merged
+branches deleted — `v3-modular-core` through the `v4.78.0-*` series, plus
+two stale `coderabbitai/security-fix/*` branches proposing aiohttp 3.14.1
+and idna 3.15 when the tree is already on 3.14.3 and 3.18.
+
 ## v4.169.31 — 2026-08-10
 
 ### A refusal the bot proposing the bump could not read

@@ -1,6 +1,6 @@
 [project]
 name = "skainet-bridge"
-version = "4.169.31"
+version = "4.169.32"
 description = "Cross-platform local automation bridge for AI agents — one process, one port, modular Python architecture."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,18 +35,20 @@ full = [
 #   * hypothesis>=6.0  -- property-based testing (skip if missing, tests self-skip)
 #   * pytest-cov>=4.0  -- coverage gate; the dev install pulls it in for
 #                        `make coverage` and CI.
-#   * mypy>=1.10       -- type checking. The codebase is large; only a
-#                        subset is type-checked strictly (see [tool.mypy]
-#                        below). Extend module-by-module as it stabilises.
+#   * pyrefly          -- type checking, gated by scripts/quality_ratchet.py.
+#                        mypy was dropped in v4.169.32: it was installed by
+#                        every CI job and never executed. The [tool.mypy]
+#                        section below stays -- it is pyrefly's config.
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "hypothesis>=6.0",
     "ruff>=0.4",
-    "mypy>=1.10",
-    # Serena 1.6.1 shares the local Python environment and pins this.
-    # Mypy accepts 0.12.1, so preserve the integration instead of letting
-    # a contributor install silently replace Serena's dependency.
+    # Serena 1.6.1 shares the local Python environment and pins this, so
+    # preserve the integration instead of letting a contributor install
+    # silently replace Serena's dependency. (The note here used to justify
+    # the pin by what mypy accepted; mypy left in v4.169.32 and Serena is
+    # the whole reason now.)
     "pathspec==1.1.1",
 ]
 
@@ -173,6 +175,26 @@ skip_covered = false
 show_missing = true
 
 # ---------------------------------------------------------------------------
+# DO NOT DELETE THIS SECTION because "mypy is not installed".
+#
+# v4.169.32: the mypy package was removed from requirements-ci.in -- it was
+# installed by every CI job and never executed; type checking is pyrefly's.
+# This section is not leftover configuration for it. pyrefly has no config
+# of its own in this repository and imports its settings from here, and the
+# mere PRESENCE of the section selects the `legacy` preset:
+#
+#     No `pyrefly.toml` found -- using settings imported from `[tool.mypy]`
+#     in your `pyproject.toml` (preset: legacy).
+#
+# Measured on this tree, not assumed: with the section, pyrefly reports 0
+# errors under `legacy`. Delete it and pyrefly silently drops to `basic`,
+# which stops checking calls and assignments -- the quality ratchet then
+# fails with 11 new findings it never had to catch before, and the checks
+# that actually matter are gone. A `pyrefly.toml` with preset = "legacy" is
+# NOT equivalent; it produced a different result again (4 errors).
+#
+# scripts/pyrefly_preset_ratchet.py fails closed if this section vanishes
+# or if pyrefly stops resolving to `legacy`.
 [tool.mypy]
 python_version = "3.10"
 ignore_missing_imports = true

@@ -91,6 +91,12 @@ CHECKS: list[Check] = [
               "requirements-mutation.in; a comment is prose, and the bot "
               "reads dependabot.yml. The sweep is workflow_dispatch-only, "
               "so no PR check would have run the broken version"),
+    Check("pyrefly preset", [PY, "scripts/pyrefly_preset_ratchet.py"],
+          why="mypy the package was installed by every CI job and executed "
+              "by none, but the [tool.mypy] section is pyrefly's config: "
+              "its presence selects `legacy`, and deleting it as leftovers "
+              "silently drops pyrefly to `basic`, which stops checking "
+              "calls and assignments"),
     Check("android lint", [PY, "scripts/android_lint.py"],
           why="the first BridgeService tried to run Termux's python through "
               "ProcessBuilder; the sandbox forbids it, every check answered "

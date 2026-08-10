@@ -28,7 +28,15 @@ pytest==9.1.1
 pytest-cov==7.1.0
 hypothesis==6.165.2
 ruff==0.16.2
-mypy==1.19.1
+# NOTE: mypy the PACKAGE is deliberately absent. It was installed by
+# every CI job and never executed once -- type checking is pyrefly's,
+# through scripts/quality_ratchet.py. Removed in v4.169.32.
+#
+# The [tool.mypy] SECTION in pyproject.toml is NOT dead and must stay:
+# pyrefly has no config of its own here and imports that section,
+# whose mere presence selects the `legacy` preset. Deleting it drops
+# pyrefly to `basic`, which stops checking calls and assignments.
+# Enforced by scripts/pyrefly_preset_ratchet.py.
 pathspec==1.1.1
 setuptools==84.0.0
 wheel==0.47.0
