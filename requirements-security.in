@@ -1,0 +1,20 @@
+# Hash-locked scanners for the CI security-scan workflow ONLY.
+#
+# Scorecard's PinnedDependenciesID flagged `pipCommand not pinned by
+# hash`, and requirements-lint.in already carries that note -- but three
+# scanners were still installed with floors:
+#
+#     pip install "bandit>=1.7"
+#     pip install "semgrep>=1.170"
+#     pip install "pip-audit>=2.7"
+#
+# A security scan that resolves its own scanner from an unpinned range
+# is deciding what counts as secure using code nobody reviewed. These
+# are the tools whose verdict gates a release, so they are the last
+# place to accept "whatever PyPI served this minute".
+#
+# Regenerate: uv pip compile --universal --generate-hashes --strip-extras \
+#   --output-file=requirements-security.lock requirements-security.in
+bandit==1.9.2
+pip-audit==2.9.0
+semgrep==1.145.0

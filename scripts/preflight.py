@@ -89,6 +89,11 @@ CHECKS: list[Check] = [
           why="three releases in eleven died on windows-latest because a "
               "TEST assumed POSIX -- there is no sh on those five jobs, and "
               "the code under test was fine every time"),
+    Check("pinned pip", [PY, "scripts/pinned_pip_ratchet.py"],
+          why="Scorecard flagged pipCommand not pinned by hash; eight "
+              "installs across CI resolved whatever PyPI served that "
+              "minute, three of them the security scanners whose verdict "
+              "gates a release"),
     Check("dead condition", [PY, "scripts/dead_condition_ratchet.py"],
           why="the release gate was tag-gated inside a workflow that only "
               "runs on master pushes -- it would never have fired once, "

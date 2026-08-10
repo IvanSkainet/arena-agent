@@ -37,8 +37,12 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install bandit
-        run: pip install "bandit>=1.7"
+      # v4.169.25: was `pip install "bandit>=1.7"`. A security scan
+      # that resolves its own scanner from an unpinned range decides
+      # what counts as secure using code nobody reviewed. Scorecard
+      # flagged the pattern; requirements-security.lock pins all three.
+      - name: Install bandit (hash-pinned)
+        run: python -m pip install --require-hashes -r requirements-security.lock
 
       - name: Run bandit
         # -r arena/  = recursive scan of the runtime module.
@@ -81,8 +85,8 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install semgrep
-        run: pip install "semgrep>=1.170"
+      - name: Install semgrep (hash-pinned)
+        run: python -m pip install --require-hashes -r requirements-security.lock
 
       - name: Run semgrep
         # Every finding must be a real ERROR/WARNING. Rule that fires
@@ -289,8 +293,8 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install pip-audit
-        run: pip install "pip-audit>=2.7"
+      - name: Install pip-audit (hash-pinned)
+        run: python -m pip install --require-hashes -r requirements-security.lock
 
       - name: Extract runtime deps from pyproject.toml
         # Same helper the Makefile uses, so drift between local +

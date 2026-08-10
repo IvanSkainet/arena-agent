@@ -1,3 +1,61 @@
+## v4.169.25 — 2026-08-10
+
+### Thirteen alerts nobody was reading
+
+Ivan: *"там 13 аллертов. Проверяй их всегда."* He was right, and the
+omission is mine -- I had been reading CI's colour and the release
+pipeline, and never once opened the code-scanning list. Twenty-five
+releases of not looking.
+
+Twelve were devskim notes about `127.0.0.1` appearing in comments and in
+a bridge whose entire job is to listen on loopback: noise, and recorded
+as reviewed rather than dismissed unread. Two were real.
+
+### Every scanner that gates a release resolved itself unpinned
+
+Scorecard reported `pipCommand not pinned by hash` (medium, score 7) and
+named one line in `ci.yml`. There were eight:
+
+  * `pip install pytest` and `pip install hypothesis` in the contract job
+  * `pip install -r requirements.txt` in six jobs -- floors
+    (`aiohttp>=3.14.1`), not pins
+  * `pip install "bandit>=1.7"`, `"semgrep>=1.170"`, `"pip-audit>=2.7"`
+    in the security scan
+
+The last three are the ones that matter. A security scan that resolves
+its own scanner from an unpinned range decides what counts as secure
+using code nobody reviewed, and its verdict is what says a release is
+fit to publish. Everything in the first two groups was *already* pinned
+in `requirements-ci.lock`, so those commands got shorter as well as
+safer. The scanners now have `requirements-security.lock`, generated the
+same way as the lint lock that has existed for months -- the note in
+`requirements-lint.in` even cites this exact Scorecard rule, so the work
+was started once and left half done.
+
+`scripts/pinned_pip_ratchet.py` fails the build on any workflow install
+that names a package or a non-lock requirements file. Bootstrapping pip
+itself, `--no-deps` on our own wheel, and `--require-hashes` are allowed.
+
+Sabotage found a hole in my own exemption. The Socket Firewall step
+deliberately attempts an unpinned resolve to prove the firewall blocks
+it, and I had exempted any line starting with `sfw ` -- so
+`sfw pip install evil-package` from any workflow was invisible. Narrowed
+to the exact command in the one step that needs it, and a test now
+plants that payload and requires it to be caught.
+
+### The LAN URLs carry a bearer token in clear text
+
+devskim's one warning-level finding was `InsecureUrl` on
+`f"http://{address}:{port}"`. Rewriting it to `https://` would have
+produced a URL that connects to nothing -- the bridge has no TLS
+listener -- which is the tempting wrong fix, so the scheme stays.
+
+What was missing is that those URLs carry the bearer token, and on a LAN
+or a shared tailnet anything on the path can read it. `/v1/access` now
+returns `lan_urls_are_plaintext` and a `transport_warning` saying so,
+and only when LAN access is actually open: a warning that fires when it
+does not apply is noise, and noise is how a real one gets scrolled past.
+
 ## v4.169.24 — 2026-08-09
 
 ### The update endpoint's own guards had no tests

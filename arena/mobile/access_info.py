@@ -126,6 +126,13 @@ def describe(*, bind: str, port: int, tunnels: dict[str, Any] | None = None) -> 
     """
     loopback = _is_loopback(bind)
     addrs = [] if loopback else local_addresses()
+    # Plain http, deliberately: the bridge has no TLS listener, so this
+    # is the scheme that actually works. What was missing is saying so.
+    # devskim flagged the literal (DS137138 InsecureUrl) and it was
+    # right about the fact, if not about the fix -- these URLs carry the
+    # bearer token, and on a LAN or a shared tailnet that is readable by
+    # anything on the path. A reader who sees a URL and no warning
+    # reasonably assumes someone checked.
     urls = [f"http://{a['address']}:{port}" for a in addrs]
 
     tunnel_urls: list[str] = []
@@ -146,6 +153,7 @@ def describe(*, bind: str, port: int, tunnels: dict[str, Any] | None = None) -> 
         "loopback_only": loopback,
         "addresses": addrs,
         "lan_urls": urls,
+        "lan_urls_are_plaintext": bool(urls),
         "tunnel_urls": tunnel_urls,
         # A tunnel agent runs locally and dials 127.0.0.1, so it works
         # regardless of the bind. Only direct LAN access needs the wider
@@ -168,6 +176,16 @@ def describe(*, bind: str, port: int, tunnels: dict[str, Any] | None = None) -> 
         )
     elif not urls and not tunnel_urls:
         info["why"] = "bound for remote access, but this device has no usable address yet"
+    if urls:
+        # Separate key rather than folded into `why`: the tunnels carry
+        # TLS and these do not, and a caller choosing between them
+        # should not have to parse prose to find that out.
+        info["transport_warning"] = (
+            "lan_urls are plain HTTP -- the bridge has no TLS listener, so "
+            "the bearer token travels in clear text to anything on the "
+            "network path. Prefer a tunnel URL off-device; keep LAN access "
+            "to networks you trust."
+        )
     return info
 
 
