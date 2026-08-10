@@ -1,3 +1,32 @@
+## v4.169.26 — 2026-08-10
+
+### The alert checker was itself a high-severity alert
+
+Adding `security_alerts_check.py` in v4.169.25 produced exactly one new
+finding, and CodeQL aimed it at the new file:
+`py/clear-text-logging-sensitive-data`, high, on the line that prints
+the results.
+
+It was right. The secret-scanning payload carries the leaked credential
+in `alert["secret"]`, one dictionary key away from a line this script
+sends to a CI log. The script only ever read
+`secret_type_display_name`, so nothing leaked -- but a tool whose job is
+to notice leaked secrets is the last place to keep the credential and
+the print statement in the same scope.
+
+The first fix scrubbed punctuation out of the label, and testing it
+showed why that was the wrong question: `ghp_AbCdEf123!@#$%` came out as
+`ghp_AbCdEf123`, which is most of a token. Removing bad characters from
+a credential leaves a shorter credential.
+
+So the shape is allow-listed instead. A display name is a few
+alphabetic words -- `GitHub Personal Access Token`, `Amazon AWS Access
+Key ID` -- and anything else is replaced with
+`secret type withheld (unexpected format)`. Checked against four real
+credential shapes: a GitHub PAT, an AWS key id, a Slack bot token, and a
+token with punctuation. None survives as a label; both real display
+names pass through untouched.
+
 ## v4.169.25 — 2026-08-10
 
 ### Thirteen alerts nobody was reading

@@ -45,6 +45,36 @@ def _rank(level: str | None) -> int:
         return 0
 
 
+def _safe_label(value: object) -> str:
+    """A printable type name, with anything that is not one removed.
+
+    The caller hands this a field from the secret-scanning API, which is
+    documented to be a display name like ``GitHub Personal Access
+    Token``. Trusting that documentation is exactly the assumption worth
+    not making in a script whose output goes into CI logs: strip to
+    letters, digits, spaces and dashes, and cap the length. A real type
+    name survives unchanged; a credential does not survive as one.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return "unknown secret type"
+    # Allow-list the shape instead of scrubbing characters. A scrub let
+    # `ghp_AbCdEf123!@#` through as `ghp_AbCdEf123`, which is most of a
+    # token -- proof that "remove the bad characters" is the wrong
+    # question when the goal is "never print a credential". A display
+    # name is words; a credential is not.
+    words = text.split()
+    looks_like_a_name = (
+        len(words) <= 8
+        and all(w.replace("-", "").replace(".", "").isalnum() for w in words)
+        and any(w.isalpha() for w in words)
+        and not any(len(w) > 24 for w in words)
+    )
+    if not looks_like_a_name:
+        return "secret type withheld (unexpected format)"
+    return text[:60]
+
+
 def _get(path: str) -> tuple[list[dict[str, Any]] | None, str]:
     """Return (alerts, note). `None` means "could not look", not "clean"."""
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
@@ -106,12 +136,20 @@ def collect() -> tuple[list[dict[str, Any]], list[str]]:
         notes.append(f"secret scanning: {note}")
     else:
         for a in alerts:
+            # CodeQL flagged this path as `py/clear-text-logging-sensitive-data`
+            # (high) and it was right to. The secret-scanning payload carries
+            # the leaked credential itself in `a["secret"]`, one dictionary
+            # key away from a line this script prints. Only the type label is
+            # wanted, so take it, sanitise it to a plain identifier, and let
+            # the payload go -- a checker for leaked secrets must not be the
+            # thing that prints one.
+            label = _safe_label(a.get("secret_type_display_name"))
             findings.append({
                 "feed": "secret-scanning",
                 "number": a.get("number"),
                 "severity": "critical",
-                "id": a.get("secret_type_display_name"),
-                "where": "(see alert)",
+                "id": label,
+                "where": "(see the alert on GitHub)",
             })
     return findings, notes
 

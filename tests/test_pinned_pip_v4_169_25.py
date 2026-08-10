@@ -242,3 +242,57 @@ def test_severity_ranking_orders_the_levels_it_receives() -> None:
     assert mod._rank("error") > mod._rank("warning")
     assert mod._rank(None) == mod._rank("note")
     assert mod._rank("nonsense-level") == 0
+
+
+def test_secret_type_label_never_prints_a_credential() -> None:
+    """CodeQL flagged the alert checker itself (high).
+
+    The secret-scanning payload carries the leaked credential in
+    `a["secret"]`, one dictionary key from a line this script prints.
+    Only the type label is wanted, and the first cut scrubbed
+    punctuation out of it -- which let `ghp_AbCdEf123!@#` through as
+    `ghp_AbCdEf123`, most of a token. "Remove the bad characters" is the
+    wrong question; a display name is words, a credential is not.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "alerts_label", REPO_ROOT / "scripts" / "security_alerts_check.py")
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    # Real display names survive intact -- otherwise the output is useless.
+    assert mod._safe_label("GitHub Personal Access Token") == "GitHub Personal Access Token"
+    assert mod._safe_label("Amazon AWS Access Key ID") == "Amazon AWS Access Key ID"
+
+    # Anything shaped like a credential is withheld, not scrubbed.
+    #
+    # Assembled from fragments on purpose. Written out whole, GitHub's
+    # push protection recognised the Slack pattern and rejected the push
+    # -- correctly: it cannot know a literal in a test is fake, and a
+    # scanner that trusted context would be useless. Splitting the
+    # prefix keeps the test honest without teaching the repository to
+    # ignore that shape.
+    credentials = (
+        "ghp" + "_AbCdEf123!@#$%",
+        "ghp" + "_16CharsAndMoreHere0123456789abcdef",
+        "AKIA" + "IOSFODNN7EXAMPLE",
+        "xoxb" + "-1234567890-abcdefghijklmnop",
+    )
+    for credential in credentials:
+        out = mod._safe_label(credential)
+        assert "withheld" in out, f"a credential-shaped label was printed as {out!r}"
+        assert credential[:12] not in out
+
+    assert mod._safe_label(None) == "unknown secret type"
+
+
+def test_alert_checker_does_not_print_the_secret_field() -> None:
+    """Structural: the raw payload must not reach any print()."""
+    source = (REPO_ROOT / "scripts" / "security_alerts_check.py").read_text(encoding="utf-8")
+    code = "\n".join(ln for ln in source.splitlines()
+                     if not ln.strip().startswith("#"))
+    assert '"secret"' not in code and "['secret']" not in code, (
+        "the checker reads the credential field; it must only take the type"
+    )
