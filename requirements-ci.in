@@ -22,7 +22,7 @@ pytest==9.1.1
 pytest-cov==7.1.0
 hypothesis==6.165.2
 ruff==0.16.2
-mypy==1.19.1
+mypy==2.3.0
 pathspec==1.1.1
 setuptools==84.0.0
 wheel==0.47.0

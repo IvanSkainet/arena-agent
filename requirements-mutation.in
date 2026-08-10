@@ -7,4 +7,4 @@
 # breaks this project's imports. Measured, not assumed.
 # Regenerate: uv pip compile --universal --generate-hashes --strip-extras \
 #   --output-file=requirements-mutation.lock requirements-mutation.in
-mutmut==2.5.1
+mutmut==3.7.0
