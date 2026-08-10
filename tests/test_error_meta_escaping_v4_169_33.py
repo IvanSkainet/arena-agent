@@ -69,8 +69,12 @@ def test_no_unescaped_last_error_reaches_innerhtml():
     # with that array. Concatenations whose array only feeds `.title`
     # (04c-net-breaker.js tooltip) are text-safe and must stay silent --
     # a noisy detector is worse than none.
+    # No possessive quantifiers here: re only grew them in Python 3.11 and
+    # the 3.10 CI cell must still parse these patterns. The capture-based
+    # form does not need them anyway -- `(\w+)` can only start matching at
+    # a non-space, so a greedy `\s*` has nothing useful to backtrack into.
     innerhtml_arrays = re.compile(r'\.innerHTML\s*=\s*(\w+)\.map\(')
-    frag_push = re.compile(r'\b(\w+)\.push\(\s*"last error:\s*"\s*\+\s*+(\w+)')
+    frag_push = re.compile(r'\b(\w+)\.push\(\s*"last error:\s*"\s*\+\s*(\w+)')
     offenders = []
     for js in sorted(_ASSETS.glob("*.js")):
         src = js.read_text(encoding="utf-8")
@@ -83,7 +87,7 @@ def test_no_unescaped_last_error_reaches_innerhtml():
                 val = m.group(2)
                 if val in ("esc", "_escape"):
                     continue  # fragment wrapped in an escaping call
-                if not re.search(r'\+\s*+(?:esc|_escape)\(\s*' + re.escape(val), line):
+                if not re.search(r'\+\s*(?:esc|_escape)\(\s*' + re.escape(val), line):
                     offenders.append(f"{js.name}:{lineno}:{line.strip()[:80]}")
     assert not offenders, (
         "error text concatenated unescaped into an innerHTML-bound array:\n"
