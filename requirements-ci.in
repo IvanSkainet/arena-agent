@@ -14,6 +14,12 @@
 # v4.157.0: the bare command produced 0 marker lines, the flagged one 6.
 aiohttp==3.14.3
 psutil==7.2.2
+# websockets 16.x, NOT 17.x: 17.0 requires Python >= 3.11, while this
+# package promises requires-python = ">=3.10" and CI keeps a 3.10
+# matrix cell to prove it. Raising that floor is a decision about who
+# can install the bridge, not a dependency bump -- so it does not
+# arrive as one. Enforced against the bot in .github/dependabot.yml
+# and checked by scripts/held_back_deps_ratchet.py.
 websockets==16.1.1
 requests==2.34.2
 idna==3.18

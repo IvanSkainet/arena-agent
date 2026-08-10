@@ -1,3 +1,78 @@
+## v4.169.31 — 2026-08-10
+
+### A refusal the bot proposing the bump could not read
+
+`requirements-mutation.in` has carried this since the mutation sweep was
+built:
+
+> mutmut 2.5.1, NOT 3.x: 3.x copies the source tree into `mutants/` and
+> breaks this project's imports. Measured, not assumed.
+
+Dependabot opened PR #5 proposing mutmut 3.7.0. The reason was
+documented, reviewed, and completely inert: it lives in a comment, and
+the bot reads `.github/dependabot.yml`.
+
+Re-verified rather than taken on faith. mutmut 3.x aborts before it
+parses arguments — `mutmut --version` raises `FileNotFoundError` out of
+`_guess_source_paths` — so every invocation `scripts/mutation_sweep.py`
+makes fails outright.
+
+**It would have merged green.** `mutation-sweep.yml` is
+`workflow_dispatch`-only, so no pull-request check runs mutmut at all.
+Nothing in the pipeline would have executed the broken version; it would
+have surfaced by hand, weeks later, as a sweep that no longer runs — by
+which time the bump looks like reviewed history.
+
+`scripts/held_back_deps_ratchet.py` now checks all three halves of a
+deliberate hold: the ceiling in the `.in` file, the `dependabot.yml`
+entry that enforces it against the bot, and the prose directly above the
+pin that justifies it. `mutmut >=3.0` and `websockets >=17.0` are both
+declared. A hold nobody can justify gets raised by the next person who
+reads it, so a missing explanation is red too.
+
+The guard shipped with a false green of its own, caught by reading its
+output instead of trusting it: the first draft searched the whole file
+for the rationale keyword, so `websockets` passed on the strength of an
+unrelated note about `async-timeout <3.11` several lines above. Only the
+comment block directly above the pin counts now, and a test holds it.
+
+The PR was not useless. `scripts/lock_conflict_ratchet.py`, added
+yesterday, was the one thing in the pipeline that flagged it: the relock
+job's regeneration left `requirements-ci.lock` and
+`requirements-mutation.lock` disagreeing on `coverage` and `packaging`
+inside a job that installs both.
+
+Also noted while reviewing it, not fixed here: mypy is installed by
+`requirements-ci.lock` on every job and never executed. Type checking is
+pyrefly's, through `scripts/quality_ratchet.py`. The only mypy references
+in the tree are a config section and two comments. Wiring it up or
+dropping it is a change that deserves its own release.
+
+### The badge bot was five sixths of the commit history
+
+263 of the last 483 commits on master are `chore(badge): refresh
+version.json`. Twenty-five say `to v4.164.0`. Twenty-five more say `to
+v4.153.3`. Each is a one-line diff, and always the same line:
+
+    -  "updated_at": "2026-08-10T08:30:57Z"
+    +  "updated_at": "2026-08-10T09:28:15Z"
+
+The workflow stamped `updated_at` unconditionally, so the file differed
+on every run. The `commit if changed` guard directly below it was working
+perfectly and had something to commit every single time. That is what
+Ivan was looking at when he said a bot had made a mess of the commits —
+real history buried better than five to one, and a mandatory
+`git pull --rebase` before every push because the bot got there first.
+
+The timestamp only means anything when the version moves, so it is now
+preserved while `tag_name` and `semver` are unchanged. The file comes out
+byte-identical, the existing guard finds nothing to commit, and a no-op
+run ends silently. A genuine release still refreshes it.
+
+Tested by executing the workflow's embedded script, not by asserting on
+its text: a test that reads source passes on a rewrite that reintroduces
+the bug.
+
 ## v4.169.30 — 2026-08-10
 
 ### Two pinned linters, and nothing that compared the pins to each other

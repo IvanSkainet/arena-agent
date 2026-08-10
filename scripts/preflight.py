@@ -85,6 +85,12 @@ CHECKS: list[Check] = [
               "requirements-lint.in, so the lint job and the debt-totals job "
               "ran different linters and the ratchet baseline could only be "
               "right for one of them; every pin was hash-locked and green"),
+    Check("held-back deps", [PY, "scripts/held_back_deps_ratchet.py"],
+          why="Dependabot proposed mutmut 3.x in PR #5 even though the "
+              "reason not to take it was written at the top of "
+              "requirements-mutation.in; a comment is prose, and the bot "
+              "reads dependabot.yml. The sweep is workflow_dispatch-only, "
+              "so no PR check would have run the broken version"),
     Check("android lint", [PY, "scripts/android_lint.py"],
           why="the first BridgeService tried to run Termux's python through "
               "ProcessBuilder; the sandbox forbids it, every check answered "

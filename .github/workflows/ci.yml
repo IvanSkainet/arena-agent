@@ -528,6 +528,14 @@ jobs:
       - name: Requirement conflicts (.in files and co-installed locks agree)
         run: python scripts/lock_conflict_ratchet.py
 
+      # v4.169.31: Dependabot proposed mutmut 3.x (PR #5) although the
+      # reason not to take it had been written in requirements-mutation.in
+      # since the sweep was built. A comment is not a constraint. This
+      # checks the ceiling, the dependabot.yml ignore that enforces it,
+      # and the prose that justifies it -- all three, or red.
+      - name: Held-back dependencies (deliberate ceilings still enforced)
+        run: python scripts/held_back_deps_ratchet.py
+
       - name: Install packaging + project dependencies (hash-locked)
         run: |
           python -m pip install --require-hashes -r requirements-packaging.lock
@@ -650,6 +658,14 @@ jobs:
       # each other, and against the locks that share an interpreter.
       - name: Requirement conflicts (.in files and co-installed locks agree)
         run: python scripts/lock_conflict_ratchet.py
+
+      # v4.169.31: Dependabot proposed mutmut 3.x (PR #5) although the
+      # reason not to take it had been written in requirements-mutation.in
+      # since the sweep was built. A comment is not a constraint. This
+      # checks the ceiling, the dependabot.yml ignore that enforces it,
+      # and the prose that justifies it -- all three, or red.
+      - name: Held-back dependencies (deliberate ceilings still enforced)
+        run: python scripts/held_back_deps_ratchet.py
 
       - name: Install CI dependencies (hash-locked)
         run: python -m pip install --require-hashes -r requirements-ci.lock
@@ -794,6 +810,14 @@ jobs:
       - name: Requirement conflicts (.in files and co-installed locks agree)
         run: python scripts/lock_conflict_ratchet.py
 
+      # v4.169.31: Dependabot proposed mutmut 3.x (PR #5) although the
+      # reason not to take it had been written in requirements-mutation.in
+      # since the sweep was built. A comment is not a constraint. This
+      # checks the ceiling, the dependabot.yml ignore that enforces it,
+      # and the prose that justifies it -- all three, or red.
+      - name: Held-back dependencies (deliberate ceilings still enforced)
+        run: python scripts/held_back_deps_ratchet.py
+
       - name: Install project and CI dependencies (hash-locked)
         run: |
           python -m pip install --require-hashes -r requirements-ci.lock
@@ -857,6 +881,14 @@ jobs:
       # each other, and against the locks that share an interpreter.
       - name: Requirement conflicts (.in files and co-installed locks agree)
         run: python scripts/lock_conflict_ratchet.py
+
+      # v4.169.31: Dependabot proposed mutmut 3.x (PR #5) although the
+      # reason not to take it had been written in requirements-mutation.in
+      # since the sweep was built. A comment is not a constraint. This
+      # checks the ceiling, the dependabot.yml ignore that enforces it,
+      # and the prose that justifies it -- all three, or red.
+      - name: Held-back dependencies (deliberate ceilings still enforced)
+        run: python scripts/held_back_deps_ratchet.py
 
       - name: Install project and CI dependencies (hash-locked)
         run: |

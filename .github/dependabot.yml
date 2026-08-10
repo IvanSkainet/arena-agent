@@ -42,6 +42,26 @@ updates:
         # v4.61.0 baseline; bump manually after testing the websocket
         # reconnect path against the new version.
         versions: [">=4.0"]
+      - dependency-name: "mutmut"
+        # v4.169.31, after PR #5 proposed exactly this. The reason not to
+        # take mutmut 3.x was already written at the top of
+        # requirements-mutation.in — 3.x copies the tree into mutants/ and
+        # breaks this project's imports — but a comment in a .in file is
+        # not a machine-readable constraint, so the bot proposed it anyway.
+        # Verified again on 3.7.0 rather than trusted: the 3.x CLI aborts
+        # before parsing arguments (`mutmut --version` raises
+        # FileNotFoundError out of _guess_source_paths), so every
+        # invocation scripts/mutation_sweep.py makes would fail. Worse, the
+        # sweep is workflow_dispatch-only, so no PR check would ever have
+        # executed it — this would have merged green and broken the sweep
+        # silently, discoverable only the next time someone ran it by hand.
+        versions: [">=3.0"]
+      - dependency-name: "websockets"
+        # websockets 17.0 requires Python >= 3.11; this package promises
+        # requires-python = ">=3.10" and CI keeps a 3.10 matrix cell to
+        # prove it. Raising the floor is a decision about who can install
+        # the bridge, not a dependency bump.
+        versions: [">=17.0"]
     labels:
       - "dependencies"
       - "automated-pr"

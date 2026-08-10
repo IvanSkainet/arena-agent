@@ -107,18 +107,50 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p docs
-          python3 -c "
-          import json, os, datetime
-          doc = {
-              'tag_name': os.environ['VERSION_TAG'],
-              'semver': os.environ['VERSION_BARE'],
-              'updated_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-          }
-          with open('docs/version.json', 'w') as f:
-              json.dump(doc, f, indent=2)
-              f.write('\n')
+          python3 <<'PYEOF'
+          import datetime
+          import json
+          import os
+          import pathlib
+
+          # v4.169.31: `updated_at` used to be stamped unconditionally, so
+          # the file differed on every run even when the version had not
+          # moved. The "commit if changed" step below then always had
+          # something to commit: 263 of the last 483 commits on master are
+          # badge refreshes, 25 of them repeating v4.164.0 and 25 repeating
+          # v4.153.3 -- one line of churn each, burying the real history and
+          # forcing a rebase on every push.
+          #
+          # The timestamp only changes meaning when the version does, so it
+          # is preserved when tag_name and semver are unchanged. The file
+          # then becomes byte-identical, the existing guard sees nothing to
+          # commit, and the run ends silently -- which is what "the badge is
+          # already correct" should look like.
+          path = pathlib.Path("docs/version.json")
+          previous = {}
+          if path.exists():
+              try:
+                  previous = json.loads(path.read_text(encoding="utf-8"))
+              except (json.JSONDecodeError, OSError):
+                  previous = {}
+
+          tag = os.environ["VERSION_TAG"]
+          bare = os.environ["VERSION_BARE"]
+          unchanged = (
+              previous.get("tag_name") == tag and previous.get("semver") == bare
+          )
+          stamp = previous.get("updated_at") if unchanged else None
+          if not stamp:
+              stamp = datetime.datetime.now(
+                  datetime.timezone.utc
+              ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          doc = {"tag_name": tag, "semver": bare, "updated_at": stamp}
+          with path.open("w", encoding="utf-8") as fh:
+              json.dump(doc, fh, indent=2)
+              fh.write("\n")
           print(json.dumps(doc, indent=2))
-          "
+          PYEOF
 
       - name: Commit if changed
         if: steps.monotonic.outputs.skip != 'true'
