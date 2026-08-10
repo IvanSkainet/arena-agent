@@ -322,7 +322,17 @@ def test_devskim_suppressions_are_narrow_and_explained() -> None:
         assert re.search(r"DevSkim: ignore DS\d+", line), (
             f"{name}: suppression must name the exact rule, not blanket-ignore: {line}"
         )
-        assert "--" in line, f"{name}: suppression has no reason: {line}"
+        # v4.169.28: DevSkim only honours a suppression on the *same*
+        # line as the finding. The first attempt put them on the line
+        # above with the reason attached, which read well and suppressed
+        # nothing -- the alert count stayed at twelve through a full
+        # rescan. The reason now lives in a comment above the code and
+        # the marker sits at the end of the offending line, so this
+        # asserts placement rather than prose.
+        assert not line.startswith("# DevSkim: ignore"), (
+            f"{name}: a suppression on its own line does nothing; it must "
+            f"trail the code it applies to: {line}"
+        )
     # A cap, not a policy: this many is a deliberate list, hundreds would
     # mean the rule is being switched off one line at a time.
     assert len(suppressions) <= 12, f"{len(suppressions)} suppressions is a blanket"

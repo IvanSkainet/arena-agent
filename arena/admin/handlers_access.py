@@ -66,9 +66,9 @@ def make_access_handlers(ctx):
             tunnels = {}
 
         return ctx.cors_json_response(access_info.describe(
-            # DevSkim: ignore DS162092 -- the default bind for a local
-            # control bridge; loopback here is the safe value, not debug code.
-            bind=str(cfg.get("bind", "127.0.0.1") or "127.0.0.1"),
+            # The default bind for a local control bridge: loopback here is
+            # the safe value, not debug code.
+            bind=str(cfg.get("bind", "127.0.0.1") or "127.0.0.1"),  # DevSkim: ignore DS162092
             port=int(cfg.get("port", 8765) or 8765),
             tunnels=tunnels,
         ))

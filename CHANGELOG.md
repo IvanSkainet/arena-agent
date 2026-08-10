@@ -1,3 +1,21 @@
+## v4.169.28 — 2026-08-10
+
+### The suppressions suppressed nothing
+
+v4.169.27 added five DevSkim suppressions and a full rescan left the
+count at twelve. They were written on the line *above* the finding, with
+the reason attached — which reads well and does nothing: DevSkim only
+honours a marker on the same line as the code it applies to.
+
+Believing they had worked would have been the same error as the release
+before, one layer down: the count is the evidence, and the count had not
+moved. It only moved for the high, which was a real code change.
+
+Six markers now trail the offending lines, with the reasoning kept in a
+comment above where it can be read. The test asserts placement rather
+than prose — a suppression on its own line now fails the build, because
+that is exactly what a suppression that does nothing looks like.
+
 ## v4.169.27 — 2026-08-10
 
 ### Still thirteen, because I closed one and opened another
