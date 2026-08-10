@@ -66,6 +66,10 @@ TARGETS: dict[str, tuple[str, ...]] = {
         "tests/test_write_is_not_code_execution.py",
         "tests/test_bridge_self_protection.py",
         "tests/test_files_sandbox_v442_hardening.py",
+        # v4.169.33: blocklist-parity tests; with these the survivor count
+        # is 0/208 (was 89/216 -- refusal-set entries, statuses and
+        # sentinel messages are now all behaviourally pinned).
+        "tests/test_files_sandbox_parity_v4_169_33.py",
     ),
     # v4.165.0: the files fixed during the v4.163/v4.164 bug hunt, each
     # paired with the guard written for it. Every one is above 60%

@@ -22,6 +22,19 @@
 
   function _q(id) { return document.getElementById(id); }
 
+  // v4.169.33: see 04d-overview-toolbar.js -- the meta line is written
+  // via innerHTML and _lastError may contain a server-supplied error
+  // string. 19-proposals.js and 20-transports.js already escaped it;
+  // this twin did not.
+  function _escape(s) {
+    if (s === null || s === undefined) return "";
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;");
+  }
+
   function _fmtTime(d) {
     if (!(d instanceof Date)) return "--:--:--";
     var pad = function (n) { return (n < 10 ? "0" : "") + n; };
@@ -54,7 +67,7 @@
     } else {
       parts.push("manual");
     }
-    if (_lastError) parts.push("last error: " + _lastError);
+    if (_lastError) parts.push("last error: " + _escape(_lastError));
     meta.innerHTML = parts.map(function (p, i) {
       return (i === 0 ? "" : '<span class="sep">·</span>') + p;
     }).join("");

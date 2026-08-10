@@ -26,6 +26,7 @@ NODE_MODULES = (
     "test_overview_gpu_errors_js.py",
     "test_overview_toolbar_js.py",
     "test_proposals_tab_js.py",
+    "test_error_meta_escaping_v4_169_33.py",
 )
 
 

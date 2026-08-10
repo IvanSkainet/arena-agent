@@ -29,6 +29,21 @@
 
   function _q(id) { return document.getElementById(id); }
 
+  // v4.169.33: the meta line goes into innerHTML, and _lastError can
+  // carry a server-supplied `error` string (see 02-api-helper.js:
+  // `errMsg += ": " + j.error`). Two of the four toolbar twins escaped
+  // it, this one and 08b did not -- same sink, same fix. A stored
+  // payload in a bridge error body would otherwise run as HTML/JS in
+  // the operator's browser, where the bridge token lives.
+  function _escape(s) {
+    if (s === null || s === undefined) return "";
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;");
+  }
+
   function _fmtTime(d) {
     if (!(d instanceof Date)) return "--:--:--";
     var pad = function (n) { return (n < 10 ? "0" : "") + n; };
@@ -63,7 +78,7 @@
     } else {
       parts.push("manual");
     }
-    if (_lastError) parts.push("last error: " + _lastError);
+    if (_lastError) parts.push("last error: " + _escape(_lastError));
     meta.innerHTML = parts.map(function (p, i) {
       return (i === 0 ? "" : "<span class=\"sep\">·</span>") + p;
     }).join("");

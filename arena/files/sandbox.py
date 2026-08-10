@@ -195,6 +195,25 @@ EXECUTION_ON_WRITE_DIR_PREFIXES: frozenset[str] = frozenset({
 })
 
 
+def _contains_part_seq(parts: tuple[str, ...], want: tuple[str, ...]) -> bool:
+    """True when ``want`` appears as consecutive segments of ``parts``.
+
+    The windows are built from ``range(len(parts))`` on purpose: slices
+    that start too late are shorter than ``want`` and can never compare
+    equal, so the upper-bound arithmetic (``len(parts) - len(want) + 1``)
+    is not needed to be correct -- and its ``+1`` constants produced
+    *equivalent* mutants that survived every behavioural test while a
+    shrinking variant of the same line would have been a real hole. This
+    form has no constants to mutate; a mutant that mangles the window
+    slice is caught by the parity tests placing prefixes at every depth.
+
+    v4.169.33: used to be two hand-rolled sliding windows, each with 2
+    surviving equivalent mutants out of 216 total for this file.
+    """
+    n = len(want)
+    return any(parts[i:i + n] == want for i in range(len(parts)))
+
+
 def _execution_on_write_error(target_path: Path, home: Path, *,
                               action: str) -> tuple[str, int] | None:
     """Refuse writes that would run code later. ``None`` when the path is clear."""
@@ -208,10 +227,9 @@ def _execution_on_write_error(target_path: Path, home: Path, *,
     parts = rel.parts
     for prefix in sorted(EXECUTION_ON_WRITE_DIR_PREFIXES):
         want = tuple(prefix.split("/"))
-        for i in range(len(parts) - len(want) + 1):
-            if parts[i:i + len(want)] == want:
-                return (f"{action} files under {prefix}/ is not allowed: "
-                        "they are executed or auto-started"), 403
+        if _contains_part_seq(parts, want):
+            return (f"{action} files under {prefix}/ is not allowed: "
+                    "they are executed or auto-started"), 403
     return None
 
 
@@ -253,10 +271,8 @@ def _path_hits_sensitive_prefix(target_path: Path, home: Path) -> str | None:
                 return prefix
             continue
         # Multi-segment prefix: match consecutive segments.
-        n = len(segs)
-        for i in range(len(parts) - n + 1):
-            if list(parts[i:i + n]) == segs:
-                return prefix
+        if _contains_part_seq(parts, tuple(segs)):
+            return prefix
     return None
 
 

@@ -35,6 +35,12 @@ TOKEN_FILE = Path.home() / "arena-bridge" / "token.txt"
 if not TOKEN and TOKEN_FILE.exists():
     TOKEN = TOKEN_FILE.read_text().strip()
 
+# v4.169.33: refuse shells-out through the allow-covering prefix check by
+# sharing the same metacharacter set the bridge's exec policy uses. The
+# repo root goes on sys.path because this script is run standalone.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from arena.security_commands import SHELL_CONTROL_CHARS  # noqa: E402
+
 MCP_URL = "http://127.0.0.1:8767/mcp"
 WHITELIST_PREFIXES = (
     "agentctl skill ", "agentctl mem ", "agentctl recall ",
@@ -47,8 +53,12 @@ VERSION = "0.1.0"
 
 
 def _post_mcp(payload: dict, timeout: int = 60) -> dict:
+    # The MCP endpoint requires the same bearer token (v4.169.33: it was
+    # never forwarded, so every /tool and /tools call came back 401 --
+    # nobody noticed because nothing tested the proxy hop).
     req = urllib.request.Request(MCP_URL, data=json.dumps(payload).encode(),
-                                  headers={"Content-Type": "application/json"}, method="POST")
+                                  headers={"Content-Type": "application/json",
+                                           "Authorization": f"Bearer {TOKEN}"}, method="POST")
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
 
@@ -64,17 +74,35 @@ def _run_shell(cmd: str, timeout: int = 60) -> dict:
         return {"ok": False, "exit": -2, "stdout": "", "stderr": str(e)}
 
 
-def _allowed(cmd: str) -> bool:
-    return any(cmd.startswith(p) for p in WHITELIST_PREFIXES)
+def _disallowed_reason(cmd: str) -> str | None:
+    """Why a /run command must be refused; None when it may run.
+
+    startswith() alone made the whitelist decorative: "agentctl skill list;
+    curl attacker" starts with a whitelisted prefix and shell=True then runs
+    the rest. A prefix-whitelisted command must be ONE shell command.
+    """
+    if not any(cmd.startswith(p) for p in WHITELIST_PREFIXES):
+        return "command not in whitelist"
+    if any(c in cmd for c in SHELL_CONTROL_CHARS):
+        return "shell control characters are not allowed with a command whitelist"
+    return None
 
 
 class H(BaseHTTPRequestHandler):
     def log_message(self, fmt, *a):
         sys.stderr.write(f"{self.address_string()} - - [{self.log_date_time_string()}] {fmt % a}\n")
 
+    def _auth_configured(self) -> bool:
+        return bool(TOKEN)
+
     def _check_auth(self) -> bool:
+        # v4.169.33: fail CLOSED. The previous "no token => open (dev mode)"
+        # turned a missing config file into an unauthenticated shell endpoint
+        # on loopback -- exactly the pattern that was fixed in the input
+        # helper. With no token there is nothing to verify a caller against,
+        # so privileged endpoints must not serve at all.
         if not TOKEN:
-            return True  # no token configured => open (dev mode)
+            return False
         h = self.headers.get("X-Arena-Token") or self.headers.get("Authorization", "").replace("Bearer ", "")
         return h == TOKEN
 
@@ -99,6 +127,8 @@ class H(BaseHTTPRequestHandler):
                                 "endpoints": ["/", "/tools", "/run (POST)", "/tool (POST)"],
                                 "mcp_proxy": MCP_URL, "auth_required": bool(TOKEN)})
         if self.path == "/tools":
+            if not self._auth_configured():
+                return self._json({"ok": False, "error": "gateway misconfigured: no token; refusing privileged access"}, 503)
             if not self._check_auth():
                 return self._json({"ok": False, "error": "unauthorized"}, 401)
             try:
@@ -110,6 +140,8 @@ class H(BaseHTTPRequestHandler):
         return self._json({"ok": False, "error": "not found"}, 404)
 
     def do_POST(self):
+        if not self._auth_configured():
+            return self._json({"ok": False, "error": "gateway misconfigured: no token; refusing privileged access"}, 503)
         if not self._check_auth():
             return self._json({"ok": False, "error": "unauthorized"}, 401)
         n = int(self.headers.get("Content-Length", "0") or 0)
@@ -122,8 +154,9 @@ class H(BaseHTTPRequestHandler):
             cmd = (data.get("command") or "").strip()
             if not cmd:
                 return self._json({"ok": False, "error": "missing command"}, 400)
-            if not _allowed(cmd):
-                return self._json({"ok": False, "error": "command not in whitelist",
+            reason = _disallowed_reason(cmd)
+            if reason is not None:
+                return self._json({"ok": False, "error": reason,
                                     "allowed": list(WHITELIST_PREFIXES)}, 403)
             return self._json(_run_shell(cmd, timeout=int(data.get("timeout", 60))))
 

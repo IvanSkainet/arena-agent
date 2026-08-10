@@ -32,6 +32,12 @@ from collections.abc import Collection
 # command, redirect data, or perform substitution after the first word.
 _SHELL_CONTROL_CHARS = frozenset(";|&$`><\r\n")
 
+# v4.169.33: bin/web_gateway.py had its own cosmetically-checked prefix
+# whitelist (`agentctl skill list; curl evil` passed `startswith`). It now
+# shares this set through the public alias instead of maintaining a copy
+# that would drift apart. Same characters, same semantics.
+SHELL_CONTROL_CHARS = _SHELL_CONTROL_CHARS
+
 BLOCK_PATTERNS: list[str] = [
     # Destructive `rm -rf` against absolute paths, home directory,
     # or wildcards. `rm -rf ./tmp/build` and `rm -rf tmp/build` (both

