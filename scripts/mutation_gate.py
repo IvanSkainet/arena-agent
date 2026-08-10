@@ -71,6 +71,23 @@ TARGETS: dict[str, tuple[str, ...]] = {
         # sentinel messages are now all behaviourally pinned).
         "tests/test_files_sandbox_parity_v4_169_33.py",
     ),
+    # v4.169.34: BrowserAct discovery helpers, 155/196 survivors before the
+    # parity file existed -- every probe was env-dependent and nearly no
+    # observable was pinned. Two equivalent families were proven dead code
+    # and removed from the module (unreachable `not path` guard; the
+    # `"\\uv/tools/"` disjunct subsumed by `"uv/tools" in path`). The rest is
+    # behaviourally pinned: per-OS candidate lists, source classification
+    # matrix, version-parse matrix, exact hint strings, status/doctor dicts,
+    # and both subprocess contracts (argv + kwargs capture).
+    "arena/admin/browseract.py": (
+        "tests/test_browseract.py",
+        "tests/test_browseract_browse_backend.py",
+        "tests/test_browseract_error_diagnostics.py",
+        "tests/test_browser_browse_handlers.py",
+        "tests/test_diagnose_elevation.py",
+        "tests/test_ship_status.py",
+        "tests/test_browseract_parity_v4_169_34.py",
+    ),
     # v4.165.0: the files fixed during the v4.163/v4.164 bug hunt, each
     # paired with the guard written for it. Every one is above 60%
     # covered -- below that a survivor count measures absent coverage

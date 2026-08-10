@@ -1,4 +1,4 @@
-## Unreleased
+## v4.169.34 — 2026-08-10
 
 ### BrowserAct: subprocess options are forwarded again
 
@@ -7,6 +7,47 @@ runtime but ignored it when invoking the CLI. On Windows this disabled the
 shared `CREATE_NO_WINDOW` flag and could flash a console window during status
 or doctor checks. The options now reach both calls; executable tests cover
 status and handshake, and sabotage removing the forwarding was caught.
+
+### Mutation debt in BrowserAct discovery: 155 survivors -> 0
+
+`arena/admin/browseract.py`, measured with mutmut 2.5.1: 196 mutants,
+41 killed / 155 survived before this release. The module reports
+whether the BrowserAct CLI is installed, from where, and at which
+version -- the dashboard and /v1/capabilities build on exactly these
+fields. The old tests probed the developer's real machine (a box with
+the CLI installed asserted something different than CI, where the
+"not installed" branch silently carried the assert) and pinned almost
+no observable.
+
+The new parity suite `tests/test_browseract_parity_v4_169_34.py`
+(18 functions, 68 cases) keeps test-side copies of every contract --
+per-OS candidate path lists, the source-classification matrix, the
+version-parse matrix, the exact hint strings, and the status/doctor
+dictionaries -- and captures both subprocess contracts (argv + kwargs)
+exactly. Everything is monkeypatched: no real PATH probe, no real file
+check, no real subprocess. The same anti-tautology discipline as
+v4.169.33 applies: a test parametrised from the module's own
+constants would iterate the mutation too.
+
+Two surviving mutants were provably equivalent variants of dead code
+and were removed from the module instead of being "tested green":
+
+* the `not path` guard in the candidate dedup loop -- every entry is a
+  truthy `shutil.which` hit or a non-empty literal join, so no falsy
+  path can reach that loop;
+* the `"\\uv/tools/"` disjunct in `_cli_source` -- any string
+  containing it already contains `"uv/tools"`, so the first condition
+  always fired first. Deleting it is unobservable by construction.
+
+The last standing mutant (`split()[-1]` -> `split()[+1]`) needed a
+three-token fallback case: with exactly two tokens both indices name
+the same element. Verification: 192/192 killed, re-run through the
+gate's own runner (`_run_one` on the TARGETS tuple) and recorded in
+`scripts/mutation_cache.json`; `scripts/mutation_baseline.json` now
+carries `arena/admin/browseract.py: 0`. Sabotage in both directions:
+192 applied mutations all caught; unmutated code passes the parity
+suite and the full test suite.
+>>>>>>> e5f1864f (fix(v4.169.34): browseract mutation debt 155 -> 0; sweep yml if/then (SC2015))
 
 ## v4.169.33 — 2026-08-10
 

@@ -64,7 +64,11 @@ def _cli_candidates() -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
     for path in candidates:
-        if not path or path in seen:
+        # v4.169.34: ``not path`` was dead -- every entry in ``candidates`` is
+        # either a truthy shutil.which() hit or a non-empty literal join, so no
+        # falsy path can reach this loop. Mutation testing proved the guard
+        # unreachable (its deletion survived every test); dead code removed.
+        if path in seen:
             continue
         seen.add(path)
         if os.path.isfile(path) and os.access(path, os.X_OK):
@@ -73,7 +77,13 @@ def _cli_candidates() -> list[str]:
 
 
 def _cli_source(path: str) -> str:
-    if "uv/tools" in path or "\\uv\\tools\\" in path or "\\uv/tools/" in path:
+    # v4.169.34: the former third disjunct ``"\\uv/tools/" in path`` was dead:
+    # any string containing "\\uv/tools/" already contains "uv/tools", so the
+    # first condition always fired first. Mutation testing proved it
+    # equivalent (mutating it changed no observable outcome); dead code
+    # removed. The backslash form covers Windows-native paths like
+    # "C:\Users\me\AppData\Roaming\uv\tools\...".
+    if "uv/tools" in path or "\\uv\\tools\\" in path:
         return "uv-tool"
     if "pipx" in path.lower():
         return "pipx"

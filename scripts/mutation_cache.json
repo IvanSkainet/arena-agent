@@ -11,6 +11,22 @@
    "tool": "mutmut 2.5.1",
    "total": 72
   },
+  "arena/admin/browseract.py": {
+   "fingerprint": "a9f0452ffbd27e98fedca9ef7db2e84204594d3add6217740dc80a2c510292e1",
+   "reason": "fresh run",
+   "survived": 0,
+   "tests": [
+    "tests/test_browser_browse_handlers.py",
+    "tests/test_browseract.py",
+    "tests/test_browseract_browse_backend.py",
+    "tests/test_browseract_error_diagnostics.py",
+    "tests/test_browseract_parity_v4_169_34.py",
+    "tests/test_diagnose_elevation.py",
+    "tests/test_ship_status.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 193
+  },
   "arena/admin/handlers_update.py": {
    "fingerprint": "93313e8bee6f05ee75a93cede69fbdabe07762050310bae845c3bdec3f4c9849",
    "reason": "sweep",

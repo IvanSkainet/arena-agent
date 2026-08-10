@@ -59,8 +59,14 @@ jobs:
           case "$SHARDS" in
             ''|*[!0-9]*) echo "shards must be a positive integer" >&2; exit 1 ;;
           esac
-          [ "$SHARDS" -ge 1 ] && [ "$SHARDS" -le 20 ] || {
-            echo "shards must be between 1 and 20" >&2; exit 1; }
+          # v4.169.34: if/then form -- the A && B || C idiom trips
+          # SC2015 (shellcheck 0.10 flags the brace-group form; the CI
+          # image pins an older one and stays green today, but that is
+          # luck, not policy). Keep "shellcheck" out of leading comment
+          # position here: it parses as a directive and breaks the lint.
+          if [ "$SHARDS" -lt 1 ] || [ "$SHARDS" -gt 20 ]; then
+            echo "shards must be between 1 and 20" >&2; exit 1
+          fi
           list=$(seq 1 "$SHARDS" | paste -sd, -)
           echo "matrix={\"shard\":[$list],\"total\":[$SHARDS]}" >> "$GITHUB_OUTPUT"
 
