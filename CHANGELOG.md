@@ -16,6 +16,16 @@ comment above where it can be read. The test asserts placement rather
 than prose — a suppression on its own line now fails the build, because
 that is exactly what a suppression that does nothing looks like.
 
+### And four more that were only prose
+
+The last four notes fired on `127.0.0.1` inside docstrings. Silencing
+those with an inline marker works, and puts scanner noise into the text
+a reader sees at `help(module)` -- trading one kind of clutter for a
+worse one, in the file whose entire subject is explaining the bind. The
+prose says "loopback" now; the meaning is identical and there is nothing
+left to find. A test fails the build if a marker ever appears in a
+docstring again.
+
 ## v4.169.27 — 2026-08-10
 
 ### Still thirteen, because I closed one and opened another

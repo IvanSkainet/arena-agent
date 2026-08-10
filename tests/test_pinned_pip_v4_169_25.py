@@ -375,3 +375,27 @@ def test_secret_payload_never_reaches_the_printing_frame() -> None:
     conv = ast.unparse(converter)
     assert "_safe_label(" in conv
     assert "int(" in conv, "the alert number should be cast, not forwarded verbatim"
+
+
+def test_no_suppression_markers_leak_into_documentation() -> None:
+    """A scanner marker in a docstring is visible to every reader.
+
+    Four of the twelve notes fired on `127.0.0.1` inside prose. Adding
+    `# DevSkim: ignore` there silences the scanner and puts tooling
+    noise into the text a human reads at `help(module)` -- trading one
+    kind of clutter for a worse one. The prose says "loopback" instead;
+    the meaning is unchanged and there is nothing left to find.
+    """
+    import importlib
+
+    for name in ("arena.mobile.access_info", "arena.admin.handlers_access",
+                 "arena.admin.auto_update_windows"):
+        mod = importlib.import_module(name)
+        doc = mod.__doc__ or ""
+        assert "DevSkim" not in doc, f"{name}: scanner marker leaked into the module docstring"
+        for attr in vars(mod).values():
+            attr_doc = getattr(attr, "__doc__", None)
+            if isinstance(attr_doc, str):
+                assert "DevSkim" not in attr_doc, (
+                    f"{name}: scanner marker leaked into a docstring"
+                )

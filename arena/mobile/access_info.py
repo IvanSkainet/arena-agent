@@ -1,7 +1,7 @@
 """How to reach this bridge, answered honestly.
 
 The Android app can show a status screen, but a status screen is useless
-if the only reachable address is `127.0.0.1` inside the phone. Ivan's
+if the only reachable address is loopback inside the phone. Ivan's
 actual goal is to hand out a URL and a token that work from somewhere
 else -- and after a reboot the phone dropped off wireless ADB entirely
 (Android turns it back off), so nothing could be repaired from outside.
@@ -9,7 +9,7 @@ Whatever the app shows has to be enough on its own.
 
 Three separate questions, deliberately not merged:
 
-  * **Where is the bridge listening?** A bind of `127.0.0.1` means no
+  * **Where is the bridge listening?** A loopback bind means no
     remote access is possible at all, no matter what tunnels exist.
   * **What addresses does this device have?** A LAN address only helps
     on the same network, and it changes.
@@ -116,9 +116,9 @@ def describe(*, bind: str, port: int, tunnels: dict[str, Any] | None = None) -> 
     The first version declared that a loopback bind meant unreachable
     "not even through a tunnel". It was written, shipped, and then used
     to inspect the PC bridge *over ngrok*, which reported
-    ``bind: 127.0.0.1`` while answering the very request that proved it
+    a loopback bind while answering the very request that proved it
     wrong. A tunnel client runs on the same host: it connects to
-    127.0.0.1 locally and forwards from outside. Loopback blocks direct
+    loopback locally and forwards from outside. Loopback blocks direct
     LAN access; it does not block a local tunnel agent.
 
     So the two are reported as what they are: ``reachable_on_lan``
