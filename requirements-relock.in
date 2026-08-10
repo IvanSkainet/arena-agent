@@ -1,4 +1,4 @@
 # Resolver used by .github/workflows/relock-dependabot.yml to regenerate the
 # other .lock files. Hash-locked like everything else: the tool that decides
 # what every job installs must not float (Scorecard PinnedDependenciesID).
-uv==0.12.1
+uv==0.12.3

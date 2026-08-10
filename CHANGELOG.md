@@ -1,3 +1,57 @@
+## v4.169.30 — 2026-08-10
+
+### Two pinned linters, and nothing that compared the pins to each other
+
+`requirements-ci.in` pinned `ruff==0.16.1`. `requirements-lint.in` pinned
+`ruff==0.16.2`. Both are installed by CI, in different jobs, and both run
+a ruff gate: the "Lint (ruff)" job installs the lint lock and calls ruff
+directly, while the "Debt totals" job installs the CI lock and runs
+`scripts/lint_ratchet.py`, which shells out to whatever ruff is on PATH.
+
+So the repository had two linters of record. A rule added, removed or
+changed between those releases yields a verdict that depends on which job
+you read, and the ratchet baseline can only be correct for one of them.
+
+Nothing was red, and nothing was going to be. Every pin was hash-locked.
+`check_lock_freshness.py` verified each `.in`/`.lock` pair — against
+itself. No check ever compared one pair to another, so the two files sat
+there contradicting each other through the whole 4.169 series.
+
+The same defect has a second shape. Three jobs install two locks into one
+interpreter (`packaging-e2e`, `e2e-installed`, and the mutation sweep).
+pip resolves that by letting the second install win, silently replacing a
+version the first lock hash-verified. The `--require-hashes` armour stays
+intact and stops meaning anything: the environment running the tests is a
+version nobody pinned. Those pairings are conflict-free today, which is
+the moment to nail them down rather than after they drift.
+
+`scripts/lock_conflict_ratchet.py` now checks both, in CI and preflight.
+It reads the co-installation map out of the workflows instead of a
+hand-kept list, so a future job that pairs two locks is covered without
+anyone remembering to update the guard.
+
+What it deliberately does not check: agreement between locks that never
+meet. `requirements-security.lock` resolves `rich`, `packaging` and `cffi`
+differently from `requirements-ci.lock` because its own graph demands it,
+and no job installs both. Forcing unrelated resolutions to match produces
+failures with nothing behind them, and a detector with false positives is
+worse than no detector — so that case is tested to stay silent.
+
+### Dependency refresh
+
+`ruff` 0.16.1 → 0.16.2 across both locks (the fix above, resolved toward
+the newer pin; the full rule statistics are byte-identical on this tree
+under both versions, so the baseline needed no adjustment), `hypothesis`
+6.164.0 → 6.165.2, `setuptools` 83.0.0 → 84.0.0, `uv` 0.12.1 → 0.12.3.
+
+All 23 pinned GitHub Actions were audited against their upstream latest
+release and every SHA re-resolved against the tag it claims: 23 of 23
+match, no drift, nothing to bump. `websockets` 17.0 and `mypy` 2.x are
+held back on purpose — websockets 17 requires Python ≥ 3.11 and this
+package still promises `requires-python = ">=3.10"` with a matrix cell to
+match, and a major mypy bump belongs in a release where its findings are
+the subject rather than a footnote.
+
 ## v4.169.29 — 2026-08-10
 
 ### The dismiss button was a silent override of the release gate

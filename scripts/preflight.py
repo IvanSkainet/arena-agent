@@ -80,6 +80,11 @@ CHECKS: list[Check] = [
           why="v4.169.5 through v4.169.9 were tagged, green on 35/35, and "
               "invisible: auto_update reads releases/latest, which only "
               "counts published releases, so every install sat on 4.169.4"),
+    Check("lock conflicts", [PY, "scripts/lock_conflict_ratchet.py"],
+          why="ruff was pinned 0.16.1 in requirements-ci.in and 0.16.2 in "
+              "requirements-lint.in, so the lint job and the debt-totals job "
+              "ran different linters and the ratchet baseline could only be "
+              "right for one of them; every pin was hash-locked and green"),
     Check("android lint", [PY, "scripts/android_lint.py"],
           why="the first BridgeService tried to run Termux's python through "
               "ProcessBuilder; the sandbox forbids it, every check answered "
