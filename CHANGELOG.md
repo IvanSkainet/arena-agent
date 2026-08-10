@@ -1,3 +1,42 @@
+## v4.169.27 — 2026-08-10
+
+### Still thirteen, because I closed one and opened another
+
+Ivan, twice: *"там 13 аллертов. Проверяй их всегда."* The second time
+was warranted. v4.169.26 reported the batch as handled, and the count
+had not moved -- Scorecard's medium closed, and the high I introduced in
+v4.169.25 took its place. Reporting a number I had not re-read is the
+same mistake as never reading it.
+
+### The taint was on the response, not on the key
+
+CodeQL kept flagging `security_alerts_check.py` with
+`py/clear-text-logging-sensitive-data` after v4.169.26 sanitised the
+label, and the persistence was the useful part of the report. Reading
+`secret_type_display_name` out of a dict that also holds `secret` leaves
+both in the same scope: neither an analyser nor a reader can tell, from
+the print statement, which one arrives there.
+
+Sanitising the string was treating the symptom. The conversion now
+happens in `_secret_findings`, whose return value contains nothing taken
+verbatim from the payload -- the number is cast to `int`, the type goes
+through the allow-list, and the response never leaves that frame.
+
+### Twelve notes, silenced one line at a time
+
+The remaining twelve were devskim `DS162092` on `127.0.0.1`: four in
+docstrings, the rest in a bridge whose entire purpose is to listen on
+loopback and to explain that bind to the operator. Noise -- but leaving
+noise open is how the one real finding gets buried, which is precisely
+what happened to the medium for twenty-five releases.
+
+Five inline suppressions, each naming the exact rule and its reason on
+the same line. Not a rule-wide disable, and not a file-level one: a
+suppression without a reason is indistinguishable from hiding, so tests
+now require every one to carry `DS<number>` and a `--` explanation, ban
+blanket forms outright, and cap the count -- hundreds of them would mean
+the check was being switched off one line at a time.
+
 ## v4.169.26 — 2026-08-10
 
 ### The alert checker was itself a high-severity alert

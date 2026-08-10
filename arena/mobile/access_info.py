@@ -26,6 +26,8 @@ import ipaddress
 import socket
 from typing import Any
 
+# DevSkim: ignore DS162092 -- this set exists precisely to recognise a
+# loopback bind. Naming the addresses is the feature.
 LOOPBACK_BINDS = frozenset({"127.0.0.1", "localhost", "::1", ""})
 
 
@@ -163,12 +165,14 @@ def describe(*, bind: str, port: int, tunnels: dict[str, Any] | None = None) -> 
     }
     if loopback and tunnel_urls:
         info["why"] = (
+            # DevSkim: ignore DS162092 -- explaining the bind to the operator
             f"bound to {bind or '127.0.0.1'}: no direct connections from other "
             f"machines, but the tunnel forwards from outside because its agent "
             f"runs on this device and dials loopback itself."
         )
     elif loopback:
         info["why"] = (
+            # DevSkim: ignore DS162092 -- explaining the bind to the operator
             f"the bridge is bound to {bind or '127.0.0.1'}, so no other machine "
             f"can connect directly. Either start a tunnel -- its agent runs here "
             f"and can reach loopback -- or restart with --bind 0.0.0.0 for LAN "

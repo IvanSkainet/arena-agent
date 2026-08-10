@@ -296,3 +296,72 @@ def test_alert_checker_does_not_print_the_secret_field() -> None:
     assert '"secret"' not in code and "['secret']" not in code, (
         "the checker reads the credential field; it must only take the type"
     )
+
+
+# --- v4.169.27: the alert list must shrink, and stay honest --------------
+
+def test_devskim_suppressions_are_narrow_and_explained() -> None:
+    """A suppression without a reason is indistinguishable from hiding.
+
+    Twelve devskim notes fired on `127.0.0.1` in a bridge whose whole
+    job is to listen on loopback. Leaving them open buries a real
+    finding in noise; blanket-disabling the rule removes the check.
+    Each suppression is one line, names the rule, and says why -- so the
+    next reader can disagree with a specific claim rather than a silence.
+    """
+    import re
+
+    suppressions: list[tuple[str, str]] = []
+    for path in sorted((REPO_ROOT / "arena").rglob("*.py")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "DevSkim: ignore" in line:
+                suppressions.append((path.name, line.strip()))
+
+    assert suppressions, "expected the loopback suppressions to be present"
+    for name, line in suppressions:
+        assert re.search(r"DevSkim: ignore DS\d+", line), (
+            f"{name}: suppression must name the exact rule, not blanket-ignore: {line}"
+        )
+        assert "--" in line, f"{name}: suppression has no reason: {line}"
+    # A cap, not a policy: this many is a deliberate list, hundreds would
+    # mean the rule is being switched off one line at a time.
+    assert len(suppressions) <= 12, f"{len(suppressions)} suppressions is a blanket"
+
+
+def test_no_blanket_devskim_disables() -> None:
+    for path in sorted((REPO_ROOT / "arena").rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        assert "DevSkim: ignore all" not in text, path.name
+        assert "devskim: ignore-file" not in text.lower(), path.name
+
+
+def test_secret_payload_never_reaches_the_printing_frame() -> None:
+    """CodeQL kept flagging the checker after the label was sanitised.
+
+    That was the useful part of the report: the taint is on the whole
+    response, not on one key. Reading `secret_type_display_name` out of
+    a dict that also holds `secret` leaves both in the same scope, and
+    neither a reader nor an analyser can tell from the print statement
+    which one arrives there. The conversion now happens in its own
+    function whose return value contains nothing taken verbatim.
+    """
+    import ast
+
+    source = (REPO_ROOT / "scripts" / "security_alerts_check.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    converter = next((n for n in tree.body
+                      if isinstance(n, ast.FunctionDef) and n.name == "_secret_findings"), None)
+    assert converter is not None, "the payload conversion must be isolated in its own function"
+
+    # Nothing inside collect() may touch a secret-scanning alert dict.
+    collect = next(n for n in tree.body
+                   if isinstance(n, ast.FunctionDef) and n.name == "collect")
+    body = ast.unparse(collect)
+    assert "secret_type_display_name" not in body, (
+        "collect() reads the payload again; the whole point is that it does not"
+    )
+    # And the converter must not pass any raw field straight through.
+    conv = ast.unparse(converter)
+    assert "_safe_label(" in conv
+    assert "int(" in conv, "the alert number should be cast, not forwarded verbatim"

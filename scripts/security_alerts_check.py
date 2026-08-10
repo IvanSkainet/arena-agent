@@ -97,6 +97,38 @@ def _get(path: str) -> tuple[list[dict[str, Any]] | None, str]:
         return None, f"unreachable: {exc}"
 
 
+def _secret_findings(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Turn secret-scanning alerts into printable rows, dropping the payload.
+
+    CodeQL flagged the previous version with
+    `py/clear-text-logging-sensitive-data` (high) and kept flagging it
+    after the label was sanitised, which was the useful part of the
+    report: the taint is on the whole response, not on one key. Reading
+    `secret_type_display_name` out of a dict that also holds `secret`
+    leaves both in the same scope, and a reader -- human or analyser --
+    cannot tell from the print statement which one arrives there.
+
+    So the conversion happens here, in a function whose return value
+    contains no field taken verbatim from the response. `number` is cast
+    to an int, the type label goes through the allow-list, and nothing
+    else crosses. The payload never leaves this frame.
+    """
+    rows: list[dict[str, Any]] = []
+    for alert in alerts:
+        try:
+            number = int(alert.get("number") or 0)
+        except (TypeError, ValueError):
+            number = 0
+        rows.append({
+            "feed": "secret-scanning",
+            "number": number,
+            "severity": "critical",
+            "id": _safe_label(alert.get("secret_type_display_name")),
+            "where": "(see the alert on GitHub)",
+        })
+    return rows
+
+
 def collect() -> tuple[list[dict[str, Any]], list[str]]:
     findings: list[dict[str, Any]] = []
     notes: list[str] = []
@@ -135,22 +167,7 @@ def collect() -> tuple[list[dict[str, Any]], list[str]]:
     if alerts is None:
         notes.append(f"secret scanning: {note}")
     else:
-        for a in alerts:
-            # CodeQL flagged this path as `py/clear-text-logging-sensitive-data`
-            # (high) and it was right to. The secret-scanning payload carries
-            # the leaked credential itself in `a["secret"]`, one dictionary
-            # key away from a line this script prints. Only the type label is
-            # wanted, so take it, sanitise it to a plain identifier, and let
-            # the payload go -- a checker for leaked secrets must not be the
-            # thing that prints one.
-            label = _safe_label(a.get("secret_type_display_name"))
-            findings.append({
-                "feed": "secret-scanning",
-                "number": a.get("number"),
-                "severity": "critical",
-                "id": label,
-                "where": "(see the alert on GitHub)",
-            })
+        findings.extend(_secret_findings(alerts))
     return findings, notes
 
 

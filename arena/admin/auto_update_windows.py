@@ -183,6 +183,8 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
     probe = (
         'powershell -NoProfile -Command "$ErrorActionPreference='
         "'SilentlyContinue'; $c=New-Object Net.Sockets.TcpClient; try { "
+        # DevSkim: ignore DS162092 -- probing our own port to confirm the
+        # relaunch worked; v4.169.21 exists because this check was absent.
         f"$c.Connect('127.0.0.1',{port}); $ok=$c.Connected }} catch {{ "
         '$ok=$false }; $c.Close(); if ($ok) { exit 0 } else { exit 1 }"'
     )
