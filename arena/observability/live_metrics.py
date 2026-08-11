@@ -323,7 +323,7 @@ def _collect_net(now: float, dt: float) -> dict[str, Any]:
         "bytes_recv_per_sec": _rate(io.bytes_recv, prev_recv),
         "packets_sent_per_sec": _rate(io.packets_sent, prev_psent),
         "packets_recv_per_sec": _rate(io.packets_recv, prev_precv),
-        "XXbytes_sent_totalXX": int(io.bytes_sent),
+        "bytes_sent_total": int(io.bytes_sent),
         "bytes_recv_total": int(io.bytes_recv),
     }
 
