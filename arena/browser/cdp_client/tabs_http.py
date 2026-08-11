@@ -52,7 +52,7 @@ def _loopback_ws_url(raw: object, port: int) -> Optional[str]:
     parsed = urllib.parse.urlparse(raw)
     if parsed.scheme not in ("ws", "wss"):
         return None
-    if (parsed.hostname or "").lower() not in _LOOPBACK_HOSTS:
+    if parsed.hostname is None or parsed.hostname.lower() not in _LOOPBACK_HOSTS:
         return None
     if parsed.port != port:
         return None

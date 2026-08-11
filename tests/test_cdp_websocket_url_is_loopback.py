@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
@@ -124,9 +123,9 @@ def cdp_stub():
                 self.wfile.write(body)
 
         server = HTTPServer(("127.0.0.1", 0), Handler)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
         servers.append(server)
-        time.sleep(0.05)
         return server.server_address[1]
 
     yield start
@@ -146,12 +145,7 @@ def test_get_websocket_url_refuses_a_hijacked_reply(cdp_stub):
 
 
 def test_get_websocket_url_accepts_a_genuine_reply():
-    """A real browser names its own port; that must still work.
-
-    The stub has to know the port it was bound to before it can answer
-    with it, so this one builds the server directly instead of using the
-    fixture.
-    """
+    """A real browser names its own port; that must still work."""
     holder: dict[str, int] = {}
 
     class Handler(BaseHTTPRequestHandler):
@@ -171,8 +165,8 @@ def test_get_websocket_url_accepts_a_genuine_reply():
 
     server = HTTPServer(("127.0.0.1", 0), Handler)
     holder["port"] = server.server_address[1]
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    time.sleep(0.05)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
     try:
         result = tabs_http.get_websocket_url(holder["port"], 0)
     finally:

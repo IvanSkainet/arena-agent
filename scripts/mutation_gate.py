@@ -154,9 +154,11 @@ TARGETS: dict[str, tuple[str, ...]] = {
     "arena/admin/auto_update_fetch.py": (
         "tests/test_auto_update_digest_required.py",
         "tests/test_auto_update.py",
+        "tests/test_auto_update_fetch_parity_v4_169_36.py",
     ),
     "arena/browser/cdp_client/tabs_http.py": (
         "tests/test_cdp_websocket_url_is_loopback.py",
+        "tests/test_cdp_tabs_http_parity_v4_169_36.py",
     ),
     "arena/observability/live_metrics.py": (
         "tests/test_live_metrics_rates.py",

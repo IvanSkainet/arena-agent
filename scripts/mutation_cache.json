@@ -1,15 +1,16 @@
 {
  "entries": {
   "arena/admin/auto_update_fetch.py": {
-   "fingerprint": "0d1f55f81eca525e57962986dd3d0f909895b4f2c8747233470b68865528a46a",
-   "reason": "sweep",
-   "survived": 32,
+   "fingerprint": "fbe50790bf706608e2794094917f0bd34a04bba95ef9d6432ca13be7c6f9818d",
+   "reason": "fresh run",
+   "survived": 0,
    "tests": [
     "tests/test_auto_update.py",
-    "tests/test_auto_update_digest_required.py"
+    "tests/test_auto_update_digest_required.py",
+    "tests/test_auto_update_fetch_parity_v4_169_36.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 72
+   "total": 70
   },
   "arena/admin/bore.py": {
    "fingerprint": "749e34bbef24682aecff26cca717337f0e76605251c0af6061fa84820e966e77",
@@ -88,10 +89,11 @@
    "total": 67
   },
   "arena/browser/cdp_client/tabs_http.py": {
-   "fingerprint": "eaf54b934f8bff13e26f8fb8f17ef587afa2b1601ce530cedb794ac61754df7a",
-   "reason": "sweep",
-   "survived": 25,
+   "fingerprint": "7649ab3f8a8fc2d8ab0a301bb8b05b3c50677c2ad26ec66cbf343fa2948694e8",
+   "reason": "fresh run",
+   "survived": 0,
    "tests": [
+    "tests/test_cdp_tabs_http_parity_v4_169_36.py",
     "tests/test_cdp_websocket_url_is_loopback.py"
    ],
    "tool": "mutmut 2.5.1",

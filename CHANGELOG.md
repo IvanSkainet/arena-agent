@@ -1,3 +1,29 @@
+## v4.169.36 — 2026-08-11
+
+### Mutation debt eliminated in CDP client & Auto-Update Fetch: 57 survivors -> 0
+
+This release continues the mutation roadmap, bringing two security-critical
+network modules to zero surviving mutants:
+
+* **CDP HTTP tabs client (`arena/browser/cdp_client/tabs_http.py` — 25 survivors -> 0, 49/49 killed):**
+  `tests/test_cdp_tabs_http_parity_v4_169_36.py` (15 cases) pins `list_tabs` URL
+  and array handling, `_loopback_ws_url` strict validation (ws/wss schemes, loopback
+  host set `127.0.0.1`, `localhost`, `::1`, `[::1]`, and exact port matching),
+  `get_websocket_url` page-tab filtering and index bounds, `get_new_tab_url` PUT
+  method with GET fallback, and `close_tab` status verification.
+  Also eliminated flaky socket sleep race in `test_cdp_websocket_url_is_loopback.py`.
+* **Auto-update release fetch & verification (`arena/admin/auto_update_fetch.py` — 32 survivors -> 0, 70/70 killed):**
+  `tests/test_auto_update_fetch_parity_v4_169_36.py` (14 cases) pins `_err` schema,
+  `_user_agent` delegation, `_sha256_of` chunk hashing, `_MAX_RELEASE_SIZE_BYTES`
+  size cap boundary enforcement, SSRF refusal, User-Agent headers, timeout=60,
+  `sha256:` digest parsing with multi-colon support, and `allow_unverified=False` default.
+
+### Baseline ratchet expanded to 8 modules
+
+`scripts/mutation_baseline.json` now mechanically enforces zero surviving mutants across
+8 runtime components: `sandbox.py`, `browseract.py`, `bore.py`, `agent_helpers/files.py`,
+`agentctl_memory.py`, `agentic/handlers.py`, `tabs_http.py`, and `auto_update_fetch.py`.
+
 ## v4.169.35 — 2026-08-11
 
 ### Mutation debt eliminated across 4 subsystems: 379 survivors -> 0
