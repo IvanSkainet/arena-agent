@@ -1,3 +1,39 @@
+## v4.169.37 — 2026-08-11
+
+### Мутационный долг ликвидирован в APK-путях, интерпретаторах и загрузчике рантаймов: 176 мутантов → 0
+
+Этот релиз развивает мутационную карту проекта, полностью устраняя всех выживших
+мутантов сразу в трёх критичных модулях изоляции путей и исполнения:
+
+* **Изоляция путей в APK staging (`arena/mobile/apk_paths.py` — 63/63 убито):**
+  `tests/test_mobile_apk_paths_parity_v4_169_37.py` (23 теста) закрепляет создание
+  директории `_ensure_root` и конверты ошибок, защиту от побега через symlink/traversal
+  в `ensure_within_staging`, лексическую валидацию ссылок на домашнюю директорию (`~`, `~/`, `~\\`)
+  vs литеральных имён файлов (`~weird.apk`), перехват `RuntimeError` в `expanduser`
+  и тотальную обработку исключений `OSError`/`ValueError` в `exists()` и `is_file()`.
+* **Таблица интерпретаторов и экранирование путей (`arena/exec/interpreters.py` — 65/65 убито):**
+  `tests/test_exec_interpreters_parity_v4_169_37.py` (9 функций) закрепляет точную
+  конфигурацию `_INTERPRETERS` (bash, sh, python, python3, node, pwsh, powershell),
+  дефолты по платформам (powershell на Windows, bash на POSIX), безопасное экранирование
+  путей для шелла (`_quote_path`) и поиск первого токена бинарника в `_which_interpreter`.
+* **Загрузка рантаймов и безопасная распаковка (`arena/workbench/runtime_fetch.py` — 48/48 убито):**
+  `tests/test_workbench_runtime_fetch_parity_v4_169_37.py` (10 функций) закрепляет
+  константу `_CHUNK_SIZE_BYTES`, точные сообщения `_verify_digest` и парсинг префикса
+  с несколькими двоеточиями, защиту от zip-slip в `_safe_join_extract`, а также вложенные
+  директории, повторные директории (`exist_ok=True`) и пропуск спецфайлов в `_extract_zip_safe` и `_extract_tar_safe`.
+* **Паритет живых метрик и фикс причины сбоя CPU (`arena/observability/live_metrics.py`):**
+  `tests/test_live_metrics_parity_v4_169_37.py` (32 теста) закрепляет сбор CPU, памяти,
+  swap, сети, диска, кэширование GPU и подавление устаревших рейтов.
+  *Исправление бага*: `_collect_cpu` теперь сохраняет реальную причину исключения
+  `psutil cpu_percent failed: ...` вместо её перезаписи на `"psutil not installed..."`.
+
+### Храповик базовой линии расширен до 11 модулей
+
+`scripts/mutation_baseline.json` теперь механически защищает 11 рантайм-компонентов на уровне
+0 выживших: `sandbox.py`, `browseract.py`, `bore.py`, `agent_helpers/files.py`,
+`agentctl_memory.py`, `agentic/handlers.py`, `tabs_http.py`, `auto_update_fetch.py`,
+`apk_paths.py`, `interpreters.py` и `runtime_fetch.py`.
+
 ## v4.169.36 — 2026-08-11
 
 ### Мутационный долг ликвидирован в CDP-клиенте и загрузчике обновлений: 57 выживших → 0

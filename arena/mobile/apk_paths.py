@@ -18,7 +18,9 @@ from typing import Any
 
 
 def _err(msg: str, **extra: Any) -> dict[str, Any]:
-    return {"ok": False, "error": msg, **extra}
+    res: dict[str, Any] = {"ok": False, "error": msg}
+    res.update(extra)
+    return res
 
 
 def _staging_root() -> Path:
@@ -126,7 +128,7 @@ def resolve_apk_path(client_path: str, staging_root: Path | None = None) -> Path
     # below, inside the same try.
     try:
         resolved = p.resolve(strict=False)
-        root_resolved = root.resolve(strict=False)
+        root_resolved = root.resolve()
     except Exception as e:
         return _err(f"could not resolve apk_path: {e}")
     if root_resolved not in resolved.parents and resolved != root_resolved:

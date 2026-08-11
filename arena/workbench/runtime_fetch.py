@@ -18,11 +18,13 @@ import tarfile
 import zipfile
 from pathlib import Path
 
+_CHUNK_SIZE_BYTES = 1024 * 1024
+
 
 def _sha256(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+        for chunk in iter(lambda: f.read(_CHUNK_SIZE_BYTES), b""):
             h.update(chunk)
     return h.hexdigest()
 

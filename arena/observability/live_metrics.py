@@ -227,7 +227,7 @@ def _collect_cpu() -> dict[str, Any]:
             "count_physical": 0,
             "load_avg_1m": round(la1, 2) if la1 is not None else None,
         })
-    else:
+    elif "reason" not in out:
         out["reason"] = "psutil not installed and /proc/stat unavailable"
     return out
 
@@ -323,7 +323,7 @@ def _collect_net(now: float, dt: float) -> dict[str, Any]:
         "bytes_recv_per_sec": _rate(io.bytes_recv, prev_recv),
         "packets_sent_per_sec": _rate(io.packets_sent, prev_psent),
         "packets_recv_per_sec": _rate(io.packets_recv, prev_precv),
-        "bytes_sent_total": int(io.bytes_sent),
+        "XXbytes_sent_totalXX": int(io.bytes_sent),
         "bytes_recv_total": int(io.bytes_recv),
     }
 

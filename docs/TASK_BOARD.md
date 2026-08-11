@@ -29,17 +29,18 @@
   - *Фикс race-condition:* устранён сокетный слип в `test_cdp_websocket_url_is_loopback.py`.
 - [x] **T10 [MUTATION]** `arena/admin/auto_update_fetch.py`: 32 выживших → **0** (70 убито, `test_auto_update_fetch_parity_v4_169_36.py`).
   - *Оптимизация:* граничные тесты лимита размера 512 MiB без расхода диска tmpfs.
+- [x] **T13 [MUTATION]** `arena/mobile/apk_paths.py`: 0 выживших (63/63 убито, `test_mobile_apk_paths_parity_v4_169_37.py`).
+- [x] **T14 [MUTATION]** `arena/exec/interpreters.py` (65/65 убито, `test_exec_interpreters_parity_v4_169_37.py`) & `arena/workbench/runtime_fetch.py` (48/48 убито, `test_workbench_runtime_fetch_parity_v4_169_37.py`).
+- [x] **T11 [MUTATION]** `arena/observability/live_metrics.py` (паритетный набор + фикс причины сбоя CPU, `test_live_metrics_parity_v4_169_37.py`).
 
 ---
 
 ## Очередь задач (Queue)
 
 ### Фаза 1: Мутационная карта (оставшиеся модули TARGETS)
-- [ ] **T11 [MUTATION]** `arena/observability/live_metrics.py` (текущий кэш / обход).
-- [ ] **T12 [MUTATION]** `arena/mcp_client/client.py`.
-- [ ] **T13 [MUTATION]** `arena/mobile/apk_paths.py` & `arena/mobile/mirror.py`.
-- [ ] **T14 [MUTATION]** `arena/exec/interpreters.py` & `arena/workbench/runtime_fetch.py`.
+- [ ] **T12 [MUTATION]** `arena/mcp_client/client.py` (изоляция timeouts/stdio).
 - [ ] **T15 [MUTATION]** `arena/admin/handlers_update.py` (завершение остатка после .24).
+- [ ] **T17 [MUTATION]** `arena/mobile/mirror.py`.
 
 ### Фаза 2: Статический анализ и типизация
 - [ ] **T16 [PYRIGHT]** Разбор ~95 находок Pyright (`reportOptionalMemberAccess`, `reportArgumentType`, `reportInvalidTypeForm`).

@@ -99,6 +99,17 @@
    "tool": "mutmut 2.5.1",
    "total": 49
   },
+  "arena/exec/interpreters.py": {
+   "fingerprint": "a879df305a9faa3f3544161d4971ada4c63ed8c7374fae82696b96f9d27ce3e4",
+   "reason": "fresh run",
+   "survived": 0,
+   "tests": [
+    "tests/test_exec_interpreters_parity_v4_169_37.py",
+    "tests/test_exec_script_path_quoting.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 65
+  },
   "arena/files/sandbox.py": {
    "fingerprint": "c6ffb7c20759ba2d231eabb3ba6796c0c1df54886c646e938e5ee9007d72ce8e",
    "reason": "fresh run",
@@ -111,6 +122,29 @@
    ],
    "tool": "mutmut 2.5.1",
    "total": 208
+  },
+  "arena/mobile/apk_paths.py": {
+   "fingerprint": "60f4dce33931304c911c2a87311811b4d389df08c65c7045df625032b89f5cee",
+   "reason": "fresh run",
+   "survived": 0,
+   "tests": [
+    "tests/test_mobile_apk_paths_parity_v4_169_37.py",
+    "tests/test_mobile_apk_upload_stays_in_staging.py",
+    "tests/test_mobile_staging_root_failure.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 63
+  },
+  "arena/workbench/runtime_fetch.py": {
+   "fingerprint": "903feb6cc9f2f3de56481c98754954be3dcf73903a7027c91d3ca5ffca24cd96",
+   "reason": "fresh run",
+   "survived": 0,
+   "tests": [
+    "tests/test_workbench_runtime_downloads.py",
+    "tests/test_workbench_runtime_fetch_parity_v4_169_37.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 48
   }
  },
  "version": 1

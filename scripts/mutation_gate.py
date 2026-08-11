@@ -133,12 +133,15 @@ TARGETS: dict[str, tuple[str, ...]] = {
     "arena/mobile/apk_paths.py": (
         "tests/test_mobile_apk_upload_stays_in_staging.py",
         "tests/test_mobile_staging_root_failure.py",
+        "tests/test_mobile_apk_paths_parity_v4_169_37.py",
     ),
     "arena/exec/interpreters.py": (
         "tests/test_exec_script_path_quoting.py",
+        "tests/test_exec_interpreters_parity_v4_169_37.py",
     ),
     "arena/workbench/runtime_fetch.py": (
         "tests/test_workbench_runtime_downloads.py",
+        "tests/test_workbench_runtime_fetch_parity_v4_169_37.py",
     ),
     # v4.169.24: 213 survivors against 5 kills before this entry existed.
     # Two of them were live holes -- inverting the digest requirement and
@@ -163,6 +166,7 @@ TARGETS: dict[str, tuple[str, ...]] = {
     "arena/observability/live_metrics.py": (
         "tests/test_live_metrics_rates.py",
         "tests/test_live_metrics_gpu_parse.py",
+        "tests/test_live_metrics_parity_v4_169_37.py",
     ),
     "arena/mcp_client/client.py": (
         "tests/test_mcp_client_output_bounds.py",

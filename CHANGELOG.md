@@ -1,3 +1,39 @@
+## v4.169.37 — 2026-08-11
+
+### Mutation debt eliminated in APK paths, Interpreters, & Runtime Fetch: 176 mutants -> 0
+
+This release pushes the mutation roadmap further, eliminating all surviving mutants
+across three critical path containment and execution modules:
+
+* **APK staging path containment (`arena/mobile/apk_paths.py` — 63/63 killed):**
+  `tests/test_mobile_apk_paths_parity_v4_169_37.py` (23 cases) pins `_ensure_root`
+  directory creation and error envelopes, `ensure_within_staging` symlink and traversal
+  containment, lexical home reference validation (`~`, `~/`, `~\\`) vs literal filenames
+  (`~weird.apk`), `expanduser` `RuntimeError` trapping, and `exists()`/`is_file()`
+  `OSError`/`ValueError` totality protection.
+* **Script execution interpreter table & quoting (`arena/exec/interpreters.py` — 65/65 killed):**
+  `tests/test_exec_interpreters_parity_v4_169_37.py` (9 functions) pins the exact
+  `_INTERPRETERS` configuration matrix (bash, sh, python, python3, node, pwsh, powershell),
+  platform defaults (powershell on Windows, bash on POSIX), shell-safe path quoting
+  (`_quote_path`), and `_which_interpreter` binary lookups.
+* **Managed runtime fetch & safe extraction (`arena/workbench/runtime_fetch.py` — 48/48 killed):**
+  `tests/test_workbench_runtime_fetch_parity_v4_169_37.py` (10 functions) pins
+  `_CHUNK_SIZE_BYTES`, `_verify_digest` exact messages and multi-colon prefix parsing,
+  `_safe_join_extract` escape prevention, and `_extract_zip_safe` / `_extract_tar_safe`
+  directory nesting, duplicate directory entries (`exist_ok=True`), and non-regular member skips.
+* **Live metrics parity & CPU reason fix (`arena/observability/live_metrics.py`):**
+  `tests/test_live_metrics_parity_v4_169_37.py` (32 cases) pins CPU, memory, swap, net,
+  disk, GPU caching, and stale rate suppressions.
+  *Root cause bug fix*: `_collect_cpu` now preserves `psutil cpu_percent failed: ...`
+  exceptions instead of overwriting them with `"psutil not installed..."`.
+
+### Baseline ratchet expanded to 11 modules
+
+`scripts/mutation_baseline.json` now ratchets 11 runtime modules at 0 survivors:
+`sandbox.py`, `browseract.py`, `bore.py`, `agent_helpers/files.py`, `agentctl_memory.py`,
+`agentic/handlers.py`, `tabs_http.py`, `auto_update_fetch.py`, `apk_paths.py`,
+`interpreters.py`, and `runtime_fetch.py`.
+
 ## v4.169.36 — 2026-08-11
 
 ### Mutation debt eliminated in CDP client & Auto-Update Fetch: 57 survivors -> 0
