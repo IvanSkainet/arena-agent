@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import sys
 import urllib.error
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -68,7 +69,7 @@ def test_probe_bridge_offline(monkeypatch):
 # --------------------------------------------------------------------
 def test_probe_bridge_online_happy_path(monkeypatch):
     responses = {
-        "/v1/version": {"ok": True, "version": "4.169.39"},
+        "/v1/version": {"ok": True, "version": "4.169.38"},
         "/v1/self": {"ok": True, "tool_count": 240, "host": {"class": "windows"}},
         "/v1/access": {
             "ok": True,
@@ -88,12 +89,12 @@ def test_probe_bridge_online_happy_path(monkeypatch):
 
     def _fake_urlopen(req, context=None, timeout=None):
         url = req.full_url if hasattr(req, "full_url") else str(req)
+        parsed = urllib.parse.urlparse(url)
+        if parsed.hostname == "pc.tail328f18.ts.net":
+            return _FakeResponse({"ok": True, "version": "4.169.38"})
         for path_key, data in responses.items():
-            if path_key in url:
+            if url.endswith(path_key):
                 return _FakeResponse(data)
-        # Probe of the public URL (/v1/version)
-        if "https://pc.tail328f18.ts.net" in url:
-            return _FakeResponse({"ok": True, "version": "4.169.39"})
         raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
 
     monkeypatch.setattr(cb.urllib.request, "urlopen", _fake_urlopen)
@@ -102,7 +103,7 @@ def test_probe_bridge_online_happy_path(monkeypatch):
     assert report["ok"] is True
     assert report["local_online"] is True
     assert report["auth_ok"] is True
-    assert report["version"] == "4.169.39"
+    assert report["version"] == "4.169.38"
     assert report["tools_count"] == 240
     assert report["public_url"] == "https://pc.tail328f18.ts.net"
     assert report["public_reachable"] is True
@@ -111,9 +112,9 @@ def test_probe_bridge_online_happy_path(monkeypatch):
 def test_probe_bridge_auth_failure_401(monkeypatch):
     def _fake_urlopen(req, context=None, timeout=None):
         url = req.full_url if hasattr(req, "full_url") else str(req)
-        if "/v1/version" in url:
-            return _FakeResponse({"ok": True, "version": "4.169.39"})
-        if "/v1/self" in url:
+        if url.endswith("/v1/version"):
+            return _FakeResponse({"ok": True, "version": "4.169.38"})
+        if url.endswith("/v1/self"):
             raise urllib.error.HTTPError(url, 401, "Unauthorized", {}, None)
         raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
 
@@ -130,7 +131,7 @@ def test_print_summary_formatting(capsys):
         "ok": True,
         "local_online": True,
         "auth_ok": True,
-        "version": "4.169.39",
+        "version": "4.169.38",
         "tools_count": 240,
         "tunnels": {
             "tailscale": {"active": True, "public_url": "https://pc.tailnet.ts.net"},
@@ -141,7 +142,7 @@ def test_print_summary_formatting(capsys):
     }
     cb.print_summary(mock_report, token="my_tok_123")
     out = capsys.readouterr().out
-    assert "Bridge Status:      ONLINE (v4.169.39)" in out
+    assert "Bridge Status:      ONLINE (v4.169.38)" in out
     assert "https://pc.tailnet.ts.net [REACHABLE]" in out
     assert "Token: my_tok_123" in out
     assert "URL:   https://pc.tailnet.ts.net" in out
