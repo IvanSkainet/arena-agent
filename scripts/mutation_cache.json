@@ -55,7 +55,7 @@
    "total": 218
   },
   "arena/agent_helpers/files.py": {
-   "fingerprint": "03f35771a28e64b10bb0aa94311b76ea422f778583664454ff38bef769dd5fad",
+   "fingerprint": "7a329e05007e2a291563e3d54e0fa0037f5fda73aa05f857b82355774aefef48",
    "reason": "fresh run",
    "survived": 0,
    "tests": [

@@ -201,6 +201,7 @@ def test_verify_bash_missing(tmp_path):
     assert msg == f"missing: {p}"
 
 
+@_POSIX_ONLY
 def test_verify_bash_valid(tmp_path):
     p = tmp_path / "valid.sh"
     p.write_text("#!/usr/bin/env bash\necho 'hello'\n", encoding="utf-8")
@@ -209,6 +210,7 @@ def test_verify_bash_valid(tmp_path):
     assert msg == "ok"
 
 
+@_POSIX_ONLY
 def test_verify_bash_invalid(tmp_path):
     p = tmp_path / "invalid.sh"
     p.write_text("if then fi\n", encoding="utf-8")
@@ -216,6 +218,21 @@ def test_verify_bash_invalid(tmp_path):
     assert ok is False
     assert isinstance(msg, str)
     assert "syntax error" in msg.lower() or "unexpected" in msg.lower()
+
+
+def test_verify_bash_mocked_success(tmp_path, monkeypatch):
+    p = tmp_path / "mock_good.sh"
+    p.write_text("echo ok\n", encoding="utf-8")
+
+    class _FakeOk:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(ah_files.subprocess, "run", lambda *a, **k: _FakeOk())
+    ok, msg = ah_files.verify_bash(p)
+    assert ok is True
+    assert msg == "ok"
 
 
 def test_verify_bash_nonzero_stdout_fallback(tmp_path, monkeypatch):
