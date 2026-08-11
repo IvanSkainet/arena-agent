@@ -95,48 +95,57 @@ def _url_wait_seconds() -> float:
     default is a generous safety margin that matches cloudflared
     / ngrok so operators see uniform behaviour across transports.
     """
-    raw = os.environ.get(_ENV_URL_WAIT, "").strip()
+    raw = os.environ.get(_ENV_URL_WAIT)
+    if raw is None:
+        return _URL_WAIT_DEFAULT_SECONDS
+    raw = raw.strip()
     if not raw:
         return _URL_WAIT_DEFAULT_SECONDS
     try:
         val = float(raw)
     except ValueError:
         return _URL_WAIT_DEFAULT_SECONDS
-    if val < _URL_WAIT_MIN_SECONDS:
-        return _URL_WAIT_MIN_SECONDS
-    if val > _URL_WAIT_MAX_SECONDS:
-        return _URL_WAIT_MAX_SECONDS
-    return val
+    return max(_URL_WAIT_MIN_SECONDS, min(val, _URL_WAIT_MAX_SECONDS))
 
 
 def _bore_server() -> str:
     """Configured bore server host -- default ``bore.pub``."""
-    val = os.environ.get("ARENA_BORE_SERVER", "").strip()
-    return val or _DEFAULT_BORE_SERVER
+    val = os.environ.get("ARENA_BORE_SERVER")
+    if val is None:
+        return _DEFAULT_BORE_SERVER
+    val = val.strip()
+    return val if val else _DEFAULT_BORE_SERVER
 
 
 def _bore_local_host() -> str:
     """Loopback host name bore should forward to."""
-    val = os.environ.get("ARENA_BORE_LOCAL_HOST", "").strip()
-    return val or _DEFAULT_LOCAL_HOST
+    val = os.environ.get("ARENA_BORE_LOCAL_HOST")
+    if val is None:
+        return _DEFAULT_LOCAL_HOST
+    val = val.strip()
+    return val if val else _DEFAULT_LOCAL_HOST
 
 
 def _bore_secret() -> str:
-    return os.environ.get("ARENA_BORE_SECRET", "").strip()
+    val = os.environ.get("ARENA_BORE_SECRET")
+    return val.strip() if val is not None else ""
 
 
 def _bore_remote_port() -> int:
     """Preferred remote port -- 0 means "let the server choose"."""
-    raw = os.environ.get("ARENA_BORE_REMOTE_PORT", "").strip()
+    raw = os.environ.get("ARENA_BORE_REMOTE_PORT")
+    if raw is None:
+        return 0
+    raw = raw.strip()
     if not raw:
         return 0
     try:
         val = int(raw)
     except ValueError:
         return 0
-    if val < 0 or val > 65535:
-        return 0
-    return val
+    if 1 <= val <= 65535:
+        return val
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -181,14 +190,27 @@ def _resolve_bore_with_source(root_agent: Path) -> tuple[str | None, str]:
     return None, "not_found"
 
 
-def _get_bore_version(bin_path: str) -> str | None:
+def _subprocess_options(
+    subprocess_kwargs: Callable[[], dict[str, Any]] | None,
+) -> dict[str, Any]:
+    return subprocess_kwargs() if subprocess_kwargs is not None else {}
+
+
+def _get_bore_version(
+    bin_path: str,
+    *,
+    subprocess_kwargs: Callable[[], dict[str, Any]] | None = None,
+) -> str | None:
     try:
         result = subprocess.run(
             [bin_path, "--version"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            **_subprocess_options(subprocess_kwargs),
         )
         # Output: "bore 0.6.0" or "bore-cli 0.5.1"
-        match = re.search(r"([\d]+\.[\d]+\.[\d]+)", result.stdout or "")
+        match = re.search(r"(\d+\.\d+\.\d+)", result.stdout)
         if match:
             return match.group(1)
     except Exception:
@@ -288,11 +310,12 @@ _ERROR_PATTERNS: list[tuple[str, str, str]] = [
 
 
 def _classify_error(log_lines: list[str]) -> tuple[str, str]:
-    """Scan the last N log lines and return (error_code, hint)."""
-    text = "\n".join(log_lines).lower()
-    for pattern, code, hint in _ERROR_PATTERNS:
-        if re.search(pattern.lower(), text):
-            return code, hint
+    """Scan the log lines and return (error_code, hint)."""
+    for line in log_lines:
+        lower = line.lower()
+        for pattern, code, hint in _ERROR_PATTERNS:
+            if re.search(pattern.lower(), lower):
+                return code, hint
     return ("unknown",
             "See the log field for bore's raw output. "
             "Docs: https://github.com/ekzhang/bore#readme")
@@ -399,30 +422,36 @@ def bore_action(action: str, port: int, *,
                 subprocess_kwargs: Callable[[], dict[str, Any]]) -> dict[str, Any]:
     """Public entry-point, same shape as ``cloudflared_funnel_action``
     and ``ngrok_action`` (start / stop / status)."""
-    action = (action or "").lower()
-    if action not in ("start", "stop", "status"):
+    if not isinstance(action, str):
+        return {"ok": False, "error": "action must be start|stop|status"}
+    act = action.strip().lower()
+    if act not in ("start", "stop", "status"):
         return {"ok": False, "error": "action must be start|stop|status"}
 
     bin_path, source = _resolve_bore_with_source(root_agent)
 
-    if action == "start":
+    if act == "start":
         if not bin_path:
             return {"ok": False, "error": "bore binary not found",
                     "update_hint": _get_update_hint(source, None)}
         return _start_bore(bin_path, port,
                            subprocess_kwargs=subprocess_kwargs)
 
-    if action == "stop":
+    if act == "stop":
         _terminate_bore()
         BORE_STATE["proc"] = None
         BORE_STATE["url"] = ""
         return {"ok": True, "action": "stop"}
 
-    # action == "status"
+    # act == "status"
     proc = BORE_STATE["proc"]
     running = proc is not None and proc.poll() is None
     installed = bin_path is not None
-    version = _get_bore_version(bin_path) if bin_path else None
+    version = (
+        _get_bore_version(bin_path, subprocess_kwargs=subprocess_kwargs)
+        if bin_path
+        else None
+    )
 
     # Clear stale URL when the process has died -- matches the
     # v4.36.1 ngrok fix that prevented "active:false but url:..."

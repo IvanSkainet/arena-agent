@@ -88,6 +88,39 @@ TARGETS: dict[str, tuple[str, ...]] = {
         "tests/test_ship_status.py",
         "tests/test_browseract_parity_v4_169_34.py",
     ),
+    # v4.169.35: bore tunnel runtime helpers, 141/309 survivors before the parity suite.
+    # Pinned: per-OS candidate lists, exact hint texts, error classifier regexes/hints,
+    # port clamp boundaries, wait seconds clamp boundaries, Popen kwargs forwarding,
+    # monitor thread log capture & URL build, early process exit vs timeout contracts.
+    "arena/admin/bore.py": (
+        "tests/test_bore.py",
+        "tests/test_bore_wiring.py",
+        "tests/test_bore_route_registration.py",
+        "tests/test_bore_parity_v4_169_35.py",
+    ),
+    # v4.169.35: agent-side filesystem helpers, 84/99 survivors before parity suite.
+    # Pinned: now_iso format, safe_write atomic replacement & mode, backup_file timestamp
+    # & permissions, verify_python spec/loader & syntax/runtime error, verify_bash bash -n & outputs,
+    # patch_block positions (before/after/replace) & count=1 & mode preservation, patch_replace.
+    "arena/agent_helpers/files.py": (
+        "tests/test_arena_agent_helpers_files.py",
+        "tests/test_agent_helpers_files_parity_v4_169_35.py",
+    ),
+    # v4.169.35: agentctl memory/recall commands, 83/110 survivors before parity suite.
+    # Pinned: _arg_value, _remove_flag, mem_set validation & profile/tags, mem_get normalization
+    # ('all' -> '') & truncation & missing defaults, recall_search score format & fact fallback,
+    # recall_digest string vs JSON dump.
+    "arena/agentctl_cli/agentctl_memory.py": (
+        "tests/test_agentctl_memory.py",
+        "tests/test_agentctl_memory_parity_v4_169_35.py",
+    ),
+    # v4.169.35: agentic handlers (react & reflect), 71/72 survivors before parity suite.
+    # Pinned: auth enforcement (@authed), input JSON validation, goal missing/null handling,
+    # custom vs default parameters, audit events structure, dataclass immutability (frozen=True).
+    "arena/agentic/handlers.py": (
+        "tests/test_agentic.py",
+        "tests/test_agentic_handlers_parity_v4_169_35.py",
+    ),
     # v4.165.0: the files fixed during the v4.163/v4.164 bug hunt, each
     # paired with the guard written for it. Every one is above 60%
     # covered -- below that a survivor count measures absent coverage

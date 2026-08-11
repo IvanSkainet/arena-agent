@@ -11,7 +11,11 @@ import subprocess
 import sys  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from pathlib import Path
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
+
+def get_agent_home() -> Path:
+    return Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
+
+ROOT = get_agent_home()
 FACTS = ROOT / "memory" / "facts.jsonl"
 
 def now_iso() -> str:

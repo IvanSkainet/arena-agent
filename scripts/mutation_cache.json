@@ -11,6 +11,19 @@
    "tool": "mutmut 2.5.1",
    "total": 72
   },
+  "arena/admin/bore.py": {
+   "fingerprint": "749e34bbef24682aecff26cca717337f0e76605251c0af6061fa84820e966e77",
+   "reason": "fresh run",
+   "survived": 0,
+   "tests": [
+    "tests/test_bore.py",
+    "tests/test_bore_parity_v4_169_35.py",
+    "tests/test_bore_route_registration.py",
+    "tests/test_bore_wiring.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 306
+  },
   "arena/admin/browseract.py": {
    "fingerprint": "2998ce8941a1a4f1cee3ae17ed0c806eb0f7a05732f489e861171f4e09057f60",
    "reason": "fresh run",
@@ -41,6 +54,39 @@
    "tool": "mutmut 2.5.1",
    "total": 218
   },
+  "arena/agent_helpers/files.py": {
+   "fingerprint": "03f35771a28e64b10bb0aa94311b76ea422f778583664454ff38bef769dd5fad",
+   "reason": "fresh run",
+   "survived": 0,
+   "tests": [
+    "tests/test_agent_helpers_files_parity_v4_169_35.py",
+    "tests/test_arena_agent_helpers_files.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 99
+  },
+  "arena/agentctl_cli/agentctl_memory.py": {
+   "fingerprint": "8e54216456af386e4213e3eccfffac68578415838f0cf916fd2d3fd8f0df8b44",
+   "reason": "fresh run",
+   "survived": 0,
+   "tests": [
+    "tests/test_agentctl_memory.py",
+    "tests/test_agentctl_memory_parity_v4_169_35.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 116
+  },
+  "arena/agentic/handlers.py": {
+   "fingerprint": "d8c33b52acb8bb721a0629218763a07414075108466b26a2626ad8f9496d6408",
+   "reason": "fresh run",
+   "survived": 0,
+   "tests": [
+    "tests/test_agentic.py",
+    "tests/test_agentic_handlers_parity_v4_169_35.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 67
+  },
   "arena/browser/cdp_client/tabs_http.py": {
    "fingerprint": "eaf54b934f8bff13e26f8fb8f17ef587afa2b1601ce530cedb794ac61754df7a",
    "reason": "sweep",
@@ -52,16 +98,17 @@
    "total": 49
   },
   "arena/files/sandbox.py": {
-   "fingerprint": "e2e3e73d7d5356c9b03e998a21b2392d3ce1798dd2cc9c33bc3c232dacfa428a",
+   "fingerprint": "c6ffb7c20759ba2d231eabb3ba6796c0c1df54886c646e938e5ee9007d72ce8e",
    "reason": "fresh run",
-   "survived": 89,
+   "survived": 0,
    "tests": [
     "tests/test_bridge_self_protection.py",
+    "tests/test_files_sandbox_parity_v4_169_33.py",
     "tests/test_files_sandbox_v442_hardening.py",
     "tests/test_write_is_not_code_execution.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 216
+   "total": 208
   }
  },
  "version": 1

@@ -1,3 +1,45 @@
+## v4.169.35 — 2026-08-11
+
+### Mutation debt eliminated across 4 subsystems: 379 survivors -> 0
+
+This release closes mutation debt across four runtime modules simultaneously,
+eliminating 379 surviving mutants and pinning full behavioral parity suites
+with zero survivors:
+
+* **Bore tunnel runtime helpers (`arena/admin/bore.py` — 141 survivors -> 0, 306/306 killed):**
+  The new parity suite `tests/test_bore_parity_v4_169_35.py` (19 functions, 96 cases)
+  pins per-OS binary candidate lists, exact install and update hint strings, error
+  classifier regexes and advice messages, numeric clamp boundaries (wait seconds
+  clamped to 1.0..300.0s, remote ports 1..65535 with 0 as server-chosen default),
+  Popen kwargs forwarding (`CREATE_NO_WINDOW` on Windows), monitor thread stdout
+  draining, and process died early vs deadline timeout error contracts.
+* **Agent-side file helpers (`arena/agent_helpers/files.py` — 84 survivors -> 0, 99/99 killed):**
+  `tests/test_agent_helpers_files_parity_v4_169_35.py` (19 cases) pins `now_iso`
+  UTC format and seconds precision, `safe_write` atomic tmp replace and mode setting,
+  `backup_file` ISO timestamp format and 0o600 permissions, `verify_python` spec/loader
+  and syntax/runtime errors, `verify_bash` syntax validation and exit-message fallback,
+  `patch_block` positioning (`before`, `after`, `replace`), single-occurrence replacement
+  (`count=1`), mode preservation, and `patch_replace`.
+* **Agentctl memory & recall CLI (`arena/agentctl_cli/agentctl_memory.py` — 83 survivors -> 0, 116/116 killed):**
+  `tests/test_agentctl_memory_parity_v4_169_35.py` (19 cases) pins `_arg_value`,
+  `_remove_flag`, `mem_set` profile and tags parsing, `mem_get` query normalization
+  (`"all"` -> `""`) and 80-char fact truncation, `recall_search` query extraction,
+  score formatting (`:.2f`) and fact fallback, and `recall_digest` text vs JSON fallback.
+  *Root-cause bug fix*: `mem_set` now safely validates arguments before indexing,
+  preventing `IndexError` when flags like `--profile` are passed without key/value.
+* **Agentic ReAct & Reflect handlers (`arena/agentic/handlers.py` — 71 survivors -> 0, 67/67 killed):**
+  `tests/test_agentic_handlers_parity_v4_169_35.py` (9 functions) pins `@authed`
+  auth enforcement, JSON decoding error handling, custom and default arguments,
+  audit event payload structures, and dataclass immutability (`frozen=True`).
+  *Root-cause bug fix*: `handle_v1_react` and `handle_v1_reflect` now safely treat
+  `null` values (`{"goal": null}`) as empty rather than converting to `"None"`.
+
+### Baseline ratchet expanded
+
+`scripts/mutation_baseline.json` now ratchets 6 core runtime files at 0 survivors:
+`sandbox.py`, `browseract.py`, `bore.py`, `agent_helpers/files.py`,
+`agentctl_memory.py`, and `agentic/handlers.py`.
+
 ## v4.169.34 — 2026-08-10
 
 ### BrowserAct: subprocess options are forwarded again
@@ -47,7 +89,6 @@ gate's own runner (`_run_one` on the TARGETS tuple) and recorded in
 carries `arena/admin/browseract.py: 0`. Sabotage in both directions:
 192 applied mutations all caught; unmutated code passes the parity
 suite and the full test suite.
->>>>>>> e5f1864f (fix(v4.169.34): browseract mutation debt 155 -> 0; sweep yml if/then (SC2015))
 
 ## v4.169.33 — 2026-08-10
 

@@ -320,7 +320,7 @@ class TestBoreAction:
         monkeypatch.setattr(bore_mod, "_resolve_bore_with_source",
                             lambda *_a: ("/usr/bin/bore", "system"))
         monkeypatch.setattr(bore_mod, "_get_bore_version",
-                            lambda *_a: "0.6.0")
+                            lambda *_a, **_k: "0.6.0")
         r = bore_mod.bore_action("status", 8765, root_agent=tmp_path,
                                  subprocess_kwargs=lambda: {})
         assert r["active"] is False
@@ -330,7 +330,7 @@ class TestBoreAction:
         monkeypatch.setattr(bore_mod, "_resolve_bore_with_source",
                             lambda *_a: ("/usr/bin/bore", "system"))
         monkeypatch.setattr(bore_mod, "_get_bore_version",
-                            lambda *_a: "0.6.0")
+                            lambda *_a, **_k: "0.6.0")
         monkeypatch.setenv("ARENA_BORE_SERVER", "self-hosted.example")
         r = bore_mod.bore_action("status", 8765, root_agent=tmp_path,
                                  subprocess_kwargs=lambda: {})

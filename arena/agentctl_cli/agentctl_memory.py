@@ -25,11 +25,11 @@ def _remove_flag(args: list[str], name: str) -> list[str]:
 
 
 def mem_set(args):
-    if len(args) < 2:
-        print("Usage: agentctl mem set KEY VALUE [--tags tag1 tag2] [--profile PROFILE]")
-        sys.exit(2)
     profile = _arg_value(args, "--profile") or "default"
     clean_args = _remove_flag(args, "--profile")
+    if len(clean_args) < 2 or clean_args[0] == "--tags" or clean_args[1] == "--tags":
+        print("Usage: agentctl mem set KEY VALUE [--tags tag1 tag2] [--profile PROFILE]")
+        sys.exit(2)
     key, value = clean_args[0], clean_args[1]
     tags = clean_args[clean_args.index("--tags") + 1:] if "--tags" in clean_args else []
     try:
@@ -42,7 +42,9 @@ def mem_set(args):
 def mem_get(args):
     profile = _arg_value(args, "--profile") or "default"
     clean_args = _remove_flag(args, "--profile")
-    q = "" if clean_args and clean_args[0].lower() == "all" else (clean_args[0] if clean_args else "")
+    q = clean_args[0] if clean_args else ""
+    if q.lower() == "all":
+        q = ""
     try:
         r = bridge_get(f"/v1/memory?profile={quote(profile)}&q={quote(q)}")
         print(f"Facts ({r.get('count',0)}) in profile {r.get('profile','default')}:")

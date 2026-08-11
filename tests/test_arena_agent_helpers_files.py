@@ -15,11 +15,8 @@ POSIX filesystems -- Windows NTFS uses ACLs and the
 """
 from __future__ import annotations
 
-import os
 import stat
 import sys
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -34,11 +31,6 @@ _POSIX_ONLY = pytest.mark.skipif(
            "enforced on Windows NTFS",
 )
 
-
-# Point ARENA_AGENT_HOME at a tmp dir before importing the
-# module so the module-level ``ROOT`` constant is safe.
-_tmp_home = Path(tempfile.mkdtemp(prefix="arena_helpers_test_"))
-os.environ["ARENA_AGENT_HOME"] = str(_tmp_home)
 
 from arena.agent_helpers import files  # noqa: E402
 

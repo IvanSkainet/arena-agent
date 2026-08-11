@@ -1,4 +1,8 @@
 {
+ "arena/admin/bore.py": 0,
  "arena/admin/browseract.py": 0,
+ "arena/agent_helpers/files.py": 0,
+ "arena/agentctl_cli/agentctl_memory.py": 0,
+ "arena/agentic/handlers.py": 0,
  "arena/files/sandbox.py": 0
 }

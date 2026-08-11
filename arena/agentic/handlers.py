@@ -25,16 +25,16 @@ def make_agentic_handlers(ctx: AgenticHandlerContext) -> AgenticHandlers:
             data = await request.json()
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
-        goal = str(data.get("goal", "")).strip()
+        goal = str(data.get("goal") or "").strip()
         if not goal:
             return ctx.cors_json_response({"ok": False, "error": "missing goal"}, status=400)
         result = ctx.react_sync(
             goal=goal,
-            context=str(data.get("context", "") or ""),
+            context=str(data.get("context") or ""),
             constraints=data.get("constraints") or [],
-            max_iterations=int(data.get("max_iterations", 4) or 4),
+            max_iterations=int(data.get("max_iterations") or 4),
             memory_profile=data.get("memory_profile"),
-            url=str(data.get("url", "") or ""),
+            url=str(data.get("url") or ""),
         )
         ctx.audit({"event": "react_run", "goal": goal, "iterations": len(result.get("iterations") or []), "profile": result.get("memory_profile")})
         return ctx.cors_json_response(result)
@@ -46,10 +46,10 @@ def make_agentic_handlers(ctx: AgenticHandlerContext) -> AgenticHandlers:
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
         result = ctx.reflect_sync(
-            goal=str(data.get("goal", "") or ""),
+            goal=str(data.get("goal") or ""),
             run=data.get("run") or {},
-            notes=str(data.get("notes", "") or ""),
-            outcome=str(data.get("outcome", "") or ""),
+            notes=str(data.get("notes") or ""),
+            outcome=str(data.get("outcome") or ""),
         )
         ctx.audit({"event": "reflect_run", "goal": result.get("goal", ""), "confidence": result.get("confidence", "")})
         return ctx.cors_json_response(result)
