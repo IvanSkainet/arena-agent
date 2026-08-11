@@ -1,3 +1,25 @@
+## v4.169.38 — 2026-08-11
+
+### Fixed: uninstall and install scripts killed user browser processes
+
+`uninstall.bat` and `install.bat` on Windows previously executed `netstat -ano | findstr ":8765 "`
+to find the process running the bridge and kill it via `taskkill`. However, when a web
+browser (Chrome, Edge, Firefox, Brave) was open and connected to the bridge dashboard or
+endpoints on port 8765, `netstat -ano` output contained lines for established client
+connections (`127.0.0.1:<random_port> -> 127.0.0.1:8765 ESTABLISHED <Browser_PID>`).
+The uninstaller parsed the 5th token on that line and forcibly killed the user's browser.
+
+* **Windows (`uninstall.bat`, `install.bat`):** Added a strict `findstr /I "LISTENING"`
+  filter to the netstat pipeline so only sockets in the `LISTENING` state are targeted.
+  Client connection lines (`ESTABLISHED`, `TIME_WAIT`) are ignored completely.
+* **POSIX (`uninstall.sh`, `install.sh`):** Added `-sTCP:LISTEN` to `lsof` invocations
+  so only the server daemon in the LISTEN state is selected.
+* **CDP Process Cleanup (`arena/browser/cdp_client/process_helpers.py`):** Added
+  `-sTCP:LISTEN` to `_kill_port_processes` when using the `lsof` fallback.
+* **Guarding tests (`tests/test_uninstall_port_kill_safety.py`):** 5 tests verifying
+  `LISTENING` filter presence across batch scripts and shell scripts, with mandatory
+  sabotage coverage.
+
 ## v4.169.37 — 2026-08-11
 
 ### Mutation debt eliminated in APK paths, Interpreters, & Runtime Fetch: 176 mutants -> 0

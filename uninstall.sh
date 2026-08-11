@@ -71,12 +71,12 @@ if [ "$OS" = "Darwin" ]; then
 fi
 
 # --- Kill processes on bridge port ---
-PIDS="$(lsof -ti :"$PORT" 2>/dev/null || true)"
+PIDS="$(lsof -ti -sTCP:LISTEN :"$PORT" 2>/dev/null || true)"
 if [ -n "$PIDS" ]; then
     kill $PIDS 2>/dev/null || true
     sleep 1
     # Force kill if still running
-    PIDS="$(lsof -ti :"$PORT" 2>/dev/null || true)"
+    PIDS="$(lsof -ti -sTCP:LISTEN :"$PORT" 2>/dev/null || true)"
     if [ -n "$PIDS" ]; then
         kill -9 $PIDS 2>/dev/null || true
     fi

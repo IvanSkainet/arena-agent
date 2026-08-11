@@ -676,7 +676,7 @@ if not errorlevel 1 (
 )
 ping -n 2 127.0.0.1 >nul
 
-for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr ":%PORT% "') do taskkill /F /PID %%P >nul 2>nul
+for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr ":%PORT% " ^| findstr /I "LISTENING"') do taskkill /F /PID %%P >nul 2>nul
 ping -n 2 127.0.0.1 >nul
 
 echo @echo off> "!BRIDGE_DIR!\start_bridge.bat"

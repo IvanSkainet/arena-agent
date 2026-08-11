@@ -48,10 +48,10 @@ def _kill_port_processes(port: int) -> list:
                     except (ProcessLookupError, PermissionError, ValueError):
                         pass
     except FileNotFoundError:
-        # ss not found — try lsof
+        # ss not found — try lsof (filter strictly for LISTEN sockets)
         try:
             result = subprocess.run(
-                ["lsof", "-ti", f":{port}"],
+                ["lsof", "-ti", "-sTCP:LISTEN", f":{port}"],
                 capture_output=True, text=True, timeout=3
             )
             for pid_str in result.stdout.strip().split():

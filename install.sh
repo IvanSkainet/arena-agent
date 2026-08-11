@@ -1009,7 +1009,7 @@ else
     if command -v ss >/dev/null 2>&1; then
         PIDS="$(ss -tlnp "sport = :$PORT" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)"
     elif command -v lsof >/dev/null 2>&1; then
-        PIDS="$(lsof -ti :"$PORT" 2>/dev/null || true)"
+        PIDS="$(lsof -ti -sTCP:LISTEN :"$PORT" 2>/dev/null || true)"
     else
         PIDS=""
     fi

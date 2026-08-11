@@ -51,7 +51,7 @@ if not errorlevel 1 (
 )
 
 REM --- Kill processes on bridge port ---
-for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr ":%PORT% "') do (
+for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr ":%PORT% " ^| findstr /I "LISTENING"') do (
     taskkill /F /PID %%P >nul 2>nul
 )
 echo [OK] Bridge processes killed.
