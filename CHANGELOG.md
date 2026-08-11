@@ -1,6 +1,6 @@
 ## v4.169.38 — 2026-08-11
 
-### Fixed: uninstall and install scripts killed user browser processes
+### Fixed: uninstall/install scripts killed user browser processes
 
 `uninstall.bat` and `install.bat` on Windows previously executed `netstat -ano | findstr ":8765 "`
 to find the process running the bridge and kill it via `taskkill`. However, when a web
@@ -20,6 +20,34 @@ The uninstaller parsed the 5th token on that line and forcibly killed the user's
   `LISTENING` filter presence across batch scripts and shell scripts, with mandatory
   sabotage coverage.
 
+<<<<<<< HEAD
+=======
+### Simplified startup, full tunnel cleanup on stop, & real reachability diagnostics
+
+This release directly addresses operator feedback on bridge lifecycle usability,
+stuck Tailscale funnels, and verification of real external connectivity for Arena.ai:
+
+* **Complete tunnel teardown on stop (`stop.bat`, `stop.sh`):**
+  Stopping the bridge now cleanly terminates Tailscale Funnel and Serve
+  (`tailscale funnel off`, `tailscale serve off`) and stops all background tunnel
+  processes (cloudflared, ngrok, bore). Prevents zombie tunnels and stuck funnels
+  from blocking ports across restarts.
+* **Simplified startup & connection banner (`start.bat`, `start.sh`):**
+  `start.bat` auto-discovers Python across standard install paths, auto-generates
+  `token.txt` on first launch if missing, checks port availability before spawning,
+  and prints a clear connection card with Local URL, Token, and Dashboard links.
+* **Real reachability diagnostic tool (`scripts/check_bridge.py`, `status.bat`, `status.sh`):**
+  `status.bat` and `status.sh` now execute an end-to-end diagnostic that verifies:
+  1. Local loopback daemon listening on port 8765;
+  2. Bearer token authentication against `/v1/self` (verifies tools and profile);
+  3. Active tunnel provider status (Tailscale Funnel, Cloudflare, ngrok, bore);
+  4. Real probe of the public tunnel URL to prove outside reachability;
+  5. Formatted connection card ready for copy-paste into Arena.ai prompts.
+* **Diagnostic suite (`tests/test_check_bridge_diagnostic.py`):** 6 tests covering
+  token resolution, offline detection, 401 Unauthorized handling, tunnel probe,
+  and output formatting.
+
+>>>>>>> 307c13ef (fix(v4.169.38): lifecycle usability, stop tailscale/tunnels, check_bridge diagnostic)
 ## v4.169.37 — 2026-08-11
 
 ### Mutation debt eliminated in APK paths, Interpreters, & Runtime Fetch: 176 mutants -> 0
