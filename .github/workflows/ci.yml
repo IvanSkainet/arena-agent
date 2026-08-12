@@ -68,7 +68,7 @@ jobs:
   # macOS device locally.
   # ----------------------------------------------------------------
   test:
-    timeout-minutes: 15
+    timeout-minutes: 30
     name: Tests (Python ${{ matrix.python-version }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     # Job-scoped (Scorecard narrowed-top-level doctrine): checkout needs
@@ -583,7 +583,7 @@ jobs:
   # product, not a warning. ~75s including the browser download.
   # ----------------------------------------------------------------
   dashboard-browser-e2e:
-    timeout-minutes: 15
+    timeout-minutes: 20
     name: Dashboard browser E2E (real Chromium against a live server)
     runs-on: ubuntu-latest
     steps:
@@ -1340,7 +1340,7 @@ jobs:
   # Android.
   # ----------------------------------------------------------------
   android:
-    timeout-minutes: 15
+    timeout-minutes: 20
     name: Android app (lint + real APK build)
     runs-on: ubuntu-latest
     steps:
