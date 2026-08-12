@@ -32,13 +32,17 @@
 - [x] **T13 [MUTATION]** `arena/mobile/apk_paths.py`: 0 выживших (63/63 убито, `test_mobile_apk_paths_parity_v4_169_37.py`).
 - [x] **T14 [MUTATION]** `arena/exec/interpreters.py` (65/65 убито, `test_exec_interpreters_parity_v4_169_37.py`) & `arena/workbench/runtime_fetch.py` (48/48 убито, `test_workbench_runtime_fetch_parity_v4_169_37.py`).
 - [x] **T11 [MUTATION]** `arena/observability/live_metrics.py` (паритетный набор + фикс причины сбоя CPU, `test_live_metrics_parity_v4_169_37.py`).
+- [x] **T18 [LIFECYCLE]** Безопасные батники `start.bat` / `stop.bat` / `status.bat` (`v4.169.38`):
+  - `start.bat`: автопоиск Python по 15 путям, автоустановка зависимостей, автокопирование токена в буфер обмена (`clip`).
+  - `stop.bat`: чистое выключение Tailscale Funnel / Serve, остановка туннелей, защита от закрытия браузера пользователя (`findstr /I "LISTENING"`).
+  - `status.bat`: сквозной инструмент `scripts/check_bridge.py` с реальным внешним зондом доступности.
+- [x] **T12 [MUTATION]** `arena/mcp_client/client.py`: быстрый паритетный набор с мок-процессами (`test_mcp_client_parity_v4_169_39.py`, 42 теста) + кроссплатформенная нормализация `\` в путях команд.
 
 ---
 
 ## Очередь задач (Queue)
 
 ### Фаза 1: Мутационная карта (оставшиеся модули TARGETS)
-- [ ] **T12 [MUTATION]** `arena/mcp_client/client.py` (изоляция timeouts/stdio).
 - [ ] **T15 [MUTATION]** `arena/admin/handlers_update.py` (завершение остатка после .24).
 - [ ] **T17 [MUTATION]** `arena/mobile/mirror.py`.
 

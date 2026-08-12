@@ -170,6 +170,7 @@ TARGETS: dict[str, tuple[str, ...]] = {
     ),
     "arena/mcp_client/client.py": (
         "tests/test_mcp_client_output_bounds.py",
+        "tests/test_mcp_client_parity_v4_169_39.py",
     ),
     "arena/mobile/mirror.py": (
         "tests/test_mobile_mirror_stream_params.py",

@@ -62,7 +62,7 @@ _STDOUT_QUEUE_DEPTH = 1000
 def _command_allowed(command: str) -> bool:
     if command in ALLOWED_COMMANDS:
         return True
-    base = os.path.basename(command).lower()
+    base = os.path.basename(command.replace("\\", "/")).lower()
     for ext in (".exe", ".cmd", ".bat"):
         if base.endswith(ext):
             base = base[: -len(ext)]

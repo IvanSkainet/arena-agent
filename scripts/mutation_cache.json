@@ -123,6 +123,17 @@
    "tool": "mutmut 2.5.1",
    "total": 208
   },
+  "arena/mcp_client/client.py": {
+   "fingerprint": "41998e40afba72ed6bb3a7f0f233642d49eb952df26f79d2de4585225fa23caa",
+   "reason": "fresh run",
+   "survived": 103,
+   "tests": [
+    "tests/test_mcp_client_output_bounds.py",
+    "tests/test_mcp_client_parity_v4_169_39.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 305
+  },
   "arena/mobile/apk_paths.py": {
    "fingerprint": "60f4dce33931304c911c2a87311811b4d389df08c65c7045df625032b89f5cee",
    "reason": "fresh run",
