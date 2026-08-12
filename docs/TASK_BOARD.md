@@ -75,3 +75,8 @@
   - Проставлены явные `timeout-minutes` во всех 40 джобах 10 workflow-файлов (защита от 6-часового зависания раннеров).
   - Настроены группы `concurrency` с `cancel-in-progress: true` в `dependency-review.yml`, `scorecard.yml`, `zizmor.yml`, `version-badge.yml` (экономия раннеров и исключение гонок).
   - Локальный preflight 23/23 OK, Zizmor 0 findings, Actionlint 0 errors.
+- [x] **T31 [BOE INTEGRATION PARITY]** Полное согласование контрактов с `StanislavSmetaninSSM/The-Book-of-Eternity-Reborn`:
+  - Обновлён `arena/game/boe_relay.py`: обязательное поле `filesModified` и `timestamp` (ISO 8601) в `ready/turn_complete.json`, устранение competing error signal, поддержка `read_turn_request` и `read_repair_request`.
+  - Защита границ реалмов: `validate_realm_path` блокирует ошибочные мутации Mortal-файлов в Afterlife (`Chaos Sea` / `Shining Abode`) и Afterlife-файлов в `Mortal World`.
+  - Запись `validation_repair_ready.json` как в `game_state/control/`, так и в корень для гарантированной совместимости с валидатором C# клиента.
+  - Синхронизирован `arena/game/boe_cli.py` и `arena/game/boe_handlers.py` с 28 изолированными паритетными тестами.

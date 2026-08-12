@@ -100,9 +100,61 @@ def test_safe_write_json(tmp_path):
     content = json.loads(written.read_text(encoding="utf-8"))
     assert content == {"hero": "Mage", "hp": 100}
 
-    # Prohibited write
+    # Prohibited write (client-owned)
     with pytest.raises(PermissionError, match="Write to client-owned path"):
         boe_relay.safe_write_json(session, "input/turn_request.json", {"hack": True})
+
+    # Realm-aware boundary enforcement
+    with pytest.raises(PermissionError, match="Wrong-realm mutation rejected"):
+        boe_relay.safe_write_json(
+            session, "game_state/npcs/npc_state.json", {"npc": "Guard"}, current_realm="Chaos Sea"
+        )
+
+    with pytest.raises(PermissionError, match="Wrong-realm mutation rejected"):
+        boe_relay.safe_write_json(
+            session, "game_state/meta/guardians.json", {"guardians": []}, current_realm="Mortal World"
+        )
+
+
+def test_read_turn_and_repair_requests(tmp_path):
+    session = tmp_path / "game_session"
+    session.mkdir()
+    input_dir = session / "input"
+    input_dir.mkdir()
+    control_dir = session / "game_state" / "control"
+    control_dir.mkdir(parents=True)
+
+    # Write turn_request.json directly (as client would)
+    (input_dir / "turn_request.json").write_text(
+        json.dumps({
+            "sessionId": "sess_live_1",
+            "requestId": "req_live_1",
+            "turnNumber": 3,
+            "playerAction": "Search the archive",
+            "currentRealm": "Chaos Sea"
+        }),
+        encoding="utf-8"
+    )
+
+    turn_req = boe_relay.read_turn_request(session)
+    assert turn_req is not None
+    assert turn_req["sessionId"] == "sess_live_1"
+    assert turn_req["turnNumber"] == 3
+
+    # Write repair_request.json
+    (control_dir / "validation_repair_request.json").write_text(
+        json.dumps({
+            "sessionId": "sess_live_1",
+            "requestId": "req_live_1",
+            "turnNumber": 3,
+            "validationErrors": ["Missing output/narrative_response.json"]
+        }),
+        encoding="utf-8"
+    )
+
+    rep_req = boe_relay.read_repair_request(session)
+    assert rep_req is not None
+    assert rep_req["validationErrors"] == ["Missing output/narrative_response.json"]
 
 
 # ---------------------------------------------------------------------------
@@ -148,11 +200,18 @@ def test_inbox_lifecycle_complete(tmp_path):
     assert waited["requestId"] == "req_07"
 
     # Complete turn
-    comp = boe_relay.complete_turn(session, summary="Hero survived combat", state_updates={"hp": 90})
+    comp = boe_relay.complete_turn(
+        session,
+        files_modified=["output/narrative_response.json", "output/debug_logs.json"],
+        summary="Hero survived combat",
+        state_updates={"hp": 90},
+    )
     assert comp["status"] == "success"
     assert comp["turnNumber"] == 7
     assert comp["requestId"] == "req_07"
     assert comp["sessionId"] == "s_1"
+    assert "timestamp" in comp
+    assert comp["filesModified"] == ["output/narrative_response.json", "output/debug_logs.json"]
 
     # Verify ready file exists
     ready_file = session / boe_relay.READY_COMPLETE_FILE
@@ -160,6 +219,8 @@ def test_inbox_lifecycle_complete(tmp_path):
     ready_data = json.loads(ready_file.read_text(encoding="utf-8"))
     assert ready_data["status"] == "success"
     assert ready_data["summary"] == "Hero survived combat"
+    assert ready_data["filesModified"] == ["output/narrative_response.json", "output/debug_logs.json"]
+    assert "timestamp" in ready_data
 
     # Inbox is updated to completed
     inbox_done = boe_relay.read_inbox(session)
@@ -174,12 +235,16 @@ def test_inbox_lifecycle_fail_and_repair(tmp_path):
     failed = boe_relay.fail_turn(session, error_message="Fatal rules violation")
     assert failed["status"] == "error"
     assert failed["error"] == "Fatal rules violation"
+    assert "timestamp" in failed
     assert (session / boe_relay.READY_ERROR_FILE).exists()
 
     # Repair turn
-    rep = boe_relay.repair_ready(session, repair_summary="Corrected schema")
+    rep = boe_relay.repair_ready(session, repair_summary="Corrected schema", repaired_files=["output/debug_logs.json"])
     assert rep["status"] == "repaired"
-    assert (session / boe_relay.REPAIR_READY_FILE).exists()
+    assert "timestamp" in rep
+    assert rep["repairedFiles"] == ["output/debug_logs.json"]
+    assert (session / boe_relay.REPAIR_READY_CONTROL_FILE).exists()
+    assert (session / boe_relay.REPAIR_READY_ROOT_FILE).exists()
 
 
 def test_get_status(tmp_path):

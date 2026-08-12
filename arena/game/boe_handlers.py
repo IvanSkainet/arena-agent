@@ -116,7 +116,14 @@ def make_boe_handlers(ctx: Any) -> BoeHandlers:
         try:
             loop = asyncio.get_running_loop()
             written = await loop.run_in_executor(
-                ctx.executor, functools.partial(boe_relay.safe_write_json, session_dir, rel_path, body["data"])
+                ctx.executor,
+                functools.partial(
+                    boe_relay.safe_write_json,
+                    session_dir,
+                    rel_path,
+                    body["data"],
+                    current_realm=body.get("current_realm") or request.query.get("current_realm"),
+                ),
             )
             ctx.audit({
                 "type": "game.boe.write_json",
@@ -148,6 +155,7 @@ def make_boe_handlers(ctx: Any) -> BoeHandlers:
             session_id=body.get("session_id"),
             request_id=body.get("request_id"),
             turn_number=body.get("turn_number"),
+            files_modified=body.get("files_modified") or body.get("filesModified"),
             summary=str(body.get("summary") or "Turn completed"),
             state_updates=body.get("state_updates"),
         )

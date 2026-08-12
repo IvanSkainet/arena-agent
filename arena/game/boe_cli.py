@@ -67,7 +67,8 @@ def run_relay_loop(session_dir: Path, poll_interval: float = 0.5) -> int:
             start_poll = time.time()
             complete_path = boe_relay.resolve_session_path(session_dir, boe_relay.READY_COMPLETE_FILE)
             error_path = boe_relay.resolve_session_path(session_dir, boe_relay.READY_ERROR_FILE)
-            repair_path = boe_relay.resolve_session_path(session_dir, boe_relay.REPAIR_READY_FILE)
+            repair_ctrl_path = boe_relay.resolve_session_path(session_dir, boe_relay.REPAIR_READY_CONTROL_FILE)
+            repair_root_path = boe_relay.resolve_session_path(session_dir, boe_relay.REPAIR_READY_ROOT_FILE)
 
             # Wait until ready file or bootstrap timeout
             if kind == "bootstrap":
@@ -81,7 +82,11 @@ def run_relay_loop(session_dir: Path, poll_interval: float = 0.5) -> int:
                     if error_path.exists() and error_path.stat().st_mtime >= start_poll - 2.0:
                         print(f"\n[Relay] Turn #{t_num} error signal detected.")
                         break
-                    if repair_path.exists() and repair_path.stat().st_mtime >= start_poll - 2.0:
+                    if (
+                        repair_ctrl_path.exists() and repair_ctrl_path.stat().st_mtime >= start_poll - 2.0
+                    ) or (
+                        repair_root_path.exists() and repair_root_path.stat().st_mtime >= start_poll - 2.0
+                    ):
                         print(f"\n[Relay] Turn #{t_num} repair signal detected.")
                         break
                     time.sleep(poll_interval)

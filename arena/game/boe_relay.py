@@ -6,8 +6,9 @@ file protocol) and AI Agents (Arena.ai Agent Mode, Claude Code, Codex, local age
 Security & Invariants:
 1. Sandboxed to the active game_session directory.
 2. Prohibits writes to client-owned paths (input/, pending_turn_snapshot*, gm_bridge_status.json).
-3. Enforces UTF-8 JSON serialization with atomic replacement.
-4. Provides fail-closed terminal signal generation (Complete-BoeTurn / Fail-BoeTurn).
+3. Enforces realm-aware path isolation (Mortal vs Chaos Sea / Shining Abode).
+4. Enforces UTF-8 JSON serialization with atomic replacement.
+5. Provides fail-closed terminal signal generation (Complete-BoeTurn / Fail-BoeTurn / Complete-BoeValidationRepair).
 """
 from __future__ import annotations
 
@@ -24,14 +25,48 @@ from typing import Any
 INBOX_FILE = Path("game_state") / "control" / "arena_relay_inbox.json"
 READY_COMPLETE_FILE = Path("ready") / "turn_complete.json"
 READY_ERROR_FILE = Path("ready") / "turn_error.json"
-REPAIR_READY_FILE = Path("validation_repair_ready.json")
+REPAIR_READY_CONTROL_FILE = Path("game_state") / "control" / "validation_repair_ready.json"
+REPAIR_READY_ROOT_FILE = Path("validation_repair_ready.json")
+REPAIR_READY_FILE = REPAIR_READY_ROOT_FILE
+TURN_REQUEST_FILE = Path("input") / "turn_request.json"
+REPAIR_REQUEST_FILE = Path("game_state") / "control" / "validation_repair_request.json"
+SOUL_STATE_FILE = Path("game_state") / "meta" / "soul_state.json"
 
 # Paths that AI GM must NEVER write directly (owned by player/client/daemon)
 CLIENT_OWNED_PREFIXES = (
     "input",
     "pending_turn_snapshot",
+    "game_state/control/pending_turn_snapshot",
+    "game_state/control/validation_repair_request.json",
+    "game_state/control/validation_auto_rollback_report.json",
+    "game_state/control/terminal_protocol_failure_request.json",
+    "game_state/control/gm_bridge_status.json",
+    "game_state/history/chat_log.json",
     "gm_bridge_status.json",
     "stories",
+)
+
+# Mortal World profile prefixes forbidden in Afterlife turns (Chaos Sea / Shining Abode)
+MORTAL_WORLD_PROFILE_PREFIXES = (
+    "game_state/world",
+    "game_state/npcs",
+    "game_state/factions",
+    "game_state/player",
+    "game_state/inventory",
+    "game_state/combat",
+    "game_state/quests",
+)
+
+# Afterlife profile prefixes forbidden in Mortal World turns
+AFTERLIFE_PROFILE_PREFIXES = (
+    "game_state/meta/guardians.json",
+    "game_state/meta/guardian_projects.json",
+    "game_state/meta/shining_abode_state.json",
+    "game_state/meta/afterlife_chronicles.json",
+    "game_state/meta/afterlife_spiritual_conflict_state.json",
+    "game_state/meta/afterlife_entity_profiles.json",
+    "game_state/meta/afterlife_lore.json",
+    "game_state/meta/afterlife_active_threats.json",
 )
 
 
@@ -54,15 +89,45 @@ def is_client_owned_path(rel_path: str | Path) -> bool:
     """Return True if rel_path targets client-owned directories/files."""
     norm = str(rel_path).replace("\\", "/").strip("/").lower()
     for prefix in CLIENT_OWNED_PREFIXES:
-        if norm == prefix or norm.startswith(f"{prefix}/") or norm.startswith(prefix):
+        p_norm = prefix.lower()
+        if norm == p_norm or norm.startswith(f"{p_norm}/") or norm.startswith(p_norm):
             return True
     return False
 
 
-def safe_write_json(session_dir: Path, rel_path: str | Path, data: Any) -> Path:
+def validate_realm_path(rel_path: str | Path, current_realm: str | None) -> None:
+    """Enforce realm boundary isolation against wrong-realm mutations."""
+    if not current_realm:
+        return
+    norm = str(rel_path).replace("\\", "/").strip("/").lower()
+    realm_clean = current_realm.strip().lower()
+
+    if realm_clean in ("chaos sea", "shining abode", "afterlife"):
+        for mortal_prefix in MORTAL_WORLD_PROFILE_PREFIXES:
+            if norm == mortal_prefix or norm.startswith(f"{mortal_prefix}/"):
+                raise PermissionError(
+                    f"Wrong-realm mutation rejected: Cannot write Mortal file '{rel_path}' while in realm '{current_realm}'"
+                )
+    elif realm_clean in ("mortal", "mortal world", "living"):
+        for afterlife_prefix in AFTERLIFE_PROFILE_PREFIXES:
+            if norm == afterlife_prefix or norm.startswith(f"{afterlife_prefix}/"):
+                raise PermissionError(
+                    f"Wrong-realm mutation rejected: Cannot write Afterlife file '{rel_path}' while in realm '{current_realm}'"
+                )
+
+
+def safe_write_json(
+    session_dir: Path,
+    rel_path: str | Path,
+    data: Any,
+    *,
+    current_realm: str | None = None,
+) -> Path:
     """Atomic, safe write of UTF-8 JSON within the game session directory."""
     if is_client_owned_path(rel_path):
         raise PermissionError(f"Write to client-owned path {rel_path} is forbidden")
+
+    validate_realm_path(rel_path, current_realm)
 
     target = resolve_session_path(session_dir, rel_path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -82,6 +147,34 @@ def safe_write_json(session_dir: Path, rel_path: str | Path, data: Any) -> Path:
                 pass
         raise
     return target
+
+
+def read_turn_request(session_dir: Path) -> dict[str, Any] | None:
+    """Read the active turn request written by the client runtime."""
+    target = resolve_session_path(session_dir, TURN_REQUEST_FILE)
+    if not target.exists():
+        return None
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        return None
+    return None
+
+
+def read_repair_request(session_dir: Path) -> dict[str, Any] | None:
+    """Read the active validation repair request if the turn was rejected."""
+    target = resolve_session_path(session_dir, REPAIR_REQUEST_FILE)
+    if not target.exists():
+        return None
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        return None
+    return None
 
 
 def parse_prompt_metadata(prompt: str) -> dict[str, Any]:
@@ -175,25 +268,46 @@ def complete_turn(
     session_id: str | None = None,
     request_id: str | None = None,
     turn_number: int | None = None,
+    files_modified: list[str] | None = None,
     summary: str = "Turn completed successfully",
     state_updates: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Generate ready/turn_complete.json to close the active turn for the daemon."""
+    """Generate ready/turn_complete.json with full BoE specification metadata."""
+    turn_req = read_turn_request(session_dir) or {}
     inbox = read_inbox(session_dir) or {}
-    s_id = session_id or inbox.get("sessionId") or "unknown_session"
-    r_id = request_id or inbox.get("requestId") or "unknown_request"
-    t_num = turn_number if turn_number is not None else inbox.get("turnNumber", 0)
 
+    s_id = session_id or turn_req.get("sessionId") or inbox.get("sessionId") or "unknown_session"
+    r_id = request_id or turn_req.get("requestId") or inbox.get("requestId") or "unknown_request"
+    t_num = turn_number if turn_number is not None else turn_req.get("turnNumber", inbox.get("turnNumber", 0))
+
+    # Clean default files modified list required by BoE contract validator
+    files = list(files_modified) if files_modified else [
+        "output/narrative_response.json",
+        "output/debug_logs.json",
+        "output/interface_updates.json",
+    ]
+
+    now_ts = _now_iso()
     complete_payload = {
         "schemaVersion": 1,
         "status": "success",
         "sessionId": s_id,
         "requestId": r_id,
         "turnNumber": t_num,
-        "completedAtUtc": _now_iso(),
+        "timestamp": now_ts,
+        "completedAtUtc": now_ts,
+        "filesModified": files,
         "summary": summary,
         "stateUpdates": state_updates or {},
     }
+
+    # Remove any conflicting error signal
+    err_path = resolve_session_path(session_dir, READY_ERROR_FILE)
+    if err_path.exists():
+        try:
+            err_path.unlink()
+        except OSError:
+            pass
 
     # Write ready file
     safe_write_json(session_dir, READY_COMPLETE_FILE, complete_payload)
@@ -216,20 +330,32 @@ def fail_turn(
     turn_number: int | None = None,
 ) -> dict[str, Any]:
     """Generate ready/turn_error.json to signal terminal error for the turn."""
+    turn_req = read_turn_request(session_dir) or {}
     inbox = read_inbox(session_dir) or {}
-    s_id = session_id or inbox.get("sessionId") or "unknown_session"
-    r_id = request_id or inbox.get("requestId") or "unknown_request"
-    t_num = turn_number if turn_number is not None else inbox.get("turnNumber", 0)
 
+    s_id = session_id or turn_req.get("sessionId") or inbox.get("sessionId") or "unknown_session"
+    r_id = request_id or turn_req.get("requestId") or inbox.get("requestId") or "unknown_request"
+    t_num = turn_number if turn_number is not None else turn_req.get("turnNumber", inbox.get("turnNumber", 0))
+
+    now_ts = _now_iso()
     error_payload = {
         "schemaVersion": 1,
         "status": "error",
         "sessionId": s_id,
         "requestId": r_id,
         "turnNumber": t_num,
-        "failedAtUtc": _now_iso(),
+        "timestamp": now_ts,
+        "failedAtUtc": now_ts,
         "error": error_message,
     }
+
+    # Remove any conflicting complete signal
+    comp_path = resolve_session_path(session_dir, READY_COMPLETE_FILE)
+    if comp_path.exists():
+        try:
+            comp_path.unlink()
+        except OSError:
+            pass
 
     safe_write_json(session_dir, READY_ERROR_FILE, error_payload)
 
@@ -246,24 +372,36 @@ def repair_ready(
     session_dir: Path,
     *,
     repair_summary: str = "Validation repair applied",
+    repaired_files: list[str] | None = None,
     session_id: str | None = None,
     request_id: str | None = None,
+    turn_number: int | None = None,
 ) -> dict[str, Any]:
     """Generate validation_repair_ready.json for the daemon repair handshake."""
+    repair_req = read_repair_request(session_dir) or {}
+    turn_req = read_turn_request(session_dir) or {}
     inbox = read_inbox(session_dir) or {}
-    s_id = session_id or inbox.get("sessionId") or "unknown_session"
-    r_id = request_id or inbox.get("requestId") or "unknown_request"
 
+    s_id = session_id or repair_req.get("sessionId") or turn_req.get("sessionId") or inbox.get("sessionId") or "unknown_session"
+    r_id = request_id or repair_req.get("requestId") or turn_req.get("requestId") or inbox.get("requestId") or "unknown_request"
+    t_num = turn_number if turn_number is not None else repair_req.get("turnNumber", turn_req.get("turnNumber", inbox.get("turnNumber", 0)))
+
+    now_ts = _now_iso()
     repair_payload = {
         "schemaVersion": 1,
         "status": "repaired",
         "sessionId": s_id,
         "requestId": r_id,
-        "repairedAtUtc": _now_iso(),
+        "turnNumber": t_num,
+        "timestamp": now_ts,
+        "repairedAtUtc": now_ts,
         "summary": repair_summary,
+        "repairedFiles": repaired_files or [],
     }
 
-    safe_write_json(session_dir, REPAIR_READY_FILE, repair_payload)
+    # Write to canonical control location and root fallback location
+    safe_write_json(session_dir, REPAIR_READY_CONTROL_FILE, repair_payload)
+    safe_write_json(session_dir, REPAIR_READY_ROOT_FILE, repair_payload)
 
     if inbox:
         inbox["status"] = "repaired"
@@ -276,18 +414,20 @@ def repair_ready(
 def get_status(session_dir: Path) -> dict[str, Any]:
     """Inspect the current state of the game session."""
     inbox = read_inbox(session_dir)
+    turn_req = read_turn_request(session_dir)
+    repair_req = read_repair_request(session_dir)
     ready_complete = resolve_session_path(session_dir, READY_COMPLETE_FILE).exists()
     ready_error = resolve_session_path(session_dir, READY_ERROR_FILE).exists()
-    repair_file = resolve_session_path(session_dir, REPAIR_READY_FILE).exists()
-
-    input_req = resolve_session_path(session_dir, "input/turn_request.json").exists()
-    soul_state = resolve_session_path(session_dir, "game_state/soul_state.json").exists()
+    repair_file = resolve_session_path(session_dir, REPAIR_READY_CONTROL_FILE).exists() or resolve_session_path(session_dir, REPAIR_READY_ROOT_FILE).exists()
+    soul_state = resolve_session_path(session_dir, SOUL_STATE_FILE).exists()
 
     return {
         "ok": True,
         "session_dir": str(session_dir.resolve()),
-        "has_input_request": input_req,
+        "has_input_request": turn_req is not None,
+        "has_repair_request": repair_req is not None,
         "has_soul_state": soul_state,
+        "turn_request": turn_req,
         "inbox": inbox,
         "has_pending_inbox": bool(inbox and inbox.get("status") == "pending"),
         "has_ready_complete": ready_complete,
