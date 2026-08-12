@@ -1,3 +1,23 @@
+## v4.169.41 — 2026-08-12
+
+### Live-verified BoE routing, Pyright zero-debt ratchet, & automated security gates
+
+This release delivers the fully wired and live-tested Book of Eternity routing engine,
+the permanent elimination of Pyright typing debt down to 0 errors, and automated security gates:
+
+* **Live-verified BoE route wiring (`arena/route_registry/` & `arena/wiring/`):**
+  - Registered all 7 `boe.*` handlers in the core domain route registry and manifest matrix.
+  - Exported typed `BoeHandlerContext` across dependency namespaces.
+  - Verified 100% live connectivity and 200 OK responses via end-to-end daemon smoke test.
+* **Pyright typing ratchet (`scripts/pyright_ratchet.py`):**
+  - Eliminated all 95 Pyright errors across `arena/` down to **0 errors**.
+  - Created mechanical ratchet `pyright_ratchet.py` locking the baseline at 0 errors in both `preflight.py` and CI.
+* **Automated CI Security Gates & Ratchets:**
+  - Added blocking `security-alerts` gate in `security-scan.yml` against open CodeQL/Dependabot/Secret Scanning alerts.
+  - Switched `gitleaks` to strict blocking mode with `.gitleaks.toml`.
+  - Added `scripts/batch_syntax_ratchet.py` to enforce CRLF and safe LISTEN filters on Windows batch files.
+  - Added automated post-release download and SHA256 checksum verification in `sign-release.yml`.
+
 ## v4.169.40 — 2026-08-12
 
 ### Book of Eternity (BoE) GM Relay subsystem, Godot Game Production, & Agentic Governance
