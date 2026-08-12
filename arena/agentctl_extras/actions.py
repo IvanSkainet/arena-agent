@@ -19,8 +19,8 @@ def play_notification_sound():
         import platform
         import sys
         if platform.system() == "Windows":
-            import winsound
-            winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            import winsound  # type: ignore[import-not-found]
+            getattr(winsound, "MessageBeep", lambda _: None)(getattr(winsound, "MB_ICONASTERISK", 0))
         elif platform.system() == "Darwin":
             # v4.42.0: was ``os.system(...)`` which spawns a shell
             # and could be tainted by future refactors that

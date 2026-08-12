@@ -140,7 +140,7 @@ def replace_targets(payload_root: "Path | None" = None) -> tuple[str, ...]:
         and entry.name not in _NEVER_REPLACE
     )
 
-    seen = list(_STATIC_REPLACE_TARGETS)
+    seen: list[str] = list(_STATIC_REPLACE_TARGETS)
     for name in discovered:
         if name not in seen:
             seen.append(name)

@@ -37,7 +37,7 @@ async def _multitab_demo():
             print(f"  {marker}[{i}] {conn} {tab.target_id[:12]}... | {tab.title[:40] or '(no title)'} | {tab.url[:50]}")
 
         # Take screenshot of active tab
-        active = mgr.active_tab
+        active = mgr.active_tab()
         if active:
             print("\n[Active Tab] Taking screenshot...")
             try:

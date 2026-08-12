@@ -23,6 +23,34 @@ class NetworkRequest:
         "finished", "finish_time",
     )
 
+    request_id: str
+    url: str
+    method: str
+    headers: Dict[str, Any]
+    post_data: Any
+    resource_type: str
+    frame_id: str
+    timestamp: float
+    wall_time: float
+    redirect_count: int
+    redirect_response: Any
+    initiator: Dict[str, Any]
+    response_status: int | None
+    response_status_text: str | None
+    response_headers: Dict[str, Any] | None
+    response_mimeType: str | None
+    response_remote_ip: str | None
+    response_remote_port: int | None
+    response_protocol: str | None
+    response_security_details: Dict[str, Any] | None
+    encoded_data_length: int | None
+    decoded_body_length: int | None
+    error_text: str | None
+    error_canceled: bool
+    error_blocked_reason: str | None
+    finished: bool
+    finish_time: float | None
+
     def __init__(self, request_id: str, **kwargs):
         self.request_id = request_id
         self.url = kwargs.get("url", "")

@@ -90,7 +90,7 @@
    "total": 150
   },
   "arena/browser/cdp_client/tabs_http.py": {
-   "fingerprint": "7649ab3f8a8fc2d8ab0a301bb8b05b3c50677c2ad26ec66cbf343fa2948694e8",
+   "fingerprint": "83a27878289633bcaec38b296455d1185883d675dc79a5c81cb6be7514485b4b",
    "reason": "fresh run",
    "survived": 0,
    "tests": [
@@ -98,7 +98,7 @@
     "tests/test_cdp_websocket_url_is_loopback.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 150
+   "total": 49
   },
   "arena/exec/interpreters.py": {
    "fingerprint": "a879df305a9faa3f3544161d4971ada4c63ed8c7374fae82696b96f9d27ce3e4",

@@ -299,7 +299,7 @@ class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
         self._pin_ctx = ctx
 
     def https_open(self, req):  # type: ignore[override]
-        def _factory(host, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, **kwargs):
+        def _factory(host, timeout=getattr(socket, "_GLOBAL_DEFAULT_TIMEOUT", 60.0), **kwargs):
             # Force our ctx onto every connection; the parent
             # class's do_open would otherwise let per-call
             # kwargs override it. Also drop the parent's own

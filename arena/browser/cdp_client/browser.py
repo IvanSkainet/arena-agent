@@ -9,6 +9,7 @@ from arena.browser.cdp_client.common import (
     HAS_AIOHTTP,
     RECONNECT_ATTEMPTS,
     RECONNECT_DELAY,
+    Any,
     Callable,
     Dict,
     List,
@@ -39,7 +40,7 @@ class CDPBrowser(CDPBrowserEventsMixin, CDPBrowserPageMixin):
         self.timeout = timeout
         self.tab_index = tab_index
 
-        self._ws: Optional[aiohttp.ClientWebSocketResponse] = None
+        self._ws: Any = None
         self._session: Optional[aiohttp.ClientSession] = None
         self._req_id = itertools.count(1)
         self._pending: Dict[int, asyncio.Future] = {}
