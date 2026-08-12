@@ -38,13 +38,14 @@
   - `status.bat`: сквозной инструмент `scripts/check_bridge.py` с реальным внешним зондом доступности.
 - [x] **T12 [MUTATION]** `arena/mcp_client/client.py`: быстрый паритетный набор с мок-процессами (`test_mcp_client_parity_v4_169_39.py`, 42 теста) + кроссплатформенная нормализация `\` в путях команд.
 - [x] **T15 [MUTATION]** `arena/admin/handlers_update.py`: паритетный набор `test_handlers_update_parity_v4_169_39.py` (36 тестов, 0 выживших) + устранение эквивалентных мутантов парсинга JSON и fallback platform_display.
+- [x] **T17 [MUTATION]** `arena/mobile/mirror.py`: паритетный набор `test_mobile_mirror_parity_v4_169_39.py` (33 теста, 0 выживших), полный охват валидации параметров, пайплайна, broadcast и HTTP/WS хэндлеров.
 
 ---
 
 ## Очередь задач (Queue)
 
 ### Фаза 1: Мутационная карта (оставшиеся модули TARGETS)
-- [ ] **T17 [MUTATION]** `arena/mobile/mirror.py`.
+*Все 15 модулей TARGETS успешно покрыты паритетными наборами со строгим нулём выживших (0 survivors)!*
 
 ### Фаза 2: Статический анализ и типизация
 - [ ] **T16 [PYRIGHT]** Разбор ~95 находок Pyright (`reportOptionalMemberAccess`, `reportArgumentType`, `reportInvalidTypeForm`).

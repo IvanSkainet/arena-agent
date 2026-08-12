@@ -148,15 +148,16 @@
    "total": 63
   },
   "arena/mobile/mirror.py": {
-   "fingerprint": "09cd1afec0d8680b3d7899d9f6f430440d8b0b8e8306188ad96f3b813af5f015",
+   "fingerprint": "3738d1fd3135f86fff7b3e47f54fcde1190268d8fc5b165c06eccc7255c6dd31",
    "reason": "fresh run",
    "survived": 0,
    "tests": [
+    "tests/test_mobile_mirror_parity_v4_169_39.py",
     "tests/test_mobile_mirror_pipeline_lifecycle.py",
     "tests/test_mobile_mirror_stream_params.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 150
+   "total": 180
   },
   "arena/observability/live_metrics.py": {
    "fingerprint": "6cdb1091c1c49cf19fb092565a48d0483bdc1bcedef7cec0b73b9893059def30",

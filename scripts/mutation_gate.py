@@ -174,6 +174,7 @@ TARGETS: dict[str, tuple[str, ...]] = {
         "tests/test_mcp_client_parity_v4_169_39.py",
     ),
     "arena/mobile/mirror.py": (
+        "tests/test_mobile_mirror_parity_v4_169_39.py",
         "tests/test_mobile_mirror_stream_params.py",
         "tests/test_mobile_mirror_pipeline_lifecycle.py",
     ),
