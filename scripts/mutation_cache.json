@@ -10,7 +10,7 @@
     "tests/test_auto_update_fetch_parity_v4_169_36.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 70
+   "total": 150
   },
   "arena/admin/bore.py": {
    "fingerprint": "749e34bbef24682aecff26cca717337f0e76605251c0af6061fa84820e966e77",
@@ -23,7 +23,7 @@
     "tests/test_bore_wiring.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 306
+   "total": 150
   },
   "arena/admin/browseract.py": {
    "fingerprint": "2998ce8941a1a4f1cee3ae17ed0c806eb0f7a05732f489e861171f4e09057f60",
@@ -39,10 +39,10 @@
     "tests/test_ship_status.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 193
+   "total": 150
   },
   "arena/admin/handlers_update.py": {
-   "fingerprint": "b8b42d7e4b4886ddf91994746a95f578a0a308d79b6e3e1490ea99024a97a821",
+   "fingerprint": "0ec6f5725f8d791ec74fdf9850410264ced90911826c50395741824772726361",
    "reason": "fresh run",
    "survived": 0,
    "tests": [
@@ -54,7 +54,7 @@
     "tests/test_update_consent_binds_the_source.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 210
+   "total": 150
   },
   "arena/agent_helpers/files.py": {
    "fingerprint": "7a329e05007e2a291563e3d54e0fa0037f5fda73aa05f857b82355774aefef48",
@@ -65,7 +65,7 @@
     "tests/test_arena_agent_helpers_files.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 99
+   "total": 150
   },
   "arena/agentctl_cli/agentctl_memory.py": {
    "fingerprint": "8e54216456af386e4213e3eccfffac68578415838f0cf916fd2d3fd8f0df8b44",
@@ -76,7 +76,7 @@
     "tests/test_agentctl_memory_parity_v4_169_35.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 116
+   "total": 150
   },
   "arena/agentic/handlers.py": {
    "fingerprint": "d8c33b52acb8bb721a0629218763a07414075108466b26a2626ad8f9496d6408",
@@ -87,7 +87,7 @@
     "tests/test_agentic_handlers_parity_v4_169_35.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 67
+   "total": 150
   },
   "arena/browser/cdp_client/tabs_http.py": {
    "fingerprint": "7649ab3f8a8fc2d8ab0a301bb8b05b3c50677c2ad26ec66cbf343fa2948694e8",
@@ -98,7 +98,7 @@
     "tests/test_cdp_websocket_url_is_loopback.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 49
+   "total": 150
   },
   "arena/exec/interpreters.py": {
    "fingerprint": "a879df305a9faa3f3544161d4971ada4c63ed8c7374fae82696b96f9d27ce3e4",
@@ -109,7 +109,7 @@
     "tests/test_exec_script_path_quoting.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 65
+   "total": 150
   },
   "arena/files/sandbox.py": {
    "fingerprint": "c6ffb7c20759ba2d231eabb3ba6796c0c1df54886c646e938e5ee9007d72ce8e",
@@ -122,7 +122,7 @@
     "tests/test_write_is_not_code_execution.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 208
+   "total": 150
   },
   "arena/mcp_client/client.py": {
    "fingerprint": "41998e40afba72ed6bb3a7f0f233642d49eb952df26f79d2de4585225fa23caa",
@@ -145,7 +145,7 @@
     "tests/test_mobile_staging_root_failure.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 63
+   "total": 150
   },
   "arena/mobile/mirror.py": {
    "fingerprint": "3738d1fd3135f86fff7b3e47f54fcde1190268d8fc5b165c06eccc7255c6dd31",
@@ -157,7 +157,7 @@
     "tests/test_mobile_mirror_stream_params.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 180
+   "total": 150
   },
   "arena/observability/live_metrics.py": {
    "fingerprint": "6cdb1091c1c49cf19fb092565a48d0483bdc1bcedef7cec0b73b9893059def30",
@@ -180,7 +180,7 @@
     "tests/test_workbench_runtime_fetch_parity_v4_169_37.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 48
+   "total": 150
   }
  },
  "version": 1

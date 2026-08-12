@@ -132,10 +132,11 @@ def test_update_status_linux():
     ctx = _MockContext()
     handlers = make_update_handlers(ctx)
     req = _make_req("GET", "/v1/admin/update/status")
+    fake_root = Path("/opt/arena")
 
     with patch("platform.system", return_value="Linux"), \
          patch("arena.admin.auto_update._repo", return_value="IvanSkainet/arena-agent"), \
-         patch("arena.admin.auto_update._install_root", return_value=Path("/opt/arena")), \
+         patch("arena.admin.auto_update._install_root", return_value=fake_root), \
          patch("arena.admin.update_github.github_token_source", return_value="env"), \
          patch("arena.ship.post_update_smoke.status", return_value={"ok": True, "pending": False}):
         resp = asyncio.run(handlers["update_status"](req))
@@ -144,7 +145,7 @@ def test_update_status_linux():
         assert body["ok"] is True
         assert body["current"] == VERSION
         assert body["repo"] == "IvanSkainet/arena-agent"
-        assert body["install_root"] == "/opt/arena"
+        assert body["install_root"] == str(fake_root)
         assert body["platform"] == "linux"
         assert body["platform_display"] == "GNU/Linux"
         assert body["restart_hint"] == "systemd / launchd will restart automatically on exit."
