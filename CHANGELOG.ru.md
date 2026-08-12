@@ -1,3 +1,27 @@
+## v4.169.40 — 2026-08-12
+
+### Подсистема реле Book of Eternity (BoE), интеграция Godot и агентский регламент
+
+Этот релиз внедряет подсистему реле Book of Eternity для автономного Game Master в Arena Agent Mode,
+а также официальные скиллы моста, архитектурный гайд Godot и исправления типизации:
+
+* **Подсистема реле Book of Eternity (BoE) (`arena/game/`):**
+  - `arena/game/boe_relay.py`: протокол игровой сессии с изоляцией путей, защитой клиентских каталогов (`input/`, `pending_turn_snapshot*`, `gm_bridge_status.json`), атомарной записью UTF-8 JSON и терминальными сигналами (`Complete-BoeTurn`, `Fail-BoeTurn`, `Complete-BoeValidationRepair`).
+  - `arena/game/boe_handlers.py`: 7 аутентифицированных эндпоинтов жизненного цикла хода (`status`, `wait_inbox`, `read_turn`, `write_json`, `complete_turn`, `fail_turn`, `repair_turn`).
+  - `arena/game/boe_cli.py` & `bin/boe-arena-relay`: интерактивный ConPTY pseudo-CLI для демона `game_master_daemon.ps1` (перехват bracketed paste, запись инбокса, индикация занятости `Working on turn #N`, опрос сигналов готовности).
+  - `skills/book-of-eternity/SKILL.md`: агентский скилл автономного ГМа Book of Eternity.
+  - `tests/test_boe_relay_parity.py`: паритетный набор из 27 тестов с проверкой path traversal и аутентификации.
+* **Официальный агентский скилл Skainet Bridge (`skills/arena-bridge/SKILL.md`):**
+  - Полный протокол подключения, преодоления лимита 128 MB песочницы, выноса тяжелых вычислений и запуска инструментов.
+* **Архитектурный гайд по Godot Game Production (`docs/GODOT_INTEGRATION.md`):**
+  - Двухконтурная разработка игр на Godot Engine 4.x через Skainet Bridge с обходом лимитов диска и GPU в песочнице Arena.ai.
+* **Непрерывность Serena и сессионная память (`scripts/serena_reminder.py` & `scripts/start_serena_mcp.py`):**
+  - Утилита проверки целостности памяти и лаунчер Serena MCP для Claude Code, Cursor и Arena.
+* **Исправления типизации Pyright (T16):**
+  - Устранены 28 находок типов в `cdp_client` (0 ошибок), `update_targets.py`, `pinning.py`, `actions.py`.
+  - Исправлен вызов `mgr.active_tab()` в `arena/browser/cdp_client/cli_demo.py`.
+  - Восстановлено строгое сравнение в `close_tab` (`arena/browser/cdp_client/tabs_http.py`).
+
 ## v4.169.39 — 2026-08-12
 
 ### Мутационная карта закрыта на 100% (15 из 15 целевых модулей) и паритетные наборы

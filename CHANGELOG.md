@@ -1,3 +1,33 @@
+## v4.169.40 — 2026-08-12
+
+### Book of Eternity (BoE) GM Relay subsystem, Godot Game Production, & Agentic Governance
+
+This release delivers the Book of Eternity Game Master relay subsystem, enabling
+Arena.ai Agent Mode to act as an autonomous Game Master for game daemons without
+bloating sandbox limits or triggering ConPTY stalls:
+
+* **Book of Eternity (BoE) Relay Subsystem (`arena/game/`):**
+  - Added `arena/game/boe_relay.py`: session protocol engine with sandbox isolation,
+    client-owned path guards (`input/`, `pending_turn_snapshot*`, `gm_bridge_status.json`),
+    atomic UTF-8 JSON writes, and fail-closed terminal signal generation (`Complete-BoeTurn`, `Fail-BoeTurn`, `Complete-BoeValidationRepair`).
+  - Added `arena/game/boe_handlers.py`: 7 authenticated HTTP/REST endpoints for turn lifecycle
+    (`status`, `wait_inbox`, `read_turn`, `write_json`, `complete_turn`, `fail_turn`, `repair_turn`).
+  - Added `arena/game/boe_cli.py` & `bin/boe-arena-relay`: interactive ConPTY pseudo-CLI adapter
+    handling bracketed-paste prompts, inbox dispatch, busy state rendering, and disk signal monitoring.
+  - Added `skills/book-of-eternity/SKILL.md`: Game Master agent skill with operational runbook.
+  - Added parity test suite `tests/test_boe_relay_parity.py` (27 tests) with path traversal and auth guards.
+* **Official Skainet Bridge Agent Skill (`skills/arena-bridge/SKILL.md`):**
+  - Complete protocol and capability specification for AI agents: connection discovery, 128 MB sandbox escape,
+    host offloading, and tool execution.
+* **Godot Game Production Architecture Guide (`docs/GODOT_INTEGRATION.md`):**
+  - Comprehensive guide for building games with Godot Engine 4.x via Skainet Bridge, solving the 128 MB and GPU/X11 sandbox limits.
+* **Serena & Session Continuity (`scripts/serena_reminder.py` & `scripts/start_serena_mcp.py`):**
+  - Session integrity helper and launcher for Serena MCP server under Claude Code / Cursor / Arena.
+* **Pyright Type Safety Fixes:**
+  - Resolved 28 type findings across `cdp_client` (0 errors), `update_targets.py`, `pinning.py`, and `actions.py`.
+  - Fixed method call syntax in `arena/browser/cdp_client/cli_demo.py` (`mgr.active_tab()`).
+  - Restored strict comparison in `close_tab` response parsing (`arena/browser/cdp_client/tabs_http.py`).
+
 ## v4.169.39 — 2026-08-12
 
 ### Mutation map 100% completed (15/15 target modules) & cross-platform parity suites
