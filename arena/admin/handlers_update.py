@@ -43,7 +43,6 @@ def make_update_handlers(ctx):
         display_map = {
             "linux":   "GNU/Linux",
             "darwin":  "macOS",
-            "windows": "Windows",
         }
         payload = {
             "ok": True,
@@ -80,11 +79,13 @@ def make_update_handlers(ctx):
         `{repo?: str}` to override the default repo (test-friendly)."""
         try:
             body = await request.json()
+            if isinstance(body, dict):
+                repo = str(body.get("repo") or "").strip()
+                if repo:
+                    import os
+                    os.environ["ARENA_UPDATE_REPO"] = repo
         except Exception:
-            body = {}
-        if isinstance(body, dict) and body.get("repo"):
-            import os
-            os.environ["ARENA_UPDATE_REPO"] = str(body["repo"]).strip()
+            pass
         res = await _run(ctx, _upd.check_updates)
         ctx.audit({
             "type": "admin.update.check",
@@ -231,11 +232,13 @@ def make_update_handlers(ctx):
     async def handle_update_restart(request: web.Request) -> web.Response:
         """POST /v1/admin/update/restart -- manual restart trigger.
         Used for testing and for the Windows "installer done" callback."""
+        force = False
         try:
             body = await request.json()
+            if isinstance(body, dict):
+                force = bool(body.get("force", False))
         except Exception:
-            body = {}
-        force = bool(isinstance(body, dict) and body.get("force", False))
+            pass
         res = await _run(ctx, lambda: _upd.restart_process(force=force))
         ctx.audit({
             "type": "admin.update.restart",
@@ -257,11 +260,13 @@ def make_update_handlers(ctx):
             github_token_source,
             save_github_token,
         )
+        token = ""
         try:
             body = await request.json()
+            if isinstance(body, dict):
+                token = str(body.get("token") or "")
         except Exception:
-            body = {}
-        token = str((body or {}).get("token", ""))
+            pass
         res = await _run(ctx, save_github_token, token)
         ctx.audit({
             "type": "admin.update.token_set",

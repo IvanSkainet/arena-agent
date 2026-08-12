@@ -148,6 +148,7 @@ TARGETS: dict[str, tuple[str, ...]] = {
     # defaulting `force` to True -- and both survived because nothing
     # called the HTTP handler at all.
     "arena/admin/handlers_update.py": (
+        "tests/test_handlers_update_parity_v4_169_39.py",
         "tests/test_update_apply_guards_v4_169_24.py",
         "tests/test_handlers_update_v4_60_13.py",
         "tests/test_auto_update_diagnostics_v4_60_14.py",
@@ -187,7 +188,7 @@ def _run_one(source: str, tests: tuple[str, ...]) -> tuple[int, int]:
         raise SystemExit(f"FAIL-CLOSED: guarding tests missing for {source}: {missing}")
 
     CACHE.unlink(missing_ok=True)
-    runner = "python3 -m pytest -x -q --no-cov -p no:randomly " + " ".join(existing)
+    runner = "python3 -m pytest -x -q -o addopts=\"\" -p no:randomly " + " ".join(existing)
     proc = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
         ["mutmut", "run", "--paths-to-mutate", source,
          "--runner", runner, "--no-progress"],

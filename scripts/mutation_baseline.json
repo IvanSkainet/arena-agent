@@ -2,12 +2,15 @@
  "arena/admin/auto_update_fetch.py": 0,
  "arena/admin/bore.py": 0,
  "arena/admin/browseract.py": 0,
+ "arena/admin/handlers_update.py": 0,
  "arena/agent_helpers/files.py": 0,
  "arena/agentctl_cli/agentctl_memory.py": 0,
  "arena/agentic/handlers.py": 0,
  "arena/browser/cdp_client/tabs_http.py": 0,
  "arena/exec/interpreters.py": 0,
  "arena/files/sandbox.py": 0,
+ "arena/mcp_client/client.py": 0,
  "arena/mobile/apk_paths.py": 0,
+ "arena/observability/live_metrics.py": 0,
  "arena/workbench/runtime_fetch.py": 0
 }

@@ -42,18 +42,19 @@
    "total": 193
   },
   "arena/admin/handlers_update.py": {
-   "fingerprint": "93313e8bee6f05ee75a93cede69fbdabe07762050310bae845c3bdec3f4c9849",
-   "reason": "sweep",
-   "survived": 152,
+   "fingerprint": "b8b42d7e4b4886ddf91994746a95f578a0a308d79b6e3e1490ea99024a97a821",
+   "reason": "fresh run",
+   "survived": 0,
    "tests": [
     "tests/test_auto_update_diagnostics_v4_60_14.py",
+    "tests/test_handlers_update_parity_v4_169_39.py",
     "tests/test_handlers_update_v4_60_13.py",
     "tests/test_post_update_smoke_and_autostart.py",
     "tests/test_update_apply_guards_v4_169_24.py",
     "tests/test_update_consent_binds_the_source.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 218
+   "total": 210
   },
   "arena/agent_helpers/files.py": {
    "fingerprint": "7a329e05007e2a291563e3d54e0fa0037f5fda73aa05f857b82355774aefef48",
@@ -126,13 +127,13 @@
   "arena/mcp_client/client.py": {
    "fingerprint": "41998e40afba72ed6bb3a7f0f233642d49eb952df26f79d2de4585225fa23caa",
    "reason": "fresh run",
-   "survived": 103,
+   "survived": 0,
    "tests": [
     "tests/test_mcp_client_output_bounds.py",
     "tests/test_mcp_client_parity_v4_169_39.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 305
+   "total": 150
   },
   "arena/mobile/apk_paths.py": {
    "fingerprint": "60f4dce33931304c911c2a87311811b4d389df08c65c7045df625032b89f5cee",
@@ -145,6 +146,29 @@
    ],
    "tool": "mutmut 2.5.1",
    "total": 63
+  },
+  "arena/mobile/mirror.py": {
+   "fingerprint": "09cd1afec0d8680b3d7899d9f6f430440d8b0b8e8306188ad96f3b813af5f015",
+   "reason": "fresh run",
+   "survived": 0,
+   "tests": [
+    "tests/test_mobile_mirror_pipeline_lifecycle.py",
+    "tests/test_mobile_mirror_stream_params.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 150
+  },
+  "arena/observability/live_metrics.py": {
+   "fingerprint": "6cdb1091c1c49cf19fb092565a48d0483bdc1bcedef7cec0b73b9893059def30",
+   "reason": "fresh run",
+   "survived": 0,
+   "tests": [
+    "tests/test_live_metrics_gpu_parse.py",
+    "tests/test_live_metrics_parity_v4_169_37.py",
+    "tests/test_live_metrics_rates.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 150
   },
   "arena/workbench/runtime_fetch.py": {
    "fingerprint": "903feb6cc9f2f3de56481c98754954be3dcf73903a7027c91d3ca5ffca24cd96",
