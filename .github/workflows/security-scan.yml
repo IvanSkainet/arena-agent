@@ -281,7 +281,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
     steps:
       - name: Harden Runner (audit mode, egress visibility)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
@@ -299,13 +298,14 @@ jobs:
           ignore-globs: "**/.git/**,**/bin/**,**/tests/**,**/docs/**,**/.venv/**"
         continue-on-error: true
 
-      - name: Upload DevSkim SARIF
-        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+      - name: Upload DevSkim report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
-        continue-on-error: true  # SARIF may not exist if DevSkim found no issues
+        continue-on-error: true
         with:
-          sarif_file: devskim-results.sarif
-          category: devskim
+          name: devskim-report
+          path: devskim-results.sarif
+          retention-days: 30
 
   pip-audit:
     name: pip-audit (0 CVE in runtime deps)
