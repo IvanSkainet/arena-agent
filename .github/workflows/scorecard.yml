@@ -10,17 +10,20 @@ concurrency:
   group: scorecard-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-  security-events: write
-  id-token: write
-  actions: read
+# Scorecard Token-Permissions: top level must grant NOTHING;
+# the job declares its write scope explicitly.
+permissions: {}
 
 jobs:
   scorecard:
     timeout-minutes: 10
     name: OSSF Scorecard supply-chain security
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      id-token: write
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
