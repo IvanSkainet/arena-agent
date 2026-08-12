@@ -6,10 +6,10 @@
 
 ## Актуальное состояние (на 2026-08-12)
 
-- **Текущая версия:** `v4.169.38` (опубликована, 10 ассетов подписаны Sigstore).
+- **Текущая версия:** `v4.169.39` (опубликована, 10 ассетов подписаны Sigstore).
 - **CI:** 36/36 зелёных задач (Linux, Windows, macOS, Android, Scorecard, Zizmor, Security scan).
 - **Security Alerts:** 0 открытых во всех трёх лентах (CodeQL, Secret Scanning, Dependabot).
-- **Мутационный храповик:** 14 модулей зафиксированы на уровне **0 выживших мутантов**.
+- **Мутационный храповик:** 15 модулей зафиксированы на уровне **0 выживших мутантов**.
 
 ---
 
@@ -39,16 +39,16 @@
 - [x] **T12 [MUTATION]** `arena/mcp_client/client.py`: быстрый паритетный набор с мок-процессами (`test_mcp_client_parity_v4_169_39.py`, 42 теста) + кроссплатформенная нормализация `\` в путях команд.
 - [x] **T15 [MUTATION]** `arena/admin/handlers_update.py`: паритетный набор `test_handlers_update_parity_v4_169_39.py` (36 тестов, 0 выживших) + устранение эквивалентных мутантов парсинга JSON и fallback platform_display.
 - [x] **T17 [MUTATION]** `arena/mobile/mirror.py`: паритетный набор `test_mobile_mirror_parity_v4_169_39.py` (33 теста, 0 выживших), полный охват валидации параметров, пайплайна, broadcast и HTTP/WS хэндлеров.
+- [x] **T19 [SKILL]** `skills/arena-bridge/SKILL.md`: официальный агентский скилл Skainet Bridge (протокол подключения, обход лимита 128 MB, вынос тяжелых ассетов/вычислений на хост, MCP инструменты).
+- [x] **T20 [INTEGRATION]** `docs/GODOT_INTEGRATION.md`: архитектурный гайд по разработке игр на Godot Engine через Skainet Bridge и скилл `godot-game-production-skill` в бездисковой/без-GPU песочнице Arena.ai.
+- [x] **T21 [GOVERNANCE]** `AGENTS.md` + `scripts/serena_reminder.py`: фиксация жестких правил Spec-Kit (T0..Tn), напоминания о Serena и защите от потери контекста при сжатии.
 
 ---
 
 ## Очередь задач (Queue)
 
-### Фаза 1: Мутационная карта (оставшиеся модули TARGETS)
-*Все 15 модулей TARGETS успешно покрыты паритетными наборами со строгим нулём выживших (0 survivors)!*
-
 ### Фаза 2: Статический анализ и типизация
-- [ ] **T16 [PYRIGHT]** Разбор ~95 находок Pyright (`reportOptionalMemberAccess`, `reportArgumentType`, `reportInvalidTypeForm`).
+- [ ] **T16 [PYRIGHT]** Разбор ~89 находок Pyright (`reportOptionalMemberAccess`, `reportArgumentType`, `reportInvalidTypeForm`).
 
 ---
 

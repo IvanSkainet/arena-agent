@@ -25,6 +25,23 @@ compatibility entrypoints or large catch-all files.
 - Never store per-release scratch notes in the repository; use `/tmp/` when
   driving `gh release create --notes-file`.
 
+**Task Board Discipline & Spec-Kit Protocol (T0..Tn) (v4.169.39+)**
+
+- **Every action belongs to a tracked task.** Any newly discovered bug, refactoring,
+  or feature must be recorded in `docs/TASK_BOARD.md` with an identifier `T0..Tn`.
+  Never execute ad-hoc or unrecorded side tasks.
+- **Strict Definition of Done (DoD):**
+  1. *Root-cause fix:* resolve the true invariant failure, never suppress or silence.
+  2. *Deterministic Parity Suite:* write isolated unit tests without unmocked sockets or clocks.
+  3. *0 Mutation Survivors:* verify with `mutmut` and pin the ratchet in `scripts/mutation_baseline.json`.
+  4. *Mandatory Bilateral Sabotage:* prove that breaking the fix fails tests, and healthy code is 100% green.
+  5. *Preflight Pass:* `python scripts/preflight.py` must be completely green before release.
+- **Sandbox Escape via Bridge:** Never download heavy engines (like Godot), 3D assets, or datasets
+  into the 128 MB agent workspace `/home/user`. Route heavy workloads, game production, and persistent
+  storage to the host machine via Skainet Bridge (`skills/arena-bridge/SKILL.md` and `docs/GODOT_INTEGRATION.md`).
+- **Serena Continuity:** To prevent context loss across session truncations, read `docs/TASK_BOARD.md`
+  and run `python scripts/serena_reminder.py` upon session bootstrap.
+
 **Agent workspace hygiene (added v4.165.0 -- learned the hard way)**
 
 An agent sandbox has a snapshot budget (128 MB / 10 000 files on Arena).
