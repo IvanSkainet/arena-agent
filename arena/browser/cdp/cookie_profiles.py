@@ -47,7 +47,7 @@ def make_cdp_cookies_profiles_handler(ctx: CdpCookiesHandlerContext):
 
         try:
             cookie_mgr, response = await get_cookie_manager_or_response(ctx)
-            if response:
+            if response or cookie_mgr is None:
                 return response
 
             if action == "save":

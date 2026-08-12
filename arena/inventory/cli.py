@@ -9,8 +9,10 @@ def main():
     # On Windows console, force UTF-8 so dashes/bullets don't become mojibake
     if platform.system() == "Windows":
         try:
-            sys.stdout.reconfigure(encoding="utf-8")
-            sys.stderr.reconfigure(encoding="utf-8")
+            if hasattr(sys.stdout, "reconfigure"):
+                getattr(sys.stdout, "reconfigure")(encoding="utf-8")
+            if hasattr(sys.stderr, "reconfigure"):
+                getattr(sys.stderr, "reconfigure")(encoding="utf-8")
         except Exception:
             pass
     p = argparse.ArgumentParser(description="Cross-platform system inventory")

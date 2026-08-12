@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from arena.browser.cdp_client.common import List, Optional, aiohttp
+from arena.browser.cdp_client.common import List, Optional
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from arena.browser.cdp_client.tab import CDPTab
@@ -28,8 +28,8 @@ class CDPTabManagerCallbackMixin:
         _browser_listener_task: Optional[asyncio.Task]
         _browser_pending: Dict[int, asyncio.Future]
         _browser_proc: Optional[subprocess.Popen]
-        _browser_session: Optional[aiohttp.ClientSession]
-        _browser_ws: Optional[aiohttp.ClientWebSocketResponse]
+        _browser_session: Any
+        _browser_ws: Any
         _callback_tasks: List[asyncio.Task]
         _tab_created_callbacks: List[Callable]
         _tab_destroyed_callbacks: List[Callable]

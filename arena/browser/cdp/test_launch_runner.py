@@ -63,4 +63,5 @@ def run_test_launch(cdp, *, port: int, headless: bool) -> dict:
             break
         result["modes_tried"] = result.get("modes_tried", []) + [mode_result]
 
-    return ensure_json_safe(result)
+    safe_res = ensure_json_safe(result)
+    return safe_res if isinstance(safe_res, dict) else result

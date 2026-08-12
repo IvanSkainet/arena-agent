@@ -17,15 +17,21 @@ def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
         qs = parse_qs(request.query_string)
         fmt = qs.get("format", ["raw"])[0].lower()
 
-        def _qs_float(name):
+        def _qs_float(name: str) -> float | None:
+            raw = qs.get(name, [None])[0]
+            if raw is None or raw == "":
+                return None
             try:
-                return float(qs.get(name, [None])[0])
+                return float(raw)
             except (TypeError, ValueError):
                 return None
 
-        def _qs_int(name):
+        def _qs_int(name: str) -> int | None:
+            raw = qs.get(name, [None])[0]
+            if raw is None or raw == "":
+                return None
             try:
-                return int(qs.get(name, [None])[0])
+                return int(raw)
             except (TypeError, ValueError):
                 return None
 

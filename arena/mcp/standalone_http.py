@@ -1,6 +1,8 @@
 """Standalone MCP HTTP handler."""
 from __future__ import annotations
 
+from typing import Any
+
 from arena.mcp.standalone_common import (
     SESSIONS,
     SLOCK,
@@ -24,7 +26,8 @@ from arena.mcp.standalone_tools import TOOLS
 ALLOWED_ORIGINS = {"http://localhost", "http://127.0.0.1", os.getenv("ARENA_BRIDGE_URL", ""), "null", ""}
 
 class H(BaseHTTPRequestHandler):
-    def log_message(self, fmt, *a): sys.stderr.write("%s - - [%s] %s\n" % (self.address_string(), self.log_date_time_string(), fmt % a))
+    def log_message(self, format: str, *args: Any) -> None:
+        sys.stderr.write("%s - - [%s] %s\n" % (self.address_string(), self.log_date_time_string(), format % args))
 
     def _origin_ok(self):
         o = self.headers.get("Origin", "")

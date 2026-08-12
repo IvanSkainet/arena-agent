@@ -936,6 +936,12 @@ jobs:
       - name: Quality debt ratchet (blocking)
         run: python scripts/quality_ratchet.py
 
+      - name: Pyright typing ratchet (blocking)
+        run: python scripts/pyright_ratchet.py
+
+      - name: Batch file safety ratchet (blocking)
+        run: python scripts/batch_syntax_ratchet.py
+
       # The residual finding VOLUME is intentionally not reported here:
       # a green job's log output is invisible at the checkmark level.
       # The dedicated `debt-visibility` job (non-blocking, red while any

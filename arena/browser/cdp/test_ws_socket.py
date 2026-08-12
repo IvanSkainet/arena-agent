@@ -62,8 +62,8 @@ async def probe_tab_ws(ctx: CdpDiagnosticHandlerContext, tab_ws_url: str, result
         result["tab_ws_connect_error"] = "websockets library not available"
 
     if not result["tab_ws_connect_ok"]:
+        t0 = time.monotonic()
         try:
-            t0 = time.monotonic()
             ws_timeout = aiohttp.ClientTimeout(total=3, connect=2, sock_connect=2)
             connector = aiohttp.TCPConnector(force_close=True, enable_cleanup_closed=True)
             async with aiohttp.ClientSession(timeout=ws_timeout, connector=connector) as session:

@@ -18,7 +18,8 @@ def _res(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _run_one(spec: dict[str, Any], active_posture: dict[str, Any]) -> dict[str, Any]:
     ident = str(spec.get("id") or spec.get("name") or "run")[:80]
-    timeout = int(spec.get("timeout")) if spec.get("timeout") else None
+    raw_to = spec.get("timeout")
+    timeout = int(raw_to) if raw_to is not None else None
     argv = spec.get("argv") or []
     artifacts = spec.get("artifacts") or []
     if not isinstance(argv, list) or not isinstance(artifacts, list):

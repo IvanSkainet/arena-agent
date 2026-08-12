@@ -68,6 +68,8 @@ def make_extension_bridge_runtime(ctx: ExtensionBridgeRuntimeContext) -> Extensi
         if len(calls) > 20:
             return {"ok": False, "error": "payload.calls exceeds max batch size 20", "status": 400}
         policy = extension_policy_snapshot(data.get("site") or {})
+        raw_site = policy.get("site")
+        site_dict: dict[str, Any] = raw_site if isinstance(raw_site, dict) else {}
         prepared = []
         requires_approval = False
         for idx, call in enumerate(calls, start=1):
@@ -80,7 +82,7 @@ def make_extension_bridge_runtime(ctx: ExtensionBridgeRuntimeContext) -> Extensi
             if not isinstance(arguments, dict):
                 return {"ok": False, "error": f"call #{idx} arguments must be an object", "status": 400}
             risk = classify_tool_risk(tool)
-            call_requires_approval = risk != "safe" or not policy["site"].get("trusted", False)
+            call_requires_approval = risk != "safe" or not bool(site_dict.get("trusted", False))
             requires_approval = requires_approval or call_requires_approval
             prepared.append({
                 "id": str(call.get("id", "") or f"call_{idx}"),
@@ -91,7 +93,7 @@ def make_extension_bridge_runtime(ctx: ExtensionBridgeRuntimeContext) -> Extensi
             })
         return {
             "ok": True,
-            "site": policy["site"],
+            "site": site_dict,
             "policy": {
                 "requires_approval": requires_approval,
                 "can_auto_run": not requires_approval,
@@ -100,11 +102,15 @@ def make_extension_bridge_runtime(ctx: ExtensionBridgeRuntimeContext) -> Extensi
             "calls": prepared,
         }
 
-    def execute_sync(data: dict[str, Any]) -> dict[str, Any]:
+    def execute_sync(data: dict[str, Any] | None = None) -> dict[str, Any]:
+        data = data or {}
         preview = preview_sync(data)
+        if not isinstance(preview, dict):
+            return {"ok": False, "error": "preview failed"}
         if not preview.get("ok"):
             return preview
-        mode = data.get("mode") if isinstance(data.get("mode"), dict) else {}
+        raw_mode = data.get("mode")
+        mode: dict[str, Any] = dict(raw_mode) if isinstance(raw_mode, dict) else {}
         approved = bool(mode.get("approve", False))
         # v4.97.0: YOLO auto-approves every tool (no human in the loop). The
         # full agent stop is enforced earlier, in the tool dispatcher's
@@ -114,33 +120,53 @@ def make_extension_bridge_runtime(ctx: ExtensionBridgeRuntimeContext) -> Extensi
             approved = True
             yolo_auto = True
         dry_run = bool(mode.get("dry_run", False))
-        if preview["policy"].get("requires_approval") and not approved:
+        raw_policy = preview.get("policy")
+        policy: dict[str, Any] = dict(raw_policy) if isinstance(raw_policy, dict) else {}
+        if policy.get("requires_approval") and not approved:
             return {"ok": False, "error": "approval required", "status": 403, "preview": preview}
         if dry_run:
             return {"ok": True, "dry_run": True, "preview": preview, "calls": []}
         executed = []
         all_ok = True
-        for call in preview["calls"]:
-            raw = ctx.call_tool(call["tool"], call["arguments"])
+        raw_calls = preview.get("calls")
+        calls_list: list[dict[str, Any]] = [dict(c) for c in raw_calls] if isinstance(raw_calls, list) else []
+        for call in calls_list:
+            raw_args = call.get("arguments")
+            call_args: dict[str, Any] = dict(raw_args) if isinstance(raw_args, dict) else {}
+            raw = ctx.call_tool(str(call.get("tool", "")), call_args)
             result = _normalize_call_tool_result(raw)
-            parsed = result.get("parsed") if isinstance(result.get("parsed"), dict) else {}
-            ok = not bool(raw.get("isError", False)) and parsed.get("ok") is not False
+            parsed = result.get("parsed") if (isinstance(result, dict) and isinstance(result.get("parsed"), dict)) else {}
+            raw_err = raw.get("isError", False) if isinstance(raw, dict) else False
+            parsed_ok = parsed.get("ok") if isinstance(parsed, dict) else True
+            ok = not bool(raw_err) and (parsed_ok is not False)
             executed.append({
-                "id": call["id"], "tool": call["tool"], "ok": ok, "risk": call["risk"], "result": result,
+                "id": call.get("id"), "tool": call.get("tool"), "ok": ok, "risk": call.get("risk"), "result": result,
             })
             all_ok = all_ok and ok
+        raw_site = preview.get("site")
+        site: dict[str, Any] = dict(raw_site) if isinstance(raw_site, dict) else {}
         ctx.audit({
             "type": "extension_execute",
-            "site": preview["site"].get("origin", ""),
-            "host": preview["site"].get("host", ""),
-            "adapter": preview["site"].get("adapter", ""),
+            "site": site.get("origin", ""),
+            "host": site.get("host", ""),
+            "adapter": site.get("adapter", ""),
             "calls": [{"tool": item["tool"], "ok": item["ok"], "risk": item["risk"]} for item in executed],
             "approved": approved,
             "yolo_auto": yolo_auto,
             "dry_run": dry_run,
             "ok": all_ok,
         })
-        return {"ok": all_ok, "site": preview["site"], "calls": executed, "summary": f"{len(executed)} call(s) executed"}
+        return {
+            "ok": all_ok,
+            "executed": executed,
+            "site": site,
+            "approved": approved,
+            "yolo_auto": yolo_auto,
+            "dry_run": dry_run,
+            "preview": preview,
+            "calls": executed,
+            "summary": f"{len(executed)} call(s) executed",
+        }
 
     return ExtensionBridgeRuntime(policies_sync=policies_sync, preview_sync=preview_sync, execute_sync=execute_sync, instructions_sync=instructions_sync)
 

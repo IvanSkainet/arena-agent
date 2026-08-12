@@ -54,9 +54,12 @@ async def _cdp_watcher_loop():
                 # Tab was connected but now isn't — try a quick re-check
                 try:
                     cdp_mod = _get_cdp_module()
-                    tabs = await asyncio.get_running_loop().run_in_executor(
-                        None, cdp_mod.list_tabs, _cdp_state["port"]
-                    )
+                    if cdp_mod:
+                        tabs = await asyncio.get_running_loop().run_in_executor(
+                            None, getattr(cdp_mod, "list_tabs"), _cdp_state["port"]
+                        )
+                    else:
+                        tabs = []
                     if tabs:
                         needs_reconnect = True
                         reason = "Active tab WebSocket disconnected but browser still running"

@@ -272,7 +272,8 @@ class McpStdioClient:
         resp = self.request("tools/list", {}, timeout=timeout)
         if "error" in resp:
             raise McpError(f"tools/list error: {resp['error']}")
-        self._tools = resp.get("result", {}).get("tools", [])
+        raw_tools = resp.get("result", {}).get("tools", [])
+        self._tools = [dict(t) for t in raw_tools] if isinstance(raw_tools, list) else []
         return self._tools
 
     def call_tool(self, name: str, arguments: dict[str, Any] | None = None,

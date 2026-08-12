@@ -1,0 +1,18 @@
+# Gitleaks configuration for Skainet Bridge / Arena Agent
+title = "gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allowlisted test fixtures and redaction patterns"
+paths = [
+  '''tests/test_observability_redact\.py''',
+  '''tests/test_audit_value_redaction\.py''',
+  '''tests/test_redaction.*\.py''',
+  '''arena/observability/redact\.py'''
+]
+regexes = [
+  '''ghp_[a-zA-Z0-9]{36}''',
+  '''xoxb-[0-9]{11}-[0-9]{11}-[a-zA-Z0-9]{24}'''
+]

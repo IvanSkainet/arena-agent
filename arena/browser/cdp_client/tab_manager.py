@@ -11,7 +11,6 @@ from arena.browser.cdp_client.common import (
     Dict,
     List,
     Optional,
-    aiohttp,
     asyncio,
     itertools,
     logger,
@@ -58,8 +57,8 @@ class CDPTabManager(
         self._closing = False
 
         # Browser-level WebSocket for Target.* events
-        self._browser_ws: Optional[aiohttp.ClientWebSocketResponse] = None
-        self._browser_session: Optional[aiohttp.ClientSession] = None
+        self._browser_ws: Any = None
+        self._browser_session: Any = None
         self._browser_listener_task: Optional[asyncio.Task] = None
         self._browser_req_id = itertools.count(1)
         self._browser_pending: Dict[int, asyncio.Future] = {}

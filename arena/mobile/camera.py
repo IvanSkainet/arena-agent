@@ -210,10 +210,12 @@ def shutter(serial: str, *,
         s = find_shutter(serial)
         if not s.get("ok"):
             return s
-        shutter_x, shutter_y = s["x"], s["y"]
-        detected_via = s["source"]
+        shutter_x, shutter_y = s.get("x"), s.get("y")
+        detected_via = s.get("source", "detected")
     else:
         detected_via = "caller-supplied coordinates"
+    if shutter_x is None or shutter_y is None:
+        return {"ok": False, "error": "shutter coordinates missing"}
     r = _tap(serial, int(shutter_x), int(shutter_y))
     r = dict(r)
     r["action"] = "shutter"

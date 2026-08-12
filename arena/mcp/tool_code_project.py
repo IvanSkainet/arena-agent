@@ -31,9 +31,12 @@ def handle_code_project_tool(name: str, args: dict[str, Any], *, ctx=None) -> di
         if name == "code_project.remove":
             return _res(projects.remove(str(args.get("name") or "")))
         if name == "code_project.deps_install":
-            deps = args.get("deps") if isinstance(args.get("deps"), dict) else {}
+            raw_deps = args.get("deps")
+            deps: dict[str, Any] = dict(raw_deps) if isinstance(raw_deps, dict) else {}
+            raw_timeout = args.get("timeout")
+            to_val = int(raw_timeout) if raw_timeout is not None else None
             return _res(projects.deps_install(str(args.get("name") or ""), lang=str(args.get("lang") or "python3"),
-                                              deps=deps, timeout=int(args.get("timeout")) if args.get("timeout") else None,
+                                              deps=deps, timeout=to_val,
                                               write_lock=bool(args.get("write_lock", True))))
         if name == "code_project.lock":
             return _res(projects.lock(str(args.get("name") or ""), lang=str(args.get("lang") or "python3"),
@@ -42,13 +45,19 @@ def handle_code_project_tool(name: str, args: dict[str, Any], *, ctx=None) -> di
             return _res(projects.lock_verify(str(args.get("name") or ""), lang=str(args.get("lang") or ""),
                                              mode=str(args.get("mode") or "strict")))
         if name == "code_project.promote_tool":
+            raw_schema = args.get("input_schema") if isinstance(args.get("input_schema"), dict) else (args.get("inputSchema") if isinstance(args.get("inputSchema"), dict) else {})
+            input_schema: dict[str, Any] = dict(raw_schema) if isinstance(raw_schema, dict) else {}
+            raw_run = args.get("run")
+            run_dict: dict[str, Any] = dict(raw_run) if isinstance(raw_run, dict) else {}
+            raw_tests = args.get("tests")
+            tests_list: list[dict[str, Any]] = [dict(t) for t in raw_tests] if isinstance(raw_tests, list) else []
             return _res(_foundry.promote_project(
                 str(args.get("name") or args.get("project") or ""),
                 tool_name=str(args.get("tool_name") or args.get("tool") or ""),
                 description=str(args.get("description") or ""),
-                input_schema=args.get("input_schema") if isinstance(args.get("input_schema"), dict) else args.get("inputSchema") if isinstance(args.get("inputSchema"), dict) else {},
-                run=args.get("run") if isinstance(args.get("run"), dict) else {},
-                tests=args.get("tests") if isinstance(args.get("tests"), list) else [],
+                input_schema=input_schema,
+                run=run_dict,
+                tests=tests_list,
                 manifest_path=str(args.get("manifest_path") or _foundry.DEFAULT_MANIFEST),
                 publish_tool=bool(args.get("publish", True)),
                 overwrite_manifest=bool(args.get("overwrite_manifest", False)),
@@ -58,13 +67,15 @@ def handle_code_project_tool(name: str, args: dict[str, Any], *, ctx=None) -> di
             artifacts = args.get("artifacts") or []
             if not isinstance(argv, list) or not isinstance(artifacts, list):
                 return _res({"ok": False, "error": "argv and artifacts must be arrays"})
+            raw_timeout = args.get("timeout")
+            to_val = int(raw_timeout) if raw_timeout is not None else None
             return _res(projects.run(str(args.get("name") or ""), lang=str(args.get("lang") or "python3"),
                                      entry=str(args.get("entry") or ""), argv=[str(a) for a in argv],
                                      stdin=args.get("stdin") if isinstance(args.get("stdin"), str) else None,
                                      artifacts=[str(a) for a in artifacts],
                                      deps=args.get("deps") if isinstance(args.get("deps"), dict) else None,
                                      use_project_deps=bool(args.get("use_project_deps", False)),
-                                     timeout=int(args.get("timeout")) if args.get("timeout") else None,
+                                     timeout=to_val,
                                      lock_mode=str(args.get("lock") or args.get("lock_mode") or "ignore")))
     except Exception as e:
         return _res({"ok": False, "error": str(e)})

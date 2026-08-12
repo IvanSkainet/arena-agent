@@ -41,7 +41,7 @@ class CDPBrowser(CDPBrowserEventsMixin, CDPBrowserPageMixin):
         self.tab_index = tab_index
 
         self._ws: Any = None
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: Any = None
         self._req_id = itertools.count(1)
         self._pending: Dict[int, asyncio.Future] = {}
         self._event_handlers: Dict[str, List[Callable]] = {}

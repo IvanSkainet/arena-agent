@@ -134,7 +134,8 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
 
         timeout = min(int(data.get("timeout") or cfg["timeout"]), cfg["max_timeout"])
         max_output = min(int(data.get("max_output") or ctx.default_max_output), cfg["max_output"])
-        env_extra = data.get("env") if isinstance(data.get("env"), dict) else {}
+        raw_env = data.get("env")
+        env_extra: dict[str, Any] = dict(raw_env) if isinstance(raw_env, dict) else {}
         env = os.environ.copy()
         for key in list(env_extra.keys()):
             for blocked in _BLOCKED_ENV_PATTERNS:
@@ -442,7 +443,8 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
 
         timeout = min(int(data.get("timeout") or cfg["timeout"]), cfg["max_timeout"])
         max_output = min(int(data.get("max_output") or ctx.default_max_output), cfg["max_output"])
-        env_extra = data.get("env") if isinstance(data.get("env"), dict) else {}
+        raw_env = data.get("env")
+        env_extra: dict[str, Any] = dict(raw_env) if isinstance(raw_env, dict) else {}
         env = os.environ.copy()
         for key in list(env_extra.keys()):
             for blocked in _BLOCKED_ENV_PATTERNS:

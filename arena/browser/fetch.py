@@ -102,14 +102,14 @@ def browser_fetch(url: str, *, version: str, validate_url: UrlValidator) -> dict
     with urllib.request.urlopen(req, timeout=20) as resp:  # nosec B310 -- SSRF-validated via arena.security_ssrf._validate_url before call  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
         raw = resp.read()
         content_type = resp.headers.get("Content-Type", "application/octet-stream")
-    text: str | None = None
+    text = ""
     for enc in ["utf-8", "latin-1", "cp1252"]:
         try:
             text = raw.decode(enc)
             break
         except UnicodeDecodeError:
             continue
-    if text is None:
+    if not text:
         text = raw.decode("utf-8", "replace")
     truncated = len(text) > 50000
     text = text[:50000]

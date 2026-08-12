@@ -20,14 +20,20 @@ def handle_code_artifact_tool(name: str, args: dict[str, Any], *, ctx=None) -> d
         if name == "code_run.info":
             return _res(artifacts.run_info(str(args.get("run_id") or "")))
         if name == "code_run.promote_tool":
+            raw_schema = args.get("input_schema") if isinstance(args.get("input_schema"), dict) else (args.get("inputSchema") if isinstance(args.get("inputSchema"), dict) else {})
+            input_schema: dict[str, Any] = dict(raw_schema) if isinstance(raw_schema, dict) else {}
+            raw_run = args.get("run")
+            run_dict: dict[str, Any] = dict(raw_run) if isinstance(raw_run, dict) else {}
+            raw_tests = args.get("tests")
+            tests_list: list[dict[str, Any]] = [dict(t) for t in raw_tests] if isinstance(raw_tests, list) else []
             return _res(_foundry.promote_run(
                 str(args.get("run_id") or ""),
                 project=str(args.get("project") or args.get("name") or ""),
                 tool_name=str(args.get("tool_name") or args.get("tool") or ""),
                 description=str(args.get("description") or ""),
-                input_schema=args.get("input_schema") if isinstance(args.get("input_schema"), dict) else args.get("inputSchema") if isinstance(args.get("inputSchema"), dict) else {},
-                run=args.get("run") if isinstance(args.get("run"), dict) else {},
-                tests=args.get("tests") if isinstance(args.get("tests"), list) else [],
+                input_schema=input_schema,
+                run=run_dict,
+                tests=tests_list,
                 manifest_path=str(args.get("manifest_path") or _foundry.DEFAULT_MANIFEST),
                 publish_tool=bool(args.get("publish", True)),
                 overwrite_manifest=bool(args.get("overwrite_manifest", False)),

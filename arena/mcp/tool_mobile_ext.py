@@ -206,17 +206,21 @@ def handle_mobile_ext_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str,
     if name == "mobile.preflight":
         return text_content(json.dumps(_preflight.preflight(str(args.get("serial") or "") or None), ensure_ascii=False))
     if name == "mobile.reconnect":
+        raw_port = args.get("port")
+        port_val = int(raw_port) if raw_port is not None else None
         return text_content(json.dumps(_preflight.reconnect(
             serial=str(args.get("serial") or "") or None,
             host=str(args.get("host") or "") or None,
-            port=int(args.get("port")) if args.get("port") else None,
+            port=port_val,
             alias=str(args.get("alias") or "") or None,
         ), ensure_ascii=False))
     if name == "mobile.observe":
+        raw_max = args.get("max_nodes")
+        max_val = int(raw_max) if raw_max is not None else 80
         return text_content(json.dumps(_preflight.observe(
             str(args.get("serial") or "") or None,
             include_ui=bool(args.get("include_ui", True)),
-            max_nodes=int(args.get("max_nodes", 80)),
+            max_nodes=max_val,
         ), ensure_ascii=False))
     serial_required = {"mobile.launch_app", "mobile.pull_file", "mobile.push_file",
                        "mobile.list_files", "mobile.voice_record"}

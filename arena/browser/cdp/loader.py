@@ -24,7 +24,7 @@ def _get_cdp_module():
             break
 
     try:
-        import cdp_browser
+        import cdp_browser  # type: ignore[import-not-found]
         _cdp_module = cdp_browser
 
         bridge_logger = logging.getLogger("arena-bridge")

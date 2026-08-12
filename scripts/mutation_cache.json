@@ -125,7 +125,7 @@
    "total": 150
   },
   "arena/mcp_client/client.py": {
-   "fingerprint": "41998e40afba72ed6bb3a7f0f233642d49eb952df26f79d2de4585225fa23caa",
+   "fingerprint": "dbde9f8c802a58cd7a8ec7a146cb63a868e851f3cb3d0ac12fff691776b2a047",
    "reason": "fresh run",
    "survived": 0,
    "tests": [

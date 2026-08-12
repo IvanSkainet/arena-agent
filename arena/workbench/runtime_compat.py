@@ -111,10 +111,9 @@ def build(runtime_status: dict[str, Any] | None = None, *, platform_name: str | 
 
 
 def known_limits(rows: list[dict[str, Any]] | None = None) -> list[dict[str, str]]:
-    if rows is None:
-        rows = build()["matrix"]
+    rows_list = rows if rows is not None else build()["matrix"]
     out = []
-    for r in rows:
+    for r in (rows_list or []):
         if r.get("status") in {"blocked", "incomplete"}:
             out.append({
                 "component": f"{r.get('runtime')}.{r.get('sandbox')}",
@@ -125,10 +124,9 @@ def known_limits(rows: list[dict[str, Any]] | None = None) -> list[dict[str, str
 
 
 def next_actions(rows: list[dict[str, Any]] | None = None) -> list[str]:
-    if rows is None:
-        rows = build()["matrix"]
+    rows_list = rows if rows is not None else build()["matrix"]
     seen = []
-    for r in rows:
+    for r in (rows_list or []):
         a = r.get("next_action")
         if a and a not in seen:
             seen.append(str(a))

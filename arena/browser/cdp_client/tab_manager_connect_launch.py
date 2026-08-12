@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from arena.browser.cdp_client.common import Any, Dict, Optional, aiohttp, asyncio, logger, os, time
+from arena.browser.cdp_client.common import Any, Dict, asyncio, logger, os, time
 from arena.browser.cdp_client.process import _kill_port_processes, launch_browser
 from arena.browser.cdp_client.tab import CDPTab
 from arena.browser.cdp_client.tabs_http import list_tabs
@@ -15,7 +15,7 @@ class CDPTabManagerConnectLaunchMixin:
         # assigned: annotations only, so runtime behaviour is unchanged.
         # Written down because an undeclared interface lets a real typo
         # hide among the noise it generates.
-        _browser_ws: Optional[aiohttp.ClientWebSocketResponse]
+        _browser_ws: Any
         async def _connect_browser_ws(self) -> None: ...
         _tabs: Dict[str, CDPTab]
         auto_discover_existing: bool

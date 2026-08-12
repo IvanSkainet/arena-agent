@@ -132,3 +132,14 @@ jobs:
           cd dist
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             ./*.sig ./*.pem "SHA256SUMS-${TAG}.txt"
+
+      - name: Anonymous end-to-end download & smoke verification
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/verify_release && cd /tmp/verify_release
+          curl -sSfL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/arena-agent.zip" -o arena-agent.zip
+          curl -sSfL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/SHA256SUMS-${TAG}.txt" -o checksums.txt
+          sha256sum --check --ignore-missing checksums.txt
+          echo "Anonymous release download and SHA256 verified successfully."

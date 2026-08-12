@@ -28,7 +28,7 @@ class CDPBrowserEventsMixin:
         _closing: bool
         _event_handlers: Dict[str, List[Callable]]
         _pending: Dict[int, asyncio.Future]
-        _ws: Optional[aiohttp.ClientWebSocketResponse]
+        _ws: Any
         async def reconnect(self) -> None: ...
         timeout: float
 

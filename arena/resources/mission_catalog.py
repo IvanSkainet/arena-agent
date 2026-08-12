@@ -46,16 +46,22 @@ def extract_failed_steps(run: dict[str, Any] | None) -> list[dict[str, Any]]:
 def _latest_exit_code(run: dict[str, Any] | None) -> int | None:
     if not run:
         return None
-    if "exit_code" in run and run.get("exit_code") is not None:
+    raw_ec = run.get("exit_code")
+    if raw_ec is not None:
         try:
-            return int(run.get("exit_code"))
+            return int(raw_ec)
         except Exception:
             return None
-    results = list(run.get("results") or [])
+    raw_results = run.get("results")
+    results: list[dict[str, Any]] = [dict(r) for r in raw_results] if isinstance(raw_results, list) else []
     if not results:
         return 0 if run.get("ok") else None
     for result in results:
-        code = int(result.get("exit_code", 0) or 0)
+        raw_c = result.get("exit_code", 0)
+        try:
+            code = int(raw_c) if raw_c is not None else 0
+        except Exception:
+            code = 0
         if code != 0:
             return code
     return 0
@@ -74,15 +80,20 @@ def _last_activity(data: dict[str, Any], latest_run: dict[str, Any] | None) -> s
 
 
 def summarize_mission_dir(path: Path) -> dict[str, Any]:
-    data = load_mission_json(path) or {}
-    draft = data.get("draft") if isinstance(data.get("draft"), dict) else {}
-    runs = list(data.get("runs") or [])
+    raw_data = load_mission_json(path)
+    data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else {}
+    raw_draft = data.get("draft")
+    draft: dict[str, Any] = raw_draft if isinstance(raw_draft, dict) else {}
+    raw_runs = data.get("runs")
+    runs: list[dict[str, Any]] = [dict(r) for r in raw_runs] if isinstance(raw_runs, list) else []
     latest_run = runs[-1] if runs else None
     latest_failed_steps = extract_failed_steps(latest_run)
     report = path / "REPORT.md"
     logs = path / "logs"
-    lineage = data.get("lineage") if isinstance(data.get("lineage"), dict) else {}
-    ancestor_ids = [str(item).strip() for item in list(lineage.get("ancestor_ids") or []) if str(item).strip()]
+    raw_lineage = data.get("lineage")
+    lineage: dict[str, Any] = raw_lineage if isinstance(raw_lineage, dict) else {}
+    raw_ancestors = lineage.get("ancestor_ids")
+    ancestor_ids = [str(item).strip() for item in list(raw_ancestors or []) if str(item).strip()]
     parent_mission_id = str(lineage.get("parent_mission_id") or "").strip() or None
     root_mission_id = str(lineage.get("root_mission_id") or "").strip() or parent_mission_id or data.get("id", path.name)
     origin = str(lineage.get("origin") or ("manual" if not parent_mission_id else "linked"))
@@ -108,9 +119,11 @@ def summarize_mission_dir(path: Path) -> dict[str, Any]:
         "last_activity_at": _last_activity(data, latest_run),
         "runs_count": len(runs),
         "latest_run": latest_run,
+        "latest_failed_steps": latest_failed_steps,
+        "has_report": report.exists(),
+        "has_logs": logs.exists() and logs.is_dir(),
         "latest_exit_code": _latest_exit_code(latest_run),
         "failed_steps_count": len(latest_failed_steps),
-        "latest_failed_steps": latest_failed_steps,
         "report_exists": report.exists(),
         "report_path": str(report) if report.exists() else None,
         "log_count": len(list(logs.glob("step-*.json"))) if logs.exists() else 0,

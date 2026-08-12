@@ -231,7 +231,8 @@ def do_send_chat_command(command: str, hwnd: int | None = None, open_key: str = 
                     if "Minecraft" in buf.value:
                         result.append(h)
                 return True
-            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+            win_func = getattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE)
+            WNDENUMPROC = win_func(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
             user32.EnumWindows(WNDENUMPROC(cb), 0)
             return result[0] if result else None
         hwnd = find_mc()

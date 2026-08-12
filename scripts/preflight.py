@@ -56,6 +56,10 @@ CHECKS: list[Check] = [
           why="lint debt must not grow"),
     Check("quality ratchet", [PY, "scripts/quality_ratchet.py"],
           why="pyrefly/vulture debt must not grow"),
+    Check("pyright ratchet", [PY, "scripts/pyright_ratchet.py"],
+          why="Pyright typing errors in arena/ must stay strictly at zero"),
+    Check("batch safety ratchet", [PY, "scripts/batch_syntax_ratchet.py"],
+          why="Windows batch files must use CRLF and safe LISTEN filters to protect the browser"),
     Check("dead code", [PY, "scripts/dead_code_ratchet.py"],
           why="170 releases and nothing had ever been deleted; Serena found "
               "twelve public functions with zero callers, two written the "

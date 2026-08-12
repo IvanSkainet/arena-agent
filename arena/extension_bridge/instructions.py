@@ -138,7 +138,9 @@ def json_schema_to_csn(schema: Any) -> str:
         body = "; ".join(parts)
         return f"o {{p {{{body}}}{ap}}}"
     # Basic scalar with constraints.
-    base = _TYPE_MAP.get(schema.get("type"), schema.get("type") or "any")
+    raw_type = schema.get("type")
+    stype = str(raw_type) if raw_type is not None else "any"
+    base = _TYPE_MAP.get(stype, stype)
     constraints = []
     t = schema.get("type")
     if t == "string":

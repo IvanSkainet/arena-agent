@@ -23,7 +23,7 @@ def make_cdp_cookies_get_handler(ctx: CdpCookiesHandlerContext):
 
         try:
             cookie_mgr, response = await get_cookie_manager_or_response(ctx)
-            if response:
+            if response or cookie_mgr is None:
                 return response
 
             qs = parse_qs(request.query_string)
@@ -74,7 +74,7 @@ def make_cdp_cookies_set_handler(ctx: CdpCookiesHandlerContext):
 
         try:
             cookie_mgr, response = await get_cookie_manager_or_response(ctx)
-            if response:
+            if response or cookie_mgr is None:
                 return response
 
             success = await cookie_mgr.set_cookie(
@@ -123,7 +123,7 @@ def make_cdp_cookies_delete_handler(ctx: CdpCookiesHandlerContext):
 
         try:
             cookie_mgr, response = await get_cookie_manager_or_response(ctx)
-            if response:
+            if response or cookie_mgr is None:
                 return response
 
             await cookie_mgr.delete_cookie(name, domain=body.get("domain", ""))
@@ -151,7 +151,7 @@ def make_cdp_cookies_clear_handler(ctx: CdpCookiesHandlerContext):
 
         try:
             cookie_mgr, response = await get_cookie_manager_or_response(ctx)
-            if response:
+            if response or cookie_mgr is None:
                 return response
 
             await cookie_mgr.clear_cookies()

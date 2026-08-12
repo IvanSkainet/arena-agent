@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from arena.browser.cdp_client.common import Callable, Dict, List, Optional, aiohttp, asyncio, logger
+from arena.browser.cdp_client.common import Any, Callable, Dict, List, Optional, asyncio, logger
 from arena.browser.cdp_client.tab import CDPTab
 from arena.browser.cdp_client.tabs_http import list_tabs
 
@@ -15,7 +15,7 @@ class CDPTabManagerTargetMixin:
         # Written down because an undeclared interface lets a real typo
         # hide among the noise it generates.
         async def _browser_send(self, method: str, params: Optional[Dict] = None, timeout: Optional[float] = None) -> Dict: ...
-        _browser_ws: Optional[aiohttp.ClientWebSocketResponse]
+        _browser_ws: Any
         _callback_tasks: List[asyncio.Task]
         @staticmethod
         def _log_callback_error(task: asyncio.Task) -> None: ...
