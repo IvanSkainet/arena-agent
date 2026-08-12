@@ -90,7 +90,7 @@
    "total": 150
   },
   "arena/browser/cdp_client/tabs_http.py": {
-   "fingerprint": "83a27878289633bcaec38b296455d1185883d675dc79a5c81cb6be7514485b4b",
+   "fingerprint": "7e6ba347a6f4d01468a8a8df773b6312f6858b514e7fc559215356b8f1b0975d",
    "reason": "fresh run",
    "survived": 0,
    "tests": [

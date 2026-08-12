@@ -92,6 +92,6 @@ def close_tab(tab_id: str, port: int = DEFAULT_PORT) -> bool:
     url = f"http://127.0.0.1:{port}/json/close/{tab_id}"
     try:
         with urllib.request.urlopen(url, timeout=5) as r:  # nosec B310 -- loopback CDP endpoint (127.0.0.1:<devtools_port>)  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
-            return r.read().decode().strip() != "Target is closing"
+            return r.read().decode().strip() == "Target is closing"
     except Exception:
         return False
