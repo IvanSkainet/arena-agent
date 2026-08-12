@@ -1,3 +1,32 @@
+## v4.169.39 — 2026-08-12
+
+### Mutation map 100% completed (15/15 target modules) & cross-platform parity suites
+
+This release achieves the milestone of 0 surviving mutants across all 15 key architectural modules
+targeted in the mutation roadmap (`scripts/mutation_baseline.json`), coupled with static typing
+and cross-platform Windows fixes:
+
+* **Update handlers parity suite (`arena/admin/handlers_update.py`):**
+  - Added deterministic parity test suite (`tests/test_handlers_update_parity_v4_169_39.py`, 36 tests)
+    eliminating 210 mutants down to **0 survivors**.
+  - Verified and pinned all 6 update endpoints: `status`, `check`, `apply`, `restart`, `token_set`, `token_clear`.
+  - Fixed cross-platform Windows path separator handling in update status diagnostics.
+  - Eliminated equivalent mutants in JSON payload decoding and platform display mapping.
+* **MCP client command allowlist normalization (`arena/mcp_client/client.py`):**
+  - Added cross-platform path normalization (`\` $\to$ `/`) in `_command_allowed` to fix Windows allowlist checks.
+  - Added comprehensive parity test suite (`tests/test_mcp_client_parity_v4_169_39.py`, 42 tests) with process mocking (0 survivors).
+* **Mobile screen mirror pipeline & WebSocket broadcast (`arena/mobile/mirror.py`):**
+  - Added fast, deterministic parity test suite (`tests/test_mobile_mirror_parity_v4_169_39.py`, 33 tests).
+  - Pinned parameters validation (WxH format, bit rates, max duration, idle timeout), session lifecycle,
+    and frame broadcast to WebSocket subscribers (0 survivors).
+* **Type safety and runtime bug fixes (Pyright / static analysis):**
+  - Fixed hidden `os.sys.executable` typo in `arena/wiring/system_helpers.py` $\to$ `sys.executable`.
+  - Fixed type narrowing for optional `rows` in `arena/workbench/runtime_compat.py`.
+  - Added safe dict fallback for `load_mission_json` in `arena/resources/mission_catalog.py`.
+  - Fixed operator precedence and non-list safe handling in `arena/resources/mission_schedule_store.py`.
+* **Mechanical Ratchets:**
+  - Expanded `scripts/mutation_baseline.json` to 15 modules locked at **0 survivors**.
+
 ## v4.169.38 — 2026-08-11
 
 ### Fixed: uninstall/install scripts killed user browser processes
@@ -20,8 +49,6 @@ The uninstaller parsed the 5th token on that line and forcibly killed the user's
   `LISTENING` filter presence across batch scripts and shell scripts, with mandatory
   sabotage coverage.
 
-<<<<<<< HEAD
-=======
 ### Simplified startup, full tunnel cleanup on stop, & real reachability diagnostics
 
 This release directly addresses operator feedback on bridge lifecycle usability,
@@ -46,8 +73,6 @@ stuck Tailscale funnels, and verification of real external connectivity for Aren
 * **Diagnostic suite (`tests/test_check_bridge_diagnostic.py`):** 6 tests covering
   token resolution, offline detection, 401 Unauthorized handling, tunnel probe,
   and output formatting.
-
->>>>>>> 307c13ef (fix(v4.169.38): lifecycle usability, stop tailscale/tunnels, check_bridge diagnostic)
 ## v4.169.37 — 2026-08-11
 
 ### Mutation debt eliminated in APK paths, Interpreters, & Runtime Fetch: 176 mutants -> 0
