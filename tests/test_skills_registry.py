@@ -48,7 +48,12 @@ def test_arena_bridge_skill_registered():
     assert res["ok"] is True
     names = {s["name"] for s in res["skills"]}
     assert "arena-bridge" in names
+    assert "book-of-eternity" in names
     skill = next(s for s in res["skills"] if s["name"] == "arena-bridge")
     assert skill["file"] == "arena-bridge"
     assert (skills_dir / "arena-bridge" / "SKILL.md").exists()
     assert len(skill.get("description", "")) > 10
+
+    boe_skill = next(s for s in res["skills"] if s["name"] == "book-of-eternity")
+    assert boe_skill["file"] == "book-of-eternity"
+    assert (skills_dir / "book-of-eternity" / "SKILL.md").exists()

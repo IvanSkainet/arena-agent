@@ -42,6 +42,12 @@
 - [x] **T19 [SKILL]** `skills/arena-bridge/SKILL.md`: официальный агентский скилл Skainet Bridge (протокол подключения, обход лимита 128 MB, вынос тяжелых ассетов/вычислений на хост, MCP инструменты).
 - [x] **T20 [INTEGRATION]** `docs/GODOT_INTEGRATION.md`: архитектурный гайд по разработке игр на Godot Engine через Skainet Bridge и скилл `godot-game-production-skill` в бездисковой/без-GPU песочнице Arena.ai.
 - [x] **T21 [GOVERNANCE]** `AGENTS.md` + `scripts/serena_reminder.py`: фиксация жестких правил Spec-Kit (T0..Tn), напоминания о Serena и защите от потери контекста при сжатии.
+- [x] **T22 [INTEGRATION]** Book of Eternity (BoE) GM Relay Subsystem:
+  - `arena/game/boe_relay.py`: протокол сессии, защита путей, атомарная запись JSON, inbox long-poll, сигналы `complete_turn` / `fail_turn` / `repair_ready`.
+  - `arena/game/boe_handlers.py`: 7 аутентифицированных хэндлеров `boe.*` для Arena Agent Mode.
+  - `arena/game/boe_cli.py` & `bin/boe-arena-relay`: ConPTY pseudo-CLI для демона `game_master_daemon.ps1`.
+  - `skills/book-of-eternity/SKILL.md`: агентский скилл автономного ГМа Book of Eternity.
+  - `tests/test_boe_relay_parity.py`: паритетный набор из 27 тестов с проверкой path traversal и аутентификации.
 
 ---
 
