@@ -77,6 +77,7 @@ def save_schedule_def(schedules_dir: Path, data: dict[str, Any]) -> dict[str, An
     loaded = _load(path) if path.exists() else {}
     current: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
     next_run_at = str(data.get("next_run_at", "") or current.get("next_run_at", "") or _iso(now + dt.timedelta(minutes=every_minutes)))
+    raw_constraints = data.get("constraints") if data.get("constraints") is not None else current.get("constraints")
     schedule = {
         "id": schedule_id,
         "title": str(data.get("title", "") or current.get("title", "") or f"{action}:{mission_id}"),
@@ -87,7 +88,7 @@ def save_schedule_def(schedules_dir: Path, data: dict[str, Any]) -> dict[str, An
         "notes": str(data.get("notes", "") or current.get("notes", "") or ""),
         "followup_goal": str(data.get("followup_goal", "") or current.get("followup_goal", "") or ""),
         "followup_title": str(data.get("followup_title", "") or current.get("followup_title", "") or ""),
-        "constraints": list(data.get("constraints") if data.get("constraints") is not None else current.get("constraints") or []),
+        "constraints": list(raw_constraints) if isinstance(raw_constraints, (list, tuple)) else [],
         "memory_profile": str(data.get("memory_profile", "") or current.get("memory_profile", "") or ""),
         "template": str(data.get("template", "") or current.get("template", "") or ""),
         "max_steps": int(data.get("max_steps", current.get("max_steps", 8)) or 8),

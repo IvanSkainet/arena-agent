@@ -111,7 +111,8 @@ def build(runtime_status: dict[str, Any] | None = None, *, platform_name: str | 
 
 
 def known_limits(rows: list[dict[str, Any]] | None = None) -> list[dict[str, str]]:
-    rows = rows or build()["matrix"]
+    if rows is None:
+        rows = build()["matrix"]
     out = []
     for r in rows:
         if r.get("status") in {"blocked", "incomplete"}:
@@ -124,7 +125,8 @@ def known_limits(rows: list[dict[str, Any]] | None = None) -> list[dict[str, str
 
 
 def next_actions(rows: list[dict[str, Any]] | None = None) -> list[str]:
-    rows = rows or build()["matrix"]
+    if rows is None:
+        rows = build()["matrix"]
     seen = []
     for r in rows:
         a = r.get("next_action")

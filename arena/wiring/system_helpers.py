@@ -1,7 +1,7 @@
 """system helper wiring for unified_bridge."""
 from __future__ import annotations
 
-import os
+import sys
 from pathlib import Path
 from typing import Any, MutableMapping
 
@@ -53,7 +53,7 @@ def build_system_helpers(g: MutableMapping[str, Any]) -> dict[str, Any]:
             run_inventory_fn=g["run_inventory"],
             bridge_dir=g["BRIDGE_DIR"],
             root_agent=g["ROOT_AGENT"],
-            python_executable=os.sys.executable or "python3",
+            python_executable=sys.executable or "python3",
         ),
     })
     g.update(helpers)

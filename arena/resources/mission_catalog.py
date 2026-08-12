@@ -74,7 +74,7 @@ def _last_activity(data: dict[str, Any], latest_run: dict[str, Any] | None) -> s
 
 
 def summarize_mission_dir(path: Path) -> dict[str, Any]:
-    data = load_mission_json(path)
+    data = load_mission_json(path) or {}
     draft = data.get("draft") if isinstance(data.get("draft"), dict) else {}
     runs = list(data.get("runs") or [])
     latest_run = runs[-1] if runs else None
