@@ -40,3 +40,15 @@ def test_unified_bridge_skills_wrapper():
     res = ub._skills_list_sync()
     assert res["ok"] is True
     assert isinstance(res["skills"], list)
+
+
+def test_arena_bridge_skill_registered():
+    skills_dir = Path(__file__).resolve().parents[1] / "skills"
+    res = scan_skills(skills_dir)
+    assert res["ok"] is True
+    names = {s["name"] for s in res["skills"]}
+    assert "arena-bridge" in names
+    skill = next(s for s in res["skills"] if s["name"] == "arena-bridge")
+    assert skill["file"] == "arena-bridge"
+    assert (skills_dir / "arena-bridge" / "SKILL.md").exists()
+    assert len(skill.get("description", "")) > 10
