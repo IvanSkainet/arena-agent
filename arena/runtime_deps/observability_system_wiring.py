@@ -27,6 +27,7 @@ from arena.handler_context import (  # noqa: E402,F401
     AlertsHandlerContext,
     ApiV2HandlerContext,
     BatchHandlerContext,
+    BoeHandlerContext,
     BrowserBrowseHandlerContext,
     BrowserFetchHandlerContext,
     CdpAdvancedHandlerContext,

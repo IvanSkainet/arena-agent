@@ -39,6 +39,17 @@ class RelayHandlerContext:
 
 
 @dataclass(frozen=True)
+class BoeHandlerContext:
+    """Dependencies for Book of Eternity (BoE) game relay handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    executor: Executor
+    audit: Callable[[dict[str, Any]], None]
+
+
+@dataclass(frozen=True)
 class SkillHandlerContext:
     """Dependencies for skills API handlers."""
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import functools
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -12,14 +14,39 @@ from arena.game import boe_relay
 from arena.handler_helpers import authed, err_json, ok_json, safe_float
 
 
+@dataclass(frozen=True)
+class BoeHandlers:
+    boe_status: Callable[..., Any]
+    boe_wait_inbox: Callable[..., Any]
+    boe_read_turn: Callable[..., Any]
+    boe_write_json: Callable[..., Any]
+    boe_complete_turn: Callable[..., Any]
+    boe_fail_turn: Callable[..., Any]
+    boe_repair_turn: Callable[..., Any]
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key)
+
+    def keys(self) -> list[str]:
+        return [
+            "boe_status",
+            "boe_wait_inbox",
+            "boe_read_turn",
+            "boe_write_json",
+            "boe_complete_turn",
+            "boe_fail_turn",
+            "boe_repair_turn",
+        ]
+
+
 def _resolve_session_dir(body: dict[str, Any], query: Any) -> Path:
     """Resolve session directory from request body, query or fallback."""
     raw = (body.get("session_dir") or query.get("session_dir") or "game_session")
     return Path(str(raw))
 
 
-def make_boe_handlers(ctx: Any) -> dict[str, Any]:
-    """Return dictionary of BoE handlers keyed by route identifier."""
+def make_boe_handlers(ctx: Any) -> BoeHandlers:
+    """Return dictionary-like BoeHandlers dataclass keyed by route identifier."""
 
     @authed(ctx)
     async def handle_boe_status(request: web.Request) -> web.Response:
@@ -189,12 +216,12 @@ def make_boe_handlers(ctx: Any) -> dict[str, Any]:
         })
         return ok_json(ctx, {"result": res})
 
-    return {
-        "boe_status": handle_boe_status,
-        "boe_wait_inbox": handle_boe_wait_inbox,
-        "boe_read_turn": handle_boe_read_turn,
-        "boe_write_json": handle_boe_write_json,
-        "boe_complete_turn": handle_boe_complete_turn,
-        "boe_fail_turn": handle_boe_fail_turn,
-        "boe_repair_turn": handle_boe_repair_turn,
-    }
+    return BoeHandlers(
+        boe_status=handle_boe_status,
+        boe_wait_inbox=handle_boe_wait_inbox,
+        boe_read_turn=handle_boe_read_turn,
+        boe_write_json=handle_boe_write_json,
+        boe_complete_turn=handle_boe_complete_turn,
+        boe_fail_turn=handle_boe_fail_turn,
+        boe_repair_turn=handle_boe_repair_turn,
+    )

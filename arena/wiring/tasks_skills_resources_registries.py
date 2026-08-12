@@ -71,6 +71,28 @@ def build_tasks_skills_resources_registries(g: MutableMapping[str, Any]) -> dict
     registry.update({"_relay_handler_ctx": relay_handler_ctx,
                      "_relay_handlers": relay_handlers})
 
+    from arena.game.boe_handlers import make_boe_handlers
+
+    boe_handler_ctx = env.BoeHandlerContext(
+        require_auth=env.require_auth,
+        record_request=env.record_request,
+        cors_json_response=env._cors_json_response,
+        executor=env._EXECUTOR,
+        audit=env.audit,
+    )
+    boe_handlers_map = make_boe_handlers(boe_handler_ctx)
+    env.export_handler_attrs(registry, boe_handlers_map, {
+        "handle_v1_boe_status": "boe_status",
+        "handle_v1_boe_wait_inbox": "boe_wait_inbox",
+        "handle_v1_boe_read_turn": "boe_read_turn",
+        "handle_v1_boe_write_json": "boe_write_json",
+        "handle_v1_boe_complete_turn": "boe_complete_turn",
+        "handle_v1_boe_fail_turn": "boe_fail_turn",
+        "handle_v1_boe_repair_turn": "boe_repair_turn",
+    })
+    registry.update({"_boe_handler_ctx": boe_handler_ctx,
+                     "_boe_handlers": boe_handlers_map})
+
     skill_runtime_ctx = env.SkillRuntimeContext(
         skills_dir=lambda: g["SKILLS_DIR"],
         root_agent=lambda: g["ROOT_AGENT"],
