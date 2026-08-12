@@ -45,6 +45,7 @@ jobs:
   # run in parallel. `fail-fast: false` because a shard that dies still
   # leaves the other seven with real results worth reading.
   plan:
+    timeout-minutes: 10
     name: Plan the shards
     runs-on: ubuntu-latest
     outputs:

@@ -50,6 +50,7 @@ concurrency:
 
 jobs:
   relock:
+    timeout-minutes: 15
     name: Regenerate hash-locked requirements
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     permissions:

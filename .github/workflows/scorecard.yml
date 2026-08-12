@@ -6,6 +6,10 @@ on:
   schedule:
     - cron: "0 8 * * 1"  # Weekly Monday 08:00 UTC
 
+concurrency:
+  group: scorecard-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   security-events: write
@@ -14,6 +18,7 @@ permissions:
 
 jobs:
   scorecard:
+    timeout-minutes: 10
     name: OSSF Scorecard supply-chain security
     runs-on: ubuntu-latest
     steps:

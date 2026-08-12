@@ -36,6 +36,7 @@ permissions: {}
 
 jobs:
   sign:
+    timeout-minutes: 15
     permissions:
       contents: write   # attach signatures + digest file to the release
       id-token: write   # OIDC token for keyless signing (the whole point)

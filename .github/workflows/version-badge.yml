@@ -12,12 +12,17 @@ on:
       - master
   workflow_dispatch: {}
 
+concurrency:
+  group: version-badge-${{ github.ref }}
+  cancel-in-progress: false
+
 # Scorecard Token-Permissions: top-level must grant NOTHING; the single
 # job that pushes the badge commit declares its write scope itself.
 permissions: {}
 
 jobs:
   refresh:
+    timeout-minutes: 5
     permissions:
       contents: write  # bot badge commit + push to master
     runs-on: ubuntu-latest

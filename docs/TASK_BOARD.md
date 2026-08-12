@@ -71,3 +71,7 @@
 4. **Mandatory Sabotage:** умышленное внесение бага делает тесты красными; немутированный код — 100% зелёный.
 5. **Ratchets & Lints:** `ruff check .`, `lint_ratchet.py`, `quality_ratchet.py`, `preflight.py --full` — всё зелёное.
 6. **Clean Release:** чистый клон тега, сборка ZIP + APK, проверка SHA, публикация через GitHub API, ожидание зелёного CI на 36 задач.
+- [x] **T30 [CI/CD HARDENING]** Комплексное усиление GitHub Actions:
+  - Проставлены явные `timeout-minutes` во всех 40 джобах 10 workflow-файлов (защита от 6-часового зависания раннеров).
+  - Настроены группы `concurrency` с `cancel-in-progress: true` в `dependency-review.yml`, `scorecard.yml`, `zizmor.yml`, `version-badge.yml` (экономия раннеров и исключение гонок).
+  - Локальный preflight 23/23 OK, Zizmor 0 findings, Actionlint 0 errors.

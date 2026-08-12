@@ -4,6 +4,10 @@ on:
   pull_request:
     branches: [master]
 
+concurrency:
+  group: dependency-review-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   # The action posts its findings as a PR comment; without this it logs
@@ -12,6 +16,7 @@ permissions:
 
 jobs:
   dependency-review:
+    timeout-minutes: 5
     name: Dependency review (block new CVEs in PRs)
     runs-on: ubuntu-latest
     steps:

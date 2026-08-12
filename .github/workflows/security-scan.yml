@@ -20,6 +20,7 @@ permissions:
 
 jobs:
   bandit:
+    timeout-minutes: 10
     name: bandit (must be 0 HIGH / 0 MEDIUM)
     runs-on: ubuntu-latest
     steps:
@@ -68,6 +69,7 @@ jobs:
           retention-days: 30
 
   semgrep:
+    timeout-minutes: 15
     name: semgrep (9 rule packs, must be 0 findings)
     runs-on: ubuntu-latest
     steps:
@@ -121,6 +123,7 @@ jobs:
           retention-days: 30
 
   trufflehog:
+    timeout-minutes: 10
     name: trufflehog (0 secrets in git history)
     runs-on: ubuntu-latest
     steps:
@@ -140,6 +143,7 @@ jobs:
         continue-on-error: true
 
   gitleaks:
+    timeout-minutes: 5
     name: gitleaks (0 secrets in commits)
     runs-on: ubuntu-latest
     steps:
@@ -159,6 +163,7 @@ jobs:
           GITLEAKS_CONFIG: .gitleaks.toml
 
   security-alerts:
+    timeout-minutes: 5
     name: security alerts (0 open alerts in CodeQL, Dependabot, Secret Scanning)
     runs-on: ubuntu-latest
     permissions:
@@ -186,6 +191,7 @@ jobs:
           python3 scripts/dismissed_alerts_gate.py
 
   osv-scanner:
+    timeout-minutes: 10
     name: osv-scanner (Google OSV vulnerability database)
     runs-on: ubuntu-latest
     permissions:
@@ -208,6 +214,7 @@ jobs:
         continue-on-error: true  # advisory, don't block CI
 
   sbom-and-grype:
+    timeout-minutes: 10
     name: SBOM + Grype vulnerability scan
     runs-on: ubuntu-latest
     permissions:
@@ -246,6 +253,7 @@ jobs:
           retention-days: 30
 
   socket-firewall:
+    timeout-minutes: 10
     name: Socket Firewall (supply-chain malware detection)
     runs-on: ubuntu-latest
     permissions:
@@ -277,6 +285,7 @@ jobs:
         continue-on-error: true
 
   devskim:
+    timeout-minutes: 10
     name: DevSkim (Microsoft security linter)
     runs-on: ubuntu-latest
     permissions:
@@ -308,6 +317,7 @@ jobs:
           retention-days: 30
 
   pip-audit:
+    timeout-minutes: 10
     name: pip-audit (0 CVE in runtime deps)
     runs-on: ubuntu-latest
     steps:

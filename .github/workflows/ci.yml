@@ -26,6 +26,7 @@ jobs:
   # wrong event names, matrix typo, missing permissions, etc.
   # ----------------------------------------------------------------
   actionlint:
+    timeout-minutes: 5
     name: Workflow lint (actionlint)
     runs-on: ubuntu-latest
     steps:
@@ -67,6 +68,7 @@ jobs:
   # macOS device locally.
   # ----------------------------------------------------------------
   test:
+    timeout-minutes: 15
     name: Tests (Python ${{ matrix.python-version }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     # Job-scoped (Scorecard narrowed-top-level doctrine): checkout needs
@@ -227,6 +229,7 @@ jobs:
   # dropped more than 1 percentage point since the last release.
   # ----------------------------------------------------------------
   coverage-diff:
+    timeout-minutes: 5
     name: Coverage diff (vs ${{ github.event.repository.default_branch }})
     runs-on: ubuntu-latest
     needs: test
@@ -273,6 +276,7 @@ jobs:
   # 5 identical test cells.
   # ----------------------------------------------------------------
   version-sync:
+    timeout-minutes: 5
     name: Version sync (4 sources in lockstep)
     runs-on: ubuntu-latest
     steps:
@@ -352,6 +356,7 @@ jobs:
   # releases 80 days apart.
   # ----------------------------------------------------------------
   changelog-freshness:
+    timeout-minutes: 5
     name: CHANGELOG freshness (>= 90d old = fail)
     runs-on: ubuntu-latest
     steps:
@@ -399,6 +404,7 @@ jobs:
   # 5-cell matrix.
   # ----------------------------------------------------------------
   catalogue-harden:
+    timeout-minutes: 5
     name: 'Catalogue hardening (every tool has additionalProperties: false)'
     runs-on: ubuntu-latest
     steps:
@@ -439,6 +445,7 @@ jobs:
   # informational.
   # ----------------------------------------------------------------
   lint:
+    timeout-minutes: 10
     name: Lint (ruff)
     runs-on: ubuntu-latest
     steps:
@@ -491,6 +498,7 @@ jobs:
   # wheel, not the checkout).
   # ----------------------------------------------------------------
   packaging-e2e:
+    timeout-minutes: 10
     name: Packaging E2E (wheel builds and installs clean)
     runs-on: ubuntu-latest
     steps:
@@ -575,6 +583,7 @@ jobs:
   # product, not a warning. ~75s including the browser download.
   # ----------------------------------------------------------------
   dashboard-browser-e2e:
+    timeout-minutes: 15
     name: Dashboard browser E2E (real Chromium against a live server)
     runs-on: ubuntu-latest
     steps:
@@ -630,6 +639,7 @@ jobs:
   # imports + server dead on startup".
   # ----------------------------------------------------------------
   e2e-installed:
+    timeout-minutes: 10
     name: Installed-artifact E2E (server boots and serves MCP)
     runs-on: ubuntu-latest
     steps:
@@ -725,6 +735,7 @@ jobs:
   # ~40 ms, see docs/github_apps_actions_survey.md.
   # ----------------------------------------------------------------
   js-lint:
+    timeout-minutes: 5
     name: JS lint (oxlint, ratcheted)
     runs-on: ubuntu-latest
     steps:
@@ -788,6 +799,7 @@ jobs:
   # debt; this job is the noise route for the backlog.
   # ----------------------------------------------------------------
   debt-visibility:
+    timeout-minutes: 5
     name: Debt visibility (red while debt > 0; non-blocking)
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -869,6 +881,7 @@ jobs:
   # arena + scripts + bin once the latter two were cleared.
   # ----------------------------------------------------------------
   quality-scan:
+    timeout-minutes: 10
     name: Quality scan (types/dead-code info, architecture contracts blocking)
     runs-on: ubuntu-latest
     steps:
@@ -969,6 +982,7 @@ jobs:
   # silently expanding the deprecation surface.
   # ----------------------------------------------------------------
   legacy-name-guard:
+    timeout-minutes: 5
     name: 'Legacy bare-name guard (no new dispatch on ping/echo/exec/snapshot)'
     runs-on: ubuntu-latest
     steps:
@@ -1007,6 +1021,7 @@ jobs:
   # backward-compat with their release notes).
   # ----------------------------------------------------------------
   catalogue-consistency:
+    timeout-minutes: 5
     name: 'Catalogue consistency (5 invariants in one audit)'
     runs-on: ubuntu-latest
     steps:
@@ -1053,6 +1068,7 @@ jobs:
   # this guard prevents future regressions.
   # ----------------------------------------------------------------
   dead-dispatch:
+    timeout-minutes: 5
     name: 'Dead-dispatch check (catalogue ↔ dispatcher in lockstep)'
     runs-on: ubuntu-latest
     steps:
@@ -1095,6 +1111,7 @@ jobs:
   # fields that aren't declared in properties, etc.
   # ----------------------------------------------------------------
   json-schema-check:
+    timeout-minutes: 5
     name: 'JSON Schema structural check (Draft 7 metaschema)'
     runs-on: ubuntu-latest
     steps:
@@ -1138,6 +1155,7 @@ jobs:
   # guard would have caught it at PR time.
   # ----------------------------------------------------------------
   handler-signature:
+    timeout-minutes: 5
     name: 'Handler signature (every handle_*_tool accepts *, ctx)'
     runs-on: ubuntu-latest
     steps:
@@ -1173,6 +1191,7 @@ jobs:
   # is a soft warn.
   # ----------------------------------------------------------------
   handler-namespace-consistency:
+    timeout-minutes: 5
     name: 'Handler-namespace consistency (no shadow APIs)'
     runs-on: ubuntu-latest
     steps:
@@ -1220,6 +1239,7 @@ jobs:
   # red X at PR time.
   # ----------------------------------------------------------------
   namespace-doc-coverage:
+    timeout-minutes: 5
     name: 'Namespace doc coverage (every namespace has a README example)'
     runs-on: ubuntu-latest
     steps:
@@ -1256,6 +1276,7 @@ jobs:
           python scripts/namespace_doc_coverage.py --repo-root . --enforce
 
   contract:
+    timeout-minutes: 5
     name: MCP contract test
     runs-on: ubuntu-latest
     steps:
@@ -1319,6 +1340,7 @@ jobs:
   # Android.
   # ----------------------------------------------------------------
   android:
+    timeout-minutes: 15
     name: Android app (lint + real APK build)
     runs-on: ubuntu-latest
     steps:

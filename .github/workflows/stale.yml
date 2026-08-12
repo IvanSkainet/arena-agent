@@ -26,6 +26,7 @@ permissions:
 
 jobs:
   stale:
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - name: Mark stale issues and PRs
