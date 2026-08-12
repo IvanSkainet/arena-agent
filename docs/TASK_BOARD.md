@@ -48,13 +48,18 @@
   - `arena/game/boe_cli.py` & `bin/boe-arena-relay`: ConPTY pseudo-CLI для демона `game_master_daemon.ps1`.
   - `skills/book-of-eternity/SKILL.md`: агентский скилл автономного ГМа Book of Eternity.
   - `tests/test_boe_relay_parity.py`: паритетный набор из 27 тестов с проверкой path traversal и аутентификации.
+- [x] **T23 [TYPES / PYRIGHT]** Ликвидация всех 95 ошибок Pyright до **0**, создание `scripts/pyright_ratchet.py` и `scripts/pyright_baseline.json` (зафиксирован на уровне 0).
+- [x] **T24 [SECURITY / ALERTS]** Блокирующий шаг `security-alerts` в `.github/workflows/security-scan.yml` (автоматическое падение при незакрытых алертах).
+- [x] **T25 [SECURITY / GITLEAKS]** Блокирующий режим Gitleaks в CI с `.gitleaks.toml`.
+- [x] **T26 [SUPPLY-CHAIN]** Расширенный аудит зависимостей тулчейна (`requirements-ci.in`, `requirements-packaging.in`).
+- [x] **T28 [LIFECYCLE / BATCH]** Храповик синтаксиса батников `scripts/batch_syntax_ratchet.py` (контроль CRLF и защиты браузера).
+- [x] **T29 [RELEASE / VERIFY]** Автоматическая сквозная верификация релиза в `sign-release.yml`.
 
 ---
 
 ## Очередь задач (Queue)
 
-### Фаза 2: Статический анализ и типизация
-- [ ] **T16 [PYRIGHT]** Разбор ~89 находок Pyright (`reportOptionalMemberAccess`, `reportArgumentType`, `reportInvalidTypeForm`).
+*Все запланированные задачи Фазы 1, 2 и инфраструктурных ворот полностью выполнены (29/29 Done)!*
 
 ---
 
