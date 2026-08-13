@@ -1,5 +1,9 @@
 # Pull Request Review Triage
 
+<!-- pr-review-surfaces: review-threads,submitted-reviews,ordinary-pr-comments,check-rollup -->
+<!-- pr-review-dispositions: accepted,partially-accepted,rejected,duplicate,follow-up,noise -->
+<!-- pr-review-apps: keep=coderabbit,sourcery;remove=deepsource;sample-min=10 -->
+
 Automated review is evidence, not authority. A green check does not prove the
 change works, and a bot-authored patch does not become correct because another
 bot approved it.

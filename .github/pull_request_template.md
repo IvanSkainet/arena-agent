@@ -47,5 +47,5 @@ Commands and results:
 - [ ] No credentials, private tunnel URLs, runtime state, or unbounded logs are included.
 - [ ] Official output JSON shapes have no unknown top-level fields.
 - [ ] Documentation/examples changed with the public or agent-facing contract.
-- [ ] All automated review surfaces were triaged for the exact head SHA; dispositions follow [`docs/PR_REVIEW_TRIAGE.md`](https://github.com/IvanSkainet/arena-agent/blob/master/docs/PR_REVIEW_TRIAGE.md).
+- [ ] All automated review surfaces were triaged for the exact head SHA; dispositions follow [`docs/PR_REVIEW_TRIAGE.md`](https://github.com/IvanSkainet/arena-agent/blob/HEAD/docs/PR_REVIEW_TRIAGE.md).
 - [ ] The PR remains one coherent change; unrelated findings have their own tracked Issues.

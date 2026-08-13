@@ -104,6 +104,8 @@ e2e-installed — естественное продолжение «продви
 
 ## Перекалибровка AI-review по живым PR (2026-08-14)
 
+<!-- ai-review-policy: keep=coderabbit,sourcery;remove=deepsource;sample-min=10 -->
+
 Старый вывод «Sourcery ≈100% false-positive» смешивал два разных режима:
 массовые диагностики по историческому дереву и текущий review конкретного PR.
 Проверка всех GitHub-поверхностей (`reviews`, inline comments, обычные PR
