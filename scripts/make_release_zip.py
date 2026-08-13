@@ -247,6 +247,18 @@ def main(argv: list[str]) -> int:
         out.unlink()
 
     modes = tracked_modes()
+    # Validate every tracked path (that we would include) has a supported mode.
+    # This catches directory symlinks (mode 120000) that os.walk() never visits
+    # as files, preventing silent omission instead of the loud error we want.
+    for path, mode in modes.items():
+        if should_exclude(path):
+            continue
+        if mode not in SUPPORTED_GIT_FILE_MODES:
+            raise SystemExit(
+                f"ERROR: unsupported git mode {mode} for release path {path}; "
+                "symlinks/submodules are not valid release ZIP entries"
+            )
+
     entries: list[tuple[str, Path]] = []
     for dirpath, dirnames, filenames in os.walk(ROOT):
         at_root = Path(dirpath) == ROOT

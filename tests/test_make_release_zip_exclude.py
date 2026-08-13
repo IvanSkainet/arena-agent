@@ -194,3 +194,21 @@ def test_release_zip_rejects_tracked_symlinks(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit, match="unsupported git mode"):
         _mod.main(["make_release_zip.py", "9.9.9", str(tmp_path / "bad.zip")])
+
+
+def test_release_zip_rejects_tracked_directory_symlinks(tmp_path, monkeypatch):
+    """A tracked symlink pointing to a directory appears in os.walk as a directory,
+    not a file, so it never reaches _archive_permissions. The upfront mode check
+    must catch it before os.walk() instead of silently omitting it from the zip.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    # Simulate a tracked directory symlink: mode 120000, but on-disk path is a real directory.
+    (root / "dirlink").mkdir()
+    (root / "dirlink" / "content.txt").write_text("inside", encoding="utf-8")
+    monkeypatch.setattr(_mod, "ROOT", root)
+    monkeypatch.setattr(_mod, "untracked_files", lambda: [])
+    monkeypatch.setattr(_mod, "tracked_modes", lambda: {"dirlink": "120000"})
+
+    with pytest.raises(SystemExit, match="unsupported git mode"):
+        _mod.main(["make_release_zip.py", "9.9.9", str(tmp_path / "bad.zip")])

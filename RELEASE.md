@@ -61,18 +61,22 @@ gh run download <run-id> \
     --dir /tmp/arena-release-candidate
 
 # 5) Verify provenance and the attached SPDX SBOM before host installation.
+# Resolve the commit (to bind attestation verification to the exact source):
+# COMMIT=$(gh release view vX.Y.Z --json targetCommitish -q .targetCommitish)
 for f in /tmp/arena-release-candidate/*.zip; do
   gh attestation verify "$f" \
     --repo IvanSkainet/arena-agent \
     --signer-workflow IvanSkainet/arena-agent/.github/workflows/release-candidate.yml \
-    --deny-self-hosted-runners
+    --deny-self-hosted-runners \
+    --source-digest sha1:<full-master-sha>
   gh attestation verify "$f" \
     --repo IvanSkainet/arena-agent \
     --signer-workflow IvanSkainet/arena-agent/.github/workflows/release-candidate.yml \
     --deny-self-hosted-runners \
-    --predicate-type https://spdx.dev/Document/v2.3
+    --predicate-type https://spdx.dev/Document/v2.3 \
+    --source-digest sha1:<full-master-sha>
 done
-sha256sum -c /tmp/arena-release-candidate/SHA256SUMS-candidate-vX.Y.Z.txt
+(cd /tmp/arena-release-candidate && sha256sum -c "SHA256SUMS-candidate-vX.Y.Z.txt")
 
 # 6) Install those exact candidate bytes on the real Windows host and run the
 #    release-specific live acceptance. If this fails: do not tag and do not publish.
@@ -128,16 +132,20 @@ a workflow-valid signature could be applied to arbitrary bytes uploaded before
 the signing job started.
 
 ```bash
+# Resolve the commit the tag points to (binds attestation to exact source):
+# gh release view vX.Y.Z --json targetCommitish -q .targetCommitish
 gh attestation verify arena-agent.zip \
   --repo IvanSkainet/arena-agent \
   --signer-workflow IvanSkainet/arena-agent/.github/workflows/release-candidate.yml \
-  --deny-self-hosted-runners
+  --deny-self-hosted-runners \
+  --source-digest sha1:<full-master-sha>
 
 gh attestation verify arena-agent.zip \
   --repo IvanSkainet/arena-agent \
   --signer-workflow IvanSkainet/arena-agent/.github/workflows/release-candidate.yml \
   --deny-self-hosted-runners \
-  --predicate-type https://spdx.dev/Document/v2.3
+  --predicate-type https://spdx.dev/Document/v2.3 \
+  --source-digest sha1:<full-master-sha>
 ```
 
 Cosign remains a second, independently verifiable release signature. Keyless
