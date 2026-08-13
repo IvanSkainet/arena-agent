@@ -1,5 +1,6 @@
 {
   "SocketDev/action@ba6de6cc0565af1f42295590380973573297e31f": "node24",
+  "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6": "node24",
   "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1": "node24",
   "actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294": "node24",
   "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c": "node24",

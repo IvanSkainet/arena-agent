@@ -38,6 +38,7 @@ jobs:
   sign:
     timeout-minutes: 15
     permissions:
+      actions: read     # fetch the accepted exact-SHA candidate evidence
       contents: write   # attach signatures + digest file to the release
       id-token: write   # OIDC token for keyless signing (the whole point)
     runs-on: ubuntu-latest
@@ -57,13 +58,23 @@ jobs:
         env:
           EVENT_TAG: ${{ github.event.release.tag_name }}
           INPUT_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           TAG="${EVENT_TAG:-$INPUT_TAG}"
-          if [ -z "$TAG" ]; then
-            echo "::error::no tag to sign"; exit 1
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::invalid release tag: $TAG"; exit 1
+          fi
+          if ! gh attestation verify --help | grep -q -- '--source-digest'; then
+            echo "::error::GitHub CLI v2.68.0+ is required"; exit 1
+          fi
+          source_digest=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/commits/${TAG}" --jq '.sha')
+          if [[ ! "$source_digest" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::could not resolve release tag commit"; exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "source_digest=$source_digest" >> "$GITHUB_OUTPUT"
 
       - name: Download release assets
         env:
@@ -73,14 +84,84 @@ jobs:
           set -euo pipefail
           mkdir -p dist && cd dist
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.zip'
-          # Fail closed: signing nothing must not look like success.
-          # find, not ls -1 | wc -l -- shellcheck SC2012, and ls output is not
-          # safe to parse for filenames.
+          versioned="arena-agent-${TAG}.zip"
+          alias="arena-agent.zip"
           count=$(find . -maxdepth 1 -name '*.zip' -type f | wc -l)
-          if [ "$count" -eq 0 ]; then
-            echo "::error::no .zip assets found on $TAG"; exit 1
+          if [ "$count" -ne 2 ] || [ ! -f "$versioned" ] || [ ! -f "$alias" ]; then
+            echo "::error::release must contain exactly $versioned and $alias; found $count ZIP(s)"
+            find . -maxdepth 1 -name '*.zip' -type f -printf '%f\n' | sort
+            exit 1
           fi
-          echo "downloaded $count asset(s)"
+          cmp "$versioned" "$alias"
+          echo "downloaded exact byte-identical release ZIP pair"
+
+      - name: Match accepted exact-SHA candidate checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          SOURCE_DIGEST: ${{ steps.tag.outputs.source_digest }}
+        run: |
+          set -euo pipefail
+          run_id=""
+          while IFS=$'\t' read -r id head_sha; do
+            if [ "$head_sha" = "$SOURCE_DIGEST" ]; then
+              run_id="$id"
+              break
+            fi
+          done < <(
+            gh run list --repo "$GITHUB_REPOSITORY" \
+              --workflow release-candidate.yml \
+              --commit "$SOURCE_DIGEST" \
+              --event workflow_dispatch \
+              --status success \
+              --limit 100 \
+              --json databaseId,headSha \
+              --jq '.[] | [.databaseId, .headSha] | @tsv'
+          )
+          if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
+            echo "::error::no successful exact-SHA release candidate run found"
+            exit 1
+          fi
+
+          accepted="$RUNNER_TEMP/accepted-candidate"
+          rm -rf "$accepted"
+          mkdir -p "$accepted"
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+            --name "attested-release-candidate-${SOURCE_DIGEST}" \
+            --dir "$accepted"
+          manifest="$accepted/SHA256SUMS-candidate-${TAG}.txt"
+          test -f "$manifest"
+          test "$(wc -l < "$manifest")" -eq 2
+          sed -E 's/^[0-9a-f]{64}  //' "$manifest" | diff -u \
+            <(printf '%s\n' "arena-agent-${TAG}.zip" arena-agent.zip) -
+          (cd "$accepted" && sha256sum -c "$(basename "$manifest")")
+          (cd dist && sha256sum -c "$manifest")
+          cmp "$accepted/arena-agent-${TAG}.zip" "dist/arena-agent-${TAG}.zip"
+          cmp "$accepted/arena-agent.zip" dist/arena-agent.zip
+          echo "release assets match accepted candidate checksums and bytes"
+
+      - name: Verify source-bound candidate provenance and SBOM
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          SOURCE_DIGEST: ${{ steps.tag.outputs.source_digest }}
+        run: |
+          set -euo pipefail
+          cd dist
+          signer="${GITHUB_REPOSITORY}/.github/workflows/release-candidate.yml"
+          for f in "arena-agent-${TAG}.zip" arena-agent.zip; do
+            gh attestation verify "$f" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$signer" \
+              --source-digest "$SOURCE_DIGEST" \
+              --deny-self-hosted-runners
+            gh attestation verify "$f" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$signer" \
+              --source-digest "$SOURCE_DIGEST" \
+              --deny-self-hosted-runners \
+              --predicate-type https://spdx.dev/Document/v2.3
+          done
 
       - name: Publish digests
         env:
@@ -88,7 +169,9 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum ./*.zip | sed 's# \./# #' > "SHA256SUMS-${TAG}.txt"
+          sha256sum "arena-agent-${TAG}.zip" arena-agent.zip \
+            > "SHA256SUMS-${TAG}.txt"
+          test "$(wc -l < "SHA256SUMS-${TAG}.txt")" -eq 2
           cat "SHA256SUMS-${TAG}.txt"
 
       - name: Sign each asset and the digest file (keyless)
@@ -98,7 +181,7 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          for f in ./*.zip "SHA256SUMS-${TAG}.txt"; do
+          for f in "arena-agent-${TAG}.zip" arena-agent.zip "SHA256SUMS-${TAG}.txt"; do
             echo "signing $f"
             cosign sign-blob "$f" \
               --output-signature "${f}.sig" \
@@ -114,7 +197,7 @@ jobs:
           cd dist
           # A signing step that never verifies is a signing step nobody has
           # seen work. Prove the bundle validates before it reaches users.
-          for f in ./*.zip "SHA256SUMS-${TAG}.txt"; do
+          for f in "arena-agent-${TAG}.zip" arena-agent.zip "SHA256SUMS-${TAG}.txt"; do
             cosign verify-blob "$f" \
               --signature "${f}.sig" \
               --certificate "${f}.pem" \
@@ -140,7 +223,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/verify_release && cd /tmp/verify_release
-          curl -sSfL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/arena-agent.zip" -o arena-agent.zip
-          curl -sSfL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/SHA256SUMS-${TAG}.txt" -o checksums.txt
-          sha256sum --check --ignore-missing checksums.txt
-          echo "Anonymous release download and SHA256 verified successfully."
+          curl -sSfL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/arena-agent-${TAG}.zip" \
+            -o "arena-agent-${TAG}.zip"
+          curl -sSfL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/arena-agent.zip" \
+            -o arena-agent.zip
+          curl -sSfL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/SHA256SUMS-${TAG}.txt" \
+            -o "SHA256SUMS-${TAG}.txt"
+          sha256sum --check "SHA256SUMS-${TAG}.txt"
+          cmp "arena-agent-${TAG}.zip" arena-agent.zip
+          echo "Anonymous exact-pair download and SHA256 verification succeeded."
