@@ -22,16 +22,20 @@
 | Качество | ruff (+ratchet), pyrefly (+ratchet), vulture (+ratchet), import-linter contracts, coverage gate 70% (pyproject, branch coverage) |
 | Упаковка | packaging-e2e (build→twine→check-wheel-contents→install→import) |
 | E2E | e2e-installed (живой сервер из wheel: auth/MCP/fs/jail/teardown) |
-| AI review | CodeRabbit (app), DeepSource (12 FP), Sourcery (~260 FP) |
+| AI review | CodeRabbit (manual high-risk review) + Sourcery (automatic informational review); DeepSource quota exhausted and marked for removal |
 | Тесты | pytest-randomly + timeout, 4764 шт., contract/catalogue/legacy guards |
 
 ## Рынок по категориям
 
 ### AI code review
-CodeRabbit (у нас), Copilot code review, Cubic, Qodo Merge, Greptile, Ellipsis, Bito.
-Вывод: второй контур AI-review поверх CodeRabbit — только шум.
-Sourcery и DeepSource уже доказали на нашей архитектуре ~100% false-positive.
-**Решение: ничего не добавлять.**
+CodeRabbit и Sourcery остаются двумя разными informational-контурами:
+CodeRabbit дал сильный cross-file security/release сигнал, а Sourcery —
+отдельный сигнал по полноте тестов, хрупким assertions и документации.
+Исторический массовый прогон Sourcery по всему дереву действительно был
+шумным, но переносить его precision на текущий PR-review режим было ошибкой.
+DeepSource не анализирует текущие PR из-за исчерпанной квоты и помечен на
+удаление. Третий AI-review App не добавляется до измеренной выборки минимум из
+10 репрезентативных PR. Процедура: [PR Review Triage](PR_REVIEW_TRIAGE.md).
 
 ### Дашборды качества (SonarCloud / Codacy / Qlty / CodeScene / Qodana)
 SonarCloud (бесплатно для OSS, quality gates), Codacy ($15/user, all-in-one),
@@ -93,10 +97,60 @@ e2e-installed — естественное продолжение «продви
 | 5 | Codecov | P3 | PR comment | **РАБОТАЕТ** 2026-08-02: codecov-action v7.0.0 SHA-pinned, token-auth, 15 legs upload, statuses informational-only. Первое покрытие: **52.75%** (20185/38261). Badge в обоих README |
 | 6 | Renovate | P3 | PR queue | после автоматизации regen-lock |
 | 7 | SonarCloud/Codacy/Qodana/CodeScene | — | — | не добавлять (дубль ruff/pyrefly) |
-| 8 | Второй AI-review contour | — | — | не добавлять (FPS: DeepSource/Sourcery) |
+| 8 | AI-review Apps | — | PR review, informational | **CodeRabbit + Sourcery оставить; DeepSource удалить; третий reviewer не добавлять до 10-PR baseline** |
 
 Статус: P1 выполнен (harden-runner@bf7454d egress-policy: audit как первый
 шаг 29 jobs). Остальное ждёт явного решения пользователя.
+
+## Перекалибровка AI-review по живым PR (2026-08-14, Asia/Yekaterinburg)
+
+<!-- ai-review-policy: keep=coderabbit,sourcery;remove=deepsource;sample-min=10 -->
+
+Старый вывод «Sourcery ≈100% false-positive» смешивал два разных режима:
+массовые диагностики по историческому дереву и текущий review конкретного PR.
+Проверка всех GitHub-поверхностей (`reviews`, inline comments, обычные PR
+comments, checks), а не только unresolved threads, дала другую картину.
+
+| PR | Sourcery evidence | Инженерный verdict |
+|---|---|---|
+| [#15](https://github.com/IvanSkainet/arena-agent/pull/15) | Три inline finding: empty/duplicate expected list, malformed CLI payload, хрупкий разбор `--expected`; плюс предложение ослабить exact job-set. | Три test finding валидны; оставшиеся gaps вынесены в [#24](https://github.com/IvanSkainet/arena-agent/issues/24). Ослабление exact job-set отклонено: это намеренный fail-closed инвариант. |
+| [#17](https://github.com/IvanSkainet/arena-agent/pull/17) | Malformed source-version coverage, bare-tag policy и две ошибки текста. | Coverage и текст валидны; bare tag выявил реальную границу политики, но принимать его нельзя при контракте `vX.Y.Z`. Исправление вынесено в [#25](https://github.com/IvanSkainet/arena-agent/issues/25). |
+| [#18](https://github.com/IvanSkainet/arena-agent/pull/18) | Clean review без findings. | Нормальный отрицательный результат, а не обязательная генерация замечаний. |
+| [#19](https://github.com/IvanSkainet/arena-agent/pull/19) | Долговечность ruleset/run IDs и пояснение `GH013`. | Низкоприоритетная maintainability-документация, не дефект runtime. |
+| [#20](https://github.com/IvanSkainet/arena-agent/pull/20) | Drift packer/verifier и неоднозначность выбора candidate run. | Exact-run finding закрыт exact-SHA artifact/manifest gate. Общие executable-константы packer/verifier не объединены, чтобы checker оставался независимым от producer. |
+| [#21](https://github.com/IvanSkainet/arena-agent/pull/21) | Проверка CodeRabbit autofix: SHA/documentation consistency, path-format concern и typo. | Полезный cross-review другого бота; generated PR закрыт как superseded после собственной реализации. |
+
+У Sourcery в этой выборке восемь конкретных inline findings: семь явно
+корректны, восьмое полезно выявило незафиксированную tag policy, хотя
+предложенное направление исправления не принято. Это не делает все его советы
+авторитетными, но опровергает перенос старого «~260 FP» на текущий PR-review.
+
+CodeRabbit на PR #20 дал четыре из четырёх подтверждённых major findings:
+exact source commit, exact two-ZIP/candidate checksums, рабочая директория
+`sha256sum -c` и directory-symlink pre-validation. Его generated autofix при
+этом не был merge-ready. Вывод: review полезен, патч всё равно считается
+непроверенными входными данными.
+
+DeepSource имеет другой verdict. `DeepSource: Analysis` был `skipped` на PR
+`#5`, `#6`, `#15`, `#17`–`#21` и девяти последних проверенных commit `master`. Владелец
+репозитория подтвердил root cause: **Analysis quota is exhausted**. Покупать
+квоту для слоя, дублирующего CodeQL/Semgrep/Bandit и локальные quality
+ratchets, нецелесообразно; старый Secrets check также дублирует GitHub secret
+scanning, Gitleaks и TruffleHog. **DeepSource удалить из GitHub Apps.**
+
+Наблюдаемые права и поведение:
+
+- CodeRabbit пишет reviews/comments/checks и смог создать source-only stacked
+  PR #21, но не смог изменить `.github/workflows/`; generated writes не
+  принимаются без ручной реализации и всех ворот.
+- Sourcery пишет review guide, top-level review, inline comments и check; source
+  writes в измеренной выборке не наблюдались.
+- Точные installation permissions нужно сверить в GitHub Settings UI: текущий
+  CLI OAuth не может перечислять или удалять user App installations. Contents
+  write оставляется только если подтверждена необходимость.
+
+Операционная процедура чтения всех review surfaces, классификации findings и
+resolve-after-evidence записана в [PR Review Triage](PR_REVIEW_TRIAGE.md).
 
 ## Codecov: разбор инцидента (2026-08-02)
 
@@ -392,7 +446,7 @@ false positives:
 * Snyk Code/Open Source ↔ CodeQL + Semgrep + Bandit + OSV-Scanner + Grype + pip-audit;
 * Codacy ↔ ruff + pyrefly + vulture (уже был отсечён 2026-08-02);
 * GitGuardian ↔ TruffleHog + Gitleaks + GitHub secret scanning (три сканера секретов уже стоят);
-* Qodo Merge / The PR Agent / cto.new ↔ CodeRabbit (второй AI-контур = шум, доказано DeepSource ~1:4 и Sourcery ~260 FP);
+* Qodo Merge / The PR Agent / cto.new ↔ уже измеренные CodeRabbit + Sourcery; третий AI-review contour не добавляется до 10-PR baseline (старые DeepSource/Sourcery batch-цифры не описывают precision текущего Sourcery PR-review);
 * Graphite — stacked PRs для команд; у нас один мейнтейнер и trunk-based поток.
 
 ### Отсечено: не наш профиль
