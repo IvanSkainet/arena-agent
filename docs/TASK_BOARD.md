@@ -6,8 +6,8 @@
 
 ## Актуальное состояние (на 2026-08-13)
 
-- **Текущая версия:** `v4.169.43` (daemon-driven terminal relay; live E2E и локальные release gates пройдены).
-- **CI:** 36/36 зелёных задач (Linux, Windows, macOS, Android, Scorecard, Zizmor, Security scan).
+- **Текущая версия:** `v4.169.43` (опубликована; 9 release assets, Sigstore-подписи и installed-artifact live E2E проверены).
+- **CI:** exact release commit зелёный: CI (35 jobs), Linux/Windows/macOS matrices, CodeQL, Scorecard, Zizmor, Security scan и sign-release.
 - **Security Alerts:** 0 открытых во всех трёх лентах (CodeQL, Secret Scanning, Dependabot).
 - **Мутационный храповик:** 15 модулей зафиксированы на уровне **0 выживших мутантов**.
 

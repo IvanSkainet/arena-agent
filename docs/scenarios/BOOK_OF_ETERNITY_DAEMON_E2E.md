@@ -1,6 +1,6 @@
 # Book of Eternity: daemon-driven live E2E
 
-- Status: **live acceptance and local release gates complete; publication pending**
+- Status: **complete — released, installed, and reverified live**
 - Started: 2026-08-13
 - Bridge baseline: v4.169.42
 - Candidate: v4.169.43
@@ -236,7 +236,7 @@ file names.
 - [x] Live: queues return to `inbox=0`, `replies=0` after probes.
 - [x] Regression: 8,307 tests collected; full suite, lint, security scan, and
   `preflight.py --full` pass.
-- [ ] Release: clean tagged build is installed and artifact signatures verified.
+- [x] Release: clean tagged build is installed and artifact signatures verified.
 
 ## Live log
 
@@ -288,4 +288,31 @@ file names.
   and excludes the report explicitly.
 * The rebuilt candidate was signed and published, then immediately retracted
   with its remote tag when blocking CI exposed the missing-pyrefly local false
-  green. The append-only fix commit is undergoing the complete cycle again.
+  green. The correction was added as an append-only commit; master history was
+  not rewritten.
+
+### 2026-08-13 — final release and installed-artifact recheck
+
+* Final tag target: commit `713e72c543a91c3de8a7822845fc8c3cdfd77a62`.
+* Clean-tag ZIP: 1,148 files; SHA-256
+  `956d1d52d3754049b243378095e7aef18f2fe8735df5661d9a414dcce2ef7ff6`.
+  Archive integrity, required terminal files, extracted version/CLI, and absence
+  of tests, VCS state, credentials, and coverage artifacts were verified.
+* The versioned ZIP and unversioned alias were anonymously downloaded, compared
+  byte-for-byte, and checked against the public digest file. Independent
+  `cosign verify-blob` passed for both ZIPs and the digest file. All nine release
+  assets are present and the release is `latest`.
+* Exact-commit GitHub runs all passed: CI `31701465595`, Security scan
+  `31701465629`, CodeQL `31701464938`, release signing `31701513477`.
+  Open Code Scanning, Dependabot, and Secret Scanning alert counts were 0/0/0.
+* The public artifact was installed on the Windows host through the verified
+  auto-update path. `/health`, update status, and armed post-update smoke all
+  reported v4.169.43 with no failed checks or warnings. Installed terminal,
+  relay-store, and quality-ratchet hashes matched the final source exactly.
+* The final installed terminal shell was restarted. Two consecutive exact
+  multiline C# dispatches then produced relay messages `eb0bd5520ae0` and
+  `b52411719cb0`, sequences 1 and 2, 75 characters and four lines each; both
+  correlated replies returned HTTP 200.
+* A separate installed-artifact concurrent long-poll/reply probe produced
+  message `a52253698389`, HTTP 200, and exactly one reply. Final relay depths
+  were `inbox=0`, `replies=0`.
