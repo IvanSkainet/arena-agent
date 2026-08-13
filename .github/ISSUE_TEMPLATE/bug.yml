@@ -1,0 +1,79 @@
+name: Bug report
+description: Report a reproducible defect in Skainet Bridge.
+title: "[BUG] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include bridge tokens, API keys, private tunnel hostnames, or unredacted logs.
+        Security vulnerabilities belong in a private security advisory, not this form.
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: What happened? Include exact errors and bounded, redacted evidence.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What invariant or documented behavior should have held?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Give deterministic steps, inputs, and timing. Avoid broad or destructive commands.
+      placeholder: |
+        1. Start ...
+        2. Call ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Bridge version or commit
+      placeholder: v4.x.y or a full commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows
+        - Linux
+        - macOS
+        - Android
+        - Multiple platforms
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: root_cause
+    attributes:
+      label: Root-cause evidence or current hypothesis
+      description: Separate measured facts from hypotheses. Unknown is acceptable.
+    validations:
+      required: true
+  - type: textarea
+    id: live_evidence
+    attributes:
+      label: Live E2E evidence
+      description: Describe the real artifact and host execution, or explain why live execution is not applicable yet.
+    validations:
+      required: true
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Disclosure hygiene
+      options:
+        - label: I removed credentials, private URLs, personal paths, and unbounded logs.
+          required: true
+        - label: I searched for an existing issue before opening this one.
+          required: true

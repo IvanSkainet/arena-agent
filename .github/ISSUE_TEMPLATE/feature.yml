@@ -1,0 +1,60 @@
+name: Feature or integration
+description: Propose a general Bridge capability or cross-system integration.
+title: "[FEATURE] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the user-visible capability gap, not only a preferred implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: architecture
+    attributes:
+      label: Ownership and architecture boundary
+      description: Which responsibility belongs to Bridge, the external project, the agent, and the operator?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Proposed scope
+      description: List the smallest coherent implementation and any affected repositories.
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Explicit non-goals
+      description: State what must not be duplicated, automated, or silently claimed.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Use observable pass/fail statements, including failure and recovery paths.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: live_plan
+    attributes:
+      label: Live validation plan
+      description: Name the real artifact, host, transport, and sabotage that will prove the capability.
+    validations:
+      required: true
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Engineering doctrine
+      options:
+        - label: This proposal preserves Bridge as a general transport/harness rather than duplicating an application's domain engine.
+          required: true
+        - label: CI success alone will not be treated as live acceptance.
+          required: true
