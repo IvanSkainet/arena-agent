@@ -15,6 +15,8 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 FORMS = REPO / ".github" / "ISSUE_TEMPLATE"
 PR_TEMPLATE = REPO / ".github" / "pull_request_template.md"
+REVIEW_TRIAGE = REPO / "docs" / "PR_REVIEW_TRIAGE.md"
+APP_SURVEY = REPO / "docs" / "github_apps_actions_survey.md"
 GATE = REPO / ".github" / "scripts" / "required_jobs_gate.py"
 CI_WORKFLOW = REPO / ".github" / "workflows" / "ci.yml"
 SECURITY_WORKFLOW = REPO / ".github" / "workflows" / "security-scan.yml"
@@ -141,8 +143,37 @@ def test_pr_template_requires_traceability_sabotage_and_live_evidence() -> None:
         "Live E2E evidence",
         "Security and release impact",
         "Cross-repository impact",
+        "PR_REVIEW_TRIAGE.md",
     ):
         assert required in text
+
+
+def test_automated_review_triage_reads_every_surface_and_records_disposition() -> None:
+    text = REVIEW_TRIAGE.read_text(encoding="utf-8")
+    for surface in (
+        "Review threads",
+        "Submitted reviews",
+        "Ordinary PR comments",
+        "Check rollup",
+    ):
+        assert surface in text
+    for disposition in (
+        "accepted",
+        "partially accepted",
+        "rejected",
+        "duplicate",
+        "follow-up",
+        "noise",
+    ):
+        assert f"**{disposition}**" in text
+    assert "Resolve the thread only after the evidence exists" in text
+    assert "CodeRabbit" in text and "Sourcery" in text
+    assert "DeepSource" in text and "Remove the GitHub App installation" in text
+
+    survey = APP_SURVEY.read_text(encoding="utf-8")
+    assert "CodeRabbit + Sourcery оставить" in survey
+    assert "DeepSource удалить" in survey
+    assert "10-PR baseline" in survey
 
 
 def test_ci_aggregate_names_every_blocking_job_and_excludes_debt_noise() -> None:
