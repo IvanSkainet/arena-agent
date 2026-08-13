@@ -1,0 +1,64 @@
+name: Live E2E incident or finding
+description: Record a real-host failure, mismatch, or repair packet found during a complex scenario.
+title: "[LIVE E2E] "
+labels:
+  - live-e2e
+body:
+  - type: input
+    id: scenario
+    attributes:
+      label: Scenario and task
+      placeholder: Scenario name, T-number, and related issue/PR
+    validations:
+      required: true
+  - type: textarea
+    id: chain
+    attributes:
+      label: Executed end-to-end chain
+      description: List every real component and transport in order; identify anything bypassed.
+    validations:
+      required: true
+  - type: textarea
+    id: artifact
+    attributes:
+      label: Artifact identity
+      description: Commit/tag, digest, installation root, platform, and process versions. Redact private paths where possible.
+    validations:
+      required: true
+  - type: textarea
+    id: observation
+    attributes:
+      label: Measured observation
+      description: Include bounded timings, status codes, process IDs, queue depths, and memory deltas as applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: attribution
+    attributes:
+      label: Attribution and ownership boundary
+      description: State which component produced the behavior and what evidence excludes adjacent components.
+    validations:
+      required: true
+  - type: textarea
+    id: repair
+    attributes:
+      label: Repair/recovery path
+      description: Explain whether the normal repair packet or lifecycle recovered; never infer recovery from a green status alone.
+    validations:
+      required: true
+  - type: textarea
+    id: sabotage
+    attributes:
+      label: Bilateral sabotage
+      description: Describe the intentional failure that made the relevant gate red and the restored healthy result.
+    validations:
+      required: true
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Evidence hygiene
+      options:
+        - label: Logs are bounded and credentials/private endpoints are redacted.
+          required: true
+        - label: Unknown official JSON fields were not introduced to carry diagnostics.
+          required: true

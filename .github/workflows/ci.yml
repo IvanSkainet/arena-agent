@@ -1401,3 +1401,49 @@ jobs:
           name: arena-bridge-apk
           path: android_app/build/arena-bridge.apk
           if-no-files-found: error
+
+  # Stable branch-ruleset target. Matrix job names and implementation jobs may
+  # evolve, but this check is green only when the exact blocking prerequisite
+  # set is present and successful. `always()` is load-bearing: without it a
+  # failed prerequisite would skip this job, and a skipped required check can
+  # be mistaken for a workflow wiring problem rather than the original red.
+  ci-required:
+    timeout-minutes: 5
+    name: CI required
+    if: ${{ always() }}
+    needs:
+      - actionlint
+      - test
+      - coverage-diff
+      - version-sync
+      - changelog-freshness
+      - catalogue-harden
+      - lint
+      - packaging-e2e
+      - dashboard-browser-e2e
+      - e2e-installed
+      - js-lint
+      - quality-scan
+      - legacy-name-guard
+      - catalogue-consistency
+      - dead-dispatch
+      - json-schema-check
+      - handler-signature
+      - handler-namespace-consistency
+      - namespace-doc-coverage
+      - contract
+      - android
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fail closed unless every blocking CI job succeeded
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: >-
+          python3 .github/scripts/required_jobs_gate.py
+          --expected
+          "actionlint,test,coverage-diff,version-sync,changelog-freshness,catalogue-harden,lint,packaging-e2e,dashboard-browser-e2e,e2e-installed,js-lint,quality-scan,legacy-name-guard,catalogue-consistency,dead-dispatch,json-schema-check,handler-signature,handler-namespace-consistency,namespace-doc-coverage,contract,android"

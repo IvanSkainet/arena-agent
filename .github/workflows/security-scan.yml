@@ -360,3 +360,36 @@ jobs:
           name: pip-audit-report
           path: pip-audit.json
           retention-days: 30
+
+  # One stable target for branch rules. T40 will make currently advisory
+  # scanners distinguish findings from execution failures; this aggregate is
+  # already fail-closed about job wiring and conclusions.
+  security-required:
+    timeout-minutes: 5
+    name: Security required
+    if: ${{ always() }}
+    needs:
+      - bandit
+      - semgrep
+      - trufflehog
+      - gitleaks
+      - security-alerts
+      - osv-scanner
+      - sbom-and-grype
+      - socket-firewall
+      - devskim
+      - pip-audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fail closed unless every security job succeeded
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: >-
+          python3 .github/scripts/required_jobs_gate.py
+          --expected
+          "bandit,semgrep,trufflehog,gitleaks,security-alerts,osv-scanner,sbom-and-grype,socket-firewall,devskim,pip-audit"
