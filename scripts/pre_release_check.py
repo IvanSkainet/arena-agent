@@ -8,11 +8,12 @@ and "release is shipped":
 2. CHANGELOG.md has a top entry whose ``## vX.Y.Z`` header
    matches the current version.
 3. CHANGELOG.ru.md has the same.
-4. The most recent git tag (if any) on master points to the
-   current HEAD, OR the current HEAD has no tag yet (new
-   release hasn't been tagged).
-5. ``docs/version.json`` is reachable and matches the current
-   version (i.e. the badge workflow has run on this commit).
+4. The release tag is either absent (the candidate is about to be tagged) or
+   already points to the current HEAD.
+
+Published-release monotonicity and asset presence are enforced separately by
+``release_published_check.py``. No workflow writes generated version metadata
+back to ``master``.
 
 The guard is designed to run on the maintainer's local checkout
 right before ``dev/bump_version.py <X.Y.Z>`` + tag + release —
@@ -27,7 +28,6 @@ Exit code 0 = ready to ship. Non-zero = something is off.
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import subprocess
 import sys
@@ -58,28 +58,6 @@ def _check_changelog_header(path: Path, expected_version: str) -> Tuple[bool, st
     return True, f"  {path}: top entry is v{expected_version}"
 
 
-def _check_version_json(repo_root: Path, expected_version: str) -> Tuple[bool, str]:
-    """Check that docs/version.json's tag_name matches v<expected_version>.
-
-    Falls back to "not present" — which is fine on the very first
-    release after the workflow is added, but the guard warns.
-    """
-    path = repo_root / "docs" / "version.json"
-    if not path.exists():
-        return True, "  docs/version.json: not present (skipped — first release?)"
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as e:
-        return False, f"  docs/version.json: malformed JSON ({e})"
-    tag = data.get("tag_name", "")
-    if tag != f"v{expected_version}":
-        return False, (
-            f"  docs/version.json: tag_name={tag!r}, expected v{expected_version!r}"
-            " (the badge workflow hasn't refreshed yet?)"
-        )
-    return True, f"  docs/version.json: tag_name matches ({tag})"
-
-
 def _check_git_tag_state(repo_root: Path, expected_version: str) -> Tuple[bool, str]:
     """Check that the current HEAD is either tagged with the expected
     version, OR no tag for this version exists yet (i.e. we are about
@@ -101,7 +79,7 @@ def _check_git_tag_state(repo_root: Path, expected_version: str) -> Tuple[bool, 
                 cwd=str(repo_root), capture_output=True, text=True, timeout=10,
             ).stdout.strip()
             tag_sha = subprocess.run(
-                ["git", "rev-parse", expected_ref],
+                ["git", "rev-parse", f"{expected_ref}^{{}}"],
                 cwd=str(repo_root), capture_output=True, text=True, timeout=10,
             ).stdout.strip()
             if head == tag_sha:
@@ -161,10 +139,7 @@ def main() -> int:
     checks.append(_check_changelog_header(repo_root / "CHANGELOG.md", expected))
     checks.append(_check_changelog_header(repo_root / "CHANGELOG.ru.md", expected))
 
-    # 4. docs/version.json freshness
-    checks.append(_check_version_json(repo_root, expected))
-
-    # 5. git tag state
+    # 4. git tag state
     checks.append(_check_git_tag_state(repo_root, expected))
 
     failed = False

@@ -80,10 +80,12 @@ def tags_without_releases() -> list[str]:
 
 
 def parts(tag: str) -> tuple[int, ...]:
-    try:
-        return tuple(int(x) for x in tag.lstrip("v").split("."))
-    except ValueError:
+    """Parse the project's strict three-component release tag."""
+    raw = tag[1:] if tag.startswith("v") else tag
+    fields = raw.split(".")
+    if len(fields) != 3 or any(not field.isdigit() for field in fields):
         return ()
+    return tuple(int(field) for field in fields)
 
 
 def _gap(tree: tuple[int, ...], published: tuple[int, ...]) -> int:
@@ -120,14 +122,28 @@ def main(argv: list[str]) -> int:
     names = {a.get("name") for a in (latest.get("assets") or [])}
 
     problems = []
-    gap = _gap(parts(tag), parts(latest_tag))
-    if parts(latest_tag) < parts(tag) and gap > allowed_gap:
-        pile = f"{gap} unpublished releases have piled up; " if gap > 1 else ""
+    tree_parts = parts(tag)
+    latest_parts = parts(latest_tag)
+    if not tree_parts:
+        problems.append(f"the source version {tag!r} is not a valid semantic version")
+    if not latest_parts:
         problems.append(
-            f"{pile}the tree is at {tag} but releases/latest is "
-            f"{latest_tag or '(none)'} -- auto_update.py reads releases/latest, "
-            f"so every install is stuck there"
+            f"releases/latest has no valid semantic version tag: {latest_tag!r}"
         )
+    elif tree_parts and latest_parts > tree_parts:
+        problems.append(
+            f"releases/latest {latest_tag} is ahead of the source tree {tag}; "
+            "published metadata cannot advertise code that master does not contain"
+        )
+    elif tree_parts and latest_parts < tree_parts:
+        gap = _gap(tree_parts, latest_parts)
+        if gap > allowed_gap:
+            pile = f"{gap} unpublished releases have piled up; " if gap > 1 else ""
+            problems.append(
+                f"{pile}the tree is at {tag} but releases/latest is "
+                f"{latest_tag or '(none)'} -- auto_update.py reads releases/latest, "
+                f"so every install is stuck there"
+            )
     for required in REQUIRED_ASSETS:
         if latest_tag == tag and required not in names:
             problems.append(

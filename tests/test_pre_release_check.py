@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import ast
-import json
 import subprocess
 import sys
 from pathlib import Path
@@ -34,7 +33,6 @@ def _run(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
 def _write_minimal_release(tmp_path: Path, version: str) -> None:
     (tmp_path / "arena").mkdir()
     (tmp_path / "tests").mkdir()
-    (tmp_path / "docs").mkdir()
     (tmp_path / "arena" / "constants.py").write_text(
         f'VERSION = "{version}"\n', encoding="utf-8",
     )
@@ -52,12 +50,6 @@ def _write_minimal_release(tmp_path: Path, version: str) -> None:
     (tmp_path / "CHANGELOG.ru.md").write_text(
         f"## v{version} - test\n\nBody.\n", encoding="utf-8",
     )
-    # docs/version.json
-    (tmp_path / "docs" / "version.json").write_text(json.dumps({
-        "tag_name": f"v{version}",
-        "semver": version,
-        "updated_at": "2026-07-24T00:00:00Z",
-    }), encoding="utf-8")
 
 
 def test_script_exists() -> None:
@@ -69,9 +61,7 @@ def test_script_parses() -> None:
 
 
 def test_fresh_repo_with_version_no_git_passes(tmp_path: Path) -> None:
-    """A brand-new release candidate (not in a git repo) where every
-    version source is in sync, the CHANGELOG top entry matches, and
-    docs/version.json matches, should pass — git state is optional."""
+    """A synchronized candidate with current changelogs passes without git."""
     _write_minimal_release(tmp_path, "4.65.0")
     r = _run(["--repo-root", str(tmp_path)], tmp_path)
     # The git check returns True (skipped, not failed) for non-git dirs.
@@ -104,36 +94,26 @@ def test_version_drift_fails(tmp_path: Path) -> None:
     assert "drift" in r.stdout
 
 
-def test_version_json_mismatch_fails(tmp_path: Path) -> None:
+def test_annotated_release_tag_is_peeled_to_its_commit(tmp_path: Path) -> None:
+    """An annotated tag points to a tag object; readiness must compare its commit."""
     _write_minimal_release(tmp_path, "4.65.0")
-    (tmp_path / "docs" / "version.json").write_text(json.dumps({
-        "tag_name": "v4.64.0",  # stale
-        "semver": "4.64.0",
-        "updated_at": "2026-07-23T00:00:00Z",
-    }), encoding="utf-8")
-    r = _run(["--repo-root", str(tmp_path)], tmp_path)
-    assert r.returncode == 1
-    assert "tag_name" in r.stdout
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "candidate"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "tag", "-a", "v4.65.0", "-m", "release"], cwd=tmp_path, check=True)
 
-
-def test_version_json_missing_is_ok(tmp_path: Path) -> None:
-    """A repo without docs/version.json (e.g. a fork that doesn't
-    have the badge workflow yet) should still pass."""
-    _write_minimal_release(tmp_path, "4.65.0")
-    (tmp_path / "docs" / "version.json").unlink()
-    r = _run(["--repo-root", str(tmp_path)], tmp_path)
-    assert r.returncode == 0
-    assert "not present" in r.stdout
+    result = _run(["--repo-root", str(tmp_path)], tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "HEAD is already tagged" in result.stdout
 
 
 def test_against_real_master() -> None:
-    """Smoke-test against the actual repo. We do NOT call pre_release_check
-    here end-to-end because two of its checks (docs/version.json match,
-    git tag state) are inherently tied to "this exact moment in the
-    release cycle" and would fail between releases. The maintainer runs
-    `python scripts/pre_release_check.py` by hand immediately before
-    tagging — that is when the git-tag and version.json checks are
-    meaningful.
+    """Smoke-test stable release invariants against the actual repository.
+
+    The git-tag state is tied to the exact release-cycle moment, so this test
+    checks only the always-valid source/changelog relationship.
 
     In CI we assert the two parts that are stable across the release
     cycle: the version is in lockstep across the four sources (covered

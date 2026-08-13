@@ -169,7 +169,11 @@ use. The same string MUST also appear in:
 
 The README's version badge is dynamic
 (`shields.io/github/v/release/IvanSkainet/arena-agent`) and auto-updates when a
-release is published — do NOT edit it manually.
+release is published — do NOT edit it manually. No workflow commits generated
+version metadata back to `master`: source consistency is checked by
+`version_sync.py`, while `release_published_check.py` verifies that
+`releases/latest` neither leads the source tree nor trails it by more than the
+single candidate release allowed before publication.
 
 ## Extension version bumps
 
