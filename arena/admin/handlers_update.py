@@ -216,8 +216,20 @@ def make_update_handlers(ctx):
             # This used to hard-code "scheduled" over the top of the
             # return value, so a refusal -- or a host with no way to come
             # back -- still told the caller a restart was on its way.
-            restart_res = _upd.restart_process(
-                delay_sec=1.0, install_root=res.get("install_root"))
+            if res.get("platform") == "windows":
+                # Windows apply_update already spawned its copy/relaunch mover.
+                # Arming a second helper before the copy completes can launch
+                # the old tree while the mover is still replacing it.
+                restart_res = _upd.restart_process(
+                    delay_sec=1.0,
+                    install_root=res.get("install_root"),
+                    relauncher_prepared=True,
+                )
+            else:
+                restart_res = _upd.restart_process(
+                    delay_sec=1.0,
+                    install_root=res.get("install_root"),
+                )
             res["restart"] = restart_res.get("restart", "scheduled")
             if not restart_res.get("ok", True):
                 res["restart_refused"] = restart_res

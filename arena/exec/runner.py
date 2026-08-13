@@ -35,9 +35,31 @@ def _process_group_kwargs() -> dict[str, Any]:
 
 
 def _kill_process_tree(proc: Any) -> None:
-    """Kill the child and everything it started. Never raises."""
+    """Kill the child and everything it started. Never raises.
+
+    ``CREATE_NEW_PROCESS_GROUP`` does not make ``Process.kill()`` recursive on
+    Windows. v4.169.43 proved that live: a timed-out ``cmd.exe`` died while its
+    PowerShell child kept serializing diagnostic objects for three hours,
+    reaching 44.5 GiB private bytes. ``taskkill /T`` is the Windows tree-kill
+    primitive; the direct kill remains the race/failure fallback.
+    """
     pid = getattr(proc, "pid", None)
-    if sys.platform != "win32" and pid:
+    if sys.platform == "win32" and pid:
+        try:
+            killed = subprocess.run(  # nosec B603 -- fixed taskkill argv, no shell
+                ["taskkill.exe", "/PID", str(pid), "/T", "/F"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if killed.returncode == 0:
+                return
+        except (OSError, subprocess.SubprocessError):
+            pass
+    elif pid:
         try:
             # Negative pid = the whole process group created above.
             os.killpg(os.getpgid(pid), signal.SIGKILL)
@@ -47,6 +69,17 @@ def _kill_process_tree(proc: Any) -> None:
     try:
         proc.kill()
     except (ProcessLookupError, OSError):
+        pass
+
+
+async def _terminate_if_running(proc: Any) -> None:
+    """Cancellation/shutdown cleanup for a child not handled by timeout."""
+    if proc is None or getattr(proc, "returncode", None) is not None:
+        return
+    _kill_process_tree(proc)
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=5)
+    except (asyncio.TimeoutError, ProcessLookupError, OSError):
         pass
 
 
@@ -63,6 +96,7 @@ async def run_shell_command(
     """Run a shell command, track active process, decode/truncate output."""
     t0 = time.time()
     timed_out = False
+    proc: asyncio.subprocess.Process | None = None
     try:
         proc = await asyncio.create_subprocess_shell(
             cmd,
@@ -117,6 +151,10 @@ async def run_shell_command(
             "error": f"timeout after {timeout}s" if timed_out else None,
         }
     finally:
+        # A timeout is not the only abnormal exit: bridge shutdown, client
+        # disconnect, and task cancellation all unwind through here. Before
+        # v4.169.44 those paths removed bookkeeping but left the OS process.
+        await _terminate_if_running(proc)
         ACTIVE_PROCESSES.pop(request_id, None)
 
 
@@ -154,6 +192,8 @@ async def run_shell_command_stream(
     stderr_bytes_total = 0
     truncated = False
     proc: asyncio.subprocess.Process | None = None
+    stdout_task: asyncio.Task | None = None
+    stderr_task: asyncio.Task | None = None
     try:
         proc = await asyncio.create_subprocess_shell(
             cmd,
@@ -257,6 +297,13 @@ async def run_shell_command_stream(
             "error": f"timeout after {timeout}s" if timed_out else None,
         }
     finally:
+        await _terminate_if_running(proc)
+        pumps = [task for task in (stdout_task, stderr_task) if task is not None]
+        for task in pumps:
+            if not task.done():
+                task.cancel()
+        if pumps:
+            await asyncio.gather(*pumps, return_exceptions=True)
         ACTIVE_PROCESSES.pop(request_id, None)
 
 

@@ -16,23 +16,32 @@ from typing import Any
 _WIN = sys.platform == "win32"
 
 
+def _prepare_windows_relaunch(install_root: Path) -> dict[str, Any]:
+    from arena.admin import restart_capability, windows_relauncher
+
+    return windows_relauncher.prepare_relaunch(
+        install_root,
+        task_name=restart_capability.task_name(),
+    )
+
+
 def restart_process(*, delay_sec: float = 0.5, force: bool = False,
-                    install_root: Path | str | None = None) -> dict[str, Any]:
+                    install_root: Path | str | None = None,
+                    relauncher_prepared: bool = False) -> dict[str, Any]:
     """Best-effort restart of the current Python process.
 
     On Unix we re-exec into `sys.argv`; the systemd unit picks it up
     as a clean restart.
 
-    On Windows (v4.60.4 fix) we schedule an os._exit() in a background
-    thread so the HTTP response can flush first, then the process
-    dies. The paired mover .cmd script (see _write_windows_installer)
-    sees our PID disappear, robocopies files, and re-launches the
-    bridge via the Scheduled Task or start_hidden.vbs.
+    On Windows we first arm a detached helper, then schedule `os._exit()` in a
+    background thread so the HTTP response can flush. The helper waits for this
+    PID to disappear, tries the installed launchers, and verifies the port.
+    Auto-update supplies `relauncher_prepared=True` because its copy mover
+    already owns that lifecycle.
 
-    Prior to v4.60.4 this returned {"restart":"pending"} without
-    doing anything — dashboard Install button reported success but
-    the mover script waited for our PID forever, files never got
-    copied, and the running version never changed.
+    Prior to v4.169.44 the manual endpoint only checked that launch artefacts
+    existed; it invoked none of them. The live bridge exited and stayed down
+    until the operator started `start_hidden.vbs` by hand.
     """
     if _WIN:
         # v4.169.21: verify something can bring us back BEFORE dying.
@@ -56,6 +65,26 @@ def restart_process(*, delay_sec: float = 0.5, force: bool = False,
                          "or resend with force=true to stop the bridge anyway "
                          "-- it will not come back on its own."),
             }
+
+        # `describe()` proves launchers exist; it does not invoke them. The
+        # manual restart endpoint used to exit here and wait for an ONLOGON
+        # Scheduled Task to notice -- it never does. Auto-update already has
+        # its own detached mover, while a manual restart must prepare one now,
+        # before this process becomes unreachable.
+        relaunch_info: dict[str, Any] | None = None
+        if capability["can_restart"] and not relauncher_prepared:
+            try:
+                relaunch_info = _prepare_windows_relaunch(Path(capability["install_root"]))
+            except Exception as exc:
+                return {
+                    "ok": False,
+                    "restart": "refused",
+                    "error": f"could not start detached relaunch helper: {exc}",
+                    "capability": capability,
+                    "hint": "Bridge remains running; relaunch was not armed.",
+                }
+        elif relauncher_prepared:
+            relaunch_info = {"prepared": True, "source": "external-update-mover"}
 
         # Fire-and-return: HTTP handler wants a JSON body back, so we
         # can't call os._exit synchronously here. Schedule it a moment
@@ -84,12 +113,10 @@ def restart_process(*, delay_sec: float = 0.5, force: bool = False,
                 "platform": "windows",
                 "delay_sec": max(0.5, delay_sec),
                 "capability": capability,
+                "relauncher": relaunch_info,
                 "forced": bool(force and not capability["can_restart"]),
-                # Name the mechanism that was actually found, rather than
-                # listing what the mover will try. The old wording read
-                # like a guarantee and was false on this very host.
-                "hint": (f"Bridge will exit; relaunch via "
-                         f"{capability['mechanism']}."
+                "hint": ("Bridge will exit; a detached helper is armed and "
+                         "will verify the listening port after relaunch."
                          if capability["can_restart"] else
                          "Bridge will exit and will NOT come back: forced "
                          "with no relaunch mechanism available.")}

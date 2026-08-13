@@ -1,9 +1,9 @@
 # Book of Eternity: daemon-driven live E2E
 
-- Status: **complete — released, installed, and reverified live**
+- Status: **v4.169.43 released; post-release Windows exec hardening in progress**
 - Started: 2026-08-13
 - Bridge baseline: v4.169.42
-- Candidate: v4.169.43
+- Current candidate: v4.169.44
 - Scenario task: T34
 
 ## Purpose
@@ -196,6 +196,49 @@ malformed/empty output fails closed, and preflight declares the `pyrefly` binary
 mandatory. Three regressions cover the exact missing-module false green, a real
 structured finding, and preflight wiring. CI-pinned pyrefly 1.2.0 now reports
 zero errors.
+
+### F16 — the agent's timed-out PowerShell child consumed 44.5 GiB
+
+The reported memory growth was reproduced while the game client used only
+33.9 MB private memory. PID 15300 was an orphaned PowerShell process launched by
+Skainet `/v1/exec/script`, not the game daemon or terminal relay. Audit linked it
+to request `4f62ecbd-cce1-4c84-ae66-c52055f6fc03`: a 1,277-byte diagnostic
+started at 10:34:21 UTC, timed out after 90 seconds, and was reported finished
+at 95 seconds while its child continued for about three hours. At measurement
+it held 44,521.9 MB private bytes and had accumulated 6,672 CPU-seconds.
+
+The exact agent-authored probe survived in `/tmp/probe_t34.ps1`. It put output
+from `Get-Content` into a deep `ConvertTo-Json`. PowerShell's content objects
+carry extended `PSPath`, `PSDrive`, and provider metadata; serializing only 20
+such lines at depth 5 reproduced 9.8 MB of recursive metadata. The original
+100-item, depth-10 object expanded for hours. The daemon log itself was only
+0.03 MB and did not grow during a 15-second sample. Garbage collection could
+not help because serialization still held reachable work.
+
+Bridge timeout cleanup was independently defective on Windows:
+`CREATE_NEW_PROCESS_GROUP` was set, but `Process.kill()` killed only the
+`cmd.exe` shell. The PowerShell child was reparented and escaped both the HTTP
+timeout and temp-script deletion. v4.169.44 uses `taskkill /T /F`, retains a
+direct-kill fallback, and adds `finally` cleanup for buffered and streaming
+cancellation/shutdown paths. The confirmed runaway was killed explicitly;
+remaining daemon, ConPTY, relay, bridge, and client processes showed 0 MB
+private-memory growth over the next 30 seconds.
+
+### F17 — manual `/admin/update/restart` invoked no relaunch mechanism
+
+The candidate runner was uploaded and `/v1/admin/update/restart` returned
+`restart=scheduled`, `can_restart=true`, and `mechanism=scheduled_task`. The
+bridge exited, but the endpoint had only checked that launch artifacts existed;
+it never ran the task, VBS, or batch launcher. The task is ONLOGON and does not
+react to process death. Public health remained 502 beyond two minutes until the
+operator manually ran `start_hidden.vbs`.
+
+v4.169.44 now arms a detached Windows Script Host helper before scheduling
+exit. The helper waits for the old PID, tries VBS, batch, then the Scheduled
+Task, and uses the port as the success oracle after every attempt. If helper
+startup fails, restart is refused without taking down the bridge. Auto-update
+marks its existing mover as prepared so manual restart logic cannot launch the
+old tree while files are being replaced.
 
 ## Core change
 

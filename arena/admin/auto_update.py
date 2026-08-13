@@ -507,7 +507,8 @@ def apply_update(*, asset_url: str, asset_name: str,
 
 
 def restart_process(*, delay_sec: float = 0.5, force: bool = False,
-                    install_root: Path | str | None = None) -> dict[str, Any]:
+                    install_root: Path | str | None = None,
+                    relauncher_prepared: bool = False) -> dict[str, Any]:
     """Re-exported from :mod:`arena.admin.restart_process`.
 
     Kept as a thin forwarder because handlers, tests and the dashboard
@@ -516,5 +517,9 @@ def restart_process(*, delay_sec: float = 0.5, force: bool = False,
     """
     from arena.admin import restart_process as _rp
 
-    return _rp.restart_process(delay_sec=delay_sec, force=force,
-                               install_root=install_root)
+    return _rp.restart_process(
+        delay_sec=delay_sec,
+        force=force,
+        install_root=install_root,
+        relauncher_prepared=relauncher_prepared,
+    )

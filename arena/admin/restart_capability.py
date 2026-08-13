@@ -1,9 +1,8 @@
 """Can this host actually bring the bridge back after it exits?
 
-`restart_process()` on Windows kills the process and trusts the mover
-script to relaunch it. The mover tries three mechanisms in order --
-a Scheduled Task, `start_hidden.vbs`, `start_bridge.bat` -- and when
-none of them exists it writes
+`restart_process()` on Windows must arm a detached helper before exiting. The
+helper tries `start_hidden.vbs`, `start_bridge.bat`, then the Scheduled Task and
+verifies the listening port after each. When none exists, update movers write
 
     WARN no relaunch mechanism found
 
@@ -79,12 +78,15 @@ def describe(install_root: Path | str | None = None) -> dict[str, Any]:
     vbs = root / "start_hidden.vbs"
     bat = root / "start_bridge.bat"
     checked = [
-        {"mechanism": "scheduled_task", "detail": name,
-         "available": _scheduled_task_exists(name)},
+        # Direct launchers are more reliable for an on-demand restart. The
+        # task is commonly ONLOGON: `schtasks /Run` can exit 0 without starting
+        # a process, which is why the detached helper verifies the port.
         {"mechanism": "start_hidden.vbs", "detail": str(vbs),
          "available": vbs.is_file()},
         {"mechanism": "start_bridge.bat", "detail": str(bat),
          "available": bat.is_file()},
+        {"mechanism": "scheduled_task", "detail": name,
+         "available": _scheduled_task_exists(name)},
     ]
     available = [c for c in checked if c["available"]]
     info.update({

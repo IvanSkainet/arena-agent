@@ -40,6 +40,11 @@ def fake_windows(monkeypatch):
     # module attribute has to patch the module that now owns the code.
     monkeypatch.setattr(restart_process_mod, "_WIN", True)
     monkeypatch.setattr(restart_capability, "_scheduled_task_exists", lambda _n: False)
+    monkeypatch.setattr(
+        restart_process_mod,
+        "_prepare_windows_relaunch",
+        lambda root: {"prepared": True, "helper_root": str(root)},
+    )
     return monkeypatch
 
 
@@ -95,8 +100,10 @@ def test_force_stops_anyway_and_says_so(fake_windows, tmp_path: Path) -> None:
     assert "NOT come back" in result["hint"]
 
 
-def test_hint_names_the_mechanism_that_exists(fake_windows, tmp_path: Path) -> None:
-    """The old hint listed what the mover would try, and was false here."""
+def test_restart_arms_a_detached_helper_before_promising_success(
+    fake_windows, tmp_path: Path
+) -> None:
+    """Existing launchers are capability, not an automatic trigger."""
     (tmp_path / "start_bridge.bat").write_text("rem stub\n", encoding="utf-8")
     fake_windows.setattr(restart_process_mod.os, "_exit", lambda _c: None)
 
@@ -104,7 +111,45 @@ def test_hint_names_the_mechanism_that_exists(fake_windows, tmp_path: Path) -> N
 
     assert result["ok"] is True
     assert result["restart"] == "scheduled"
-    assert "start_bridge.bat" in result["hint"]
+    assert result["relauncher"]["prepared"] is True
+    assert "detached helper is armed" in result["hint"]
+
+
+def test_restart_refuses_when_detached_helper_cannot_be_started(
+    fake_windows, tmp_path: Path
+) -> None:
+    (tmp_path / "start_hidden.vbs").write_text("stub\n", encoding="utf-8")
+    fake_windows.setattr(
+        restart_process_mod,
+        "_prepare_windows_relaunch",
+        lambda _root: (_ for _ in ()).throw(OSError("wscript unavailable")),
+    )
+    result = restart_process_mod.restart_process(install_root=tmp_path)
+    assert result["ok"] is False
+    assert result["restart"] == "refused"
+    assert "wscript unavailable" in result["error"]
+    assert "remains running" in result["hint"]
+
+
+def test_auto_update_external_mover_prevents_duplicate_relauncher(
+    fake_windows, tmp_path: Path
+) -> None:
+    (tmp_path / "start_hidden.vbs").write_text("stub\n", encoding="utf-8")
+    fake_windows.setattr(
+        restart_process_mod,
+        "_prepare_windows_relaunch",
+        lambda _root: pytest.fail("auto-update already prepared its mover"),
+    )
+    fake_windows.setattr(restart_process_mod.os, "_exit", lambda _c: None)
+    result = restart_process_mod.restart_process(
+        install_root=tmp_path,
+        relauncher_prepared=True,
+    )
+    assert result["ok"] is True
+    assert result["relauncher"] == {
+        "prepared": True,
+        "source": "external-update-mover",
+    }
 
 
 def test_posix_needs_no_capability_check(monkeypatch, tmp_path: Path) -> None:

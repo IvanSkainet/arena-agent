@@ -6,7 +6,8 @@
 
 ## Актуальное состояние (на 2026-08-13)
 
-- **Текущая версия:** `v4.169.43` (опубликована; 9 release assets, Sigstore-подписи и installed-artifact live E2E проверены).
+- **Опубликованная версия:** `v4.169.43` (9 release assets, Sigstore и installed-artifact live E2E проверены).
+- **Текущий кандидат:** `v4.169.44` (Windows exec timeout/cancellation process-tree hardening после live memory incident).
 - **CI:** exact release commit зелёный: CI (35 jobs), Linux/Windows/macOS matrices, CodeQL, Scorecard, Zizmor, Security scan и sign-release.
 - **Security Alerts:** 0 открытых во всех трёх лентах (CodeQL, Secret Scanning, Dependabot).
 - **Мутационный храповик:** 15 модулей зафиксированы на уровне **0 выживших мутантов**.
@@ -62,6 +63,8 @@
 - [x] **T32 [SECURITY / GITLEAKS]** Ночной `schedule` Security scan `#31676936942` нашёл 12 ложных утечек по истории (фикстуры, RFC 6455 `Sec-WebSocket-Key`, удалённые файлы). Расширен `.gitleaks.toml`, двусторонний саботаж в `tests/test_gitleaks_allowlist_v4_169_42.py`, фикстура `ghp_secret123` разобрана на конкатенацию.
 - [x] **T33 [SCENARIO / PROTOCOL]** Book of Eternity как сценарий ядра, не как игра в мосте: терминальные сигналы выровнены с `Complete-BoeTurn` / `Complete-BoeValidationRepair`; E2E на официальных полях `output/*` через обычную запись JSON (`tests/test_boe_file_protocol_e2e_v4_169_42.py`).
 - [x] **T34 [SCENARIO / TERMINAL RELAY]** Полный daemon-driven E2E без обхода транспорта завершён: универсальный `arena-relay terminal` сохранил 33 937-символьный turn prompt одним сообщением; ходы 2/3 прошли через client → daemon → ConPTY → relay; намеренный `narrative_response_unknown_field` доставлен repair packet'ом и принят после ограниченной починки; WinError 32 устранён `.partial` atomic temp; два последовательных multiline dispatch доказали rearm. Standalone bootstrap не симулировался: upstream-функция определена, но не вызывается. Журнал: `docs/scenarios/BOOK_OF_ETERNITY_DAEMON_E2E.md`; паритет: `tests/test_terminal_relay_v4_169_43.py`.
+- [ ] **T35 [WINDOWS / EXEC LIFECYCLE]** Runaway PowerShell PID 15300 из agent-authored `/v1/exec/script` probe достиг 44,5 ГиБ после timeout: deep `ConvertTo-Json` раздувал extended `Get-Content` objects, а Windows `Process.kill()` оставил child сиротой. Runaway удалён, штатные процессы стабильны. Кандидат v4.169.44: `taskkill /T /F`, cancellation/shutdown cleanup и Windows-only nested-child live regression; осталось прогнать полный цикл и installed live sabotage.
+- [ ] **T36 [WINDOWS / RESTART]** Manual `/v1/admin/update/restart` сообщил scheduled и выключил Bridge, не вызвав ни один найденный launcher; через две минуты потребовался ручной `start_hidden.vbs`. Кандидат v4.169.44 вооружает detached WSH/CMD helper до exit, ждёт старый PID, проверяет port после VBS/bat/task и отказывается выключаться, если helper не стартовал; auto-update reuse-ит собственный mover.
 
 ---
 

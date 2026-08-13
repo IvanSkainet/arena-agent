@@ -1,3 +1,69 @@
+## v4.169.44 — 2026-08-13
+
+### A timed-out agent diagnostic survived for three hours and reached 44.5 GiB
+
+The memory incident was not Book of Eternity's client, daemon, ConPTY bridge,
+or the new terminal relay. It was an agent-authored PowerShell diagnostic sent
+through `POST /v1/exec/script` (`request_id=4f62ecbd...`). The script put
+PowerShell `Get-Content` objects, with their extended `PSPath`, `PSDrive`, and
+provider metadata, under `ConvertTo-Json -Depth 10`. A 20-line reproduction
+already generated 9.8 MB of recursive metadata. The original 100-item probe
+continued serializing after its HTTP timeout and eventually held 44,521.9 MB
+private bytes plus 6,672 CPU-seconds.
+
+PowerShell/.NET garbage collection was irrelevant: the serializer still held the
+object graph as reachable work, and the process itself should have been dead.
+The game client was 33.9 MB private, daemon 96.3 MB, ConPTY shell 65.7 MB,
+`arena-relay terminal` 18.3 MB, and Skainet HTTP bridge 60.5 MB.
+
+### Windows exec timeout now kills the process tree
+
+`CREATE_NEW_PROCESS_GROUP` does not make Python's `Process.kill()` recursive on
+Windows. The old timeout killed the `cmd.exe` shell, deleted its temporary
+script, returned HTTP 408, and left the PowerShell child orphaned.
+
+* Windows timeout now executes fixed-argv `taskkill.exe /PID <pid> /T /F`, with
+  direct `Process.kill()` only as a race/failure fallback.
+* Buffered and streaming runners now kill and reap a still-running child from
+  `finally`, covering client disconnect, coroutine cancellation, and orderly
+  bridge shutdown in addition to the explicit timeout branch.
+* Streaming pump tasks are cancelled and awaited during abnormal teardown.
+* Unit sabotage pins taskkill argv, fallback behavior, cancellation cleanup,
+  completed-process no-op, and both buffered/streaming lifecycle paths.
+* A Windows-only live regression launches a nested Python child, times out the
+  real runner, and verifies the descendant PID no longer exists.
+
+The confirmed runaway tree was terminated explicitly. Thirty seconds after
+cleanup, all retained game/bridge processes showed 0 MB private-memory growth
+and machine commit decreased by 71.4 MB. The daemon log was only 0.03 MB and did
+not grow during the sample; no heavy game test suite ran on the Windows host.
+
+### The manual restart endpoint was a shutdown
+
+Deploying the candidate exposed a second live failure. `/v1/admin/update/restart`
+reported `restart=scheduled` and named an existing Scheduled Task, then only
+called `os._exit(0)`. An ONLOGON task does not react to process death; after more
+than two minutes the bridge was still down and the operator had to run
+`start_hidden.vbs` manually.
+
+Manual Windows restart now writes and launches a detached WSH/CMD helper before
+scheduling exit. It waits for the old PID, tries `start_hidden.vbs`,
+`start_bridge.bat`, then the task, and verifies the listening port after every
+attempt. Failure to arm the helper refuses the restart while the bridge remains
+reachable. Auto-update declares its existing copy mover so a second helper
+cannot race the file replacement. Generated-script, launch-contract, refusal,
+external-mover, and handler-wiring regressions pin the lifecycle.
+
+### Validation
+
+* 8,320 tests collected; bare full suite and `preflight.py --full` passed.
+* Coverage: 63.07% lines / 51.65% branches (60.40% combined).
+* CI-pinned pyrefly: 0 errors; critical/full lint ratchets passed.
+* Bandit: 0 high/medium; Semgrep: 0 findings; pip-audit: 0 known
+  vulnerabilities across 18 runtime dependencies.
+* Focused exec/restart regression: 90 passed, 1 Linux skip for the live
+  Windows-only descendant check.
+
 ## v4.169.43 — 2026-08-13
 
 ### The first daemon-driven Book of Eternity run found three transport bugs

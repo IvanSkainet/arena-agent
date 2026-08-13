@@ -1,3 +1,71 @@
+## v4.169.44 — 2026-08-13
+
+### Diagnostic агента пережил timeout на три часа и достиг 44,5 ГиБ
+
+Инцидент с памятью вызвали не клиент Book of Eternity, не daemon, не ConPTY
+bridge и не новый terminal relay. Причиной был написанный агентом PowerShell
+probe, отправленный через `POST /v1/exec/script`
+(`request_id=4f62ecbd...`). Скрипт передал объекты `Get-Content` с расширенными
+свойствами `PSPath`, `PSDrive` и provider metadata в
+`ConvertTo-Json -Depth 10`. Воспроизведение всего на 20 строках уже создало
+9,8 МБ рекурсивных метаданных. Исходный probe на 100 элементов продолжил
+сериализацию после HTTP timeout и дошёл до 44 521,9 МБ private bytes и
+6 672 CPU-seconds.
+
+Сборщик мусора PowerShell/.NET здесь неприменим: сериализатор всё ещё держал
+граф объектов как достижимую работу, а сам процесс вообще должен был умереть.
+Клиент игры занимал 33,9 МБ private, daemon 96,3 МБ, ConPTY shell 65,7 МБ,
+`arena-relay terminal` 18,3 МБ, HTTP Bridge 60,5 МБ.
+
+### Windows exec timeout теперь убивает всё дерево процессов
+
+`CREATE_NEW_PROCESS_GROUP` не делает Python `Process.kill()` рекурсивным на
+Windows. Старый timeout убивал shell `cmd.exe`, удалял временный скрипт,
+возвращал HTTP 408 и оставлял дочерний PowerShell сиротой.
+
+* Windows timeout теперь вызывает fixed-argv
+  `taskkill.exe /PID <pid> /T /F`; прямой `Process.kill()` остаётся только
+  fallback при race/failure.
+* Buffered и streaming runners из `finally` убивают и reap-ят ещё живой child,
+  покрывая client disconnect, coroutine cancellation и штатное завершение
+  Bridge, а не только явную timeout-ветку.
+* Streaming pump tasks отменяются и await-ятся при аварийном teardown.
+* Unit sabotage фиксирует argv taskkill, fallback, cancellation cleanup,
+  no-op завершённого процесса и lifecycle buffered/streaming.
+* Windows-only live regression запускает вложенный Python child, создаёт timeout
+  настоящего runner и проверяет, что descendant PID больше не существует.
+
+Подтверждённый runaway tree завершён адресно. Через 30 секунд после очистки все
+оставшиеся процессы игры/моста показали 0 МБ роста private memory, machine
+commit уменьшился на 71,4 МБ. Daemon log имел размер всего 0,03 МБ и не рос;
+тяжёлый тестовый набор игры на Windows не запускался.
+
+### Manual restart endpoint оказался shutdown
+
+Развёртывание candidate вскрыло второй live failure.
+`/v1/admin/update/restart` сообщил `restart=scheduled`, назвал существующий
+Scheduled Task, а затем только вызвал `os._exit(0)`. ONLOGON task не реагирует
+на смерть процесса; более чем через две минуты Bridge оставался выключенным,
+и оператору пришлось вручную запустить `start_hidden.vbs`.
+
+Manual Windows restart теперь до exit создаёт и запускает detached WSH/CMD
+helper. Он ждёт старый PID, пробует `start_hidden.vbs`, `start_bridge.bat`, затем
+task, и после каждой попытки проверяет listening port. Если helper не удалось
+вооружить, restart отклоняется, пока Bridge остаётся доступным. Auto-update
+объявляет свой уже запущенный copy mover, чтобы второй helper не гонялся с
+заменой файлов. Lifecycle закреплён generated-script, launch-contract, refusal,
+external-mover и handler-wiring regressions.
+
+### Валидация
+
+* Собрано 8 320 тестов; bare full suite и `preflight.py --full` прошли.
+* Coverage: 63,07% строк / 51,65% ветвей (60,40% combined).
+* CI-pinned pyrefly: 0 ошибок; critical/full lint ratchets прошли.
+* Bandit: 0 high/medium; Semgrep: 0 находок; pip-audit: 0 известных
+  уязвимостей в 18 runtime-зависимостях.
+* Focused exec/restart regression: 90 passed, 1 Linux skip для живой
+  Windows-only проверки descendant.
+
 ## v4.169.43 — 2026-08-13
 
 ### Первый daemon-driven прогон Book of Eternity нашёл три транспортных бага

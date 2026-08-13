@@ -459,6 +459,40 @@ def test_update_apply_restart_defaults_to_true():
         assert body["restart"] == "execv_scheduled"
 
 
+def test_windows_update_reuses_its_existing_mover_instead_of_racing_a_second():
+    ctx = _MockContext()
+    handlers = make_update_handlers(ctx)
+    req = _make_req("POST", "/v1/admin/update/apply", {
+        "tag": "v4.169.44",
+        "asset_url": "https://example.com/asset.zip",
+        "asset_name": "asset.zip",
+        "expected_sha256": "abc123",
+        "consent": "valid-token",
+        "restart": True,
+    })
+    apply_result = {
+        "ok": True,
+        "verification": "sha256",
+        "downloaded_sha256": "abc123",
+        "swapped": True,
+        "applied_version": "4.169.44",
+        "platform": "windows",
+        "install_root": "C:/arena",
+    }
+    with patch("arena.admin.auto_update.apply_update", return_value=apply_result), \
+         patch("arena.ship.post_update_smoke.mark_pending", return_value={"pending": True}), \
+         patch("arena.admin.auto_update.restart_process", return_value={
+             "ok": True, "restart": "scheduled"
+         }) as mock_restart:
+        resp = asyncio.run(handlers["update_apply"](req))
+    assert resp.status == 200
+    mock_restart.assert_called_once_with(
+        delay_sec=1.0,
+        install_root="C:/arena",
+        relauncher_prepared=True,
+    )
+
+
 def test_update_apply_success_with_restart_and_smoke_and_restart_ok():
     ctx = _MockContext()
     handlers = make_update_handlers(ctx)
