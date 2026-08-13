@@ -1,6 +1,6 @@
 # Book of Eternity: daemon-driven live E2E
 
-- Status: **v4.169.43 released; post-release Windows exec hardening in progress**
+- Status: **v4.169.43 released; v4.169.44 Windows hardening live-accepted, release pending**
 - Started: 2026-08-13
 - Bridge baseline: v4.169.42
 - Current candidate: v4.169.44
@@ -359,3 +359,28 @@ file names.
 * A separate installed-artifact concurrent long-poll/reply probe produced
   message `a52253698389`, HTTP 200, and exactly one reply. Final relay depths
   were `inbox=0`, `replies=0`.
+
+### 2026-08-13 — post-release memory incident and v4.169.44 acceptance
+
+* Process attribution found one non-game PowerShell PID 15300 at 44,521.9 MB
+  private bytes and 6,672 CPU-seconds. Audit mapped it to a timed-out agent
+  diagnostic request. Client, daemon, ConPTY, terminal relay, and HTTP bridge
+  were each between 18.3 and 96.3 MB private.
+* The runaway was killed alone with no descendants. Thirty-second post-cleanup
+  sampling showed 0 MB growth in every retained bridge/game process.
+* The first candidate deployment exposed that manual restart only exited. Public
+  health stayed 502 beyond two minutes; the operator recovered it once with the
+  installed VBS launcher.
+* The candidate restart helper was then pre-armed and returned the bridge. A
+  second call exercised the fixed endpoint itself: response
+  `relauncherPrepared=true`; detached log recorded
+  `ready via start_hidden.vbs`; public health reported v4.169.44 automatically.
+* Live timeout sabotage used a three-second budget and a PowerShell parent that
+  launched a nested PowerShell child. HTTP 408 arrived at 3.174 seconds
+  (4.072 seconds wall); parent PID 4552 and child PID 2848 were both gone after
+  two seconds, and no `.arena_script_tmp` orphan remained.
+* Fifteen-second post-sabotage sampling found no retained process above 96.4 MB
+  private memory and zero growth in daemon, ConPTY, and terminal-relay
+  processes.
+* v4.169.44 local result: 8,320 tests collected; bare full suite,
+  `preflight.py --full`, pyrefly zero, Bandit, Semgrep, and pip-audit all pass.

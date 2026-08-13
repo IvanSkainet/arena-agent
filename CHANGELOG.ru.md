@@ -65,6 +65,14 @@ external-mover и handler-wiring regressions.
   уязвимостей в 18 runtime-зависимостях.
 * Focused exec/restart regression: 90 passed, 1 Linux skip для живой
   Windows-only проверки descendant.
+* Live Windows timeout sabotage вернул HTTP 408 на 3,174 секунды; PowerShell
+  parent PID 4552 и вложенный child PID 2848 отсутствовали через две секунды,
+  `.arena_script_tmp` orphans — 0.
+* Исправленный manual restart endpoint вернул `relauncherPrepared=true`;
+  detached log записал `ready via start_hidden.vbs`, public health вернул
+  v4.169.44 без вмешательства оператора. После sabotage 15-секундный замер не
+  нашёл retained process больше 96,4 МБ private; daemon/ConPTY/terminal relay
+  дали нулевой рост.
 
 ## v4.169.43 — 2026-08-13
 
