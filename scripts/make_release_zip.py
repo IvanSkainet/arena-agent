@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 import subprocess  # nosec B404 -- fixed argv git query
 import sys
 import zipfile
@@ -56,6 +57,12 @@ EXCLUDE_PATH_PATTERNS = (
     "memory/sessions/", "memory/facts.jsonl", "memory/history.jsonl",
 )
 EXCLUDE_EXTRA = {".DS_Store", "Thumbs.db"}
+
+# ZIP headers otherwise inherit checkout wall-clock mtimes and host filesystem
+# modes, so two clean runners produce different bytes for the same commit.
+# DOS ZIP timestamps cannot represent dates before 1980.
+ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+SUPPORTED_GIT_FILE_MODES = frozenset({"100644", "100755"})
 
 
 def detect_version() -> str:
@@ -153,6 +160,73 @@ def untracked_files() -> list[str]:
     return sorted(found)
 
 
+def tracked_modes() -> dict[str, str]:
+    """Return index modes by path so ZIP permissions do not depend on host OS."""
+    try:
+        result = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
+            ["git", "ls-files", "--stage", "-z"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise SystemExit(f"ERROR: cannot read tracked release modes: {exc}") from exc
+    if result.returncode != 0:
+        raise SystemExit(
+            "ERROR: cannot read tracked release modes: "
+            + (result.stderr.strip() or "git ls-files failed")
+        )
+
+    modes: dict[str, str] = {}
+    for record in result.stdout.split("\0"):
+        if not record:
+            continue
+        try:
+            metadata, path = record.split("\t", 1)
+            mode = metadata.split(" ", 1)[0]
+        except ValueError as exc:
+            raise SystemExit(f"ERROR: malformed git index record: {record!r}") from exc
+        modes[path] = mode
+    if not modes:
+        raise SystemExit("ERROR: tracked release mode map is empty")
+    return modes
+
+
+def _archive_permissions(rel_path: str, abs_path: Path, modes: dict[str, str]) -> int:
+    git_mode = modes.get(rel_path)
+    if git_mode is None:
+        # Only reachable with the explicit --allow-untracked escape hatch.
+        return 0o755 if os.access(abs_path, os.X_OK) else 0o644
+    if git_mode not in SUPPORTED_GIT_FILE_MODES:
+        raise SystemExit(
+            f"ERROR: unsupported git mode {git_mode} for release path {rel_path}; "
+            "symlinks/submodules are not valid release ZIP entries"
+        )
+    return 0o755 if git_mode == "100755" else 0o644
+
+
+def _write_entry(
+    archive: zipfile.ZipFile,
+    *,
+    abs_path: Path,
+    rel_path: str,
+    modes: dict[str, str],
+) -> None:
+    info = zipfile.ZipInfo(f"arena-bridge/{rel_path}", date_time=ZIP_TIMESTAMP)
+    info.create_system = 3  # Unix permission semantics, even when built on Windows.
+    permissions = _archive_permissions(rel_path, abs_path, modes)
+    info.external_attr = (stat.S_IFREG | permissions) << 16
+    info.compress_type = zipfile.ZIP_DEFLATED
+    archive.writestr(
+        info,
+        abs_path.read_bytes(),
+        compress_type=zipfile.ZIP_DEFLATED,
+        compresslevel=9,
+    )
+
+
 def main(argv: list[str]) -> int:
     version = argv[1] if len(argv) > 1 else detect_version()
     out = Path(argv[2]) if len(argv) > 2 else Path(f"/tmp/arena-agent-v{version}.zip")
@@ -172,24 +246,30 @@ def main(argv: list[str]) -> int:
     if out.exists():
         out.unlink()
 
+    modes = tracked_modes()
+    entries: list[tuple[str, Path]] = []
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        at_root = Path(dirpath) == ROOT
+        dirnames[:] = sorted(
+            d for d in dirnames
+            if d not in EXCLUDE_SUBDIRS and d not in EXCLUDE_EXTRA
+            and not _is_cache_dir(d)
+            and not (at_root and d in EXCLUDE_TOP)
+        )
+        for fn in filenames:
+            abs_path = Path(dirpath) / fn
+            rel_path = abs_path.relative_to(ROOT).as_posix()
+            if not should_exclude(rel_path):
+                entries.append((rel_path, abs_path))
+    entries.sort(key=lambda item: item[0])
+
     file_count = 0
     total_bytes = 0
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-        for dirpath, dirnames, filenames in os.walk(ROOT):
-            dirnames[:] = [
-                d for d in dirnames
-                if d not in EXCLUDE_SUBDIRS and d not in EXCLUDE_EXTRA
-                and not _is_cache_dir(d)
-            ]
-            for fn in filenames:
-                abs_path = Path(dirpath) / fn
-                rel_path = abs_path.relative_to(ROOT).as_posix()
-                if should_exclude(rel_path):
-                    continue
-                arcname = f"arena-bridge/{rel_path}"
-                zf.write(abs_path, arcname=arcname)
-                file_count += 1
-                total_bytes += abs_path.stat().st_size
+        for rel_path, abs_path in entries:
+            _write_entry(zf, abs_path=abs_path, rel_path=rel_path, modes=modes)
+            file_count += 1
+            total_bytes += abs_path.stat().st_size
 
     print(f"OK: created {out}")
     print(f"  version: v{version}")

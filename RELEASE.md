@@ -44,41 +44,59 @@ python dev/bump_version.py x.y.z
 #    and the content/insert script versions, then add them to EXT_VERSIONS in
 #    tests/_version_matrix.py (by hand — the bumper only handles the bridge chain).
 
-# 3) Commit the bump (list files explicitly — never `git add -A`)
+# 3) Commit on a release branch and merge through a green PR.
+#    Never bypass the master ruleset for a release.
 git add arena/constants.py pyproject.toml tests/_version_matrix.py CHANGELOG.md CHANGELOG.ru.md
 git commit -m "vX.Y.Z: <short release summary>"
+git push -u origin release/vX.Y.Z
+gh pr create --base master --head release/vX.Y.Z --title "vX.Y.Z: <summary>"
+# Wait for CI required + Security required + Dependency Review + Zizmor, then merge.
 
-# 4) Tag the release (annotated)
+# 4) Build the exact master commit twice and attest the matching bytes.
+gh workflow run release-candidate.yml --ref master
+# Resolve the run whose headSha is the exact intended master commit, wait for success,
+# then download its final artifact without renaming or rebuilding either ZIP.
+gh run download <run-id> \
+    --name attested-release-candidate-<full-master-sha> \
+    --dir /tmp/arena-release-candidate
+
+# 5) Verify provenance and the attached SPDX SBOM before host installation.
+for f in /tmp/arena-release-candidate/*.zip; do
+  gh attestation verify "$f" \
+    --repo IvanSkainet/arena-agent \
+    --signer-workflow IvanSkainet/arena-agent/.github/workflows/release-candidate.yml \
+    --deny-self-hosted-runners
+  gh attestation verify "$f" \
+    --repo IvanSkainet/arena-agent \
+    --signer-workflow IvanSkainet/arena-agent/.github/workflows/release-candidate.yml \
+    --deny-self-hosted-runners \
+    --predicate-type https://spdx.dev/Document/v2.3
+done
+sha256sum -c /tmp/arena-release-candidate/SHA256SUMS-candidate-vX.Y.Z.txt
+
+# 6) Install those exact candidate bytes on the real Windows host and run the
+#    release-specific live acceptance. If this fails: do not tag and do not publish.
+
+# 7) Only after candidate acceptance, create the annotated tag on the attested commit.
+test "$(git rev-parse HEAD)" = "<full-master-sha>"
 git tag -a vX.Y.Z -m "vX.Y.Z: <short release summary>"
-
-# 5) Push master + tag
-git push origin master
 git push origin vX.Y.Z
 
-# 6) Build the release zip (version auto-detected from arena/constants.py)
-python3 scripts/make_release_zip.py            # -> /tmp/arena-agent-vX.Y.Z.zip
-
-# 7) Create the GitHub Release with TWO assets (the second is critical!)
-#    Use a temporary/untracked notes file (e.g. under /tmp) — do not keep
-#    per-release scratch notes in the repository.
+# 8) Stage a DRAFT release with the already-attested ZIPs. Draft first so the
+#    release:published signing workflow can never race an incomplete asset upload.
 gh release create vX.Y.Z \
+    /tmp/arena-release-candidate/arena-agent-vX.Y.Z.zip \
+    /tmp/arena-release-candidate/arena-agent.zip \
+    --draft \
     --title "vX.Y.Z — <summary>" \
-    --notes-file <path-to-release-notes.md> \
-    --latest
+    --notes-file <path-to-release-notes.md>
+gh release edit vX.Y.Z --draft=false --latest
 
-# 7a) Versioned zip (historical convention / explicit pinning)
-gh release upload vX.Y.Z /tmp/arena-agent-vX.Y.Z.zip --clobber
+# 9) Wait for sign-release. It re-verifies candidate provenance + SBOM before
+#    producing SHA256SUMS and Sigstore signatures.
 
-# 7b) Unversioned alias (REQUIRED by the README one-liner URL)
-cp /tmp/arena-agent-vX.Y.Z.zip /tmp/arena-agent.zip
-gh release upload vX.Y.Z /tmp/arena-agent.zip --clobber
-
-# 8) Update the running install and verify
-git pull --ff-only
-python3 _arena_helper.py version                # must show the new version
-systemctl --user restart arena-bridge.service   # if running as a service
-sleep 3
-curl -s http://127.0.0.1:8765/health            # must report the new version
+# 10) Download the PUBLIC artifact anonymously, verify it, install it again on
+#     Windows, and repeat installed-artifact timeout/restart/live smoke.
 ```
 
 ## Why two zip assets?
@@ -103,13 +121,32 @@ Every published release is signed automatically by
 gets a `.sig` and a `.pem`, and a `SHA256SUMS-vX.Y.Z.txt` is published (and
 itself signed) alongside them.
 
-Keyless means there is no private key anywhere: GitHub mints a short-lived
-OIDC token for the signing job, and the certificate binds the signature to
-*this workflow in this repository*. So verification proves the artifact came
-out of this pipeline — a stronger statement than "someone with a key signed
-it". The certificate is also recorded in a public transparency log.
+Before cosign signs anything, the publishing workflow requires GitHub build
+provenance and an SPDX SBOM attestation from the pinned
+`.github/workflows/release-candidate.yml` signer. This closes the old gap where
+a workflow-valid signature could be applied to arbitrary bytes uploaded before
+the signing job started.
 
-**With cosign** (proves origin, not just integrity):
+```bash
+gh attestation verify arena-agent.zip \
+  --repo IvanSkainet/arena-agent \
+  --signer-workflow IvanSkainet/arena-agent/.github/workflows/release-candidate.yml \
+  --deny-self-hosted-runners
+
+gh attestation verify arena-agent.zip \
+  --repo IvanSkainet/arena-agent \
+  --signer-workflow IvanSkainet/arena-agent/.github/workflows/release-candidate.yml \
+  --deny-self-hosted-runners \
+  --predicate-type https://spdx.dev/Document/v2.3
+```
+
+Cosign remains a second, independently verifiable release signature. Keyless
+means there is no private key anywhere: GitHub mints a short-lived OIDC token
+for the signing job, and the certificate binds the signature to *this workflow
+in this repository*. The certificate is also recorded in a public transparency
+log.
+
+**With cosign** (proves signing-workflow origin):
 
 ```bash
 TAG=v4.161.0
@@ -234,6 +271,13 @@ Omit a sub-section if it has no entries for this release.
 - [ ] No credential-shape literals in test fixtures (build at runtime
       via prefix + suffix concat -- see AGENTS.md "Security" hard rules).
 - [ ] Working tree clean, on `master`, up to date with `origin/master`.
+- [ ] `release-candidate.yml` succeeded on that exact master SHA; independent
+      builds A/B matched byte-for-byte and `release-verification.json` is clean.
+- [ ] Both ZIP names pass build-provenance and SPDX SBOM verification with the
+      pinned release-candidate signer workflow.
+- [ ] The downloaded Actions artifact digest is recorded before it leaves CI.
+- [ ] That exact digest passed the real Windows candidate acceptance before the
+      annotated tag or public release was created.
 
 ## Post-release checklist
 
@@ -243,7 +287,10 @@ Omit a sub-section if it has no entries for this release.
       `installed` flag (regression guard for the v3.81.1 fix).
 - [ ] `/v1/skills` contains no bogus category entries like `superpowers/assets`
       (regression guard for the v3.81.1 fix).
-- [ ] Both zip assets are visible on the release page.
+- [ ] Both zip assets are visible on the release page and byte-identical to the
+      previously accepted Actions artifact.
+- [ ] Public ZIPs still pass `gh attestation verify` for both SLSA provenance
+      and SPDX SBOM predicates with the release-candidate signer workflow.
 - [ ] The alias URL works:
       `curl -sIL https://github.com/IvanSkainet/arena-agent/releases/latest/download/arena-agent.zip`
       returns HTTP 200.
@@ -260,10 +307,16 @@ Omit a sub-section if it has no entries for this release.
       any CLI-side security surface (TLS context, pinning, url_cache),
       verify with a targeted smoke script under `dev/`.
 
-## Why not a GitHub Action?
+## Why the candidate workflow does not publish
 
-Today the release is cut manually because the bridge is also installed on the
-maintainer's machine — pulling a fresh tag locally is part of validating it — and
-the two-zip-asset trick is easier to control from a local script. A tag-triggered
-build workflow is a possible future improvement; for now, this document is the
-source of truth.
+The candidate workflow deliberately stops after deterministic build,
+verification, SBOM, provenance, and Actions artifact upload. GitHub-hosted CI
+cannot observe the maintainer's real Windows installation, restart chain, tunnel,
+or game/daemon integrations. Publishing from CI before that observation would
+recreate the green-equals-works failure in a more automated form.
+
+The human/agent release driver therefore downloads the attested artifact, installs
+those exact bytes on Windows, and only then creates the annotated tag and draft
+release. Publication changes visibility, not bytes. `sign-release.yml` verifies
+the pre-existing candidate provenance again before adding its independent
+Sigstore signatures.

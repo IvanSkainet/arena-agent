@@ -9,7 +9,9 @@ rotation suffix is excluded. These tests pin that behaviour.
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -140,3 +142,55 @@ def test_real_sources_are_not_mistaken_for_caches():
         "arena/hypothesis_helper.py",    # 'hypothesis' in the name is not a cache
     ):
         assert _mod.should_exclude(path) is False, path
+
+
+def test_release_zip_is_byte_reproducible_and_preserves_index_modes(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    (root / "arena").mkdir(parents=True)
+    (root / "docs").mkdir()
+    (root / "install.sh").write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
+    (root / "arena" / "z.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (root / "arena" / "a.py").write_text("VALUE = 2\n", encoding="utf-8")
+    (root / "docs" / "guide.md").write_text("# Guide\n", encoding="utf-8")
+
+    modes = {
+        "install.sh": "100755",
+        "arena/z.py": "100644",
+        "arena/a.py": "100644",
+        "docs/guide.md": "100644",
+    }
+    monkeypatch.setattr(_mod, "ROOT", root)
+    monkeypatch.setattr(_mod, "untracked_files", lambda: [])
+    monkeypatch.setattr(_mod, "tracked_modes", lambda: modes)
+
+    first = tmp_path / "first.zip"
+    second = tmp_path / "second.zip"
+    assert _mod.main(["make_release_zip.py", "9.9.9", str(first)]) == 0
+
+    # Checkout time, filesystem iteration order, and umask must not affect bytes.
+    for index, path in enumerate(sorted(root.rglob("*"))):
+        if path.is_file():
+            os.utime(path, (1_700_000_000 + index, 1_700_000_000 + index))
+            path.chmod(0o600)
+    assert _mod.main(["make_release_zip.py", "9.9.9", str(second)]) == 0
+    assert first.read_bytes() == second.read_bytes()
+
+    with zipfile.ZipFile(first) as archive:
+        infos = archive.infolist()
+        assert [info.filename for info in infos] == sorted(info.filename for info in infos)
+        assert {info.date_time for info in infos} == {(1980, 1, 1, 0, 0, 0)}
+        by_name = {info.filename: info for info in infos}
+        assert (by_name["arena-bridge/install.sh"].external_attr >> 16) & 0o777 == 0o755
+        assert (by_name["arena-bridge/arena/a.py"].external_attr >> 16) & 0o777 == 0o644
+
+
+def test_release_zip_rejects_tracked_symlinks(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "link").write_text("target", encoding="utf-8")
+    monkeypatch.setattr(_mod, "ROOT", root)
+    monkeypatch.setattr(_mod, "untracked_files", lambda: [])
+    monkeypatch.setattr(_mod, "tracked_modes", lambda: {"link": "120000"})
+
+    with pytest.raises(SystemExit, match="unsupported git mode"):
+        _mod.main(["make_release_zip.py", "9.9.9", str(tmp_path / "bad.zip")])

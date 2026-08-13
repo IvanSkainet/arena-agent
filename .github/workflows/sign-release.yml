@@ -82,6 +82,25 @@ jobs:
           fi
           echo "downloaded $count asset(s)"
 
+      - name: Verify source-bound candidate provenance and SBOM
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd dist
+          signer="${GITHUB_REPOSITORY}/.github/workflows/release-candidate.yml"
+          for f in ./*.zip; do
+            gh attestation verify "$f" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$signer" \
+              --deny-self-hosted-runners
+            gh attestation verify "$f" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$signer" \
+              --deny-self-hosted-runners \
+              --predicate-type https://spdx.dev/Document/v2.3
+          done
+
       - name: Publish digests
         env:
           TAG: ${{ steps.tag.outputs.tag }}
