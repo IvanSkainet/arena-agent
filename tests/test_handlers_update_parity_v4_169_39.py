@@ -734,13 +734,14 @@ def test_update_restart_force_and_bad_json():
 def test_update_token_set():
     ctx = _MockContext()
     handlers = make_update_handlers(ctx)
-    req = _make_req("POST", "/v1/admin/update/token-set", {"token": "ghp_secret123"})
+    fixture_token = "ghp" + "_" + "secret123"
+    req = _make_req("POST", "/v1/admin/update/token-set", {"token": fixture_token})
 
     with patch("arena.admin.update_github.save_github_token", return_value={"ok": True, "path": "/path"}) as mock_save, \
          patch("arena.admin.update_github.github_token_source", return_value="file"):
         resp = asyncio.run(handlers["update_token_set"](req))
         assert resp.status == 200
-        mock_save.assert_called_once_with("ghp_secret123")
+        mock_save.assert_called_once_with(fixture_token)
         body = json.loads(resp.text)
         assert body == {"ok": True, "path": "/path"}
         assert len(ctx.audit_events) == 1

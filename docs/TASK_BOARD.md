@@ -59,7 +59,8 @@
 
 ## Очередь задач (Queue)
 
-*Все запланированные задачи Фазы 1, 2 и инфраструктурных ворот полностью выполнены (29/29 Done)!*
+- [x] **T32 [SECURITY / GITLEAKS]** Ночной `schedule` Security scan `#31676936942` нашёл 12 ложных утечек по истории (фикстуры, RFC 6455 `Sec-WebSocket-Key`, удалённые файлы). Расширен `.gitleaks.toml`, двусторонний саботаж в `tests/test_gitleaks_allowlist_v4_169_42.py`, фикстура `ghp_secret123` разобрана на конкатенацию.
+- [x] **T33 [SCENARIO / PROTOCOL]** Book of Eternity как сценарий ядра, не как игра в мосте: терминальные сигналы выровнены с `Complete-BoeTurn` / `Complete-BoeValidationRepair`; E2E на официальных полях `output/*` через обычную запись JSON (`tests/test_boe_file_protocol_e2e_v4_169_42.py`).
 
 ---
 

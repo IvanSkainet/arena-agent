@@ -213,14 +213,22 @@ def test_inbox_lifecycle_complete(tmp_path):
     assert "timestamp" in comp
     assert comp["filesModified"] == ["output/narrative_response.json", "output/debug_logs.json"]
 
-    # Verify ready file exists
+    # Verify ready file exists and matches GM_Turn_Helper Complete-BoeTurn.
     ready_file = session / boe_relay.READY_COMPLETE_FILE
     assert ready_file.exists()
     ready_data = json.loads(ready_file.read_text(encoding="utf-8"))
     assert ready_data["status"] == "success"
-    assert ready_data["summary"] == "Hero survived combat"
     assert ready_data["filesModified"] == ["output/narrative_response.json", "output/debug_logs.json"]
     assert "timestamp" in ready_data
+    assert set(ready_data) == {
+        "sessionId",
+        "requestId",
+        "turnNumber",
+        "timestamp",
+        "status",
+        "filesModified",
+    }
+    assert comp["summary"] == "Hero survived combat"
 
     # Inbox is updated to completed
     inbox_done = boe_relay.read_inbox(session)
@@ -238,13 +246,23 @@ def test_inbox_lifecycle_fail_and_repair(tmp_path):
     assert "timestamp" in failed
     assert (session / boe_relay.READY_ERROR_FILE).exists()
 
-    # Repair turn
+    # Repair turn — on-disk status is "success" (Complete-BoeValidationRepair).
     rep = boe_relay.repair_ready(session, repair_summary="Corrected schema", repaired_files=["output/debug_logs.json"])
-    assert rep["status"] == "repaired"
+    assert rep["status"] == "success"
     assert "timestamp" in rep
     assert rep["repairedFiles"] == ["output/debug_logs.json"]
     assert (session / boe_relay.REPAIR_READY_CONTROL_FILE).exists()
-    assert (session / boe_relay.REPAIR_READY_ROOT_FILE).exists()
+    ready_repair = json.loads(
+        (session / boe_relay.REPAIR_READY_CONTROL_FILE).read_text(encoding="utf-8")
+    )
+    assert set(ready_repair) == {
+        "sessionId",
+        "requestId",
+        "turnNumber",
+        "timestamp",
+        "status",
+    }
+    assert ready_repair["status"] == "success"
 
 
 def test_get_status(tmp_path):

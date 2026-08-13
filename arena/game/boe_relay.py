@@ -288,17 +288,16 @@ def complete_turn(
     ]
 
     now_ts = _now_iso()
+    # On-disk shape must match GM_Turn_Helper.ps1 Complete-BoeTurn exactly.
+    # Extra keys are ignored by C# today, but output artifacts reject unknown
+    # fields, and the helper is the contract the daemon correlates against.
     complete_payload = {
-        "schemaVersion": 1,
-        "status": "success",
         "sessionId": s_id,
         "requestId": r_id,
         "turnNumber": t_num,
         "timestamp": now_ts,
-        "completedAtUtc": now_ts,
+        "status": "success",
         "filesModified": files,
-        "summary": summary,
-        "stateUpdates": state_updates or {},
     }
 
     # Remove any conflicting error signal
@@ -315,10 +314,13 @@ def complete_turn(
     # Mark inbox as completed
     if inbox:
         inbox["status"] = "completed"
-        inbox["completedAtUtc"] = complete_payload["completedAtUtc"]
+        inbox["completedAtUtc"] = now_ts
         safe_write_json(session_dir, INBOX_FILE, inbox)
 
-    return complete_payload
+    result = dict(complete_payload)
+    result["summary"] = summary
+    result["stateUpdates"] = state_updates or {}
+    return result
 
 
 def fail_turn(
@@ -361,7 +363,7 @@ def fail_turn(
 
     if inbox:
         inbox["status"] = "failed"
-        inbox["failedAtUtc"] = error_payload["failedAtUtc"]
+        inbox["failedAtUtc"] = now_ts
         inbox["error"] = error_message
         safe_write_json(session_dir, INBOX_FILE, inbox)
 
@@ -387,28 +389,26 @@ def repair_ready(
     t_num = turn_number if turn_number is not None else repair_req.get("turnNumber", turn_req.get("turnNumber", inbox.get("turnNumber", 0)))
 
     now_ts = _now_iso()
+    # Complete-BoeValidationRepair writes only the control path, status=success.
     repair_payload = {
-        "schemaVersion": 1,
-        "status": "repaired",
         "sessionId": s_id,
         "requestId": r_id,
         "turnNumber": t_num,
         "timestamp": now_ts,
-        "repairedAtUtc": now_ts,
-        "summary": repair_summary,
-        "repairedFiles": repaired_files or [],
+        "status": "success",
     }
 
-    # Write to canonical control location and root fallback location
     safe_write_json(session_dir, REPAIR_READY_CONTROL_FILE, repair_payload)
-    safe_write_json(session_dir, REPAIR_READY_ROOT_FILE, repair_payload)
 
     if inbox:
         inbox["status"] = "repaired"
-        inbox["repairedAtUtc"] = repair_payload["repairedAtUtc"]
+        inbox["repairedAtUtc"] = now_ts
         safe_write_json(session_dir, INBOX_FILE, inbox)
 
-    return repair_payload
+    result = dict(repair_payload)
+    result["summary"] = repair_summary
+    result["repairedFiles"] = repaired_files or []
+    return result
 
 
 def get_status(session_dir: Path) -> dict[str, Any]:

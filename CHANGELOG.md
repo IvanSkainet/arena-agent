@@ -1,3 +1,43 @@
+## v4.169.42 — 2026-08-13
+
+### Scheduled gitleaks was the first time the allowlist met history
+
+The push Security scan on `433f6df6` was green. The next night's
+`schedule` run (#31676936942) scanned 1852 commits and reported 12
+leaks. All twelve were fixtures, the RFC 6455 example WebSocket nonce,
+or files that no longer exist on HEAD. `.gitleaks.toml` only covered
+the redaction tests, so a blocking scanner that looks at history had
+never been asked the question it is supposed to answer.
+
+* Expanded the allowlist to those known false-positive paths and the
+  RFC 6455 example key `dGhlIHNhbXBsZSBub25jZQ==`.
+* Split the `ghp_secret123` fixture in `test_handlers_update_parity_v4_169_39.py`
+  into concatenation (`"ghp" + "_" + "secret123"`), per AGENTS.md.
+* `tests/test_gitleaks_allowlist_v4_169_42.py` pins the paths, refuses a
+  blanket `tests/` exemption, and sabotages both ways against a throwaway
+  git repo when the gitleaks binary is present. Full-history `gitleaks
+  detect` on this tree is now 0 findings.
+
+### Book of Eternity is a scenario, not a second game
+
+The vanilla host file tools are the product. Terminal signals now match
+`GM_Turn_Helper.ps1` byte-for-byte on disk:
+
+* `ready/turn_complete.json` — `sessionId`, `requestId`, `turnNumber`,
+  `timestamp`, `status=success`, `filesModified`
+* `ready/turn_error.json` — same ids + `status=error` + `error`
+* `validation_repair_ready.json` — same ids + `status=success`, written
+  only to `game_state/control/` (the path the C# client reads)
+
+`tests/test_boe_file_protocol_e2e_v4_169_42.py` writes the official
+`output/*` artifacts with ordinary JSON (the same bytes `fs.write` would
+put on disk) and checks the field sets the C# validator accepts:
+narrative (`response`, `timestamp`), debug (`gm_thoughts_markdown`,
+`timestamp`), interface (`dialogueOptions`, `image_prompt`, `timestamp`).
+
+Also: T30 (workflow timeouts/concurrency) and T31 (relay parity) remain
+on master from the previous session and ship in this release.
+
 ## v4.169.41 — 2026-08-12
 
 ### Live-verified BoE routing, Pyright zero-debt ratchet, & automated security gates

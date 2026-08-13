@@ -32,6 +32,21 @@ Player receives turn results
 
 ---
 
+Skainet Bridge is a **tunnel**, not a second copy of the game. Prefer the
+vanilla host file tools (`fs.read`, `fs.write`, `fs.list`) against the
+session directory on the operator's machine. The `boe.*` routes are a thin
+helper for the same bytes. Do not invent realm rules, dice, or C# validators
+inside the bridge — the client already owns those.
+
+Official player-facing artifacts (unknown top-level fields are rejected):
+
+| File | Allowed top-level fields |
+|---|---|
+| `output/narrative_response.json` | `response`, `timestamp` |
+| `output/debug_logs.json` | `gm_thoughts_markdown`, `timestamp` |
+| `output/interface_updates.json` | `dialogueOptions`, `image_prompt`, `timestamp` |
+| `ready/turn_complete.json` | `sessionId`, `requestId`, `turnNumber`, `timestamp`, `status=success`, `filesModified` |
+
 ## 2. Autonomous GM Turn Loop
 
 When acting as Game Master, execute the following continuous cycle:
