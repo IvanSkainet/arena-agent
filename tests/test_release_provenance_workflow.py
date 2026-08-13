@@ -92,6 +92,30 @@ def test_signing_refuses_unattested_or_wrong_workflow_bytes() -> None:
     assert "https://spdx.dev/Document/v2.3" in raw
 
 
+def test_signing_binds_attestations_to_exact_tag_commit() -> None:
+    raw = SIGN.read_text(encoding="utf-8")
+    assert '"repos/${GITHUB_REPOSITORY}/commits/${TAG}"' in raw
+    assert "source_digest=$source_digest" in raw
+    assert raw.count('--source-digest "$SOURCE_DIGEST"') == 2
+    assert "SOURCE_DIGEST: ${{ steps.tag.outputs.source_digest }}" in raw
+
+
+def test_signing_accepts_only_the_exact_identical_zip_pair() -> None:
+    raw = SIGN.read_text(encoding="utf-8")
+    assert "[ \"$count\" -ne 2 ]" in raw
+    assert 'versioned="arena-agent-${TAG}.zip"' in raw
+    assert 'alias="arena-agent.zip"' in raw
+    assert 'cmp "$versioned" "$alias"' in raw
+    assert 'for f in "arena-agent-${TAG}.zip" arena-agent.zip; do' in raw
+    assert 'sha256sum "arena-agent-${TAG}.zip" arena-agent.zip' in raw
+    assert 'attested-release-candidate-${SOURCE_DIGEST}' in raw
+    assert '(cd "$accepted" && sha256sum -c "$(basename "$manifest")")' in raw
+    assert '(cd dist && sha256sum -c "$manifest")' in raw
+    assert 'cmp "$accepted/arena-agent-${TAG}.zip"' in raw
+    assert "sha256sum --check \"SHA256SUMS-${TAG}.txt\"" in raw
+    assert "--ignore-missing" not in raw
+
+
 def test_candidate_final_artifact_contains_evidence_and_bundles() -> None:
     raw = CANDIDATE.read_text(encoding="utf-8")
     for required in (

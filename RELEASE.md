@@ -61,18 +61,28 @@ gh run download <run-id> \
     --dir /tmp/arena-release-candidate
 
 # 5) Verify provenance and the attached SPDX SBOM before host installation.
-for f in /tmp/arena-release-candidate/*.zip; do
-  gh attestation verify "$f" \
-    --repo IvanSkainet/arena-agent \
-    --signer-workflow IvanSkainet/arena-agent/.github/workflows/release-candidate.yml \
-    --deny-self-hosted-runners
-  gh attestation verify "$f" \
-    --repo IvanSkainet/arena-agent \
-    --signer-workflow IvanSkainet/arena-agent/.github/workflows/release-candidate.yml \
-    --deny-self-hosted-runners \
-    --predicate-type https://spdx.dev/Document/v2.3
-done
-sha256sum -c /tmp/arena-release-candidate/SHA256SUMS-candidate-vX.Y.Z.txt
+#    gh CLI v2.68.0+ is required for --source-digest.
+SOURCE_DIGEST=<full-master-sha>
+(
+  cd /tmp/arena-release-candidate
+  test "$(find . -maxdepth 1 -name '*.zip' -type f | wc -l)" -eq 2
+  test -f arena-agent-vX.Y.Z.zip && test -f arena-agent.zip
+  cmp arena-agent-vX.Y.Z.zip arena-agent.zip
+  for f in arena-agent-vX.Y.Z.zip arena-agent.zip; do
+    gh attestation verify "$f" \
+      --repo IvanSkainet/arena-agent \
+      --signer-workflow IvanSkainet/arena-agent/.github/workflows/release-candidate.yml \
+      --source-digest "$SOURCE_DIGEST" \
+      --deny-self-hosted-runners
+    gh attestation verify "$f" \
+      --repo IvanSkainet/arena-agent \
+      --signer-workflow IvanSkainet/arena-agent/.github/workflows/release-candidate.yml \
+      --source-digest "$SOURCE_DIGEST" \
+      --deny-self-hosted-runners \
+      --predicate-type https://spdx.dev/Document/v2.3
+  done
+  sha256sum -c SHA256SUMS-candidate-vX.Y.Z.txt
+)
 
 # 6) Install those exact candidate bytes on the real Windows host and run the
 #    release-specific live acceptance. If this fails: do not tag and do not publish.
@@ -127,15 +137,22 @@ provenance and an SPDX SBOM attestation from the pinned
 a workflow-valid signature could be applied to arbitrary bytes uploaded before
 the signing job started.
 
+GitHub CLI v2.68.0 or newer is required for the exact-commit check:
+
 ```bash
+TAG=v4.161.0
+SOURCE_DIGEST=$(gh api \
+  "repos/IvanSkainet/arena-agent/commits/${TAG}" --jq '.sha')
 gh attestation verify arena-agent.zip \
   --repo IvanSkainet/arena-agent \
   --signer-workflow IvanSkainet/arena-agent/.github/workflows/release-candidate.yml \
+  --source-digest "$SOURCE_DIGEST" \
   --deny-self-hosted-runners
 
 gh attestation verify arena-agent.zip \
   --repo IvanSkainet/arena-agent \
   --signer-workflow IvanSkainet/arena-agent/.github/workflows/release-candidate.yml \
+  --source-digest "$SOURCE_DIGEST" \
   --deny-self-hosted-runners \
   --predicate-type https://spdx.dev/Document/v2.3
 ```
@@ -162,7 +179,7 @@ cosign verify-blob arena-agent.zip \
 want to catch a corrupted or truncated download):
 
 ```bash
-sha256sum -c SHA256SUMS-v4.161.0.txt --ignore-missing
+sha256sum -c SHA256SUMS-v4.161.0.txt
 ```
 
 The digest file is signed too, so the cosign check above can be run against
@@ -274,7 +291,11 @@ Omit a sub-section if it has no entries for this release.
 - [ ] `release-candidate.yml` succeeded on that exact master SHA; independent
       builds A/B matched byte-for-byte and `release-verification.json` is clean.
 - [ ] Both ZIP names pass build-provenance and SPDX SBOM verification with the
-      pinned release-candidate signer workflow.
+      pinned release-candidate signer workflow and `--source-digest` equal to
+      the exact intended master commit.
+- [ ] From the downloaded candidate directory, the documented unmodified
+      `sha256sum -c SHA256SUMS-candidate-vX.Y.Z.txt` command passes for exactly
+      the versioned ZIP and `arena-agent.zip`.
 - [ ] The downloaded Actions artifact digest is recorded before it leaves CI.
 - [ ] That exact digest passed the real Windows candidate acceptance before the
       annotated tag or public release was created.
@@ -290,7 +311,8 @@ Omit a sub-section if it has no entries for this release.
 - [ ] Both zip assets are visible on the release page and byte-identical to the
       previously accepted Actions artifact.
 - [ ] Public ZIPs still pass `gh attestation verify` for both SLSA provenance
-      and SPDX SBOM predicates with the release-candidate signer workflow.
+      and SPDX SBOM predicates with the release-candidate signer workflow and
+      `--source-digest` resolved from the exact release tag commit.
 - [ ] The alias URL works:
       `curl -sIL https://github.com/IvanSkainet/arena-agent/releases/latest/download/arena-agent.zip`
       returns HTTP 200.
@@ -317,6 +339,8 @@ recreate the green-equals-works failure in a more automated form.
 
 The human/agent release driver therefore downloads the attested artifact, installs
 those exact bytes on Windows, and only then creates the annotated tag and draft
-release. Publication changes visibility, not bytes. `sign-release.yml` verifies
-the pre-existing candidate provenance again before adding its independent
-Sigstore signatures.
+release. Publication changes visibility, not bytes. `sign-release.yml` resolves the tag
+to its exact commit, downloads the successful exact-SHA candidate evidence,
+requires exactly the two documented ZIP assets, checks both against the accepted
+candidate manifest, and verifies source-bound provenance before adding its
+independent Sigstore signatures.

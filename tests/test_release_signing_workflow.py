@@ -117,11 +117,12 @@ def test_it_publishes_digests_too(raw):
     assert "SHA256SUMS" in raw
 
 
-def test_it_fails_closed_when_there_is_nothing_to_sign(raw):
-    """Signing zero assets must not look like a successful signing run."""
-    assert "no .zip assets found" in raw, (
-        "an empty asset list has to be an error; otherwise a release with "
-        "failed uploads reports a green signing job")
+def test_it_fails_closed_unless_the_exact_zip_pair_exists(raw):
+    """Missing or extra ZIP assets must never reach the signing loop."""
+    assert "release must contain exactly" in raw
+    assert '[ "$count" -ne 2 ]' in raw
+    assert 'versioned="arena-agent-${TAG}.zip"' in raw
+    assert 'alias="arena-agent.zip"' in raw
     assert raw.count("set -euo pipefail") >= 4, (
         "each run block needs strict mode, or a failed command mid-script "
         "leaves the job green")

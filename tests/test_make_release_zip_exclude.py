@@ -184,13 +184,32 @@ def test_release_zip_is_byte_reproducible_and_preserves_index_modes(tmp_path, mo
         assert (by_name["arena-bridge/arena/a.py"].external_attr >> 16) & 0o777 == 0o644
 
 
-def test_release_zip_rejects_tracked_symlinks(tmp_path, monkeypatch):
+@pytest.mark.parametrize("directory_target", [False, True])
+def test_release_zip_rejects_tracked_symlinks(tmp_path, monkeypatch, directory_target):
     root = tmp_path / "repo"
     root.mkdir()
-    (root / "link").write_text("target", encoding="utf-8")
+    target = root / "target"
+    if directory_target:
+        target.mkdir()
+        (target / "nested.txt").write_text("nested", encoding="utf-8")
+    else:
+        target.write_text("target", encoding="utf-8")
+    link = root / "link"
+    try:
+        link.symlink_to(target, target_is_directory=directory_target)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable on this platform")
     monkeypatch.setattr(_mod, "ROOT", root)
     monkeypatch.setattr(_mod, "untracked_files", lambda: [])
-    monkeypatch.setattr(_mod, "tracked_modes", lambda: {"link": "120000"})
+    monkeypatch.setattr(
+        _mod,
+        "tracked_modes",
+        lambda: {"link": "120000", "target": "100644"},
+    )
 
+    def forbidden_walk(*_args, **_kwargs):
+        raise AssertionError("os.walk must not run before tracked modes are validated")
+
+    monkeypatch.setattr(_mod.os, "walk", forbidden_walk)
     with pytest.raises(SystemExit, match="unsupported git mode"):
         _mod.main(["make_release_zip.py", "9.9.9", str(tmp_path / "bad.zip")])

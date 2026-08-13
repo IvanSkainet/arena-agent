@@ -247,6 +247,13 @@ def main(argv: list[str]) -> int:
         out.unlink()
 
     modes = tracked_modes()
+    for rel_path, git_mode in modes.items():
+        if not should_exclude(rel_path) and git_mode not in SUPPORTED_GIT_FILE_MODES:
+            raise SystemExit(
+                f"ERROR: unsupported git mode {git_mode} for release path {rel_path}; "
+                "symlinks/submodules are not valid release ZIP entries"
+            )
+
     entries: list[tuple[str, Path]] = []
     for dirpath, dirnames, filenames in os.walk(ROOT):
         at_root = Path(dirpath) == ROOT
