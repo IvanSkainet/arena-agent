@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +21,7 @@ SECURITY_WORKFLOW = REPO / ".github" / "workflows" / "security-scan.yml"
 yaml = pytest.importorskip("yaml")
 
 CI_BLOCKING = {
+    "changes",
     "actionlint",
     "test",
     "coverage-diff",
@@ -74,7 +76,14 @@ def _needs_payload(names: set[str], result: str = "success") -> dict[str, dict[s
     return {name: {"result": result, "outputs": {}} for name in names}
 
 
-def _run_gate(expected: set[str], payload: object | None, *, raw: str | None = None) -> subprocess.CompletedProcess[str]:
+def _run_gate(
+    expected: set[str],
+    payload: object | None,
+    *,
+    raw: str | None = None,
+    allowed_skipped: set[str] | None = None,
+    policy: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     if raw is not None:
         env["NEEDS_JSON"] = raw
@@ -82,8 +91,20 @@ def _run_gate(expected: set[str], payload: object | None, *, raw: str | None = N
         env["NEEDS_JSON"] = json.dumps(payload)
     else:
         env.pop("NEEDS_JSON", None)
+    command = [sys.executable, str(GATE), "--expected", ",".join(sorted(expected))]
+    if allowed_skipped is not None:
+        command.extend([
+            "--allow-skipped",
+            ",".join(sorted(allowed_skipped)),
+            "--allow-skipped-when-env",
+            "DOCS_ONLY",
+        ])
+        if policy is None:
+            env.pop("DOCS_ONLY", None)
+        else:
+            env["DOCS_ONLY"] = policy
     return subprocess.run(
-        [sys.executable, str(GATE), "--expected", ",".join(sorted(expected))],
+        command,
         check=False,
         capture_output=True,
         text=True,
@@ -135,7 +156,9 @@ def test_ci_aggregate_names_every_blocking_job_and_excludes_debt_noise() -> None
     assert aggregate["permissions"] == {"contents": "read"}
     run = "\n".join(str(step.get("run", "")) for step in aggregate["steps"])
     assert ".github/scripts/required_jobs_gate.py" in run
-    assert set(run.split('"')[-2].split(",")) == CI_BLOCKING
+    expected = re.search(r'--expected\s+"([^"]+)"', run)
+    assert expected
+    assert set(expected.group(1).split(",")) == CI_BLOCKING
 
 
 def test_security_aggregate_names_every_security_job() -> None:
@@ -196,3 +219,53 @@ def test_required_jobs_gate_cli_bilateral_sabotage() -> None:
     absent = _run_gate(SECURITY_BLOCKING, None)
     assert absent.returncode == 2
     assert "is absent" in absent.stderr
+
+
+def test_docs_only_skip_requires_an_explicit_true_policy_and_allowlist() -> None:
+    expensive = {
+        "test",
+        "coverage-diff",
+        "packaging-e2e",
+        "dashboard-browser-e2e",
+        "e2e-installed",
+        "js-lint",
+        "quality-scan",
+        "android",
+    }
+    payload = _needs_payload(CI_BLOCKING)
+    for name in expensive:
+        payload[name]["result"] = "skipped"
+
+    allowed = _run_gate(
+        CI_BLOCKING,
+        payload,
+        allowed_skipped=expensive,
+        policy="true",
+    )
+    assert allowed.returncode == 0, allowed.stdout + allowed.stderr
+
+    code_change = _run_gate(
+        CI_BLOCKING,
+        payload,
+        allowed_skipped=expensive,
+        policy="false",
+    )
+    assert code_change.returncode == 1
+
+    missing_policy = _run_gate(
+        CI_BLOCKING,
+        payload,
+        allowed_skipped=expensive,
+        policy=None,
+    )
+    assert missing_policy.returncode == 2
+
+    payload["actionlint"]["result"] = "skipped"
+    unlisted = _run_gate(
+        CI_BLOCKING,
+        payload,
+        allowed_skipped=expensive,
+        policy="true",
+    )
+    assert unlisted.returncode == 1
+    assert "actionlint" in unlisted.stdout
