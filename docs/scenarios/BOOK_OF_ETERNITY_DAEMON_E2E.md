@@ -181,6 +181,22 @@ workspace guard queries both ordinary and ignored files, failing closed if git
 cannot measure either set. Three regressions pin the exact artifact, the
 ignored-file query, and the failure path.
 
+### F15 — missing pyrefly was counted as zero errors locally
+
+The first published v4.169.43 candidate passed local preflight but failed CI's
+blocking quality ratchet: pyrefly found `ctypes.WinDLL` missing from its
+cross-platform type surface. Locally pyrefly was not installed. Python returned
+rc=1 with `No module named pyrefly`; `quality_ratchet.py` allowed rc=1 because it
+also means findings, decoded empty stdout as `{}`, and reported zero errors.
+The candidate release and remote tag were retracted immediately.
+
+The Windows-only loader now resolves `WinDLL` lazily with `getattr`. More
+importantly, pyrefly rc=1 must carry a parseable non-empty `errors` list,
+malformed/empty output fails closed, and preflight declares the `pyrefly` binary
+mandatory. Three regressions cover the exact missing-module false green, a real
+structured finding, and preflight wiring. CI-pinned pyrefly 1.2.0 now reports
+zero errors.
+
 ## Core change
 
 `arena-relay terminal` is a generic persistent terminal ingress:
@@ -218,7 +234,7 @@ file names.
 - [x] Live: two consecutive multiline packets remain one message each.
 - [x] Live: concurrent reply long-poll + atomic write returns one HTTP 200 reply.
 - [x] Live: queues return to `inbox=0`, `replies=0` after probes.
-- [x] Regression: 8,304 tests collected; full suite, lint, security scan, and
+- [x] Regression: 8,307 tests collected; full suite, lint, security scan, and
   `preflight.py --full` pass.
 - [ ] Release: clean tagged build is installed and artifact signatures verified.
 
@@ -260,7 +276,7 @@ file names.
 ### 2026-08-13 — local release gates
 
 * Focused relay/BoE/dead-code regression: 100 passed; relay/BoE subset: 99.
-* Full collection: 8,304 tests. Bare `python -m pytest -q` passed after the
+* Full collection: 8,307 tests. Bare `python -m pytest -q` passed after the
   default coverage-floor correction.
 * Final coverage: 63.07% lines, 51.61% branches, 60.40% combined report.
 * Critical ruff, compileall, `git diff --check`, normal preflight, and two final
@@ -269,4 +285,7 @@ file names.
   0 known vulnerabilities across 18 runtime dependencies.
 * First clean-tag ZIP was rejected before upload because archive inspection
   found ignored `coverage.xml`. Packaging now inspects ignored workspace files
-  and excludes the report explicitly; rebuilt artifact verification is pending.
+  and excludes the report explicitly.
+* The rebuilt candidate was signed and published, then immediately retracted
+  with its remote tag when blocking CI exposed the missing-pyrefly local false
+  green. The append-only fix commit is undergoing the complete cycle again.

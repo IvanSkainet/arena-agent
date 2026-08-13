@@ -59,6 +59,20 @@ workspace guard queries both ordinary and ignored files and fails closed when
 git cannot measure them. Three regressions cover the report, ignored-file
 query, and failure path.
 
+### Missing pyrefly was counted as zero errors
+
+The first published candidate was immediately retracted when CI's blocking
+quality ratchet found `ctypes.WinDLL` absent from pyrefly's cross-platform type
+surface. Local preflight had passed because pyrefly was not installed: rc=1
+(`No module named pyrefly`) was allowed as the same code used for findings,
+empty stdout became `{}`, and the ratchet printed zero errors.
+
+The Windows-only loader now resolves `WinDLL` lazily. `quality_ratchet.py`
+requires parseable structured findings on rc=1 and fails closed on empty or
+malformed output; preflight requires the `pyrefly` binary. Three regressions pin
+the missing-module false green, a real finding, and required-tool wiring.
+CI-pinned pyrefly 1.2.0 reports zero errors.
+
 ### Live acceptance, including an intentional validation failure
 
 * Turn 2 arrived through the real daemon as one 33,937-character prompt and the
@@ -76,7 +90,7 @@ The scenario journal is `docs/scenarios/BOOK_OF_ETERNITY_DAEMON_E2E.md`. It also
 records upstream application findings rather than hiding them in bridge logic:
 stale snapshots after client cancellation, console-event-dependent signal
 processing, and a defined-but-never-called standalone bootstrap function.
-Targeted relay/BoE regression: 99 passed. The full project collected 8,304
+Targeted relay/BoE regression: 99 passed. The full project collected 8,307
 tests; bare `python -m pytest -q` and `preflight.py --full` passed. Final
 coverage measured 63.07% lines / 51.61% branches (60.40% combined). Security
 gate: Bandit 0 high/medium, Semgrep 0

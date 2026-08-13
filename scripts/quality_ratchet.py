@@ -73,10 +73,30 @@ def vulture_count() -> int:
 
 
 def pyrefly_errors() -> list[dict]:
-    # rc 0 = clean, 1 = errors found
+    """Return measured pyrefly errors and reject an absent/broken analyzer.
+
+    Pyrefly uses rc=1 both for real findings and for `No module named pyrefly`.
+    The old parser allowed rc=1, decoded empty stdout as `{}`, and reported
+    zero errors. That made local preflight green while the pinned CI analyzer
+    found a blocking type error in v4.169.43.
+    """
     proc = run([sys.executable, "-m", "pyrefly", "check", *PYREFLY_TARGETS,
                 "--output-format=json"], {0, 1})
-    return json.loads(proc.stdout or "{}").get("errors", [])
+    try:
+        payload = json.loads(proc.stdout)
+    except (json.JSONDecodeError, TypeError) as exc:
+        print("FAIL-CLOSED: pyrefly returned no parseable JSON; "
+              f"stderr:\n{proc.stderr[-800:]}", file=sys.stderr)
+        raise SystemExit(2) from exc
+    errors = payload.get("errors") if isinstance(payload, dict) else None
+    if not isinstance(errors, list):
+        print("FAIL-CLOSED: pyrefly JSON has no errors list", file=sys.stderr)
+        raise SystemExit(2)
+    if proc.returncode == 1 and not errors:
+        print("FAIL-CLOSED: pyrefly exited 1 but reported no parseable errors; "
+              f"stderr:\n{proc.stderr[-800:]}", file=sys.stderr)
+        raise SystemExit(2)
+    return errors
 
 
 def pyrefly_counts(errors: list[dict]) -> Counter:

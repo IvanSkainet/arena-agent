@@ -62,7 +62,11 @@ def raw_terminal_input() -> Iterator[bool]:
         import ctypes
         from ctypes import wintypes
 
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        # WinDLL is Windows-only and absent from ctypes' non-Windows type
+        # surface even though this branch cannot run there. Resolve it lazily
+        # so cross-platform static analysis does not invent a runtime import.
+        win_dll = getattr(ctypes, "WinDLL")
+        kernel32 = win_dll("kernel32", use_last_error=True)
         kernel32.GetStdHandle.argtypes = [wintypes.DWORD]
         kernel32.GetStdHandle.restype = wintypes.HANDLE
         kernel32.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]

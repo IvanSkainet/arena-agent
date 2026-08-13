@@ -57,6 +57,20 @@ artifact уже исключён. Теперь `coverage.xml` указан яв�
 запрашивает и обычные, и ignored-файлы и fail-closed, если git не может их
 измерить. Три regression-теста покрывают report, ignored query и failure path.
 
+### Отсутствующий pyrefly считался нулём ошибок
+
+Первый опубликованный candidate немедленно отозван, когда блокирующий quality
+ratchet в CI нашёл отсутствие `ctypes.WinDLL` в кроссплатформенной type surface
+pyrefly. Локальный preflight прошёл, потому что pyrefly не был установлен:
+rc=1 (`No module named pyrefly`) разрешался как тот же код, что у findings,
+пустой stdout превращался в `{}`, и ratchet печатал ноль ошибок.
+
+Windows-only loader теперь лениво разрешает `WinDLL`. `quality_ratchet.py`
+требует структурированные findings при rc=1 и fail-closed на пустом/битом
+выводе; preflight требует бинарник `pyrefly`. Три regression-теста закрепляют
+missing-module false green, настоящий finding и required-tool wiring.
+CI-pinned pyrefly 1.2.0 сообщает zero errors.
+
 ### Живой acceptance с намеренным validation failure
 
 * Ход 2 пришёл через реальный daemon одним prompt на 33 937 символов; клиент
@@ -73,7 +87,7 @@ artifact уже исключён. Теперь `coverage.xml` указан яв�
 зафиксированы upstream-находки вместо маскировки их game logic внутри моста:
 протухший snapshot после отмены ожидания, обработка terminal signal только после
 console event и определённая, но нигде не вызываемая standalone bootstrap-функция.
-Целевой relay/BoE regression: 99 passed. Полный проект собрал 8 304 тест;
+Целевой relay/BoE regression: 99 passed. Полный проект собрал 8 307 тест;
 голый `python -m pytest -q` и `preflight.py --full` прошли. Финальный coverage:
 63,07% строк / 51,61% ветвей (60,40% combined). Security gate: Bandit 0
 high/medium, Semgrep 0 находок, pip-audit

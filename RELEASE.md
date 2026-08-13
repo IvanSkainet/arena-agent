@@ -210,7 +210,7 @@ Omit a sub-section if it has no entries for this release.
 
 ## Pre-release checklist
 
-- [ ] Full test suite passes (`python -m pytest -q`) — currently **8,304
+- [ ] Full test suite passes (`python -m pytest -q`) — currently **8,307
       tests collected** on `master` (as of v4.169.43). The default local
       coverage floor is 46%; CI raises Linux to 51%.
 - [ ] Targeted extension checks pass (see README "Development").

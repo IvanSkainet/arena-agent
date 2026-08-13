@@ -109,3 +109,39 @@ def test_rc3_with_unparseable_output_fails_closed(monkeypatch):
     with pytest.raises(SystemExit) as excinfo:
         _mod.vulture_count()
     assert excinfo.value.code == 2
+
+
+def test_missing_pyrefly_cannot_be_reported_as_zero(monkeypatch):
+    """The exact local-green/CI-red v4.169.43 failure must stay impossible."""
+    class _Proc:
+        returncode = 1
+        stdout = ""
+        stderr = "No module named pyrefly"
+
+    monkeypatch.setattr(_mod, "run", lambda *a, **k: _Proc())
+    with pytest.raises(SystemExit) as excinfo:
+        _mod.pyrefly_errors()
+    assert excinfo.value.code == 2
+
+
+def test_pyrefly_rc1_requires_and_returns_structured_findings(monkeypatch):
+    class _Proc:
+        returncode = 1
+        stdout = '{"errors":[{"name":"missing-attribute","path":"x.py"}]}'
+        stderr = "1 error"
+
+    monkeypatch.setattr(_mod, "run", lambda *a, **k: _Proc())
+    assert _mod.pyrefly_errors() == [
+        {"name": "missing-attribute", "path": "x.py"}
+    ]
+
+
+def test_preflight_declares_pyrefly_as_a_required_binary():
+    spec = importlib.util.spec_from_file_location(
+        "_preflight_for_quality_test", REPO / "scripts" / "preflight.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    check = next(item for item in module.CHECKS if item.name == "quality ratchet")
+    assert check.needs == "pyrefly"
