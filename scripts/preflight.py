@@ -145,7 +145,8 @@ CHECKS: list[Check] = [
         "tests/test_bridge_self_protection.py",
         "tests/test_desktop_input_no_shell_injection.py",
         "tests/test_release_signing_workflow.py",
-        "tests/test_version_badge_monotonic.py",
+        "tests/test_release_version_monotonic.py",
+        "tests/test_no_version_badge_writer.py",
     ], why="the gates most likely to be platform-specific; /proc use here "
            "reddened the whole macOS matrix once (6ba7b06a)"),
     Check("full suite", [PY, "-m", "pytest", "-p", "no:randomly", "--no-cov", "-q"],

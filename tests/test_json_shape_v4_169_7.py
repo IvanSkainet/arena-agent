@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import ast
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -171,39 +170,6 @@ def test_github_output_ratchet_catches_the_badge_bug(tmp_path: Path) -> None:
         probe.unlink(missing_ok=True)
     assert proc.returncode == 1
     assert "_github_output_probe.yml" in proc.stdout
-
-
-def test_badge_guard_writes_only_key_value_lines(tmp_path: Path) -> None:
-    """Run the badge workflow's own guard logic and inspect what it emits.
-
-    Older version: the annotation went into the output file and GitHub
-    rejected it. The step is expected to skip the write AND stay green.
-    """
-    workflow = (REPO_ROOT / ".github" / "workflows" / "version-badge.yml").read_text(encoding="utf-8")
-    start = workflow.index("import json, os, pathlib")
-    end = workflow.index("PYEOF", start)
-    body = "\n".join(line[10:] if line.startswith(" " * 10) else line
-                     for line in workflow[start:end].splitlines())
-
-    docs = tmp_path / "docs"
-    docs.mkdir()
-    (docs / "version.json").write_text('{"semver": "4.169.6"}', encoding="utf-8")
-    out = tmp_path / "out.txt"
-    out.write_text("", encoding="utf-8")
-    script = tmp_path / "guard.py"
-    script.write_text(body, encoding="utf-8")
-
-    proc = subprocess.run(
-        [sys.executable, str(script)], cwd=tmp_path, capture_output=True, text=True, timeout=60,
-        # v4.169.9: a hand-built POSIX env killed this on windows-latest --
-        # CPython needs SYSTEMROOT to seed its hash randomisation and dies
-        # before running a line. Inherit the real environment, override two keys.
-        env={**os.environ, "VERSION_BARE": "4.169.4", "GITHUB_OUTPUT": str(out)},
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    lines = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    assert lines == ["skip=true"], lines
-    assert "::warning::" in proc.stdout  # annotation goes to the log, not the file
 
 
 def test_no_test_hands_a_handbuilt_env_to_a_python_subprocess() -> None:

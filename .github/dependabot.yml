@@ -34,9 +34,8 @@ updates:
     commit-message:
       prefix: "deps"
       include: "scope"
-    # Don't update GitHub Actions here — they're pinned to SHAs in
-    # ci.yml / version-badge.yml and dependabot would only propose
-    # tag bumps we explicitly don't want.
+    # Don't update GitHub Actions here — every workflow action is pinned to a
+    # reviewed commit SHA, and tag-only bumps are intentionally rejected.
     ignore:
       - dependency-name: "aiohttp"
         # v4.61.0 baseline; bump manually after testing the websocket

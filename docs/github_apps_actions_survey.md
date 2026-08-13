@@ -86,7 +86,7 @@ e2e-installed — естественное продолжение «продви
 
 | # | Что | Приоритет | Маршрут сигнала | Решение |
 |---|---|---|---|---|
-| 1 | StepSecurity Harden-Runner (audit) | P1 | их dashboard + insights, не наш красный | **ДОБАВЛЕН** 2026-08-02: 29 jobs (ci/version-badge/security-scan), SHA-pinned v2.20.0 |
+| 1 | StepSecurity Harden-Runner (audit) | P1 | их dashboard + insights, не наш красный | **ДОБАВЛЕН** 2026-08-02; сейчас 35 jobs в CI/security и вспомогательных workflows. Бывший write-to-master badge workflow удалён в T38. |
 | 2 | pre-commit hooks (ruff/ratchets локально) | P2 | локальный | опционально, конфиг в репо |
 | 3 | Mutation testing sampled (cosmic-ray, nightly) | P2→Tier-3 | отдельный nightly workflow | позже |
 | 4 | Playwright dashboard E2E | P2→Tier-3 | blocking e2e job | позже |
