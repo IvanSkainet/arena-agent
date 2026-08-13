@@ -143,7 +143,7 @@ def test_pr_template_requires_traceability_sabotage_and_live_evidence() -> None:
         "Live E2E evidence",
         "Security and release impact",
         "Cross-repository impact",
-        "PR_REVIEW_TRIAGE.md",
+        "https://github.com/IvanSkainet/arena-agent/blob/HEAD/docs/PR_REVIEW_TRIAGE.md",
     ):
         assert required in text
 

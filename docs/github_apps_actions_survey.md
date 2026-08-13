@@ -102,7 +102,7 @@ e2e-installed — естественное продолжение «продви
 Статус: P1 выполнен (harden-runner@bf7454d egress-policy: audit как первый
 шаг 29 jobs). Остальное ждёт явного решения пользователя.
 
-## Перекалибровка AI-review по живым PR (2026-08-14)
+## Перекалибровка AI-review по живым PR (2026-08-14, Asia/Yekaterinburg)
 
 <!-- ai-review-policy: keep=coderabbit,sourcery;remove=deepsource;sample-min=10 -->
 
@@ -132,7 +132,7 @@ exact source commit, exact two-ZIP/candidate checksums, рабочая дире�
 непроверенными входными данными.
 
 DeepSource имеет другой verdict. `DeepSource: Analysis` был `skipped` на PR
-#5, #6, #15, #17–#21 и девяти последних проверенных commit `master`. Владелец
+`#5`, `#6`, `#15`, `#17`–`#21` и девяти последних проверенных commit `master`. Владелец
 репозитория подтвердил root cause: **Analysis quota is exhausted**. Покупать
 квоту для слоя, дублирующего CodeQL/Semgrep/Bandit и локальные quality
 ratchets, нецелесообразно; старый Secrets check также дублирует GitHub secret
