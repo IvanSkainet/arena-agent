@@ -6,8 +6,7 @@
 
 ## Актуальное состояние (на 2026-08-13)
 
-- **Опубликованная версия:** `v4.169.43` (9 release assets, Sigstore и installed-artifact live E2E проверены).
-- **Текущий кандидат:** `v4.169.44` (Windows exec/restart hardening; local gates и два live sabotage пройдены, публикация ожидает clean release cycle).
+- **Опубликованная версия:** `v4.169.44` (9 release assets; Sigstore, exact-commit CI и installed-artifact timeout/restart sabotage проверены).
 - **CI:** exact release commit зелёный: CI (35 jobs), Linux/Windows/macOS matrices, CodeQL, Scorecard, Zizmor, Security scan и sign-release.
 - **Security Alerts:** 0 открытых во всех трёх лентах (CodeQL, Secret Scanning, Dependabot).
 - **Мутационный храповик:** 15 модулей зафиксированы на уровне **0 выживших мутантов**.

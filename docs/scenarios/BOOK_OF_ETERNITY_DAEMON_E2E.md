@@ -1,6 +1,6 @@
 # Book of Eternity: daemon-driven live E2E
 
-- Status: **v4.169.43 released; v4.169.44 Windows hardening live-accepted, release pending**
+- Status: **complete — v4.169.44 released, installed, and live-reverified**
 - Started: 2026-08-13
 - Bridge baseline: v4.169.42
 - Current candidate: v4.169.44
@@ -384,3 +384,24 @@ file names.
   processes.
 * v4.169.44 local result: 8,320 tests collected; bare full suite,
   `preflight.py --full`, pyrefly zero, Bandit, Semgrep, and pip-audit all pass.
+
+### 2026-08-13 — v4.169.44 final artifact
+
+* Final tag target: commit `61f7f8c23d24831102c32ff6d235f39bc592e917`.
+* Clean-tag ZIP: 1,149 files; SHA-256
+  `991276dc652d03fe816842c67cbfed027af28ee66abe3e1813d872b3d576f4d1`.
+  Both public ZIP names matched byte-for-byte and their public checksums.
+  Independent Sigstore verification passed for both ZIPs and the digest file;
+  all nine assets are present and v4.169.44 is `latest`.
+* Exact-commit GitHub runs all passed: CI `31710262636`, Security scan
+  `31710262720`, CodeQL `31710263397`, release signing `31710349508`.
+  Open Code Scanning, Dependabot, and Secret Scanning counts were 0/0/0.
+* Verified auto-update installed the public ZIP with the expected digest.
+  Post-update smoke reported v4.169.44 with no failures or warnings; installed
+  runner, restart, and relaunch-helper hashes matched the tag.
+* Installed-artifact timeout sabotage returned HTTP 408 in 3.101 seconds
+  (3.927 seconds wall). Parent PID 5272 and nested child PID 9196 were both
+  absent after two seconds; `.arena_script_tmp` orphan count was zero.
+* Installed-artifact manual restart returned `prepared=true` and public health
+  returned v4.169.44 automatically. Final process inspection found no bridge or
+  game process above 96.4 MB private memory and no process above 1 GB.
