@@ -84,7 +84,10 @@ def _write_atomic(path: Path, payload: dict[str, Any]) -> None:
     is not an acceptable failure mode.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-", suffix=".json")
+    # Never give an unfinished file the same suffix mailbox readers glob.
+    # On Windows a concurrent read of `.tmp-*.json` kept the handle open and
+    # made os.replace fail with WinError 32 during a live daemon repair reply.
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-", suffix=".partial")
     tmp = Path(tmp_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:

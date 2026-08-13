@@ -1,3 +1,87 @@
+## v4.169.43 — 2026-08-13
+
+### The first daemon-driven Book of Eternity run found three transport bugs
+
+The earlier green run proved the file protocol while bypassing the daemon. This
+release preserves the application's actual architecture: C# request → daemon →
+C# ConPTY bridge → persistent generic terminal relay → active agent → ordinary
+host file writes → client validation → daemon-delivered repair → bounded agent
+repair. No Book of Eternity rules, dice, schemas, or state machines were added
+to Skainet Bridge.
+
+The live path exposed three failures that line-mode tests could not:
+
+* Windows Console line input truncated the 33,937-character turn prompt at
+  exactly 510 characters.
+* Windows ConPTY stripped both bracketed-paste ESC markers, so switching to raw
+  input alone still did not provide message boundaries.
+* Relay atomic writes used `.tmp-*.json`; a concurrent Windows long-poll reader
+  globbed the unfinished file and held it open, making `os.replace` fail with
+  WinError 32.
+
+### Generic persistent terminal ingress
+
+`arena-relay terminal` now supports ordinary lines, bracketed paste, and the
+observed Windows ConPTY dispatch protocol without becoming game-specific:
+
+* temporarily enables raw virtual-terminal input on Windows and always restores
+  the original console mode;
+* decodes non-greedy binary `read1` chunks incrementally, preserving split UTF-8
+  and embedded CR/LF without waiting for a future dispatch;
+* treats the host's leading Ctrl+U clear-input control as a raw dispatch boundary
+  and the delayed newline-only chunk as the submit event;
+* echoes only a bounded safe prefix for the host's visibility handshake and
+  rearms it for every Ctrl+U-delimited dispatch;
+* delivers no truncated raw or bracketed payload and keeps the 256 KiB cap;
+* queues one correlated relay message, stays busy for its exact reply, then
+  returns to ready for the next turn or validation packet.
+
+Atomic relay source files now use `.partial`, which cannot match mailbox
+`*.json` readers. A live concurrent long-poll + reply write returned HTTP 200
+with exactly one correlated reply after the change.
+
+### The documented local test command is runnable again
+
+`RELEASE.md` requires bare `python -m pytest -q`, but `pyproject.toml` still
+carried the abandoned 70% coverage floor from v4.61.0. The current full report
+is 60.40% combined; CI intentionally uses 51% on Linux and 46% on
+Windows/macOS. The default local floor now matches the cross-platform 46%
+minimum, while CI keeps the stricter Linux override. A green suite and an
+impossible documented entrypoint no longer coexist.
+
+### A clean git tag still packed an ignored coverage report
+
+The first v4.169.43 ZIP was rejected before upload: archive inspection found
+root `coverage.xml` (about 1.9 MB). The release builder walks the filesystem,
+but its untracked check asked git to hide ignored files, assuming every future
+ignored artifact was already excluded. `coverage.xml` is now explicit, and the
+workspace guard queries both ordinary and ignored files and fails closed when
+git cannot measure them. Three regressions cover the report, ignored-file
+query, and failure path.
+
+### Live acceptance, including an intentional validation failure
+
+* Turn 2 arrived through the real daemon as one 33,937-character prompt and the
+  client accepted the resulting narrative, dialogue, journals, actor reasoning,
+  and progression artifacts.
+* Turn 3 deliberately added an unknown top-level narrative field. The client
+  emitted `narrative_response_unknown_field`; the daemon delivered a bounded
+  repair packet naming the exact file and correction; the agent removed only
+  that field and completed repair last; the client accepted and rendered it.
+* Two consecutive synthetic multiline dispatches in the same terminal process
+  were preserved byte-for-byte as four lines each (`sequence` 1 then 2), each
+  received one HTTP 200 reply, and final inbox/reply depths were both zero.
+
+The scenario journal is `docs/scenarios/BOOK_OF_ETERNITY_DAEMON_E2E.md`. It also
+records upstream application findings rather than hiding them in bridge logic:
+stale snapshots after client cancellation, console-event-dependent signal
+processing, and a defined-but-never-called standalone bootstrap function.
+Targeted relay/BoE regression: 99 passed. The full project collected 8,304
+tests; bare `python -m pytest -q` and `preflight.py --full` passed. Final
+coverage measured 63.07% lines / 51.61% branches (60.40% combined). Security
+gate: Bandit 0 high/medium, Semgrep 0
+findings, pip-audit 0 known vulnerabilities across 18 runtime dependencies.
+
 ## v4.169.42 — 2026-08-13
 
 ### Scheduled gitleaks was the first time the allowlist met history

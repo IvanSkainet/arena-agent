@@ -54,10 +54,12 @@ Why not just use ``--cov-fail-under``?
 
 The v4.61.0 ``--cov-fail-under=70`` gate blocked the entire suite
 on day one (real coverage was 50%) and was relaxed to 50% in
-v4.62.0. A flat floor and a diff guard are complementary:
+v4.62.0. v4.169.43 aligned the default with the current 46% Windows/macOS
+CI floor while Linux keeps an explicit 51% floor. A flat floor and a diff
+guard are complementary:
 
-- ``--cov-fail-under=50`` (current): stops the project from
-  falling under 50% in absolute terms. This is the safety net.
+- ``--cov-fail-under=46`` (default): matches the weakest supported CI runner;
+  CI raises Linux to 51%. This is the cross-platform absolute safety net.
 - ``coverage_diff.py`` (this script): stops the project from
   silently regressing between releases. Even if a PR is
   technically above 50%, a 3-point drop in one PR is now

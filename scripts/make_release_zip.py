@@ -41,6 +41,10 @@ CACHE_DIR_SUFFIXES = ("_cache", "-cache")
 EXCLUDE_FILES = {
     "token.txt", "audit.jsonl", "bridge.log", "requests.jsonl",
     "facts.jsonl", "history.jsonl",
+    # pytest-cov writes this ignored file at the repository root. v4.169.43's
+    # first clean-tag build still packed its 1.9 MB local report because the
+    # old untracked guard deliberately did not inspect git-ignored files.
+    "coverage.xml",
 }
 # Rotated runtime logs (logrotate-style: requests.jsonl.1, requests.jsonl.2,
 # audit.jsonl.3, bridge.log.1, ...) must not ship either. Match on prefix so
@@ -113,27 +117,40 @@ def should_exclude(rel_path: str) -> bool:
 
 
 def untracked_files() -> list[str]:
-    """Files git does not know about that would be packed anyway.
+    """Workspace-only files, including ignored artifacts, that may be packed.
 
-    The builder walks the working tree, not the commit, so anything
-    lying around on disk ships to users. v4.169.12 was built from a tree
-    that still had the unfinished Android app in it: 1142 files instead
-    of 1105, including java sources and a keystore, in an archive
-    labelled with a tag that contained none of them. The archive was
-    thrown away and rebuilt from a clean clone -- but nothing had warned,
-    and nothing would have.
+    The builder walks the working tree, not the commit, so anything lying around
+    on disk ships to users. v4.169.12 carried an unfinished Android app because
+    the ordinary untracked set was not checked. v4.169.43 then carried
+    ``coverage.xml`` despite a clean tag because git-ignored files were omitted
+    from that check under the circular assumption that every future artifact was
+    already present in ``should_exclude``.
 
-    Ignored files (build output, caches) are excluded from the check:
-    they are already filtered out of the archive.
+    Query ordinary and ignored files separately. The caller filters known-safe
+    caches through ``should_exclude`` and refuses anything else, so adding a new
+    ignore rule cannot silently expand the public release payload.
     """
+    found: set[str] = set()
+    queries = (
+        ["git", "ls-files", "--others", "--exclude-standard"],
+        ["git", "ls-files", "--others", "--ignored", "--exclude-standard"],
+    )
     try:
-        out = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
-            ["git", "ls-files", "--others", "--exclude-standard"],
-            cwd=ROOT, capture_output=True, text=True, timeout=60, check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return []
-    return [line.strip() for line in out.stdout.splitlines() if line.strip()]
+        for query in queries:
+            out = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
+                query,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            if out.returncode != 0:
+                raise RuntimeError(out.stderr.strip() or "git ls-files failed")
+            found.update(line.strip() for line in out.stdout.splitlines() if line.strip())
+    except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
+        raise SystemExit(f"ERROR: cannot verify release workspace: {exc}") from exc
+    return sorted(found)
 
 
 def main(argv: list[str]) -> int:
@@ -142,8 +159,8 @@ def main(argv: list[str]) -> int:
 
     stray = [f for f in untracked_files() if not should_exclude(f)]
     if stray and "--allow-untracked" not in argv:
-        print("REFUSING: the working tree has untracked files that would be "
-              "packed into the release:", file=sys.stderr)
+        print("REFUSING: the working tree has untracked files or ignored "
+              "artifacts that would be packed into the release:", file=sys.stderr)
         for name in stray[:20]:
             print(f"  {name}", file=sys.stderr)
         if len(stray) > 20:

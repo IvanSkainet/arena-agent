@@ -1,3 +1,84 @@
+## v4.169.43 — 2026-08-13
+
+### Первый daemon-driven прогон Book of Eternity нашёл три транспортных бага
+
+Прежний зелёный прогон доказал файловый протокол, но обошёл daemon. Этот
+релиз сохраняет настоящую архитектуру приложения: C# request → daemon → C#
+ConPTY bridge → постоянный generic terminal relay → активный агент → обычные
+host file writes → клиентская валидация → repair через daemon → ограниченная
+починка агентом. В Skainet Bridge не добавлены игровые правила, дайсы, схемы
+или state machine Book of Eternity.
+
+Живой тракт вскрыл три отказа, которых не видели line-mode тесты:
+
+* Windows Console обрезал 33 937-символьный turn prompt ровно на 510 символах.
+* Windows ConPTY удалял оба ESC-маркера bracketed paste, поэтому одного raw mode
+  не хватало для определения границ сообщения.
+* Атомарная запись реле использовала `.tmp-*.json`; параллельный Windows
+  long-poll reader находил незавершённый файл по `*.json` и держал его открытым,
+  из-за чего `os.replace` падал с WinError 32.
+
+### Generic persistent terminal ingress
+
+`arena-relay terminal` теперь принимает обычные строки, bracketed paste и
+наблюдённый Windows ConPTY dispatch-протокол, не превращаясь в игровой адаптер:
+
+* временно включает raw virtual-terminal input на Windows и всегда возвращает
+  исходный console mode;
+* инкрементально декодирует неблокирующие binary `read1` chunks, сохраняя
+  разделённый UTF-8 и внутренние CR/LF без ожидания следующего dispatch;
+* считает ведущий Ctrl+U от хоста границей raw dispatch, а отложенный
+  newline-only chunk — событием Submit;
+* эхоирует только ограниченный безопасный префикс для visibility handshake
+  хоста и перевзводит его на каждом Ctrl+U;
+* не доставляет обрезанный raw/bracketed payload и сохраняет лимит 256 KiB;
+* ставит в очередь одно коррелированное сообщение, остаётся busy до точного
+  reply и возвращается в ready для следующего хода или validation packet.
+
+Источник атомарной записи реле теперь имеет суффикс `.partial`, который не
+совпадает с mailbox glob `*.json`. После правки живая одновременная запись reply
+и long-poll вернула HTTP 200 и ровно один коррелированный ответ.
+
+### Документированная локальная команда тестов снова исполнима
+
+`RELEASE.md` требует голый `python -m pytest -q`, но `pyproject.toml` сохранял
+заброшенный coverage floor 70% из v4.61.0. Текущий полный отчёт — 60,40%
+combined; CI осознанно использует 51% на Linux и 46% на Windows/macOS.
+Локальный default теперь совпадает с кроссплатформенным минимумом 46%, а CI
+сохраняет более строгий Linux override. Зелёный suite больше не сосуществует с
+заведомо невыполнимым документированным entrypoint.
+
+### Чистый git tag всё равно упаковал ignored coverage report
+
+Первый ZIP v4.169.43 отклонён до upload: проверка архива нашла корневой
+`coverage.xml` (около 1,9 МБ). Сборщик обходит filesystem, но проверка untracked
+просила git скрыть ignored-файлы, предполагая, что каждый будущий ignored
+artifact уже исключён. Теперь `coverage.xml` указан явно, workspace guard
+запрашивает и обычные, и ignored-файлы и fail-closed, если git не может их
+измерить. Три regression-теста покрывают report, ignored query и failure path.
+
+### Живой acceptance с намеренным validation failure
+
+* Ход 2 пришёл через реальный daemon одним prompt на 33 937 символов; клиент
+  принял narrative, dialogue, journals, actor reasoning и progression artifacts.
+* В ход 3 намеренно добавлено неизвестное верхнеуровневое поле narrative.
+  Клиент выдал `narrative_response_unknown_field`; daemon доставил ограниченный
+  repair packet с точным файлом и исправлением; агент убрал только это поле и
+  последним действием завершил repair; клиент принял и отрисовал результат.
+* Два последовательных synthetic multiline dispatch в одном terminal-процессе
+  сохранились побайтово как четыре строки каждый (`sequence` 1, затем 2), каждый
+  получил один HTTP 200 reply, итоговые глубины inbox/reply равны нулю.
+
+Журнал сценария: `docs/scenarios/BOOK_OF_ETERNITY_DAEMON_E2E.md`. Там же
+зафиксированы upstream-находки вместо маскировки их game logic внутри моста:
+протухший snapshot после отмены ожидания, обработка terminal signal только после
+console event и определённая, но нигде не вызываемая standalone bootstrap-функция.
+Целевой relay/BoE regression: 99 passed. Полный проект собрал 8 304 тест;
+голый `python -m pytest -q` и `preflight.py --full` прошли. Финальный coverage:
+63,07% строк / 51,61% ветвей (60,40% combined). Security gate: Bandit 0
+high/medium, Semgrep 0 находок, pip-audit
+0 известных уязвимостей в 18 runtime-зависимостях.
+
 ## v4.169.42 — 2026-08-13
 
 ### Ночной gitleaks впервые увидел историю — и allowlist её не покрывал

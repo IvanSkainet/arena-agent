@@ -4,9 +4,9 @@
 
 ---
 
-## Актуальное состояние (на 2026-08-12)
+## Актуальное состояние (на 2026-08-13)
 
-- **Текущая версия:** `v4.169.41` (опубликована, 10 ассетов подписаны Sigstore).
+- **Текущая версия:** `v4.169.43` (daemon-driven terminal relay; live E2E и локальные release gates пройдены).
 - **CI:** 36/36 зелёных задач (Linux, Windows, macOS, Android, Scorecard, Zizmor, Security scan).
 - **Security Alerts:** 0 открытых во всех трёх лентах (CodeQL, Secret Scanning, Dependabot).
 - **Мутационный храповик:** 15 модулей зафиксированы на уровне **0 выживших мутантов**.
@@ -61,6 +61,7 @@
 
 - [x] **T32 [SECURITY / GITLEAKS]** Ночной `schedule` Security scan `#31676936942` нашёл 12 ложных утечек по истории (фикстуры, RFC 6455 `Sec-WebSocket-Key`, удалённые файлы). Расширен `.gitleaks.toml`, двусторонний саботаж в `tests/test_gitleaks_allowlist_v4_169_42.py`, фикстура `ghp_secret123` разобрана на конкатенацию.
 - [x] **T33 [SCENARIO / PROTOCOL]** Book of Eternity как сценарий ядра, не как игра в мосте: терминальные сигналы выровнены с `Complete-BoeTurn` / `Complete-BoeValidationRepair`; E2E на официальных полях `output/*` через обычную запись JSON (`tests/test_boe_file_protocol_e2e_v4_169_42.py`).
+- [x] **T34 [SCENARIO / TERMINAL RELAY]** Полный daemon-driven E2E без обхода транспорта завершён: универсальный `arena-relay terminal` сохранил 33 937-символьный turn prompt одним сообщением; ходы 2/3 прошли через client → daemon → ConPTY → relay; намеренный `narrative_response_unknown_field` доставлен repair packet'ом и принят после ограниченной починки; WinError 32 устранён `.partial` atomic temp; два последовательных multiline dispatch доказали rearm. Standalone bootstrap не симулировался: upstream-функция определена, но не вызывается. Журнал: `docs/scenarios/BOOK_OF_ETERNITY_DAEMON_E2E.md`; паритет: `tests/test_terminal_relay_v4_169_43.py`.
 
 ---
 

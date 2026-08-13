@@ -622,6 +622,7 @@ Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [REL
 | [AGENTS.md](AGENTS.md) | Жёсткие правила для AI-мейнтейнеров — где что лежит, что не добавлять, security-annotation rules |
 | [chat_extension/README.md](chat_extension/README.md) | Browser extension details |
 | [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Интеграции — Tailscale / cloudflared / ZeroTier / MCP + cert pinning |
+| [docs/RELAY.md](docs/RELAY.md) | Generic operator mailbox и постоянный CLI/ConPTY terminal ingress |
 | [docs/SUPERPOWERS.md](docs/SUPERPOWERS.md) | Superpowers vendored copy: layout + update flow |
 | [docs/MODULE_MAP.md](docs/MODULE_MAP.md) | Codebase / module map |
 | [docs/V3_MODULAR_ARCHITECTURE.md](docs/V3_MODULAR_ARCHITECTURE.md) | Modular architecture notes |

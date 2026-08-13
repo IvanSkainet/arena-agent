@@ -232,6 +232,31 @@ def test_writes_are_atomic_no_partial_files_left_behind(root):
     assert leftovers == [], leftovers
 
 
+def test_unfinished_atomic_file_never_matches_mailbox_json_glob(root, monkeypatch):
+    """Windows readers must not open the temp file before os.replace.
+
+    Live repair E2E reproduced WinError 32 twice: `_write_atomic` created
+    `.tmp-*.json`, the terminal reply long-poll included it in `glob('*.json')`,
+    and Windows refused to replace the still-open source.  The temp suffix is
+    part of the concurrency contract, not cosmetic naming.
+    """
+    real_replace = S.os.replace
+    observed: list[Path] = []
+
+    def checked_replace(src, dst):
+        source = Path(src)
+        observed.append(source)
+        assert source.suffix != ".json"
+        assert not source.match("*.json")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(S.os, "replace", checked_replace)
+    S.send_message(root, "not visible until committed")
+    assert observed and observed[0].suffix == ".partial"
+    monkeypatch.setattr(S.os, "replace", real_replace)
+    assert S.claim_next(root).body == "not visible until committed"
+
+
 def test_a_write_that_dies_midway_leaves_no_readable_message(root):
     """Sabotage found the first version of this file toothless.
 

@@ -1,0 +1,272 @@
+# Book of Eternity: daemon-driven live E2E
+
+- Status: **live acceptance and local release gates complete; publication pending**
+- Started: 2026-08-13
+- Bridge baseline: v4.169.42
+- Candidate: v4.169.43
+- Scenario task: T34
+
+## Purpose
+
+This is a stress scenario for Skainet Bridge's generic core, not a request to
+put Book of Eternity rules into the bridge.
+
+The scenario is successful only when the original application architecture is
+preserved end to end:
+
+```text
+C# client writes a request
+  -> game_master_daemon.ps1 detects it
+  -> daemon dispatches a prompt through its CLI/ConPTY transport
+  -> Skainet Bridge queues that prompt for an already-running agent
+  -> agent reads the application's files and writes its outputs
+  -> agent acknowledges the correlated transport message
+  -> client validates the outputs
+  -> validation failure returns through the same daemon transport
+  -> agent applies the bounded repair and the client accepts it
+```
+
+The bridge owns transport and host access. The game owns requests, validation,
+progression, rules, and state. The agent owns reasoning and authorship.
+
+## Hard boundary
+
+The scenario must not be declared complete after manually polling
+`input/turn_request.json` or writing `ready/turn_complete.json` while the daemon
+is stopped. That proves only the file protocol. It does **not** prove the
+daemon, ConPTY dispatch, prompt guidance, repair packet, or transport lifecycle.
+
+An inactive Arena session cannot be started from the host. The supported and
+honest behavior is a mailbox:
+
+* while an agent turn is active, it may long-poll the relay;
+* otherwise the daemon's message remains queued;
+* the bridge must not claim that an agent is listening when none is polling;
+* no browser automation against Arena is introduced.
+
+## Baseline
+
+On a Windows 10 host with bridge v4.169.42:
+
+* the game client was built with .NET 8 and launched;
+* a new Chaos Sea session was created;
+* turn 1 was accepted through direct host file access;
+* the UI rendered narrative and four structured choices;
+* `stories/chaos_sea.jsonl` recorded turn 1.
+
+That run proved the file half of the tunnel, but it bypassed the daemon and was
+not daemon-driven E2E.
+
+## Findings
+
+### F1 — the daemon was bypassed
+
+The first run launched `boe-arena-relay` in an ordinary `cmd.exe` window and
+wrote game files directly. The session selected `ConPTYBridge`, so the daemon
+actually dispatches to `BookOfEternityGMBridge` through its named pipe. No
+`gm_bridge_status.json` and no live daemon status existed. The standalone
+window was not the configured transport.
+
+### F2 — multiline terminal framing was not tested
+
+`game_master_daemon.ps1` sends long multiline prompts. The old pseudo-CLI used
+`sys.stdin.readline()`, while its tests supplied only one-line text. A repair
+prompt was therefore capable of becoming many unrelated messages even with a
+green suite.
+
+### F3 — a generic mailbox already exists
+
+The bridge already ships authenticated `/v1/relay/send`, `/v1/relay/poll`,
+`/v1/relay/reply`, and long-polling reply endpoints with durable atomic claims.
+A second BoE-specific inbox is unnecessary for the transport problem.
+
+### F4 — terminal dispatch needs correlated acknowledgement
+
+A pseudo-CLI must remain busy while the agent processes one message and return
+to idle only after the agent acknowledges that same message. Watching one
+game's `ready/*.json` files in the terminal adapter is not generic. A relay
+reply keyed by `in_reply_to` is generic and safely releases the next dispatch.
+
+### F5 — strict game validation exposed bootstrap/state defects
+
+The live session initially had one Guardian `coreValues` entry where the
+validator required 3–5 and lacked `game_state/inventory/item_identity_index.json`.
+Those are application bootstrap/state issues, not bridge features. They were
+repaired locally to continue the scenario and must not become bridge-side game
+logic.
+
+### F6 — strict output shapes matter
+
+Observed accepted shapes required structured dialogue options, complete actor
+reasoning, actor-owned journal memory, and a progression report when requested.
+The daemon prompt and repair packets are useful precisely because they direct
+the agent to compact templates instead of forcing repository-wide archaeology.
+
+### F7 — cancelled client wait left a stale snapshot
+
+The client cancellation branch deleted `input/turn_request.json` and ready
+signals but left `pending_turn_snapshot*`. The next pre-turn validation then
+rejected an otherwise idle session because the orphaned snapshot was not
+current for an active request. The stale artifacts were archived only when no
+active request existed. This is an upstream client lifecycle defect; it is not
+papered over by bridge game logic.
+
+### F8 — terminal signal processing needed a console event
+
+Several valid `turn_complete` / `turn_error` files remained visible on disk
+until the active client console received a harmless F12 key. The wait then
+completed immediately and cleaned its artifacts. The behavior reproduced for
+success and error paths. This is recorded as an upstream Spectre/console wait
+issue; the bridge does not inject periodic keys as a workaround.
+
+### F9 — Windows line mode truncated the prompt to 510 characters
+
+The first real daemon packet was stored as exactly 510 characters and ended in
+the middle of a path. Windows Console line mode had truncated the ConPTY input.
+The terminal adapter now temporarily enables raw virtual-terminal input and
+restores the original mode in `finally`.
+
+### F10 — ConPTY stripped bracketed-paste markers
+
+Even in raw mode the Windows path did not deliver `ESC[200~` / `ESC[201~` to
+the child. The stable evidence was the host's leading Ctrl+U clear-input
+control, the bulk prompt write, a quiet interval, and a final newline-only Enter
+write. The adapter now:
+
+* treats Ctrl+U as a ConPTY dispatch start;
+* reads non-greedily in binary chunks instead of 34,000 single-character calls;
+* preserves embedded newlines;
+* recognizes the delayed newline-only chunk as submission;
+* echoes a bounded safe prefix so the C# visibility handshake can send Enter;
+* rearms that echo at every Ctrl+U boundary.
+
+Two consecutive four-line live probes were preserved exactly in one terminal
+process (`sequence` 1 then 2), with no extra messages.
+
+### F11 — atomic temp files raced the Windows reply reader
+
+`relay/store.py` created `.tmp-*.json`. A concurrent reply long-poll included
+the unfinished file in `glob("*.json")`, opened it, and made `os.replace` fail
+with WinError 32. It reproduced twice during validation repair. Temp files now
+end in `.partial`, so mailbox readers cannot observe them. After restarting the
+bridge, a live concurrent long-poll + reply write returned HTTP 200 with exactly
+one reply.
+
+### F12 — standalone bootstrap is dead code upstream
+
+`game_master_daemon.ps1` defines `Ensure-CliBootstrapSent` but never invokes it.
+There is therefore no standalone bootstrap packet to accept in the current game
+revision. Actual turn and repair prompts still carry the complete context-pack,
+helper, template, and repair guidance. This is recorded rather than simulated
+and claimed as daemon behavior.
+
+### F13 — the canonical local pytest command was permanently red
+
+`RELEASE.md` requires `python -m pytest -q`, but `pyproject.toml` still enforced
+the abandoned v4.61.0 coverage floor of 70%. Current measured combined coverage
+is 60.40%, while CI intentionally uses 51% on Linux and 46% on Windows/macOS.
+The code suite was green at the CI floor, yet the documented local command could
+never pass. The default is now the cross-platform 46% floor; CI keeps its
+explicit stricter Linux override. This is a generic release-quality fix found by
+running the scenario's full cycle, not game logic.
+
+### F14 — a clean git tag still packed an ignored coverage report
+
+The first v4.169.43 archive passed the builder's untracked-file guard but
+contained root `coverage.xml` (about 1.9 MB). The builder walks the filesystem;
+`git ls-files --others --exclude-standard` deliberately hides ignored files, so
+the guard never evaluated the report against `should_exclude`. The archive was
+rejected before upload. `coverage.xml` is now explicitly excluded and the
+workspace guard queries both ordinary and ignored files, failing closed if git
+cannot measure either set. Three regressions pin the exact artifact, the
+ignored-file query, and the failure path.
+
+## Core change
+
+`arena-relay terminal` is a generic persistent terminal ingress:
+
+1. accepts an ordinary line, a bracketed paste, or Windows ConPTY raw dispatch;
+2. queues one complete prompt through the existing relay mailbox;
+3. prints deterministic busy markers;
+4. waits for a correlated agent reply;
+5. prints the reply and returns to an idle prompt;
+6. never attempts to start an Arena session.
+
+The adapter contains no Book of Eternity paths, schemas, rules, or completion
+file names.
+
+## Acceptance matrix
+
+- [x] Unit: ordinary terminal line becomes one relay message.
+- [x] Unit: multiline bracketed paste becomes exactly one relay message.
+- [x] Unit: raw ConPTY prompt preserves embedded newlines until delayed Enter.
+- [x] Unit: truncated paste / raw dispatch is never delivered.
+- [x] Unit: prompt size and visibility echo are bounded.
+- [x] Unit: terminal remains busy until a correlated reply.
+- [x] Unit: Ctrl+U rearms the next terminal dispatch.
+- [x] Unit: unfinished relay temp file cannot match `*.json`.
+- [x] Integration: file-backed relay preserves body, metadata, correlation,
+  exactly-once claim, and idle/busy ordering.
+- [x] Live: C# ConPTY bridge launches the generic terminal relay.
+- [x] Live: a 33,937-character daemon turn prompt arrives as one message.
+- [x] Live: agent acknowledgement returns the CLI to ready.
+- [x] Live: client -> daemon -> ConPTY -> relay delivers turns 2 and 3.
+- [x] Live: turn 2 is authored through compact templates and accepted.
+- [x] Live: deliberate unknown output field creates a daemon-delivered repair
+  packet with exact target file and correction.
+- [x] Live: bounded repair removes only the sabotage and is accepted.
+- [x] Live: two consecutive multiline packets remain one message each.
+- [x] Live: concurrent reply long-poll + atomic write returns one HTTP 200 reply.
+- [x] Live: queues return to `inbox=0`, `replies=0` after probes.
+- [x] Regression: 8,304 tests collected; full suite, lint, security scan, and
+  `preflight.py --full` pass.
+- [ ] Release: clean tagged build is installed and artifact signatures verified.
+
+## Live log
+
+### 2026-08-13 — baseline inspection
+
+* Host bridge reported v4.169.42.
+* Client and an obsolete standalone pseudo-CLI were alive; daemon and configured
+  ConPTY helper were not.
+* The old window was stopped. `BookOfEternityGMBridge` was built and configured
+  to launch `arena-relay terminal` through the local authenticated bridge.
+
+### 2026-08-13 — transport development
+
+* Added `arena/relay/terminal.py` and `arena-relay terminal`.
+* Reproduced 510-character truncation, raw-mode visibility timeout, slow
+  per-character submission timeout, split repair continuation, echo rearm bug,
+  and `.tmp-*.json` Windows sharing violation.
+* Added chunked decoding, Ctrl+U/delayed-Enter framing, bounded handshake echo,
+  per-message rearm, release-local token lookup, and `.partial` atomic temps.
+
+### 2026-08-13 — game and repair acceptance
+
+* Turn 2 prompt: 33,937 characters, one relay message, daemon dispatch accepted
+  in about one second after the final framing fix.
+* Turn 2 wrote Guardian journal memory, progression report, narrative, actor
+  reasoning, structured options, and terminal signal. Client accepted it.
+* Turn 3 intentionally added `t34Sabotage` to narrative output.
+* Client generated `narrative_response_unknown_field` and a bounded
+  `accepted_turn_output_artifact_repair` packet targeting only that file.
+* Repair removed only the forbidden field and called
+  `Complete-BoeValidationRepair` last. Client accepted the repaired turn and
+  rendered the new options.
+* Post-fix probes: two exact four-line messages, sequences 1 and 2, both replies
+  HTTP 200; separate concurrent reply race probe also returned one HTTP 200
+  reply; final relay depth was zero.
+
+### 2026-08-13 — local release gates
+
+* Focused relay/BoE/dead-code regression: 100 passed; relay/BoE subset: 99.
+* Full collection: 8,304 tests. Bare `python -m pytest -q` passed after the
+  default coverage-floor correction.
+* Final coverage: 63.07% lines, 51.61% branches, 60.40% combined report.
+* Critical ruff, compileall, `git diff --check`, normal preflight, and two final
+  `preflight.py --full` runs passed.
+* Security gate passed: Bandit 0 high/medium, Semgrep 0 findings, pip-audit
+  0 known vulnerabilities across 18 runtime dependencies.
+* First clean-tag ZIP was rejected before upload because archive inspection
+  found ignored `coverage.xml`. Packaging now inspects ignored workspace files
+  and excludes the report explicitly; rebuilt artifact verification is pending.

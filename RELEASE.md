@@ -150,7 +150,8 @@ The digest file is signed too, so the cosign check above can be run against
 It MUST NOT include (excluded automatically by the script):
 
 - `tests/`, `.github/`, `dev/`, `.git/`;
-- caches (`__pycache__/`, `*.pyc`, `.pytest_cache/`, `.mypy_cache/`, `node_modules/`);
+- caches and generated test reports (`__pycache__/`, `*.pyc`, `.pytest_cache/`,
+  `.mypy_cache/`, `node_modules/`, `.coverage*`, `coverage.xml`);
 - runtime state: `token.txt`, `audit.jsonl`, `bridge.log`, `requests.jsonl`,
   `queue/{running,done,failed}/*`, `memory/{facts,history}.jsonl`,
   `memory/sessions/`, `missions/*`, `reports/*`;
@@ -209,8 +210,9 @@ Omit a sub-section if it has no entries for this release.
 
 ## Pre-release checklist
 
-- [ ] Full test suite passes (`python -m pytest -q`) — currently the
-      baseline is **2319 passed** on `master` (as of v4.46.0).
+- [ ] Full test suite passes (`python -m pytest -q`) — currently **8,304
+      tests collected** on `master` (as of v4.169.43). The default local
+      coverage floor is 46%; CI raises Linux to 51%.
 - [ ] Targeted extension checks pass (see README "Development").
 - [ ] Targeted remote-access checks pass:
       `pytest -q tests/test_tunnels.py tests/test_zerotier.py tests/test_cloudflared.py tests/test_browseract.py tests/test_superpowers_layout.py`.

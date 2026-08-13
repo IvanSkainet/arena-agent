@@ -7,6 +7,7 @@
     arena-relay status                             # how many messages are waiting
     arena-relay poll                               # (agent side) take the next one
     arena-relay reply <id> "готово"                # (agent side) answer it
+    arena-relay terminal                            # persistent CLI/ConPTY ingress
 
 What this is, precisely
 -----------------------
@@ -35,7 +36,23 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+from pathlib import Path
+
+# Direct execution sets sys.path[0] to bin/.  Add the release root so the
+# interactive terminal adapter can reuse the tested arena.relay module.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from arena.relay.terminal import (  # noqa: E402
+    BufferedTextChunkReader,
+    HostHandshakeEcho,
+    PromptStreamReader,
+    raw_terminal_input,
+    run_terminal_loop,
+)
 
 DEFAULT_URL = os.environ.get("ARENA_BRIDGE_URL", "http://127.0.0.1:8765")
 TIMEOUT_S = 30
@@ -46,6 +63,7 @@ def _token() -> str:
     if tok:
         return tok
     for candidate in (
+        str(ROOT / "token.txt"),
         os.path.expanduser("~/arena-bridge/token.txt"),
         os.path.expanduser("~/.arena/token.txt"),
     ):
@@ -173,6 +191,56 @@ def cmd_reply(args) -> int:
     return 0 if res.get("ok") else 1
 
 
+def cmd_terminal(args) -> int:
+    """Persistent terminal ingress for daemons that can only paste into a CLI."""
+    def send_prompt(prompt: str, sender: str, meta: dict) -> dict:
+        status, res = _call(
+            "POST",
+            "/v1/relay/send",
+            {"body": prompt, "sender": sender, "meta": meta},
+            base=args.url,
+        )
+        if status != 200 or not res.get("ok"):
+            raise RuntimeError(str(res.get("error") or f"HTTP {status}"))
+        return res
+
+    def wait_reply(message_id: str, wait: float) -> dict | None:
+        query = urllib.parse.urlencode({"in_reply_to": message_id, "wait": wait})
+        status, res = _call(
+            "GET",
+            f"/v1/relay/replies?{query}",
+            base=args.url,
+            timeout=max(TIMEOUT_S, int(wait) + 10),
+        )
+        if status != 200 or not res.get("ok"):
+            raise RuntimeError(str(res.get("error") or f"HTTP {status}"))
+        replies = res.get("replies") or []
+        return replies[0] if replies else None
+
+    with raw_terminal_input() as raw_mode:
+        handshake_echo = HostHandshakeEcho(sys.stdout) if raw_mode else None
+        chunk_reader = BufferedTextChunkReader(sys.stdin) if raw_mode else None
+        on_paste = (
+            (lambda _prompt: handshake_echo.flush())
+            if handshake_echo is not None
+            else None
+        )
+        return run_terminal_loop(
+            PromptStreamReader(
+                sys.stdin,
+                on_bracketed_paste=on_paste,
+                on_input_char=handshake_echo.feed if handshake_echo is not None else None,
+                read_chunk=chunk_reader.read_chunk if chunk_reader is not None else None,
+            ),
+            send_prompt=send_prompt,
+            wait_reply=wait_reply,
+            output=sys.stdout,
+            sender=args.sender,
+            source=args.source,
+            reply_timeout=args.reply_timeout,
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="arena-relay", description=__doc__,
@@ -203,6 +271,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("message", nargs="+")
     p.add_argument("--sender", default="agent")
     p.set_defaults(func=cmd_reply)
+
+    p = sub.add_parser(
+        "terminal",
+        help="persistent terminal ingress for local daemons and CLI wrappers",
+    )
+    p.add_argument("--sender", default="terminal-daemon")
+    p.add_argument("--source", default="terminal-relay")
+    p.add_argument(
+        "--reply-timeout",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        help="return to idle after this long without a reply (0 = wait forever)",
+    )
+    p.set_defaults(func=cmd_terminal)
 
     args = parser.parse_args(argv)
     return args.func(args)
