@@ -66,6 +66,13 @@ post the correlated relay reply.
   repair packet without Bridge implementing game rules.
 - Fresh sessions resume only explicit claimed/busy packets. There is no timeout
   requeue that could deliver one turn to two sessions.
+- **F6 — legacy claimed archives initially looked recoverable:** the first
+  candidate bridge probe against the real Windows relay root reported 41
+  claimed records. These were pre-lifecycle retained archive files whose
+  replies had already been consumed, not a real backlog. The candidate now
+  ignores claimed files without an explicit persisted lifecycle field for
+  status/resume; this fails closed instead of inventing old work for a fresh
+  session. A regression test constructs that legacy shape.
 
 Static/focused verification completed before the accepted live run:
 

@@ -109,6 +109,11 @@ def resume_claimed(root: Path, message_id: str = "") -> store.RelayMessage | Non
             raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
+        if not isinstance(raw, dict) or "lifecycle" not in raw:
+            # Pre-lifecycle claimed files are indeterminate history. Existing
+            # installs retained them after replies were read, so exposing them
+            # would fabricate a backlog for a fresh agent session.
+            continue
         msg = store.RelayMessage.from_dict(raw)
         if wanted and msg.id != wanted:
             continue
@@ -130,6 +135,10 @@ def relay_snapshot(root: Path, *, limit: int = 50) -> dict[str, Any]:
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
+            return
+        if not isinstance(raw, dict):
+            return
+        if folder == "claimed" and "lifecycle" not in raw:
             return
         msg = store.RelayMessage.from_dict(raw)
         lifecycle = msg.lifecycle

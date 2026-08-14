@@ -448,6 +448,23 @@ def test_mark_busy_requires_a_real_claimed_message(root):
         L.mark_busy(root, sent.id, kind="invented")
 
 
+def test_legacy_claimed_archive_is_not_fabricated_as_recoverable_work(root):
+    sent = S.send_message(root, "historical completed work")
+    S.claim_next(root)
+    _inbox, claimed, _replies = S._dirs(root)
+    path = next(claimed.glob(f"*-{sent.id}.json"))
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw.pop("lifecycle", None)
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    snapshot = L.relay_snapshot(root)
+    assert snapshot["claimed_depth"] == 0
+    assert snapshot["outstanding_depth"] == 0
+    assert L.resume_claimed(root) is None
+    with pytest.raises(ValueError, match="not resumable"):
+        L.mark_busy(root, sent.id)
+
+
 def test_agent_poll_heartbeat_is_shared_and_expires_honestly(root):
     S.record_agent_poll(root, session_id="arena-session", now=lambda: 100.0)
     assert S.agent_poll_age(root, now=lambda: 105.0) == 5.0
