@@ -83,10 +83,25 @@ evidence is inspected.
   failures now report only bounded lengths, digests, and newline counts rather
   than dumping prompt contents.
 
-## Acceptance gate
+## Run 31785711910 — exact-head contract passed
 
-Do not mark T41 complete from static tests or from the passed setup/build steps.
-The next exact-head Windows run must demonstrate all three dispatches, terminal
-correlations, drained mailbox queues, no partial files, terminated GM and Arena
-processes, and successful temporary-workspace removal in the uploaded bounded
-evidence.
+- Exact Arena head: `aeae1a84bf0472599d5caa5aa51578f969106f2f`.
+- Pinned game head: `11ddf9f5a0d1d5d8ccebedf576f8f5621162d168`.
+- The deterministic release artifact verified as version `4.169.44`, 1,154
+  files, 11,958,246 uncompressed bytes, SHA-256
+  `37352d222fb2087ab170eb120eae202e636e308029c355105795aeabf5c1d906`;
+  the versioned and alias ZIP identities matched.
+- All three upstream focused contracts passed.
+- The real Windows chain completed two consecutive multiline turn dispatches
+  and the correlated validation-repair dispatch. Evidence contains three
+  distinct message/reply pairs and three successful terminal signals; repair
+  remains correlated to request/turn 102.
+- Final inbox and reply depths were zero, no partial atomic files remained,
+  GM helper/shell remaining PIDs were empty, the Arena server and synthetic
+  consumer stopped, and the temporary workspace was removed without cleanup
+  errors.
+- `contract-evidence.json` is 7,362 bytes (below 64 KiB), contains the exact
+  Arena/game SHAs, and does not contain the ephemeral bridge credential.
+
+This run satisfies T41's live acceptance gate. Issue #12 remains open only until
+PR #27 is reviewed and merged.
