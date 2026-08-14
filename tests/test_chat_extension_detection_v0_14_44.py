@@ -41,8 +41,12 @@ def _detect(text: str) -> bool:
         + f"arenaDetectionText=()=>{json.dumps(text)};"
         + "process.stdout.write(String(arenaHasToolBlock({}, {})));"
     )
+    # Feed the harness over stdin. Passing parser.js + adapters.js through
+    # ``node -e`` exceeds Windows' process command-line limit (WinError 206),
+    # even though the same test is small and fast once Node starts.
     result = subprocess.run(
-        ["node", "-e", script],
+        ["node", "-"],
+        input=script,
         capture_output=True,
         text=True,
         timeout=node_timeout(),
