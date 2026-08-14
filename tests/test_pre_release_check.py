@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -129,4 +130,14 @@ def test_against_real_master() -> None:
     cl = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
     assert f"## v{m.group(1)}" in cl, (
         f"top CHANGELOG entry doesn't match version {m.group(1)}"
+    )
+
+
+def test_release_checklist_does_not_embed_a_stale_test_count() -> None:
+    release = (Path(__file__).resolve().parents[1] / "RELEASE.md").read_text(
+        encoding="utf-8"
+    )
+    assert not re.search(r"currently \*\*[0-9, ]+\s+tests collected\*\*", release), (
+        "RELEASE.md must report the collection count from the current full run "
+        "instead of committing a number that becomes stale on the next test"
     )
