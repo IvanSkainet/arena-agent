@@ -28,7 +28,22 @@ arena-relay status
 for a reply correlated to the new message. `status` distinguishes an active
 poller from an idle queue rather than claiming delivery prematurely.
 
-## Agent-side commands
+## Agent lifecycle tools
+
+Agent Mode uses the MCP tools directly:
+
+- `relay.status` — bounded queued/claimed/busy/replied metadata without claim;
+- `relay.check` — atomic claim of the next queued message;
+- `relay.resume` — explicit fresh-session recovery of unfinished claimed work;
+- `relay.busy` — mark active processing with an optional session label;
+- `relay.reply` — correlated completion reply;
+- `relay.send` — agent-originated operator message.
+
+A new session calls `relay.status` first. It may call `relay.resume` only after
+the previous session is known to be gone; automatic reclaim would allow two
+live agents to process one instruction.
+
+The CLI retains the lower-level agent commands:
 
 ```bash
 arena-relay poll --wait 25
@@ -44,7 +59,11 @@ The HTTP equivalents are:
 * `GET /v1/relay/status`
 
 A claim is exactly once. Replies carry `in_reply_to`, so concurrent callers do
-not consume one another's acknowledgement.
+not consume one another's acknowledgement. `GET /v1/relay/status` also reports
+`queued_depth`, `claimed_depth`, `busy_depth`, `replied_depth`,
+`outstanding_depth`, `repair_depth`, and bounded message metadata. A packet
+leaving `inbox/` therefore no longer looks falsely complete while an agent is
+still processing it.
 
 ## `arena-relay terminal`
 

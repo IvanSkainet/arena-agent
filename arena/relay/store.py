@@ -37,6 +37,16 @@ from typing import Any
 MAX_BODY_BYTES = 64 * 1024
 
 POLL_INTERVAL_S = 0.2
+POLL_FRESH_S = 60.0
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass
@@ -46,6 +56,12 @@ class RelayMessage:
     sender: str
     created_at: float
     meta: dict[str, Any] = field(default_factory=dict)
+    lifecycle: str = "queued"
+    claimed_at: float | None = None
+    busy_at: float | None = None
+    replied_at: float | None = None
+    claimed_by: str = ""
+    reply_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -54,6 +70,12 @@ class RelayMessage:
             "sender": self.sender,
             "created_at": self.created_at,
             "meta": self.meta,
+            "lifecycle": self.lifecycle,
+            "claimed_at": self.claimed_at,
+            "busy_at": self.busy_at,
+            "replied_at": self.replied_at,
+            "claimed_by": self.claimed_by,
+            "reply_id": self.reply_id,
         }
 
     @classmethod
@@ -64,6 +86,12 @@ class RelayMessage:
             sender=str(raw.get("sender", "unknown")),
             created_at=float(raw.get("created_at", 0.0)),
             meta=raw.get("meta") or {},
+            lifecycle=str(raw.get("lifecycle") or "queued"),
+            claimed_at=_optional_float(raw.get("claimed_at")),
+            busy_at=_optional_float(raw.get("busy_at")),
+            replied_at=_optional_float(raw.get("replied_at")),
+            claimed_by=str(raw.get("claimed_by") or ""),
+            reply_id=str(raw.get("reply_id") or ""),
         )
 
 
@@ -98,6 +126,32 @@ def _write_atomic(path: Path, payload: dict[str, Any]) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+
+
+def record_agent_poll(
+    root: Path,
+    *,
+    session_id: str = "",
+    now: Any = time.time,
+) -> None:
+    """Persist one listener heartbeat shared by HTTP and MCP surfaces."""
+    _write_atomic(
+        root / "agent_activity.json",
+        {
+            "polled_at": float(now()),
+            "session_id": str(session_id or "")[:128],
+        },
+    )
+
+
+def agent_poll_age(root: Path, *, now: Any = time.time) -> float | None:
+    path = root / "agent_activity.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        polled_at = float(raw.get("polled_at"))
+    except (OSError, TypeError, ValueError):
+        return None
+    return max(0.0, float(now()) - polled_at)
 
 
 def send_message(root: Path, body: str, *, sender: str = "operator",
@@ -188,16 +242,31 @@ def claim_next(root: Path) -> RelayMessage | None:
             except OSError:
                 pass
             continue
+        claimed_at = time.time()
+        raw.update({"lifecycle": "claimed", "claimed_at": claimed_at})
         try:
             # os.replace, not os.rename: defined to overwrite on BOTH
             # platforms, so a leftover file from an earlier crash cannot
             # wedge the queue.
             os.replace(path, target)
         except OSError:
-            # The bytes are already in hand and the lock is ours, so the
-            # message is still delivered exactly once. Losing the file move
-            # costs an inspection copy, not a message.
-            pass
+            # The bytes are already in hand and the lock is ours. Preserve a
+            # durable inspection/resume copy even when the source move fails.
+            # The locked inbox entry cannot be claimed again.
+            try:
+                _write_atomic(target, raw)
+            except OSError:
+                # Delivery still remains exactly once, matching the historic
+                # contract; status will expose the lock as an incident.
+                pass
+        else:
+            # Persist lifecycle metadata after the atomic claim. Failure here
+            # does not lose the claimed bytes; directory state still proves
+            # the claim and resume treats old records as claimed.
+            try:
+                _write_atomic(target, raw)
+            except OSError:
+                pass
         return RelayMessage.from_dict(raw)
     return None
 
@@ -232,15 +301,30 @@ def post_reply(root: Path, in_reply_to: str, body: str, *,
     if len(encoded) > MAX_BODY_BYTES:
         raise ValueError(f"reply is {len(encoded)} bytes; cap is {MAX_BODY_BYTES}")
     _inbox, _claimed, replies = _dirs(root)
+    replied_at = time.time()
     msg = RelayMessage(
         id=uuid.uuid4().hex[:12],
         body=body,
         sender=sender,
-        created_at=time.time(),
+        created_at=replied_at,
         meta={"in_reply_to": in_reply_to},
+        lifecycle="reply",
     )
     name = f"{msg.created_at:015.4f}-{msg.id}.json"
     _write_atomic(replies / name, msg.to_dict())
+    # The durable original remains in claimed/. Mark it replied so a fresh
+    # Arena session never resumes completed work after the operator has already
+    # consumed the reply. Legacy/orphan replies remain supported.
+    with contextlib.suppress(ValueError, OSError):
+        # Lazy import avoids a store<->lifecycle import cycle at module load.
+        from arena.relay.lifecycle import mark_replied
+
+        mark_replied(
+            root,
+            in_reply_to,
+            replied_at=replied_at,
+            reply_id=msg.id,
+        )
     return msg
 
 

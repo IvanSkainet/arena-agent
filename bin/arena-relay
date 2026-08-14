@@ -158,8 +158,11 @@ def cmd_status(args) -> int:
         print(f"error: {res.get('error', status)}", file=sys.stderr)
         return 1
     print(f"bridge:        {args.url}")
-    print(f"waiting to be read: {res.get('inbox_depth', 0)}")
-    print(f"unread replies:     {res.get('reply_depth', 0)}")
+    print(f"queued:        {res.get('queued_depth', res.get('inbox_depth', 0))}")
+    print(f"claimed:       {res.get('claimed_depth', 0)}")
+    print(f"busy:          {res.get('busy_depth', 0)}")
+    print(f"replied:       {res.get('replied_depth', 0)}")
+    print(f"unread replies:{res.get('reply_depth', 0):>6}")
     last = res.get("last_poll_age_s")
     if last is None:
         print("agent polling:      never")

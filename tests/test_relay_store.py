@@ -31,7 +31,7 @@ from pathlib import Path
 
 import pytest
 
-from arena.relay import store as S
+from arena.relay import lifecycle as L, store as S
 
 
 @pytest.fixture
@@ -371,6 +371,91 @@ def test_listing_shows_which_state_each_message_is_in(root):
 def test_listing_an_empty_relay_is_empty_not_an_error(root):
     assert S.list_messages(root) == []
     assert S.inbox_depth(root) == 0
+
+
+def test_lifecycle_snapshot_supports_honest_fresh_session_resume(root):
+    sent = S.send_message(
+        root,
+        "repair the current turn",
+        meta={"kind": "repair", "transport": "terminal", "sequence": 7},
+    )
+    queued = L.relay_snapshot(root)
+    assert queued["queued_depth"] == 1
+    assert queued["claimed_depth"] == 0
+    assert queued["busy_depth"] == 0
+    assert queued["repair_depth"] == 1
+
+    claimed = S.claim_next(root)
+    assert claimed is not None
+    assert claimed.id == sent.id
+    assert claimed.lifecycle == "claimed"
+    assert claimed.claimed_at is not None
+    after_claim = L.relay_snapshot(root)
+    assert after_claim["queued_depth"] == 0
+    assert after_claim["claimed_depth"] == 1
+    assert after_claim["outstanding_depth"] == 1
+
+    resumed = L.resume_claimed(root)
+    assert resumed is not None
+    assert resumed.id == sent.id
+    assert resumed.body == "repair the current turn"
+
+    busy = L.mark_busy(
+        root, sent.id, claimed_by="arena-session-new", kind="repair"
+    )
+    assert busy.lifecycle == "busy"
+    assert busy.claimed_by == "arena-session-new"
+    after_busy = L.relay_snapshot(root)
+    assert after_busy["claimed_depth"] == 0
+    assert after_busy["busy_depth"] == 1
+    assert after_busy["agent_polling"] is False, (
+        "a durable busy marker alone must not claim the old session is active"
+    )
+
+    reply = S.post_reply(root, sent.id, "repair complete")
+    after_reply = L.relay_snapshot(root)
+    assert after_reply["busy_depth"] == 0
+    assert after_reply["replied_depth"] == 1
+    assert after_reply["outstanding_depth"] == 0
+    assert after_reply["reply_depth"] == 1
+    assert after_reply["messages"][0]["reply_id"] == reply.id
+    assert L.resume_claimed(root) is None
+    with pytest.raises(ValueError, match="not resumable"):
+        L.mark_busy(root, sent.id, claimed_by="late-session")
+
+    assert [item.body for item in S.read_replies(root)] == ["repair complete"]
+    consumed = L.relay_snapshot(root)
+    assert consumed["reply_depth"] == 0
+    assert consumed["replied_depth"] == 1
+
+
+def test_resume_never_returns_an_unclaimed_or_replied_message(root):
+    queued = S.send_message(root, "still queued")
+    assert L.resume_claimed(root) is None
+    claimed = S.claim_next(root)
+    assert claimed is not None and claimed.id == queued.id
+    S.post_reply(root, queued.id, "done")
+    assert L.resume_claimed(root, queued.id) is None
+
+
+def test_mark_busy_requires_a_real_claimed_message(root):
+    with pytest.raises(ValueError, match="not resumable"):
+        L.mark_busy(root, "missing", claimed_by="arena-session")
+
+    sent = S.send_message(root, "work")
+    S.claim_next(root)
+    with pytest.raises(ValueError, match="unsupported"):
+        L.mark_busy(root, sent.id, kind="invented")
+
+
+def test_agent_poll_heartbeat_is_shared_and_expires_honestly(root):
+    S.record_agent_poll(root, session_id="arena-session", now=lambda: 100.0)
+    assert S.agent_poll_age(root, now=lambda: 105.0) == 5.0
+    assert S.agent_poll_age(root, now=lambda: 200.0) == 100.0
+    assert S.POLL_FRESH_S == 60.0
+
+    activity = json.loads((root / "agent_activity.json").read_text(encoding="utf-8"))
+    assert activity == {"polled_at": 100.0, "session_id": "arena-session"}
 
 
 def test_the_claim_uses_an_exclusive_create_not_a_rename():

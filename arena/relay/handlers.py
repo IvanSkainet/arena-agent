@@ -33,7 +33,7 @@ from typing import Any
 from aiohttp import web
 
 from arena.handler_helpers import authed
-from arena.relay import store
+from arena.relay import lifecycle, store
 
 # A long-poll longer than this risks being cut by a tunnel or proxy
 # mid-flight, which looks to the caller like a lost message.
@@ -42,7 +42,7 @@ MAX_WAIT_S = 25.0
 # How recently an agent must have polled before `send` will claim someone
 # is listening. Generous enough to cover one full long-poll cycle plus
 # the round trip.
-POLL_FRESH_S = 60.0
+POLL_FRESH_S = store.POLL_FRESH_S
 
 
 @dataclass(frozen=True)
@@ -77,9 +77,8 @@ def make_relay_handlers(ctx) -> RelayHandlers:
     plumbing: require_auth, record_request, cors_json_response, executor,
     audit.
     """
-    # Process-global, like the metrics sample: several handlers need to
-    # agree on when an agent last showed interest.
-    last_poll: dict[str, float] = {"at": 0.0}
+    # The listener heartbeat itself is persisted by the store so HTTP and MCP
+    # calls share one truth and a bridge restart cannot create split status.
     last_prune: dict[str, float] = {"at": 0.0}
 
     async def _maybe_prune(loop, root) -> None:
@@ -121,7 +120,7 @@ def make_relay_handlers(ctx) -> RelayHandlers:
             return ctx.cors_json_response(
                 {"ok": False, "error": str(exc)}, status=400)
 
-        age = time.monotonic() - last_poll["at"] if last_poll["at"] else None
+        age = store.agent_poll_age(root)
         polling = age is not None and age < POLL_FRESH_S
         depth = await loop.run_in_executor(
             ctx.executor, lambda: store.inbox_depth(root))
@@ -131,6 +130,7 @@ def make_relay_handlers(ctx) -> RelayHandlers:
         return ctx.cors_json_response({
             "ok": True,
             "id": msg.id,
+            "lifecycle": "queued",
             "inbox_depth": depth,
             # The honest bit: say whether anyone is actually there.
             "agent_polling": polling,
@@ -142,10 +142,13 @@ def make_relay_handlers(ctx) -> RelayHandlers:
         """GET /v1/relay/poll?wait=25 — agent claims the next message."""
         # Record interest FIRST. An agent that polls an empty inbox is
         # still an agent that is listening, and the operator needs to
-        # know that before deciding whether to wait for a reply.
-        last_poll["at"] = time.monotonic()
+        # know that before deciding whether to wait for a reply. The heartbeat
+        # is file-backed so MCP Agent Mode polls and HTTP polls share it.
         wait = _clamp_wait(request.query.get("wait", "25"), default=25.0)
         root = ctx.relay_root()
+        store.record_agent_poll(
+            root, session_id=str(request.query.get("session_id") or "")
+        )
         loop = asyncio.get_running_loop()
         msg = await loop.run_in_executor(
             ctx.executor, lambda: store.wait_for_message(root, timeout=wait))
@@ -203,16 +206,13 @@ def make_relay_handlers(ctx) -> RelayHandlers:
         loop = asyncio.get_running_loop()
         depth = await loop.run_in_executor(
             ctx.executor, lambda: store.inbox_depth(root))
-        replies = await loop.run_in_executor(
-            ctx.executor,
-            lambda: len(store.read_replies(root, consume=False)))
-        age = time.monotonic() - last_poll["at"] if last_poll["at"] else None
+        snapshot = await loop.run_in_executor(
+            ctx.executor, lambda: lifecycle.relay_snapshot(root))
         return ctx.cors_json_response({
             "ok": True,
+            # Compatibility field retained; queued_depth is the explicit name.
             "inbox_depth": depth,
-            "reply_depth": replies,
-            "last_poll_age_s": age,
-            "agent_polling": age is not None and age < POLL_FRESH_S,
+            **snapshot,
             "max_wait_s": MAX_WAIT_S,
         })
 

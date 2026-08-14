@@ -66,18 +66,27 @@ async function relayRefresh() {
     const badge = document.getElementById("relayDepthBadge");
     if (dot) dot.className = "rl-dot " + (st.agent_polling ? "on" : "off");
     if (state) {
-      // Say plainly whether anyone is there. "Idle" is the honest word
-      // when the last poll was minutes ago.
+      // Lifecycle beats inference: a busy marker is stronger evidence than a
+      // recent empty poll, while an old claimed packet remains recoverable but
+      // must not be presented as an active agent.
       state.textContent = st.agent_polling
-        ? "an agent is listening"
-        : (st.last_poll_age_s == null
-            ? "no agent has ever polled"
-            : "idle (last poll " + Math.round(st.last_poll_age_s) + "s ago)");
+        ? (st.busy_depth > 0
+            ? "agent busy (" + st.busy_depth + " active)"
+            : (st.claimed_depth > 0 ? "agent claimed work" : "an agent is listening"))
+        : (st.outstanding_depth > 0
+            ? "idle — " + st.outstanding_depth + " recoverable packet(s)"
+            : (st.last_poll_age_s == null
+                ? "no agent has ever polled"
+                : "idle (last poll " + Math.round(st.last_poll_age_s) + "s ago)"));
     }
     if (info) {
-      info.textContent = st.inbox_depth + " waiting · " + st.reply_depth + " unread";
+      info.textContent = st.queued_depth + " queued · "
+        + st.claimed_depth + " claimed · "
+        + st.busy_depth + " busy · "
+        + st.replied_depth + " replied · "
+        + st.reply_depth + " unread replies";
     }
-    if (badge) badge.textContent = st.inbox_depth;
+    if (badge) badge.textContent = st.queued_depth + st.outstanding_depth;
 
     const res = await api("/v1/relay/replies?wait=0");
     for (const r of (res.replies || [])) {
@@ -112,7 +121,7 @@ async function relaySend() {
     _relayPush("me", body, Date.now() / 1000);
     if (hint) {
       hint.textContent = res.agent_polling
-        ? "delivered — an agent is polling"
+        ? "queued — an agent is polling and may claim it now"
         : "queued — nobody is polling right now (" + res.inbox_depth
           + " waiting). It will be read when a session starts.";
     }
