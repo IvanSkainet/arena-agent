@@ -48,7 +48,8 @@ def _detect(text: str) -> bool:
         ["node", "-"],
         input=script,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="strict",
         timeout=node_timeout(),
         check=False,
     )
