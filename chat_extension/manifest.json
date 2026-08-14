@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Skainet Chat Bridge",
-  "version": "0.14.42",
+  "version": "0.14.43",
   "description": "Detects tool blocks in web chats and executes them through a local Skainet Bridge. Independent project, not affiliated with any chat provider.",
   "permissions": [
     "storage",

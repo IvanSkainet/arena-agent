@@ -14,6 +14,9 @@ _SAFE_TOOLS = {
     "mission.catalog", "mission.family", "mission.history", "mission.lineage",
     "mission.report", "mission.schedules", "mission.schedule_state", "mission.status",
     "mission.templates", "plan.create", "sys.status", "watch.files",
+    # Agent mailbox inspection/claim/resume is safe on trusted chat sites.
+    # It never executes host commands or mutates game files.
+    "relay.status", "relay.check", "relay.resume",
     # v4.54.0: scenario read-only surfaces.
     "scenario.get", "scenario.history", "scenario.list", "scenario.preview",
     # v4.56.0: mobile.* read-only surfaces.
@@ -37,6 +40,7 @@ _MEDIUM_TOOLS = {
     # v4.78.0: mem.get / mem.set removed (long deprecation window from
     # v4.71.0 expired). Use memory.import + memory.recall instead.
     "fs.create", "memory.import",
+    "relay.busy", "relay.reply", "relay.send",
     "mission.compose", "mission.create", "mission.followup", "mission.propose",
     "mission.schedule_delete", "mission.schedule_save", "react.run", "reflect.run",
     # v4.54.0: scenario mutators. `scenario.run` is DELIBERATELY
@@ -79,6 +83,7 @@ _DANGEROUS_TOOLS = {
     "mobile.push_file", "desktop.click", "desktop.type", "desktop.key", "desktop.mouse",
 }
 _TRUSTED_HOSTS = {
+    "arena.ai", "www.arena.ai",
     "chat.openai.com", "chatgpt.com", "claude.ai", "gemini.google.com",
     "aistudio.google.com", "grok.com", "www.perplexity.ai", "perplexity.ai",
     "openrouter.ai", "kimi.com", "chat.qwen.ai",

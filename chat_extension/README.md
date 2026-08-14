@@ -1,10 +1,15 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.42` (v4.53.1 bridge release —
-tool descriptions in preview cards + per-call Copy chip).
+Current extension version: `0.14.43`.
 
-Two small MCP SuperAssistant-inspired polish items on top of
-v4.53.0's pretty preview:
+The catalog picker now exposes a `relay.* lifecycle` scope and a generic
+`GM: relay.* + fs.* + exec.*` scope for Arena Agent Mode. Arena.ai is a
+trusted extension host for safe read/claim/resume calls; writes, execution,
+and outgoing relay messages continue to follow the operator's global Bridge
+policy rather than a game-specific token or hard-coded subset.
+
+The previous `0.14.42` (`v4.53.1`) release added two MCP
+SuperAssistant-inspired polish items on top of v4.53.0's pretty preview:
 
 **1. Tool descriptions render under the invocation header.**
 v4.53.0 had a `.arena-preview-desc` element wired but nothing

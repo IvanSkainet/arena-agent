@@ -206,7 +206,7 @@ def test_mcp_tools_total_reflects_mobile_addition():
 def test_extension_version_unchanged_since_v4_53_1():
     """v4.56.0 is bridge-only. Extension byte-identical since v4.53.1."""
     src = _read("chat_extension/manifest.json")
-    assert '"version": "0.14.42"' in src
+    assert '"version": "0.14.43"' in src
 
 
 # ------------------------------------------------------------------
