@@ -41,14 +41,17 @@ command. A channel for prose has to be a different channel.
 """
 from __future__ import annotations
 
+from arena.relay.lifecycle import mark_busy, relay_snapshot, resume_claimed
 from arena.relay.store import (
     RelayMessage,
+    agent_poll_age,
     claim_next,
     inbox_depth,
     list_messages,
     post_reply,
     prune,
     read_replies,
+    record_agent_poll,
     send_message,
     wait_for_message,
     wait_for_reply,
@@ -56,12 +59,17 @@ from arena.relay.store import (
 
 __all__ = [
     "RelayMessage",
+    "agent_poll_age",
     "claim_next",
     "inbox_depth",
     "list_messages",
+    "mark_busy",
     "post_reply",
     "prune",
     "read_replies",
+    "record_agent_poll",
+    "relay_snapshot",
+    "resume_claimed",
     "send_message",
     "wait_for_message",
     "wait_for_reply",

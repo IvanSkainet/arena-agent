@@ -1,4 +1,4 @@
-"""v0.14.42 / v4.52.5 tests: supported-host ranker for Scan Now.
+"""v0.14.44 / v4.52.5 tests: supported-host ranker for Scan Now.
 
 Full DOM behaviour verified in jstest/smoke_v525.js.
 """
@@ -19,20 +19,20 @@ def _read(p: Path) -> str:
 
 
 def test_manifest_version_bumped():
-    assert json.loads(_read(CHAT_EXT / "manifest.json"))["version"] in ("0.14.42",)
+    assert json.loads(_read(CHAT_EXT / "manifest.json"))["version"] in ("0.14.44",)
 
 
 def test_content_script_version_bumped():
-    assert "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.42';" in _read(CHAT_EXT / "content.js")
+    assert "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.44';" in _read(CHAT_EXT / "content.js")
 
 
 def test_insert_strategies_version_bumped():
-    assert "return '0.14.42';" in _read(CHAT_EXT / "insert_strategies.js")
+    assert "return '0.14.44';" in _read(CHAT_EXT / "insert_strategies.js")
 
 
 def test_readme_mentions_v4_52_5():
     src = _read(CHAT_EXT / "README.md")
-    assert "0.14.42" in src
+    assert "0.14.44" in src
     assert ("v4.52.5" in src or "v4.52.6" in src or "v4.53.0" in src or "v4.53.1" in src)
 
 

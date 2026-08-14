@@ -89,12 +89,103 @@ def test_check_returns_the_message_and_the_id_needed_to_answer(ctx):
     )
 
 
+def test_check_still_claims_when_heartbeat_persistence_fails(ctx, monkeypatch):
+    context, root = ctx
+    sent = store.send_message(root, "heartbeat must be best effort")
+
+    def fail_heartbeat(*_args, **_kwargs):
+        raise OSError("disk unavailable")
+
+    monkeypatch.setattr(store, "record_agent_poll", fail_heartbeat)
+    text = _text(R.handle_relay_tool("relay.check", {}, ctx=context))
+    assert sent.id in text
+    assert "heartbeat must be best effort" in text
+
+
 def test_check_claims_the_message_so_it_is_not_read_twice(ctx):
     context, root = ctx
     store.send_message(root, "only once")
     assert "only once" in _text(R.handle_relay_tool("relay.check", {}, ctx=context))
-    assert "No operator messages" in _text(
-        R.handle_relay_tool("relay.check", {}, ctx=context))
+    follow_up = _text(R.handle_relay_tool("relay.check", {}, ctx=context))
+    assert "No queued messages" in follow_up
+    assert "relay.resume" in follow_up
+
+
+@pytest.mark.parametrize("limit", [float("inf"), float("-inf"), "invalid", None])
+def test_status_limit_garbage_cannot_crash_the_mcp_tool(ctx, limit):
+    import json
+
+    context, _root = ctx
+    status = json.loads(
+        _text(R.handle_relay_tool("relay.status", {"limit": limit}, ctx=context))
+    )
+    assert status["messages"] == []
+    assert status["truncated"] is False
+
+
+def test_status_busy_and_resume_expose_durable_fresh_session_work(ctx):
+    import json
+
+    context, root = ctx
+    sent = store.send_message(root, "canonical daemon packet", meta={"kind": "repair"})
+    status = json.loads(_text(R.handle_relay_tool("relay.status", {}, ctx=context)))
+    assert status["queued_depth"] == 1
+    assert status["repair_depth"] == 1
+    assert status["agent_polling"] is False
+
+    claimed_text = _text(
+        R.handle_relay_tool(
+            "relay.check", {"session_id": "arena-session-1"}, ctx=context
+        )
+    )
+    assert sent.id in claimed_text
+    assert "relay.busy" in claimed_text
+
+    resumed_text = _text(
+        R.handle_relay_tool(
+            "relay.resume", {"message_id": sent.id}, ctx=context
+        )
+    )
+    assert "canonical daemon packet" in resumed_text
+    assert "not conversation memory" in resumed_text
+
+    busy_text = _text(
+        R.handle_relay_tool(
+            "relay.busy",
+            {
+                "message_id": sent.id,
+                "session_id": "arena-session-2",
+                "kind": "repair",
+            },
+            ctx=context,
+        )
+    )
+    assert "arena-session-2" in busy_text
+    busy_status = json.loads(_text(R.handle_relay_tool("relay.status", {}, ctx=context)))
+    assert busy_status["agent_polling"] is True
+    assert busy_status["last_poll_age_s"] is not None
+    assert busy_status["busy_depth"] == 1
+    assert busy_status["messages"][0]["claimed_by"] == "arena-session-2"
+    assert busy_status["messages"][0]["kind"] == "repair"
+
+    R.handle_relay_tool(
+        "relay.reply", {"in_reply_to": sent.id, "body": "accepted"}, ctx=context
+    )
+    final_status = json.loads(_text(R.handle_relay_tool("relay.status", {}, ctx=context)))
+    assert final_status["replied_depth"] == 1
+    assert final_status["outstanding_depth"] == 0
+    assert "No unfinished" in _text(
+        R.handle_relay_tool("relay.resume", {}, ctx=context)
+    )
+
+
+def test_busy_requires_a_claimed_message_id(ctx):
+    context, _root = ctx
+    result = R.handle_relay_tool(
+        "relay.busy", {"message_id": "000000000000"}, ctx=context
+    )
+    assert result["isError"] is True
+    assert "not resumable" in _text(result)
 
 
 def test_reply_lands_where_the_operator_reads_it(ctx):
@@ -183,11 +274,18 @@ def test_the_mcp_cap_matches_the_http_cap():
 # Registration -- a tool nobody lists is a tool nobody calls.
 # --------------------------------------------------------------------
 
-def test_all_three_tools_are_in_the_registry():
+def test_all_lifecycle_tools_are_in_the_registry():
     from arena.mcp.tool_registry import MCP_TOOLS
 
     names = {t["name"] for t in MCP_TOOLS}
-    assert {"relay.check", "relay.reply", "relay.send"} <= names
+    assert {
+        "relay.busy",
+        "relay.check",
+        "relay.reply",
+        "relay.resume",
+        "relay.send",
+        "relay.status",
+    } <= names
 
 
 def test_the_dispatcher_routes_relay_names():

@@ -45,7 +45,7 @@ def test_available_categories_include_expected_scopes():
     result = extension_instructions()
     cats = set(result["available_categories"])
     for expected in ("safe", "medium", "dangerous", "all",
-                     "fs", "mission", "memory", "browser",
+                     "fs", "relay", "gm", "mission", "memory", "browser",
                      "desktop", "git", "system"):
         assert expected in cats, f"missing category: {expected}"
 
@@ -123,6 +123,27 @@ def test_fs_category_lists_only_fs_tools():
         assert entry["name"].startswith("fs."), entry["name"]
 
 
+def test_relay_category_lists_complete_lifecycle_surface():
+    result = extension_instructions(category="relay")
+    names = {entry["name"] for entry in result["catalog"]}
+    assert names == {
+        "relay.busy",
+        "relay.check",
+        "relay.reply",
+        "relay.resume",
+        "relay.send",
+        "relay.status",
+    }
+
+
+def test_gm_category_is_generic_full_capability_not_game_specific():
+    result = extension_instructions(category="gm")
+    names = {entry["name"] for entry in result["catalog"]}
+    assert {"relay.status", "relay.resume", "fs.read", "fs.write", "exec.exec"} <= names
+    assert all(name.startswith(("relay.", "fs.", "exec.")) for name in names)
+    assert not any(name.startswith("boe.") for name in names)
+
+
 # ------------------------------------------------------------------
 # Sort order: safe first, then medium, then dangerous
 # ------------------------------------------------------------------
@@ -176,7 +197,7 @@ def test_popup_html_has_category_picker():
     assert 'id="copyCatalogBtn"' in html
     # Some of the expected categories exposed in the UI.
     for cat in ('value="safe"', 'value="medium"', 'value="dangerous"',
-                'value="mission"', 'value="fs"'):
+                'value="gm"', 'value="relay"', 'value="mission"', 'value="fs"'):
         assert cat in html
 
 
@@ -208,8 +229,8 @@ def test_runtime_threads_category_to_instructions():
 # ------------------------------------------------------------------
 
 def test_versions_pinned_to_0_14_30():
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.42'" in _ext_read("content.js")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.44'" in _ext_read("content.js")
     manifest = json.loads(_ext_read("manifest.json"))
-    assert manifest["version"] == "0.14.42"
-    assert "return '0.14.42';" in _ext_read("insert_strategies.js")
-    assert "Current extension version: `0.14.42`" in _ext_read("README.md")
+    assert manifest["version"] == "0.14.44"
+    assert "return '0.14.44';" in _ext_read("insert_strategies.js")
+    assert "Current extension version: `0.14.44`" in _ext_read("README.md")

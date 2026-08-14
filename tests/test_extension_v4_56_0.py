@@ -201,12 +201,12 @@ def test_mcp_tools_total_reflects_mobile_addition():
 
 
 # ------------------------------------------------------------------
-# 9. Extension version unchanged
+# 9. Extension version alignment
 # ------------------------------------------------------------------
-def test_extension_version_unchanged_since_v4_53_1():
-    """v4.56.0 is bridge-only. Extension byte-identical since v4.53.1."""
+def test_extension_version_aligned_to_0_14_43():
+    """Historical suite follows the repository's current extension pin."""
     src = _read("chat_extension/manifest.json")
-    assert '"version": "0.14.42"' in src
+    assert '"version": "0.14.44"' in src
 
 
 # ------------------------------------------------------------------

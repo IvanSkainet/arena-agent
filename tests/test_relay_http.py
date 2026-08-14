@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from arena.relay import handlers as H
+from arena.relay import handlers as H, lifecycle
 
 
 class _Ctx:
@@ -159,6 +159,27 @@ def test_send_reports_no_listener_before_anyone_polls(wired, monkeypatch):
     assert payload["inbox_depth"] == 1
 
 
+def test_poll_claims_message_when_heartbeat_write_fails(wired, monkeypatch):
+    import asyncio
+
+    ctx, handlers, loop, _ = wired
+    monkeypatch.setattr(asyncio, "get_running_loop", lambda: loop)
+    _kind, sent, _status = _run(
+        handlers.relay_send(_Req({"body": "claim despite heartbeat failure"}))
+    )
+
+    def fail_heartbeat(*_args, **_kwargs):
+        raise OSError("simulated heartbeat disk failure")
+
+    monkeypatch.setattr(H.store, "record_agent_poll", fail_heartbeat)
+    _kind, payload, status = _run(
+        handlers.relay_poll(_Req(query={"wait": "0"}))
+    )
+    assert status == 200
+    assert payload["ok"] is True
+    assert payload["message"]["id"] == sent["id"]
+
+
 def test_send_reports_a_listener_after_a_poll(wired, monkeypatch):
     import asyncio
 
@@ -172,6 +193,47 @@ def test_send_reports_a_listener_after_a_poll(wired, monkeypatch):
         handlers.relay_send(_Req({"body": "hello"})))
     assert payload["agent_polling"] is True
     assert payload["last_poll_age_s"] is not None
+    assert payload["lifecycle"] == "queued"
+
+
+def test_status_distinguishes_queued_claimed_busy_and_replied(wired, monkeypatch):
+    import asyncio
+
+    ctx, handlers, loop, _real_get_loop = wired
+    root = ctx._root
+    monkeypatch.setattr(asyncio, "get_running_loop", lambda: loop)
+
+    _kind, sent, _status = _run(
+        handlers.relay_send(
+            _Req({"body": "turn", "meta": {"kind": "repair"}})
+        )
+    )
+    _kind, queued, _status = _run(handlers.relay_status(_Req()))
+    assert queued["queued_depth"] == 1
+    assert queued["repair_depth"] == 1
+    assert queued["outstanding_depth"] == 0
+
+    _run(handlers.relay_poll(_Req(query={"wait": "0"})))
+    _kind, claimed, _status = _run(handlers.relay_status(_Req()))
+    assert claimed["inbox_depth"] == 0
+    assert claimed["claimed_depth"] == 1
+    assert claimed["outstanding_depth"] == 1
+
+    lifecycle.mark_busy(root, sent["id"], claimed_by="arena-http-session")
+    _kind, busy, _status = _run(handlers.relay_status(_Req()))
+    assert busy["claimed_depth"] == 0
+    assert busy["busy_depth"] == 1
+    assert busy["messages"][0]["claimed_by"] == "arena-http-session"
+
+    _run(
+        handlers.relay_reply(
+            _Req({"in_reply_to": sent["id"], "body": "complete"})
+        )
+    )
+    _kind, replied, _status = _run(handlers.relay_status(_Req()))
+    assert replied["busy_depth"] == 0
+    assert replied["replied_depth"] == 1
+    assert replied["reply_depth"] == 1
 
 
 def test_an_empty_body_is_a_400_not_a_500(wired, monkeypatch):

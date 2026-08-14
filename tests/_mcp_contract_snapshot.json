@@ -698,9 +698,12 @@
       "handle_relay_tool"
     ],
     "tool_names": [
+      "relay.busy",
       "relay.check",
       "relay.reply",
-      "relay.send"
+      "relay.resume",
+      "relay.send",
+      "relay.status"
     ]
   },
   {

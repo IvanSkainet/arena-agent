@@ -38,6 +38,7 @@ SAFE_EXAMPLES = [
 # Topical category prefixes.
 _CATEGORY_PREFIXES = (
     ("fs", ("fs.",)),
+    ("relay", ("relay.",)),
     ("mission", ("mission.",)),
     ("memory", ("memory.", "mem.")),
     ("browser", ("browser.",)),
@@ -50,7 +51,7 @@ _CATEGORY_PREFIXES = (
 
 _KNOWN_CATEGORIES = frozenset({
     "all", "safe", "medium", "dangerous",
-    "fs", "mission", "memory", "browser", "desktop", "git", "system",
+    "fs", "relay", "gm", "mission", "memory", "browser", "desktop", "git", "system",
 })
 
 
@@ -78,6 +79,8 @@ def _matches_category(tool: dict[str, Any], category: str) -> bool:
         return True
     if category in {"safe", "medium", "dangerous"}:
         return classify_tool_risk(name) == category
+    if category == "gm":
+        return name.startswith(("relay.", "fs.", "exec."))
     return _tool_category(name) == category
 
 

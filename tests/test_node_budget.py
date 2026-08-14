@@ -27,6 +27,7 @@ NODE_MODULES = (
     "test_overview_toolbar_js.py",
     "test_proposals_tab_js.py",
     "test_error_meta_escaping_v4_169_33.py",
+    "test_chat_extension_detection_v0_14_44.py",
 )
 
 

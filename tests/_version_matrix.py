@@ -324,8 +324,7 @@ BRIDGE_VERSIONS: Tuple[str, ...] = (
 
 # ---------------------------------------------------------------------------
 # EXTENSION version chain — value of chat_extension/manifest.json ["version"].
-# The extension has been byte-identical since v4.53.1 (0.14.42), so this
-# list rarely grows.
+# Add an entry whenever extension assets or catalog UX change.
 # ---------------------------------------------------------------------------
 EXT_VERSIONS: Tuple[str, ...] = (
     "0.14.33",
@@ -333,6 +332,8 @@ EXT_VERSIONS: Tuple[str, ...] = (
     "0.14.35",
     "0.14.36",
     "0.14.42",
+    "0.14.43",
+    "0.14.44",
 )
 
 LATEST_BRIDGE: str = BRIDGE_VERSIONS[-1]

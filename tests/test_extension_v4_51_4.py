@@ -32,7 +32,7 @@ def _read(path: Path) -> str:
 
 
 def test_manifest_version_bumped():
-    assert json.loads(_read(MANIFEST_JSON))["version"] in ("0.14.33", "0.14.34", "0.14.42")
+    assert json.loads(_read(MANIFEST_JSON))["version"] in ("0.14.33", "0.14.34", "0.14.44")
 
 
 def test_content_script_version_bumped():
@@ -45,7 +45,7 @@ def test_insert_strategies_version_bumped():
 
 def test_readme_mentions_v4_51_4():
     src = _read(README_MD)
-    assert ("0.14.33" in src or "0.14.34" in src or "0.14.42" in src)
+    assert ("0.14.33" in src or "0.14.34" in src or "0.14.44" in src)
     assert ("v4.51.4" in src or "v4.52.0" in src or "v4.52.1" in src or "v4.52.2" in src or "v4.52.3" in src or "v4.52.4" in src or "v4.52.6" in src or "v4.53.0" in src or "v4.53.1" in src)
 
 

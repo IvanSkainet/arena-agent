@@ -31,7 +31,7 @@ from pathlib import Path
 
 import pytest
 
-from arena.relay import store as S
+from arena.relay import lifecycle as L, store as S
 
 
 @pytest.fixture
@@ -371,6 +371,317 @@ def test_listing_shows_which_state_each_message_is_in(root):
 def test_listing_an_empty_relay_is_empty_not_an_error(root):
     assert S.list_messages(root) == []
     assert S.inbox_depth(root) == 0
+
+
+def test_lifecycle_snapshot_supports_honest_fresh_session_resume(root):
+    sent = S.send_message(
+        root,
+        "repair the current turn",
+        meta={"kind": "repair", "transport": "terminal", "sequence": 7},
+    )
+    queued = L.relay_snapshot(root)
+    assert queued["queued_depth"] == 1
+    assert queued["claimed_depth"] == 0
+    assert queued["busy_depth"] == 0
+    assert queued["repair_depth"] == 1
+
+    claimed = S.claim_next(root)
+    assert claimed is not None
+    assert claimed.id == sent.id
+    assert claimed.lifecycle == "claimed"
+    assert claimed.claimed_at is not None
+    after_claim = L.relay_snapshot(root)
+    assert after_claim["queued_depth"] == 0
+    assert after_claim["claimed_depth"] == 1
+    assert after_claim["outstanding_depth"] == 1
+    assert L.outstanding_depth(root) == 1
+
+    resumed = L.resume_claimed(root)
+    assert resumed is not None
+    assert resumed.id == sent.id
+    assert resumed.body == "repair the current turn"
+
+    busy = L.mark_busy(
+        root, sent.id, claimed_by="arena-session-new", kind="repair"
+    )
+    assert busy.lifecycle == "busy"
+    assert busy.claimed_by == "arena-session-new"
+    after_busy = L.relay_snapshot(root)
+    assert after_busy["claimed_depth"] == 0
+    assert after_busy["busy_depth"] == 1
+    assert after_busy["agent_polling"] is False, (
+        "a durable busy marker alone must not claim the old session is active"
+    )
+
+    reply = S.post_reply(root, sent.id, "repair complete")
+    after_reply = L.relay_snapshot(root)
+    assert after_reply["busy_depth"] == 0
+    assert after_reply["replied_depth"] == 1
+    assert after_reply["outstanding_depth"] == 0
+    assert L.outstanding_depth(root) == 0
+    assert after_reply["reply_depth"] == 1
+    assert after_reply["messages"][0]["reply_id"] == reply.id
+    assert L.resume_claimed(root) is None
+    with pytest.raises(ValueError, match="not resumable"):
+        L.mark_busy(root, sent.id, claimed_by="late-session")
+
+    assert [item.body for item in S.read_replies(root)] == ["repair complete"]
+    consumed = L.relay_snapshot(root)
+    assert consumed["reply_depth"] == 0
+    assert consumed["replied_depth"] == 1
+
+
+def test_resume_never_returns_an_unclaimed_or_replied_message(root):
+    queued = S.send_message(root, "still queued")
+    assert L.resume_claimed(root) is None
+    claimed = S.claim_next(root)
+    assert claimed is not None and claimed.id == queued.id
+    S.post_reply(root, queued.id, "done")
+    assert L.resume_claimed(root, queued.id) is None
+
+
+def test_mark_busy_requires_a_real_claimed_message(root):
+    with pytest.raises(ValueError, match="not resumable"):
+        L.mark_busy(root, "000000000000", claimed_by="arena-session")
+
+    sent = S.send_message(root, "work")
+    S.claim_next(root)
+    with pytest.raises(ValueError, match="unsupported"):
+        L.mark_busy(root, sent.id, kind="invented")
+
+
+def test_legacy_claimed_archive_is_not_fabricated_as_recoverable_work(root):
+    sent = S.send_message(root, "historical completed work")
+    S.claim_next(root)
+    _inbox, claimed, _replies = S._dirs(root)
+    path = next(claimed.glob(f"*-{sent.id}.json"))
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw.pop("lifecycle", None)
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    snapshot = L.relay_snapshot(root)
+    assert snapshot["claimed_depth"] == 0
+    assert snapshot["outstanding_depth"] == 0
+    assert L.resume_claimed(root) is None
+    with pytest.raises(ValueError, match="not resumable"):
+        L.mark_busy(root, sent.id)
+
+
+def test_agent_poll_heartbeat_is_shared_and_expires_honestly(root):
+    S.record_agent_poll(root, session_id="arena-session", now=lambda: 100.0)
+    assert S.agent_poll_age(root, now=lambda: 105.0) == 5.0
+    assert S.agent_poll_age(root, now=lambda: 200.0) == 100.0
+    assert S.POLL_FRESH_S == 60.0
+
+    activity = json.loads((root / "agent_activity.json").read_text(encoding="utf-8"))
+    assert activity == {"polled_at": 100.0, "session_id": "arena-session"}
+
+
+@pytest.mark.parametrize("malformed", [[], "heartbeat", 7, None])
+def test_non_object_agent_heartbeat_is_treated_as_absent(root, malformed):
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "agent_activity.json").write_text(
+        json.dumps(malformed), encoding="utf-8"
+    )
+    assert S.agent_poll_age(root) is None
+    assert L.relay_snapshot(root)["agent_polling"] is False
+
+
+@pytest.mark.parametrize("polled_at", [float("nan"), float("inf"), float("-inf"), "bad"])
+def test_non_finite_or_invalid_heartbeat_never_fabricates_a_listener(root, polled_at):
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "agent_activity.json").write_text(
+        json.dumps({"polled_at": polled_at, "session_id": "stale"}),
+        encoding="utf-8",
+    )
+    assert S.agent_poll_age(root) is None
+    snapshot = L.relay_snapshot(root)
+    assert snapshot["last_poll_age_s"] is None
+    assert snapshot["agent_polling"] is False
+
+
+def test_corrupt_claimed_record_is_isolated_from_status_and_resume(root):
+    _inbox, claimed, _replies = S._dirs(root)
+    corrupt_id = "a" * 12
+    (claimed / f"000000000000000-{corrupt_id}.json").write_text(
+        json.dumps(
+            {
+                "id": corrupt_id,
+                "body": "must not escape the corrupt record",
+                "sender": "operator",
+                "created_at": "not-a-number",
+                "meta": {},
+                "lifecycle": "claimed",
+            }
+        ),
+        encoding="utf-8",
+    )
+    healthy = S.send_message(root, "healthy queued work")
+
+    snapshot = L.relay_snapshot(root)
+    assert snapshot["queued_depth"] == 1
+    assert snapshot["claimed_depth"] == 0
+    assert snapshot["outstanding_depth"] == 0
+    assert [item["id"] for item in snapshot["messages"]] == [healthy.id]
+    assert L.resume_claimed(root, corrupt_id) is None
+
+
+def test_corrupt_reply_does_not_hide_or_delete_healthy_replies(root):
+    _inbox, _claimed, replies = S._dirs(root)
+    corrupt = replies / "000000000000000-aaaaaaaaaaaa.json"
+    corrupt.write_text(
+        json.dumps(
+            {
+                "id": "a" * 12,
+                "body": "preserve for incident inspection",
+                "sender": "agent",
+                "created_at": "not-a-number",
+                "meta": "not-an-object",
+                "lifecycle": "replied",
+            }
+        ),
+        encoding="utf-8",
+    )
+    sent = S.send_message(root, "healthy request")
+    assert S.claim_next(root) is not None
+    S.post_reply(root, sent.id, "healthy reply")
+
+    drained = S.read_replies(root)
+    assert [message.body for message in drained] == ["healthy reply"]
+    assert corrupt.exists(), "corrupt evidence must remain available for inspection"
+
+
+def test_snapshot_deduplicates_failed_move_copy_with_claimed_precedence(root):
+    sent = S.send_message(root, "claim once", meta={"kind": "repair"})
+    claimed_msg = S.claim_next(root)
+    assert claimed_msg is not None
+    inbox, claimed, _replies = S._dirs(root)
+    claimed_path = next(claimed.glob(f"*-{sent.id}.json"))
+    # Recreate the Windows fallback shape: the claimed copy is durable but the
+    # source inbox file could not be removed.
+    (inbox / claimed_path.name).write_bytes(claimed_path.read_bytes())
+
+    snapshot = L.relay_snapshot(root)
+    assert snapshot["queued_depth"] == 0
+    assert snapshot["claimed_depth"] == 1
+    assert snapshot["outstanding_depth"] == 1
+    assert snapshot["repair_depth"] == 1
+    assert [item["id"] for item in snapshot["messages"]] == [sent.id]
+
+
+def test_message_ids_are_generated_hex_and_reject_glob_syntax(root):
+    sent = S.send_message(root, "literal target")
+    assert S.MESSAGE_ID_RE.fullmatch(sent.id)
+    assert S.claim_next(root) is not None
+
+    for invalid in ("*", "?", "[0-9a-f]*", "ABCDEF123456", f"{sent.id}*"):
+        with pytest.raises(ValueError, match="12 lowercase hexadecimal"):
+            L.resume_claimed(root, invalid)
+        with pytest.raises(ValueError, match="12 lowercase hexadecimal"):
+            S.post_reply(root, invalid, "must not target another claim")
+
+    assert L.resume_claimed(root, sent.id).id == sent.id
+
+
+def test_replies_use_replied_lifecycle_and_log_lifecycle_degradation(
+    root, monkeypatch, caplog
+):
+    import logging
+
+    sent = S.send_message(root, "durable reply")
+    assert S.claim_next(root) is not None
+
+    def fail_mark(*_args, **_kwargs):
+        raise ValueError("simulated lifecycle failure")
+
+    monkeypatch.setattr(L, "mark_replied", fail_mark)
+    with caplog.at_level(logging.WARNING, logger=S.__name__):
+        reply = S.post_reply(root, sent.id, "answer remains deliverable")
+
+    assert reply.lifecycle == "replied"
+    assert S.read_replies(root, in_reply_to=sent.id)[0].body == (
+        "answer remains deliverable"
+    )
+    assert sent.id in caplog.text
+    assert "mark_replied failed" in caplog.text
+    assert "answer remains deliverable" not in caplog.text
+
+
+def test_lifecycle_update_lock_keeps_replied_terminal(root, monkeypatch):
+    sent = S.send_message(root, "serialize lifecycle")
+    assert S.claim_next(root) is not None
+    busy_write_entered = threading.Event()
+    release_busy_write = threading.Event()
+    replied_done = threading.Event()
+    real_write_atomic = S._write_atomic
+
+    def paused_write(path, data):
+        if data.get("lifecycle") == "busy" and not busy_write_entered.is_set():
+            busy_write_entered.set()
+            assert release_busy_write.wait(2.0)
+        return real_write_atomic(path, data)
+
+    monkeypatch.setattr(S, "_write_atomic", paused_write)
+    busy_thread = threading.Thread(
+        target=lambda: L.mark_busy(root, sent.id, claimed_by="old-session")
+    )
+
+    def reply_update():
+        L.mark_replied(root, sent.id, replied_at=123.0, reply_id="f" * 12)
+        replied_done.set()
+
+    reply_thread = threading.Thread(target=reply_update)
+    busy_thread.start()
+    assert busy_write_entered.wait(2.0)
+    reply_thread.start()
+    assert not replied_done.wait(0.05), "reply update bypassed the lifecycle lock"
+    release_busy_write.set()
+    busy_thread.join(2.0)
+    reply_thread.join(2.0)
+    assert not busy_thread.is_alive() and not reply_thread.is_alive()
+
+    snapshot = L.relay_snapshot(root)
+    assert snapshot["replied_depth"] == 1
+    assert snapshot["busy_depth"] == 0
+    assert snapshot["outstanding_depth"] == 0
+
+
+def test_replied_is_sticky_when_busy_read_precedes_reply_write(root, monkeypatch):
+    sent = S.send_message(root, "stale busy read")
+    assert S.claim_next(root) is not None
+    busy_ready = threading.Event()
+    release_busy = threading.Event()
+    busy_errors: list[Exception] = []
+    real_update = L._update_claimed_message
+
+    def delayed_update(update_root, message_id, **changes):
+        if changes.get("lifecycle") == "busy":
+            busy_ready.set()
+            assert release_busy.wait(2.0)
+        return real_update(update_root, message_id, **changes)
+
+    monkeypatch.setattr(L, "_update_claimed_message", delayed_update)
+
+    def stale_busy_update():
+        try:
+            L.mark_busy(root, sent.id, claimed_by="stale-session")
+        except Exception as exc:  # noqa: BLE001 - asserted across thread boundary
+            busy_errors.append(exc)
+
+    busy_thread = threading.Thread(target=stale_busy_update)
+    busy_thread.start()
+    assert busy_ready.wait(2.0)
+    L.mark_replied(root, sent.id, replied_at=456.0, reply_id="e" * 12)
+    release_busy.set()
+    busy_thread.join(2.0)
+    assert not busy_thread.is_alive()
+    assert len(busy_errors) == 1
+    assert "not resumable" in str(busy_errors[0])
+
+    snapshot = L.relay_snapshot(root)
+    assert snapshot["replied_depth"] == 1
+    assert snapshot["busy_depth"] == 0
+    assert snapshot["messages"][0]["reply_id"] == "e" * 12
 
 
 def test_the_claim_uses_an_exclusive_create_not_a_rename():

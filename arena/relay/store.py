@@ -23,7 +23,10 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
+import math
 import os
+import re
 import tempfile
 import time
 import uuid
@@ -37,6 +40,33 @@ from typing import Any
 MAX_BODY_BYTES = 64 * 1024
 
 POLL_INTERVAL_S = 0.2
+POLL_FRESH_S = 60.0
+MESSAGE_ID_RE = re.compile(r"^[0-9a-f]{12}$")
+LOGGER = logging.getLogger(__name__)
+
+
+def validate_message_id(value: Any) -> str:
+    message_id = str(value or "").strip()
+    if not MESSAGE_ID_RE.fullmatch(message_id):
+        raise ValueError("message id must be exactly 12 lowercase hexadecimal characters")
+    return message_id
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def _required_float(value: Any, *, field_name: str) -> float:
+    parsed = _optional_float(value)
+    if parsed is None:
+        raise ValueError(f"relay message {field_name} must be a finite number")
+    return parsed
 
 
 @dataclass
@@ -46,6 +76,12 @@ class RelayMessage:
     sender: str
     created_at: float
     meta: dict[str, Any] = field(default_factory=dict)
+    lifecycle: str = "queued"
+    claimed_at: float | None = None
+    busy_at: float | None = None
+    replied_at: float | None = None
+    claimed_by: str = ""
+    reply_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -54,6 +90,12 @@ class RelayMessage:
             "sender": self.sender,
             "created_at": self.created_at,
             "meta": self.meta,
+            "lifecycle": self.lifecycle,
+            "claimed_at": self.claimed_at,
+            "busy_at": self.busy_at,
+            "replied_at": self.replied_at,
+            "claimed_by": self.claimed_by,
+            "reply_id": self.reply_id,
         }
 
     @classmethod
@@ -62,8 +104,14 @@ class RelayMessage:
             id=str(raw.get("id", "")),
             body=str(raw.get("body", "")),
             sender=str(raw.get("sender", "unknown")),
-            created_at=float(raw.get("created_at", 0.0)),
+            created_at=_required_float(raw.get("created_at"), field_name="created_at"),
             meta=raw.get("meta") or {},
+            lifecycle=str(raw.get("lifecycle") or "queued"),
+            claimed_at=_optional_float(raw.get("claimed_at")),
+            busy_at=_optional_float(raw.get("busy_at")),
+            replied_at=_optional_float(raw.get("replied_at")),
+            claimed_by=str(raw.get("claimed_by") or ""),
+            reply_id=str(raw.get("reply_id") or ""),
         )
 
 
@@ -98,6 +146,36 @@ def _write_atomic(path: Path, payload: dict[str, Any]) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+
+
+def record_agent_poll(
+    root: Path,
+    *,
+    session_id: str = "",
+    now: Any = time.time,
+) -> None:
+    """Persist one listener heartbeat shared by HTTP and MCP surfaces."""
+    _write_atomic(
+        root / "agent_activity.json",
+        {
+            "polled_at": float(now()),
+            "session_id": str(session_id or "")[:128],
+        },
+    )
+
+
+def agent_poll_age(root: Path, *, now: Any = time.time) -> float | None:
+    path = root / "agent_activity.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return None
+        polled_at = _optional_float(raw.get("polled_at"))
+    except (OSError, TypeError, ValueError):
+        return None
+    if polled_at is None:
+        return None
+    return max(0.0, float(now()) - polled_at)
 
 
 def send_message(root: Path, body: str, *, sender: str = "operator",
@@ -188,17 +266,41 @@ def claim_next(root: Path) -> RelayMessage | None:
             except OSError:
                 pass
             continue
+        claimed_at = time.time()
+        raw.update({"lifecycle": "claimed", "claimed_at": claimed_at})
+        try:
+            msg = RelayMessage.from_dict(raw)
+        except (TypeError, ValueError):
+            # Structurally corrupt JSON is not deliverable work. Keep it in
+            # claimed/ behind the permanent claim lock for bounded incident
+            # inspection, then continue to the next healthy queue entry.
+            with contextlib.suppress(OSError):
+                os.replace(path, target)
+            continue
         try:
             # os.replace, not os.rename: defined to overwrite on BOTH
             # platforms, so a leftover file from an earlier crash cannot
             # wedge the queue.
             os.replace(path, target)
         except OSError:
-            # The bytes are already in hand and the lock is ours, so the
-            # message is still delivered exactly once. Losing the file move
-            # costs an inspection copy, not a message.
-            pass
-        return RelayMessage.from_dict(raw)
+            # The bytes are already in hand and the lock is ours. Preserve a
+            # durable inspection/resume copy even when the source move fails.
+            # The locked inbox entry cannot be claimed again.
+            try:
+                _write_atomic(target, raw)
+            except OSError:
+                # Delivery still remains exactly once, matching the historic
+                # contract; status will expose the lock as an incident.
+                pass
+        else:
+            # Persist lifecycle metadata after the atomic claim. Failure here
+            # does not lose the claimed bytes; directory state still proves
+            # the claim and resume treats old records as claimed.
+            try:
+                _write_atomic(target, raw)
+            except OSError:
+                pass
+        return msg
     return None
 
 
@@ -226,21 +328,41 @@ def post_reply(root: Path, in_reply_to: str, body: str, *,
     """Answer a message. The operator picks this up with `read_replies`."""
     if not isinstance(in_reply_to, str) or not in_reply_to.strip():
         raise ValueError("in_reply_to is required")
+    target_id = validate_message_id(in_reply_to)
     if not isinstance(body, str) or not body.strip():
         raise ValueError("reply body is required")
     encoded = body.encode("utf-8")
     if len(encoded) > MAX_BODY_BYTES:
         raise ValueError(f"reply is {len(encoded)} bytes; cap is {MAX_BODY_BYTES}")
     _inbox, _claimed, replies = _dirs(root)
+    replied_at = time.time()
     msg = RelayMessage(
         id=uuid.uuid4().hex[:12],
         body=body,
         sender=sender,
-        created_at=time.time(),
-        meta={"in_reply_to": in_reply_to},
+        created_at=replied_at,
+        meta={"in_reply_to": target_id},
+        lifecycle="replied",
     )
     name = f"{msg.created_at:015.4f}-{msg.id}.json"
     _write_atomic(replies / name, msg.to_dict())
+    # The durable original remains in claimed/. Mark it replied so a fresh
+    # Arena session never resumes completed work after the operator has already
+    # consumed the reply. Legacy/orphan replies remain supported.
+    try:
+        # Lazy import avoids a store<->lifecycle import cycle at module load.
+        from arena.relay.lifecycle import mark_replied
+
+        mark_replied(
+            root,
+            target_id,
+            replied_at=replied_at,
+            reply_id=msg.id,
+        )
+    except (ValueError, OSError) as exc:
+        # The correlated reply is already durable and must still be delivered.
+        # Record lifecycle degradation without logging the reply body.
+        LOGGER.warning("relay lifecycle mark_replied failed for %s: %s", target_id, exc)
     return msg
 
 
@@ -296,7 +418,17 @@ def read_replies(root: Path, *, in_reply_to: str = "",
             raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if in_reply_to and (raw.get("meta") or {}).get("in_reply_to") != in_reply_to:
+        raw_meta = raw.get("meta") if isinstance(raw, dict) else None
+        reply_target = (
+            raw_meta.get("in_reply_to") if isinstance(raw_meta, dict) else ""
+        )
+        if in_reply_to and reply_target != in_reply_to:
+            continue
+        try:
+            msg = RelayMessage.from_dict(raw)
+        except (TypeError, ValueError):
+            # Isolate malformed history without deleting its bytes or blocking
+            # healthy replies later in the directory.
             continue
         if consume:
             # The tombstone lives in claimed/, not next to the reply, so
@@ -315,7 +447,7 @@ def read_replies(root: Path, *, in_reply_to: str = "",
             # is delivered exactly once even if the removal below fails.
             with contextlib.suppress(OSError):
                 os.unlink(path)
-        found.append(RelayMessage.from_dict(raw))
+        found.append(msg)
     return found
 
 
