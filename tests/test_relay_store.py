@@ -487,6 +487,70 @@ def test_non_object_agent_heartbeat_is_treated_as_absent(root, malformed):
     assert L.relay_snapshot(root)["agent_polling"] is False
 
 
+@pytest.mark.parametrize("polled_at", [float("nan"), float("inf"), float("-inf"), "bad"])
+def test_non_finite_or_invalid_heartbeat_never_fabricates_a_listener(root, polled_at):
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "agent_activity.json").write_text(
+        json.dumps({"polled_at": polled_at, "session_id": "stale"}),
+        encoding="utf-8",
+    )
+    assert S.agent_poll_age(root) is None
+    snapshot = L.relay_snapshot(root)
+    assert snapshot["last_poll_age_s"] is None
+    assert snapshot["agent_polling"] is False
+
+
+def test_corrupt_claimed_record_is_isolated_from_status_and_resume(root):
+    _inbox, claimed, _replies = S._dirs(root)
+    corrupt_id = "a" * 12
+    (claimed / f"000000000000000-{corrupt_id}.json").write_text(
+        json.dumps(
+            {
+                "id": corrupt_id,
+                "body": "must not escape the corrupt record",
+                "sender": "operator",
+                "created_at": "not-a-number",
+                "meta": {},
+                "lifecycle": "claimed",
+            }
+        ),
+        encoding="utf-8",
+    )
+    healthy = S.send_message(root, "healthy queued work")
+
+    snapshot = L.relay_snapshot(root)
+    assert snapshot["queued_depth"] == 1
+    assert snapshot["claimed_depth"] == 0
+    assert snapshot["outstanding_depth"] == 0
+    assert [item["id"] for item in snapshot["messages"]] == [healthy.id]
+    assert L.resume_claimed(root, corrupt_id) is None
+
+
+def test_corrupt_reply_does_not_hide_or_delete_healthy_replies(root):
+    _inbox, _claimed, replies = S._dirs(root)
+    corrupt = replies / "000000000000000-aaaaaaaaaaaa.json"
+    corrupt.write_text(
+        json.dumps(
+            {
+                "id": "a" * 12,
+                "body": "preserve for incident inspection",
+                "sender": "agent",
+                "created_at": "not-a-number",
+                "meta": "not-an-object",
+                "lifecycle": "replied",
+            }
+        ),
+        encoding="utf-8",
+    )
+    sent = S.send_message(root, "healthy request")
+    assert S.claim_next(root) is not None
+    S.post_reply(root, sent.id, "healthy reply")
+
+    drained = S.read_replies(root)
+    assert [message.body for message in drained] == ["healthy reply"]
+    assert corrupt.exists(), "corrupt evidence must remain available for inspection"
+
+
 def test_snapshot_deduplicates_failed_move_copy_with_claimed_precedence(root):
     sent = S.send_message(root, "claim once", meta={"kind": "repair"})
     claimed_msg = S.claim_next(root)

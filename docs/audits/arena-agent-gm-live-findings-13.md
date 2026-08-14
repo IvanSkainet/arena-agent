@@ -288,3 +288,24 @@ the repaired turn-7 scene with no diagnostics.
   **The Book of Eternity: Reborn** owns rules, validation, progression,
   canonical state, and repair semantics. No narrower game-specific core API is
   needed for other games or non-game applications.
+
+### F16 — independent pre-merge audit found malformed-state honesty gaps
+
+A fresh audit of the final PR head did not rely on the existing green check
+rollup. Direct sabotage found three generic malformed-input failures:
+
+- JSON `NaN` or positive `Infinity` in `agent_activity.json` produced poll age
+  `0.0` and falsely reported `agent_polling=true`; negative Infinity also
+  remained a non-finite public age;
+- one claimed lifecycle record with non-numeric `created_at` raised from
+  `relay.status`, hiding every healthy queued record behind it;
+- an MCP `relay.status` request with an infinite `limit` raised
+  `OverflowError` instead of returning a bounded status response.
+
+The store now accepts only finite persisted timestamps. Corrupt claimed/reply
+records are isolated from healthy queue traversal, and the MCP limit parser
+fails to its bounded default on overflow. Bilateral tests were observed failing
+on the prior implementation and passing after restoration. The complete suite
+on the corrected tree exited successfully with 8,436 tests collected and
+60.63% configured coverage; normal preflight and the Bandit/Semgrep/pip-audit
+security gate also passed.

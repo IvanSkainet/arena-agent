@@ -111,6 +111,18 @@ def test_check_claims_the_message_so_it_is_not_read_twice(ctx):
     assert "relay.resume" in follow_up
 
 
+@pytest.mark.parametrize("limit", [float("inf"), float("-inf"), "invalid", None])
+def test_status_limit_garbage_cannot_crash_the_mcp_tool(ctx, limit):
+    import json
+
+    context, _root = ctx
+    status = json.loads(
+        _text(R.handle_relay_tool("relay.status", {"limit": limit}, ctx=context))
+    )
+    assert status["messages"] == []
+    assert status["truncated"] is False
+
+
 def test_status_busy_and_resume_expose_durable_fresh_session_work(ctx):
     import json
 

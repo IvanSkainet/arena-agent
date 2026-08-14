@@ -24,6 +24,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import math
 import os
 import re
 import tempfile
@@ -55,9 +56,17 @@ def _optional_float(value: Any) -> float | None:
     if value is None:
         return None
     try:
-        return float(value)
+        parsed = float(value)
     except (TypeError, ValueError):
         return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def _required_float(value: Any, *, field_name: str) -> float:
+    parsed = _optional_float(value)
+    if parsed is None:
+        raise ValueError(f"relay message {field_name} must be a finite number")
+    return parsed
 
 
 @dataclass
@@ -95,7 +104,7 @@ class RelayMessage:
             id=str(raw.get("id", "")),
             body=str(raw.get("body", "")),
             sender=str(raw.get("sender", "unknown")),
-            created_at=float(raw.get("created_at", 0.0)),
+            created_at=_required_float(raw.get("created_at"), field_name="created_at"),
             meta=raw.get("meta") or {},
             lifecycle=str(raw.get("lifecycle") or "queued"),
             claimed_at=_optional_float(raw.get("claimed_at")),
@@ -260,6 +269,15 @@ def claim_next(root: Path) -> RelayMessage | None:
         claimed_at = time.time()
         raw.update({"lifecycle": "claimed", "claimed_at": claimed_at})
         try:
+            msg = RelayMessage.from_dict(raw)
+        except (TypeError, ValueError):
+            # Structurally corrupt JSON is not deliverable work. Keep it in
+            # claimed/ behind the permanent claim lock for bounded incident
+            # inspection, then continue to the next healthy queue entry.
+            with contextlib.suppress(OSError):
+                os.replace(path, target)
+            continue
+        try:
             # os.replace, not os.rename: defined to overwrite on BOTH
             # platforms, so a leftover file from an earlier crash cannot
             # wedge the queue.
@@ -282,7 +300,7 @@ def claim_next(root: Path) -> RelayMessage | None:
                 _write_atomic(target, raw)
             except OSError:
                 pass
-        return RelayMessage.from_dict(raw)
+        return msg
     return None
 
 
@@ -400,7 +418,17 @@ def read_replies(root: Path, *, in_reply_to: str = "",
             raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if in_reply_to and (raw.get("meta") or {}).get("in_reply_to") != in_reply_to:
+        raw_meta = raw.get("meta") if isinstance(raw, dict) else None
+        reply_target = (
+            raw_meta.get("in_reply_to") if isinstance(raw_meta, dict) else ""
+        )
+        if in_reply_to and reply_target != in_reply_to:
+            continue
+        try:
+            msg = RelayMessage.from_dict(raw)
+        except (TypeError, ValueError):
+            # Isolate malformed history without deleting its bytes or blocking
+            # healthy replies later in the directory.
             continue
         if consume:
             # The tombstone lives in claimed/, not next to the reply, so
@@ -419,7 +447,7 @@ def read_replies(root: Path, *, in_reply_to: str = "",
             # is delivered exactly once even if the removal below fails.
             with contextlib.suppress(OSError):
                 os.unlink(path)
-        found.append(RelayMessage.from_dict(raw))
+        found.append(msg)
     return found
 
 

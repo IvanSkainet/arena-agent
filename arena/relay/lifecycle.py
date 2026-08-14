@@ -187,7 +187,10 @@ def resume_claimed(root: Path, message_id: str = "") -> store.RelayMessage | Non
             reply_raw = json.loads(reply_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        target = str((reply_raw.get("meta") or {}).get("in_reply_to") or "")
+        reply_meta = reply_raw.get("meta") if isinstance(reply_raw, dict) else None
+        target = str(
+            reply_meta.get("in_reply_to") if isinstance(reply_meta, dict) else ""
+        )
         if target:
             replied_targets.add(target)
 
@@ -207,7 +210,10 @@ def resume_claimed(root: Path, message_id: str = "") -> store.RelayMessage | Non
             # installs retained them after replies were read, so exposing them
             # would fabricate a backlog for a fresh agent session.
             continue
-        msg = store.RelayMessage.from_dict(raw)
+        try:
+            msg = store.RelayMessage.from_dict(raw)
+        except (TypeError, ValueError):
+            continue
         if wanted and msg.id != wanted:
             continue
         if msg.lifecycle == "replied" or msg.id in replied_targets:
@@ -250,7 +256,10 @@ def relay_snapshot(root: Path, *, limit: int = 50) -> dict[str, Any]:
             return None
         if folder == "claimed" and "lifecycle" not in raw:
             return None
-        msg = store.RelayMessage.from_dict(raw)
+        try:
+            msg = store.RelayMessage.from_dict(raw)
+        except (TypeError, ValueError):
+            return None
         if not msg.id:
             return None
         lifecycle = msg.lifecycle

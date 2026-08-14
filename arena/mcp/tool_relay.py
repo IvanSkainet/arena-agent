@@ -92,7 +92,7 @@ def _clamp_wait(raw: Any) -> float:
 def _clamp_limit(raw: Any) -> int:
     try:
         value = int(raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 50
     return max(1, min(value, 200))
 
