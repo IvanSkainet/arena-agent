@@ -69,6 +69,8 @@ post the correlated relay reply.
 
 Static/focused verification completed before the accepted live run:
 
+- full repository suite: `8354 passed, 36 skipped` with the configured
+  coverage run also passing at `60.52%` (gate `46%`);
 - relay/productization/architecture focused suites: `150 passed`;
 - architecture/MCP/catalogue suite: `991 passed`;
 - Ruff and lint ratchet: zero debt;
