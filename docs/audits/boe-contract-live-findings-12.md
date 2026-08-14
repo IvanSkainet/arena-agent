@@ -118,5 +118,19 @@ was merged.
   present. The daemon and its contract tests did change: Mortal location
   materialization repair now carries full-turn resubmission instructions.
 - This is not converted to a warning: schedule/manual/release paths intentionally
-  require a current tested upstream pin. The compatibility manifest is advanced
-  to `385979a0` and must pass the full Windows contract before Issue #12 closes.
+  require a current tested upstream pin.
+
+## Run 31788294209 — refreshed upstream pin passed
+
+- Exact Arena head: `85815e2f3acb06888e3a3e56082a571aa220d100`.
+- Refreshed game head: `385979a01c08863cf3018b399aad7799b58b8929`.
+- The full artifact-bound Windows chain passed again: three upstream focused
+  contracts, two multiline turns, correlated repair, three message/reply pairs,
+  and three successful terminal signals.
+- Final queues were empty; atomic partial files and remaining GM process IDs
+  were empty; the GM bridge shut down gracefully; Arena server and synthetic
+  consumer stopped; temporary workspace removal reported no errors.
+- Evidence was 7,361 bytes with SHA-256
+  `6ef6240c87f371aec927f855d39e7908ddcca5085c64b97eab4cec5a75dccb73`.
+  The deterministic release artifact and alias shared SHA-256
+  `758ec184f76d357d5bffd08adff2ab760ce0cb281b90c83e6327675e71e2d8d9`.
