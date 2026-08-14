@@ -333,6 +333,7 @@ EXT_VERSIONS: Tuple[str, ...] = (
     "0.14.36",
     "0.14.42",
     "0.14.43",
+    "0.14.44",
 )
 
 LATEST_BRIDGE: str = BRIDGE_VERSIONS[-1]

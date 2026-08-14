@@ -1,6 +1,14 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.43`.
+Current extension version: `0.14.44`.
+
+`0.14.44` fixes the browser-side candidate gate exposed by the live Arena.ai
+acceptance run. The parser already accepted the canonical
+`{"bridge":"arena","calls":[...]}` envelope, but the earlier adapter prefilter
+required MCP-SuperAssistant JSONL markers before it would mount Run controls.
+Candidate discovery now delegates to the parser's single grammar, retaining its
+instruction/example false-positive guards while accepting canonical fenced,
+bare-envelope, single-call, and JSONL formats.
 
 The catalog picker now exposes a `relay.* lifecycle` scope and a generic
 `GM: relay.* + fs.* + exec.*` scope for Arena Agent Mode. Arena.ai is a

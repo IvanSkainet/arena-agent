@@ -1,5 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.43';
-
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.44';
 // v0.14.41 (v4.53.0): once-per-page cache of the /v1/extension/policies
 // risk_classes so we can render a `safe`/`medium`/`dangerous` badge
 // on each function-call preview without hitting the bridge on every

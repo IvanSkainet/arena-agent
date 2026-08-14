@@ -148,15 +148,133 @@ findings rather than merely inferring them:
 
 No mailbox message was consumed or fabricated by these probes.
 
-## Live acceptance pending
+## Live findings discovered after the candidate was installed
 
-The accepted run must still prove, without a Codex process:
+### Game-side repair timeout and rollback boundary
 
-1. inactive Arena leaves a durable queued daemon packet and is reported as
-   inactive;
-2. an Arena session claims and marks that packet busy using generic tools;
-3. multiple game turns render successfully;
-4. one intentional validation failure returns as a repair packet and is fixed;
-5. a stopped Arena session leaves recoverable canonical work;
-6. a fresh Arena session resumes without invented memory;
-7. final queues, process trees, and atomic temp files are clean.
+The first intentional actor-memory failure reached the game-owned validator and
+returned `actor_memory_persistence_repair` through the daemon and terminal
+relay. The repair was authored after the client had already exhausted its
+bounded wait, so the relay reply could not make that application turn accepted.
+This proves why a relay-level `replied` state must not be represented as game
+acceptance.
+
+The late repair had already appended Guardian journal entry
+`gtj_turn004_deed_before_name`. The accepted retry used a new request and entry
+`gtj_turn004_deed_before_name_retry`; both entries remain. Unique IDs prevent a
+physical duplicate write, but do not deduplicate two semantically equivalent
+memories created on opposite sides of a client timeout. This is game-side
+repair/rollback debt: canonical rollback and the later worker write are not one
+transaction. It is recorded for the game repository and is not implemented in
+the generic Bridge.
+
+### GMBridge false Busy and deleted-status recovery
+
+The shipped GMBridge readiness adapter recognized only Codex prompts. A healthy
+Arena terminal relay could therefore be reported as Busy after completion. A
+provisional game-side adapter patch now recognizes the generic relay's explicit
+idle/busy markers, performs a fail-closed dispatch probe, and periodically
+republishes a missing status file.
+
+A final destructive check deleted `gm_bridge_status.json` while the helper was
+idle. It was recreated in **248 ms** with the same PID and process start time;
+the recovered document reported `state=Ready`, `ready=true`, and
+`lastError=null`. No process restart or player action was required.
+
+### F15 — canonical extension payload was parseable but not discoverable
+
+The first real Arena.ai browser-extension attempt rendered no Run controls for a
+canonical fenced payload:
+
+```json
+{"bridge":"arena","version":1,"calls":[{"id":"t42-browser-ui-status","tool":"relay.status","arguments":{}}]}
+```
+
+`parser.js` accepted that envelope, but the earlier `adapters.js` candidate
+prefilter required the unrelated JSONL strings `function_call_start` or
+`arena_tool`. The parser could therefore never receive the extension's own
+normal format. Extension `0.14.44` removes the split grammar: candidate
+discovery delegates to `parseArenaBlocks`, including its instruction/example
+false-positive guards. Executable regressions cover canonical fenced and bare
+envelopes, single calls, JSONL, ordinary prose, a foreign bridge, and echoed
+Bridge instructions. Chromium and generated Firefox assets remain aligned.
+
+Focused browser-extension/Bridge verification after the fix: **775 passed**;
+the complete repository suite passed with **8375 passed, 36 skipped**.
+After reloading the unpacked extension, the operator used the actual inline
+**Run** control on arena.ai and the result was inserted into the composer/chat.
+The Bridge audit independently recorded an `extension_execute` event at
+`2026-08-14T16:13:32Z` with `adapter=arenaai`, canonical
+`site=https://arena.ai`, one safe `relay.status` call, and `ok=true`. This is the
+browser UI path; it is not a hand-authored request to `/v1/extension/execute`.
+
+## Live acceptance — complete on 2026-08-14
+
+The accepted run used the installed Windows Bridge, the real game client and
+daemon, GMBridge/ConPTY, persistent `arena-relay terminal`, and ordinary
+`relay.*`, `fs.*`, and `exec.*` capabilities. Process inventory contained no
+Codex process; every Codex worker in GMBridge status was disabled.
+
+### Honest inactivity, durability, and fresh-session recovery
+
+- With no active Arena poller, packet `1e5a11fabd40` remained physically queued
+  while `/v1/relay/status` reported `agent_polling=false` and
+  `last_poll_age_s=221.69`. The daemon message was neither lost nor shown as an
+  active listener.
+- An older Arena session claimed turn packet `42982d4d9dfa` and then stopped
+  heartbeating. At stale age `72.08s`, a fresh session performed exact targeted
+  `relay.resume(message_id=42982d4d9dfa)` rather than claiming another packet.
+- The fresh session reread the current turn request, Soul state, Guardian
+  journal, and progression schedule from the host before authoring. It then
+  marked the exact packet Busy, completed the host files, and posted the
+  correlated reply. No chat-memory reconstruction was used.
+
+### Multiple accepted authored turns
+
+The game accepted and rendered all of these daemon-driven Arena turns:
+
+| Turn | Request | Relay packet | Relay reply | Result |
+| --- | --- | --- | --- | --- |
+| 4 | `8c79a5fb65714d3d8c2d33aa05b25777` | `f66d336507e2` | `71baa561e482` | accepted retry |
+| 5 | `c4bc99d160434f46941f9e54fa917234` | `42982d4d9dfa` | `71e7d1b88f6c` | accepted after fresh-session resume |
+| 6 | `e6c0fdc9804f496fb044284c445980c2` | `1e5a11fabd40` | `42cf51c50ea0` | accepted after inactive queued persistence |
+| 7 | `a0f68eb5f39a4db196cb68b868216b73` | `79c4143b6b1d` | `efa9c1110150` | accepted, then intentionally repaired |
+
+Agent Console rendered each authored scene and three enabled player actions.
+After turn 7, the Chaos Sea, Guardian-project, and resident-agency ordinals all
+advanced to `7` with no pending cycles.
+
+### Bounded intentional validation repair
+
+Turn 7 deliberately added unsupported top-level field
+`output/narrative_response.json.t42IntentionalProbe`. The game accepted the
+terminal phase, rejected resulting state with
+`narrative_response_unknown_field`, and sent repair packet `c07a21a12be7`
+through daemon → ConPTY → relay. The Arena session classified it as `repair`,
+read `validation_repair_request.json` and the named compact output-repair
+template, changed only the allowlisted narrative artifact, emitted
+`Complete-BoeValidationRepair` last, and replied as `c64960c42464`.
+
+The trajectory ledger records both correlated acceptance stages:
+
+- `repair.status=accepted`, `acceptanceScope=correlated_repair_ready`;
+- `repair.status=cleared`, `acceptanceScope=full_canonical_state_after_repair`,
+  `fullCanonicalStateAccepted=true`.
+
+The repair packet was created at `16:00:48.557Z`, claimed at `16:00:48.691Z`,
+marked Busy at `16:00:56.091Z`, and relay-replied at `16:01:04.022Z`; full
+canonical revalidation cleared at `16:01:05.260Z`. Agent Console then rendered
+the repaired turn-7 scene with no diagnostics.
+
+### Final state
+
+- Relay depths: queued `0`, claimed `0`, busy `0`, outstanding `0`, reply `0`;
+  all seven observed turn/repair packets are terminal `replied` records.
+- GMBridge: `Ready`, `ready=true`, `lastError=null`.
+- Game progression: accepted ordinal `7` for all required Chaos Sea tracks.
+- No Codex process was present in the accepted process inventory.
+- The generic boundary remains intact: Bridge owns transport, lifecycle,
+  policy, and host capabilities; the replaceable game skill owns bootstrap;
+  **The Book of Eternity: Reborn** owns rules, validation, progression,
+  canonical state, and repair semantics. No narrower game-specific core API is
+  needed for other games or non-game applications.

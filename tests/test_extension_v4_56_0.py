@@ -206,7 +206,7 @@ def test_mcp_tools_total_reflects_mobile_addition():
 def test_extension_version_aligned_to_0_14_43():
     """Historical suite follows the repository's current extension pin."""
     src = _read("chat_extension/manifest.json")
-    assert '"version": "0.14.43"' in src
+    assert '"version": "0.14.44"' in src
 
 
 # ------------------------------------------------------------------

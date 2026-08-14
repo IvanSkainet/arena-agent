@@ -359,11 +359,20 @@ function arenaDetectionText(node, adapter = getArenaAdapter()) {
 // ---------------------------------------------------------------------------
 // Arena tool-block detection
 // ---------------------------------------------------------------------------
-const ARENA_TOOL_RE = /```(?:arena-tool|jsonl?)[\s\S]*?(?:function_call_start|arena_tool)[\s\S]*?```/m;
-
+// v0.14.44: candidate discovery and payload parsing must share one authority.
+// The former regex recognised only MCP-SuperAssistant JSONL markers, so the
+// extension's own canonical {"bridge":"arena","calls":[...]} envelope was
+// parseable by parser.js but filtered out before parsing. This was reproduced
+// on the real arena.ai UI: a valid fenced relay.status call rendered no Run
+// controls. parser.js is loaded before adapters.js by the manifest, and its
+// bridge-instruction guard already rejects documentation examples, so use it
+// directly instead of maintaining a second, narrower grammar here.
 function arenaHasToolBlock(node, adapter = getArenaAdapter()) {
   const text = arenaDetectionText(node, adapter);
-  if (ARENA_TOOL_RE.test(text)) return true;
+  if (typeof parseArenaBlocks === 'function') {
+    return parseArenaBlocks(text).length > 0;
+  }
+  // Defensive fallback for isolated adapter tests or partial script loading.
   return text.includes('function_call_start') && text.includes('function_call_end');
 }
 
