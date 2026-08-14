@@ -89,9 +89,10 @@ Static/focused verification completed before the accepted live run:
 
 ## PR review hardening — 2026-08-14
 
-Review of the exact PR head found additional correctness and trust-boundary
-issues. They are fixed in the candidate branch and covered by focused
-regressions; none substitutes for the pending Windows live run.
+Review of the pre-live PR head found additional correctness and trust-boundary
+issues. They were fixed in the candidate branch and covered by focused
+regressions; those static checks did not substitute for the Windows live run,
+which was subsequently completed and is recorded below.
 
 - **F7 — trusted-host matching ignored scheme and port:** hostname-only matching
   enabled trusted-site behavior for HTTP and non-default ports. Trust now
@@ -165,8 +166,17 @@ The late repair had already appended Guardian journal entry
 physical duplicate write, but do not deduplicate two semantically equivalent
 memories created on opposite sides of a client timeout. This is game-side
 repair/rollback debt: canonical rollback and the later worker write are not one
-transaction. It is recorded for the game repository and is not implemented in
-the generic Bridge.
+transaction.
+
+The debt is tracked explicitly in
+[`IvanSkainet/arena-agent#30`](https://github.com/IvanSkainet/arena-agent/issues/30)
+with the game implementation maintained by Lottarend as owner. Its acceptance
+requires a deterministic barrier test across timeout/rollback, a request-bound
+repair lease or equivalent idempotency key, and proof that an action retry
+cannot append an equivalent actor-memory event. The failed late-repair probe is
+outside PR #29's Bridge implementation scope; the accepted bounded turn-7 repair
+below completed before timeout and did not duplicate canonical writes. No game
+rollback or journal semantics are implemented in the generic Bridge.
 
 ### GMBridge false Busy and deleted-status recovery
 
