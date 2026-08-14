@@ -4,6 +4,7 @@
   "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1": "node24",
   "actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294": "node24",
   "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c": "node24",
+  "actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68": "node24",
   "actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961": "node24",
   "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020": "node24",
   "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97": "node24",

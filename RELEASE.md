@@ -53,6 +53,8 @@ gh pr create --base master --head release/vX.Y.Z --title "vX.Y.Z: <summary>"
 # Wait for CI required + Security required + Dependency Review + Zizmor, then merge.
 
 # 4) Build the exact master commit twice and attest the matching bytes.
+#    This workflow first runs the pinned The Book of Eternity: Reborn Windows
+#    ConPTY/relay/repair contract; candidate attestation waits for that job.
 gh workflow run release-candidate.yml --ref master
 # Resolve the run whose headSha is the exact intended master commit, wait for success,
 # then download its final artifact without renaming or rebuilding either ZIP.
@@ -290,6 +292,9 @@ Omit a sub-section if it has no entries for this release.
 - [ ] Working tree clean, on `master`, up to date with `origin/master`.
 - [ ] `release-candidate.yml` succeeded on that exact master SHA; independent
       builds A/B matched byte-for-byte and `release-verification.json` is clean.
+- [ ] Its reusable pinned **The Book of Eternity: Reborn** Windows contract
+      passed on the same SHA with current upstream pin, three correlated
+      dispatches, empty relay queues, and no surviving GM bridge process.
 - [ ] Both ZIP names pass build-provenance and SPDX SBOM verification with the
       pinned release-candidate signer workflow and `--source-digest` equal to
       the exact intended master commit.

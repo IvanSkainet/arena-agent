@@ -1,0 +1,213 @@
+name: Book of Eternity cross-repository contract
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1'
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/boe-contract.yml'
+      - '.github/workflows/release-candidate.yml'
+      - 'integrations/book_of_eternity_compatibility.json'
+      - 'scripts/boe_cross_repo_contract.py'
+      - 'scripts/make_release_zip.py'
+      - 'scripts/verify_release_zip.py'
+      - 'arena/game/boe_relay.py'
+      - 'arena/relay/**'
+      - 'bin/arena-relay'
+      - 'unified_bridge.py'
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/boe-contract.yml'
+      - '.github/workflows/release-candidate.yml'
+      - 'integrations/book_of_eternity_compatibility.json'
+      - 'scripts/boe_cross_repo_contract.py'
+      - 'scripts/make_release_zip.py'
+      - 'scripts/verify_release_zip.py'
+      - 'arena/game/boe_relay.py'
+      - 'arena/relay/**'
+      - 'bin/arena-relay'
+      - 'unified_bridge.py'
+
+permissions: {}
+
+concurrency:
+  group: boe-contract-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: Windows ConPTY + relay + repair contract
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout Arena exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Resolve pinned game contract
+        id: pin
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Get-Content integrations/book_of_eternity_compatibility.json -Raw |
+            ConvertFrom-Json
+          if ($manifest.repository -ne 'StanislavSmetaninSSM/The-Book-of-Eternity-Reborn') {
+            throw 'unexpected game repository in compatibility manifest'
+          }
+          if ($manifest.commit -notmatch '^[0-9a-f]{40}$') {
+            throw 'game compatibility pin must be a full commit SHA'
+          }
+          if ($manifest.protocolRevision -ne 'boe-gm-terminal-relay-v1') {
+            throw 'unsupported Book of Eternity protocol revision'
+          }
+          "game_sha=$($manifest.commit)" >> $env:GITHUB_OUTPUT
+          "game_repository=$($manifest.repository)" >> $env:GITHUB_OUTPUT
+
+      - name: Require a current upstream pin outside pull-request validation
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          PINNED_SHA: ${{ steps.pin.outputs.game_sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $remote = git ls-remote `
+            https://github.com/StanislavSmetaninSSM/The-Book-of-Eternity-Reborn.git `
+            refs/heads/main
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($remote)) {
+            throw 'could not resolve upstream game main'
+          }
+          $upstreamSha = ($remote -split '\s+')[0]
+          if ($upstreamSha -ne $env:PINNED_SHA) {
+            throw "game pin is stale: pinned=$env:PINNED_SHA upstream=$upstreamSha"
+          }
+
+      - name: Checkout pinned game source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.pin.outputs.game_repository }}
+          ref: ${{ steps.pin.outputs.game_sha }}
+          path: game
+          persist-credentials: false
+
+      - name: Verify exact game checkout
+        shell: pwsh
+        env:
+          PINNED_SHA: ${{ steps.pin.outputs.game_sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $actual = git -C game rev-parse HEAD
+          if ($actual -ne $env:PINNED_SHA) {
+            throw "game checkout mismatch: expected=$env:PINNED_SHA actual=$actual"
+          }
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Arena runtime and contract dependencies
+        run: python -m pip install --require-hashes -r requirements-ci.lock
+
+      - name: Build and verify the Arena release artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = python -c "from scripts.make_release_zip import detect_version; print(detect_version())"
+          $release = Join-Path $env:RUNNER_TEMP "arena-agent-v$version.zip"
+          $alias = Join-Path $env:RUNNER_TEMP 'arena-agent.zip'
+          python scripts/make_release_zip.py $version $release
+          Copy-Item $release $alias
+          python scripts/verify_release_zip.py `
+            --versioned $release `
+            --alias $alias `
+            --expected-version $version `
+            --json-out (Join-Path $env:RUNNER_TEMP 'arena-release-verification.json')
+          $artifactRoot = Join-Path $env:RUNNER_TEMP 'arena-artifact'
+          Expand-Archive -Path $release -DestinationPath $artifactRoot
+
+      - name: Build pinned BookOfEternityGMBridge
+        run: >-
+          dotnet build
+          game/BookOfEternityGMBridge/BookOfEternityGMBridge.csproj
+          --configuration Debug
+
+      - name: Run upstream terminal-signal and repair contracts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $filter = @(
+            'FullyQualifiedName~Helper_CompleteBoeTurnWritesCorrelatedTerminalSignal',
+            'FullyQualifiedName~Helper_CompleteBoeValidationRepairAllowsRepairReadyAfterAcceptedTurnCompletion',
+            'FullyQualifiedName~DaemonAutomaticDispatch_DoesNotSendBootstrapAsSeparateGmRequest'
+          ) -join '|'
+          dotnet test `
+            game/BookOfEternityClient.IntegrationTests/BookOfEternityClient.IntegrationTests.csproj `
+            --configuration Debug `
+            --filter $filter `
+            --logger "trx;LogFileName=boe-upstream-contract.trx" `
+            --results-directory "$env:RUNNER_TEMP/boe-evidence"
+
+      - name: Run real Windows ConPTY cross-repository contract
+        shell: pwsh
+        env:
+          ARENA_COMMIT: ${{ github.sha }}
+          GAME_REPOSITORY: ${{ steps.pin.outputs.game_repository }}
+          GAME_COMMIT: ${{ steps.pin.outputs.game_sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidence = Join-Path $env:RUNNER_TEMP 'boe-evidence/contract-evidence.json'
+          New-Item -ItemType Directory -Force -Path (Split-Path $evidence) | Out-Null
+          python scripts/boe_cross_repo_contract.py `
+            --arena-root "$env:RUNNER_TEMP/arena-artifact/arena-bridge" `
+            --game-root "$PWD/game" `
+            --arena-commit $env:ARENA_COMMIT `
+            --game-repository $env:GAME_REPOSITORY `
+            --game-commit $env:GAME_COMMIT `
+            --evidence-out $evidence
+
+      - name: Verify bounded machine-readable evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = Join-Path $env:RUNNER_TEMP 'boe-evidence/contract-evidence.json'
+          $evidence = Get-Content $path -Raw | ConvertFrom-Json
+          if ($evidence.status -ne 'success') { throw 'contract evidence is not successful' }
+          if (@($evidence.dispatches).Count -ne 3) { throw 'expected three dispatches' }
+          if (@($evidence.terminalSignals).Count -ne 3) { throw 'expected three terminal signals' }
+          if ($evidence.mailbox.inboxDepth -ne 0 -or $evidence.mailbox.replyDepth -ne 0) {
+            throw 'relay mailbox did not drain'
+          }
+          if (@($evidence.gmBridge.remainingProcessIds).Count -ne 0) {
+            throw 'GM bridge process tree survived shutdown'
+          }
+          if (($path | Get-Item).Length -gt 65536) { throw 'evidence exceeded 64 KiB bound' }
+
+      - name: Upload bounded cross-repository evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: boe-cross-repo-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/boe-evidence/*
+            ${{ runner.temp }}/arena-release-verification.json
+          if-no-files-found: warn
+          retention-days: 14
