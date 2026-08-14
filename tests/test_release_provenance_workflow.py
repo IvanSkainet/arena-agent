@@ -38,7 +38,11 @@ def test_candidate_is_manual_exact_sha_build_not_a_release_publisher() -> None:
 def test_two_independent_builds_must_match_before_attestation() -> None:
     jobs = _workflow(CANDIDATE)["jobs"]
     assert {"build-primary", "build-rebuild", "attest"} <= set(jobs)
-    assert set(jobs["attest"]["needs"]) == {"build-primary", "build-rebuild"}
+    assert set(jobs["attest"]["needs"]) == {
+        "boe-contract",
+        "build-primary",
+        "build-rebuild",
+    }
     for name in ("build-primary", "build-rebuild"):
         run = _runs(jobs[name])
         assert "scripts/make_release_zip.py" in run
@@ -75,6 +79,9 @@ def test_every_candidate_action_is_commit_pinned_and_runtime_recorded() -> None:
     assert uses
     runtime_map = json.loads(RUNTIMES.read_text(encoding="utf-8"))
     for ref in uses:
+        if ref.startswith("./"):
+            assert ref == "./.github/workflows/boe-contract.yml"
+            continue
         assert re.fullmatch(r"[^@]+@[0-9a-f]{40}", ref), ref
         assert ref in runtime_map, f"missing action runtime record: {ref}"
     attest_ref = "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6"

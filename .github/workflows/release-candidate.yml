@@ -10,6 +10,12 @@ concurrency:
 permissions: {}
 
 jobs:
+  boe-contract:
+    name: Pinned Book of Eternity compatibility
+    uses: ./.github/workflows/boe-contract.yml
+    permissions:
+      contents: read
+
   build-primary:
     timeout-minutes: 15
     name: Deterministic release build A
@@ -82,7 +88,7 @@ jobs:
   attest:
     timeout-minutes: 20
     name: Compare, verify, SBOM, and attest candidate
-    needs: [build-primary, build-rebuild]
+    needs: [boe-contract, build-primary, build-rebuild]
     runs-on: ubuntu-latest
     permissions:
       contents: read
