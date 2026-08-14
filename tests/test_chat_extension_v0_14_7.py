@@ -35,12 +35,12 @@ def _read(name: str) -> str:
     return (EXT / name).read_text(encoding="utf-8")
 
 
-def test_content_version_bumped_to_0_14_7():
+def test_content_version_aligned_to_0_14_43():
     src = _read("content.js")
     assert (
         "ARENA_CONTENT_SCRIPT_VERSION = '0.14.43'" in src
         or 'ARENA_CONTENT_SCRIPT_VERSION = "0.14.43"' in src
-    ), "content.js must pin ARENA_CONTENT_SCRIPT_VERSION to 0.14.7"
+    ), "content.js must pin ARENA_CONTENT_SCRIPT_VERSION to 0.14.43"
 
 
 def test_manifest_version_bumped():

@@ -41,7 +41,7 @@ def _read(name):
     return (EXT / name).read_text(encoding="utf-8")
 
 
-def test_versions_pinned_to_0_14_10():
+def test_versions_pinned_to_0_14_43():
     import json
     assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.43'" in _read("content.js")
     assert json.loads(_read("manifest.json"))["version"] == "0.14.43"

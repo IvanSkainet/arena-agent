@@ -25,6 +25,7 @@ nobody -- is the same failure as the token-rotation note in bug #66.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -146,10 +147,17 @@ def make_relay_handlers(ctx) -> RelayHandlers:
         # is file-backed so MCP Agent Mode polls and HTTP polls share it.
         wait = _clamp_wait(request.query.get("wait", "25"), default=25.0)
         root = ctx.relay_root()
-        store.record_agent_poll(
-            root, session_id=str(request.query.get("session_id") or "")
-        )
         loop = asyncio.get_running_loop()
+        # Heartbeat persistence is advisory. Keep its blocking disk I/O and
+        # failures isolated from the durable message-claim path.
+        with contextlib.suppress(OSError):
+            await loop.run_in_executor(
+                ctx.executor,
+                lambda: store.record_agent_poll(
+                    root,
+                    session_id=str(request.query.get("session_id") or ""),
+                ),
+            )
         msg = await loop.run_in_executor(
             ctx.executor, lambda: store.wait_for_message(root, timeout=wait))
         if msg is None:

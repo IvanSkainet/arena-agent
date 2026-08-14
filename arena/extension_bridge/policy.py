@@ -1,7 +1,7 @@
 """Policy helpers for browser chat extension execution."""
 from __future__ import annotations
 
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 from arena.autonomy import is_yolo as _is_yolo
 
@@ -14,9 +14,9 @@ _SAFE_TOOLS = {
     "mission.catalog", "mission.family", "mission.history", "mission.lineage",
     "mission.report", "mission.schedules", "mission.schedule_state", "mission.status",
     "mission.templates", "plan.create", "sys.status", "watch.files",
-    # Agent mailbox inspection/claim/resume is safe on trusted chat sites.
-    # It never executes host commands or mutates game files.
-    "relay.status", "relay.check", "relay.resume",
+    # Status and resuming an existing claim are read-only. relay.check is in
+    # medium because it also claims and moves the next queued message.
+    "relay.status", "relay.resume",
     # v4.54.0: scenario read-only surfaces.
     "scenario.get", "scenario.history", "scenario.list", "scenario.preview",
     # v4.56.0: mobile.* read-only surfaces.
@@ -40,7 +40,7 @@ _MEDIUM_TOOLS = {
     # v4.78.0: mem.get / mem.set removed (long deprecation window from
     # v4.71.0 expired). Use memory.import + memory.recall instead.
     "fs.create", "memory.import",
-    "relay.busy", "relay.reply", "relay.send",
+    "relay.busy", "relay.check", "relay.reply", "relay.send",
     "mission.compose", "mission.create", "mission.followup", "mission.propose",
     "mission.schedule_delete", "mission.schedule_save", "react.run", "reflect.run",
     # v4.54.0: scenario mutators. `scenario.run` is DELIBERATELY
@@ -111,19 +111,43 @@ def classify_tool_risk(tool: str) -> str:
 
 
 
-def _site_host(origin: str = "", url: str = "") -> str:
+def _site_url(origin: str = "", url: str = "") -> ParseResult | None:
     raw = str(origin or url or "").strip()
     if not raw:
-        return ""
-    parsed = urlparse(raw if "://" in raw else f"https://{raw}")
-    return (parsed.hostname or "").lower()
+        return None
+    try:
+        return urlparse(raw)
+    except ValueError:
+        return None
 
+
+def _site_host(origin: str = "", url: str = "") -> str:
+    parsed = _site_url(origin, url)
+    return (parsed.hostname or "").lower() if parsed is not None else ""
+
+
+def _is_trusted_site(origin: str = "", url: str = "") -> bool:
+    parsed = _site_url(origin, url)
+    if parsed is None or parsed.scheme.lower() != "https":
+        return False
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        (parsed.hostname or "").lower() in _TRUSTED_HOSTS
+        and port in {None, 443}
+        and parsed.username is None
+        and parsed.password is None
+    )
 
 
 def extension_policy_snapshot(site: dict | None = None) -> dict:
     site = site or {}
-    host = _site_host(site.get("origin", ""), site.get("url", ""))
-    trusted = host in _TRUSTED_HOSTS
+    origin = site.get("origin", "")
+    url = site.get("url", "")
+    host = _site_host(origin, url)
+    trusted = _is_trusted_site(origin, url)
     site_mode = "safe-auto-run" if trusted else "manual-confirm"
     return {
         "ok": True,

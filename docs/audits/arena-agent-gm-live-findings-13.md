@@ -87,6 +87,54 @@ Static/focused verification completed before the accepted live run:
 - destructive controls made the fresh-session resume and honest Dashboard
   tests fail, followed by green restoration runs.
 
+## PR review hardening — 2026-08-14
+
+Review of the exact PR head found additional correctness and trust-boundary
+issues. They are fixed in the candidate branch and covered by focused
+regressions; none substitutes for the pending Windows live run.
+
+- **F7 — trusted-host matching ignored scheme and port:** hostname-only matching
+  enabled trusted-site behavior for HTTP and non-default ports. Trust now
+  requires a canonical HTTPS origin on the default port; malformed origins
+  degrade to manual confirmation.
+- **F8 — `relay.check` was mislabeled read-only:** it atomically claims and moves
+  queued work. It is now medium-risk while `relay.status` and read-only
+  `relay.resume` remain safe.
+- **F9 — heartbeat persistence could block delivery:** MCP and HTTP poll paths
+  now treat heartbeat writes as best-effort. HTTP performs that disk I/O in the
+  executor; a failed heartbeat write no longer prevents claiming the packet.
+- **F10 — caller-controlled IDs reached a glob lookup:** externally supplied
+  message IDs are now validated as generated 12-character lowercase hex and
+  exact matched. Glob metacharacters cannot mark or resume another claim.
+- **F11 — concurrent lifecycle writers could reopen replied work:** per-message
+  OS file locking serializes cross-process read-modify-write updates, and
+  `replied` is terminal-sticky. The OS releases ownership when a process dies,
+  so the lock has no stale-owner timeout race.
+- **F12 — malformed heartbeat JSON could fail status:** non-object JSON is now
+  treated as absent listener evidence.
+- **F13 — failed Windows move fallback inflated lifecycle counts:** snapshots
+  deduplicate by message ID with the claimed record taking precedence over an
+  inbox copy.
+- **F14 — startup could select two packets:** both the replaceable game skill
+  and generic guide now resume outstanding work first, otherwise claim one
+  queued packet, and forbid selecting another before completion/status refresh.
+- Reply records use the same `replied` lifecycle vocabulary as claimed records.
+  Failure to persist the correlated claimed-record transition is logged without
+  discarding the already-durable reply.
+- Targeted resume now resolves the exact claimed path. Empty MCP polling uses a
+  depth-only lifecycle scan instead of constructing a complete status snapshot.
+
+Post-hardening verification:
+
+- focused relay/HTTP/MCP/extension/version suites: `179 passed` on Linux and
+  `179 passed` on the real Windows host (including the `msvcrt` lifecycle-lock
+  branch);
+- full repository suite without coverage instrumentation: `8367 passed, 36
+  skipped`;
+- Ruff 0.16.2 on all changed Python files and the lint ratchet: clean;
+- Vulture/Pyrefly quality ratchet: zero findings;
+- `git diff --check` and changed-module byte compilation: clean.
+
 ## Live baseline — installed v4.169.44 host
 
 Authenticated probes against the running Windows bridge confirmed the source

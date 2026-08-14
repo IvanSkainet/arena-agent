@@ -24,10 +24,11 @@ application-specific token or tool subset.
    `/v1/extension/execute`. The extension never performs login, chooses a model,
    or summons a session.
 
-Arena.ai is a trusted extension host for safe lifecycle inspection/claim/resume.
-Writes, shell execution, and outgoing messages still follow the operator's
-normal global Bridge posture. Game integration does not add a second policy
-layer.
+Arena.ai is a trusted extension host over its canonical HTTPS origin. Lifecycle
+inspection/resume is safe; `relay.check` is medium because it claims a queued
+packet. Writes, shell execution, and outgoing messages still follow the
+operator's normal global Bridge posture. Game integration does not add a second
+policy layer.
 
 ### Direct remote MCP/HTTPS
 
@@ -45,9 +46,11 @@ For The Book of Eternity: Reborn, paste/use
 program using `arena-relay terminal`:
 
 1. `relay.status` — inspect queued/claimed/busy/replied state without claiming.
-2. `relay.check` — claim the next queued packet.
-3. `relay.resume` — after confirming the old Arena session is gone, recover an
-   unfinished claimed/busy packet in a fresh session.
+2. If outstanding claimed/busy work exists, confirm the old Arena session is
+   gone and use `relay.resume` to recover exactly one packet.
+3. Otherwise, if queued work exists, use `relay.check` to claim exactly one
+   packet. A bootstrap pass must resume **or** claim, never both. Do not select
+   another packet; refresh status only after completing this one.
 4. `relay.busy` — make active processing explicit and session-correlated.
 5. Use ordinary `fs.*`, `exec.*`, and other full Bridge tools to perform the
    host work described by the packet.

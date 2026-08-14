@@ -89,6 +89,19 @@ def test_check_returns_the_message_and_the_id_needed_to_answer(ctx):
     )
 
 
+def test_check_still_claims_when_heartbeat_persistence_fails(ctx, monkeypatch):
+    context, root = ctx
+    sent = store.send_message(root, "heartbeat must be best effort")
+
+    def fail_heartbeat(*_args, **_kwargs):
+        raise OSError("disk unavailable")
+
+    monkeypatch.setattr(store, "record_agent_poll", fail_heartbeat)
+    text = _text(R.handle_relay_tool("relay.check", {}, ctx=context))
+    assert sent.id in text
+    assert "heartbeat must be best effort" in text
+
+
 def test_check_claims_the_message_so_it_is_not_read_twice(ctx):
     context, root = ctx
     store.send_message(root, "only once")
@@ -157,7 +170,7 @@ def test_status_busy_and_resume_expose_durable_fresh_session_work(ctx):
 def test_busy_requires_a_claimed_message_id(ctx):
     context, _root = ctx
     result = R.handle_relay_tool(
-        "relay.busy", {"message_id": "missing"}, ctx=context
+        "relay.busy", {"message_id": "000000000000"}, ctx=context
     )
     assert result["isError"] is True
     assert "not resumable" in _text(result)

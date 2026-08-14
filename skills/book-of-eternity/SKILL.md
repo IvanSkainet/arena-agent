@@ -63,11 +63,12 @@ Every new Arena session begins with transport facts, not assumed memory. The
 canonical host files are the only resume authority.
 
 1. Call `relay.status`.
-2. If `queued_depth > 0`, call `relay.check` once to atomically claim the oldest
-   packet.
-3. If `outstanding_depth > 0` and no previous Arena session is still active,
+2. If `outstanding_depth > 0` and no previous Arena session is still active,
    call `relay.resume`. Use `message_id` when status shows more than one packet.
    Never resume while another live session may still be authoring that message.
+3. Otherwise, if `queued_depth > 0`, call `relay.check` once to atomically claim
+   the oldest packet. A bootstrap pass must resume **or** claim, never both.
+   Do not select another packet; refresh status only after completing this one.
 4. Call `relay.busy` with the packet id and a fresh session correlation label;
    omit `kind` until the packet/control files prove it.
 5. Read the packet body and metadata. Then inspect the canonical request and the

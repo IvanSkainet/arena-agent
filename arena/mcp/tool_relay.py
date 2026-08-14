@@ -25,6 +25,7 @@ so two concurrent sessions cannot both act on the same instruction.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 from pathlib import Path
@@ -113,7 +114,13 @@ def handle_relay_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any]
 
     if name == "relay.resume":
         target = str(args.get("message_id") or "").strip()
-        msg = lifecycle.resume_claimed(root, target)
+        try:
+            msg = lifecycle.resume_claimed(root, target)
+        except ValueError as exc:
+            return {
+                "isError": True,
+                "content": [{"type": "text", "text": f"ERROR: {exc}"}],
+            }
         if msg is None:
             return text_content(
                 "No unfinished claimed message is available to resume. "
@@ -156,15 +163,16 @@ def handle_relay_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any]
         )
 
     if name == "relay.check":
-        store.record_agent_poll(
-            root, session_id=str(args.get("session_id") or "")
-        )
+        # Presence bookkeeping must never block durable message delivery.
+        with contextlib.suppress(OSError):
+            store.record_agent_poll(
+                root, session_id=str(args.get("session_id") or "")
+            )
         wait = _clamp_wait(args.get("wait", 0))
         msg = (store.wait_for_message(root, timeout=wait) if wait > 0
                else store.claim_next(root))
         if msg is None:
-            snapshot = lifecycle.relay_snapshot(root, limit=1)
-            if snapshot["outstanding_depth"]:
+            if lifecycle.outstanding_depth(root):
                 return text_content(
                     "No queued messages. Durable claimed/busy work exists; "
                     "call relay.status, then relay.resume after confirming the "

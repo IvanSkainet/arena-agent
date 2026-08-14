@@ -159,6 +159,27 @@ def test_send_reports_no_listener_before_anyone_polls(wired, monkeypatch):
     assert payload["inbox_depth"] == 1
 
 
+def test_poll_claims_message_when_heartbeat_write_fails(wired, monkeypatch):
+    import asyncio
+
+    ctx, handlers, loop, _ = wired
+    monkeypatch.setattr(asyncio, "get_running_loop", lambda: loop)
+    _kind, sent, _status = _run(
+        handlers.relay_send(_Req({"body": "claim despite heartbeat failure"}))
+    )
+
+    def fail_heartbeat(*_args, **_kwargs):
+        raise OSError("simulated heartbeat disk failure")
+
+    monkeypatch.setattr(H.store, "record_agent_poll", fail_heartbeat)
+    _kind, payload, status = _run(
+        handlers.relay_poll(_Req(query={"wait": "0"}))
+    )
+    assert status == 200
+    assert payload["ok"] is True
+    assert payload["message"]["id"] == sent["id"]
+
+
 def test_send_reports_a_listener_after_a_poll(wired, monkeypatch):
     import asyncio
 

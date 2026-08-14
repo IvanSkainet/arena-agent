@@ -6,39 +6,129 @@ message bytes or introducing a second queue.
 """
 from __future__ import annotations
 
+import contextlib
+import glob
 import json
+import os
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from arena.relay import store
+
+try:  # pragma: no cover - platform-selected import
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None  # type: ignore[assignment]
+try:  # pragma: no cover - platform-selected import
+    import msvcrt
+except ImportError:  # POSIX
+    msvcrt = None  # type: ignore[assignment]
+
+LIFECYCLE_LOCK_TIMEOUT_S = 5.0
 
 
 def _claimed_message_path(root: Path, message_id: str) -> Path | None:
     _inbox, claimed, _replies = store._dirs(root)
-    wanted = str(message_id or "").strip()
-    if not wanted:
-        return None
-    for path in sorted(claimed.glob(f"*-{wanted}.json")):
-        return path
+    wanted = store.validate_message_id(message_id)
+    for path in sorted(claimed.glob(f"*-{glob.escape(wanted)}.json")):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(raw, dict) and str(raw.get("id") or "") == wanted:
+            return path
     return None
+
+
+@contextmanager
+def _lifecycle_update_lock(
+    root: Path,
+    message_id: str,
+    *,
+    now: Any = time.monotonic,
+    sleep: Any = time.sleep,
+) -> Iterator[None]:
+    """Serialize one claimed message's read-modify-write across processes.
+
+    The OS releases an advisory lock when a process exits, so a killed Arena
+    session cannot leave a stale owner behind. The persistent empty lock file is
+    only the shared locking inode, not an ownership marker.
+    """
+    wanted = store.validate_message_id(message_id)
+    _inbox, claimed, _replies = store._dirs(root)
+    lock = claimed / f".{wanted}.lifecycle.lock"
+    try:
+        handle = lock.open("a+b")
+    except OSError as exc:
+        raise ValueError(f"relay lifecycle lock failed: {wanted}") from exc
+
+    deadline = float(now()) + LIFECYCLE_LOCK_TIMEOUT_S
+    acquired = False
+    try:
+        while not acquired:
+            try:
+                if fcntl is not None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                elif msvcrt is not None:  # pragma: no cover - Windows only
+                    if os.fstat(handle.fileno()).st_size == 0:
+                        handle.write(b"\0")
+                        handle.flush()
+                    handle.seek(0)
+                    getattr(msvcrt, "locking")(
+                        handle.fileno(), getattr(msvcrt, "LK_NBLCK"), 1
+                    )
+                else:  # pragma: no cover - unsupported Python platform
+                    raise RuntimeError("no supported file-locking primitive")
+                acquired = True
+            except (BlockingIOError, OSError):
+                if float(now()) >= deadline:
+                    raise ValueError(
+                        f"relay lifecycle update is busy: {wanted}"
+                    ) from None
+                sleep(0.01)
+        yield
+    finally:
+        if acquired:
+            with contextlib.suppress(OSError):
+                if fcntl is not None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                elif msvcrt is not None:  # pragma: no cover - Windows only
+                    handle.seek(0)
+                    getattr(msvcrt, "locking")(
+                        handle.fileno(), getattr(msvcrt, "LK_UNLCK"), 1
+                    )
+        handle.close()
 
 
 def _update_claimed_message(
     root: Path,
     message_id: str,
+    *,
+    meta_updates: dict[str, Any] | None = None,
     **changes: Any,
 ) -> store.RelayMessage:
-    path = _claimed_message_path(root, message_id)
-    if path is None:
-        raise ValueError(f"claimed relay message not found: {message_id}")
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise ValueError(f"claimed relay message is unreadable: {message_id}") from exc
-    raw.update(changes)
-    store._write_atomic(path, raw)
-    return store.RelayMessage.from_dict(raw)
+    with _lifecycle_update_lock(root, message_id):
+        path = _claimed_message_path(root, message_id)
+        if path is None:
+            raise ValueError(f"claimed relay message not found: {message_id}")
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"claimed relay message is unreadable: {message_id}") from exc
+        # A correlated reply is terminal. A stale concurrent busy writer must
+        # never make completed work resumable again.
+        if raw.get("lifecycle") == "replied" and changes.get("lifecycle") != "replied":
+            raise ValueError(f"claimed relay message is not resumable: {message_id}")
+        raw.update(changes)
+        if meta_updates:
+            current_meta = raw.get("meta")
+            merged_meta = dict(current_meta) if isinstance(current_meta, dict) else {}
+            merged_meta.update(meta_updates)
+            raw["meta"] = merged_meta
+        store._write_atomic(path, raw)
+        return store.RelayMessage.from_dict(raw)
 
 
 def mark_busy(
@@ -55,16 +145,14 @@ def mark_busy(
     normalized_kind = str(kind or "").strip().lower()
     if normalized_kind not in {"", "message", "turn", "repair"}:
         raise ValueError(f"unsupported relay message kind: {kind}")
-    meta = dict(current.meta)
-    if normalized_kind:
-        meta["kind"] = normalized_kind
+    meta_updates = {"kind": normalized_kind} if normalized_kind else None
     return _update_claimed_message(
         root,
         message_id,
         lifecycle="busy",
         busy_at=time.time(),
         claimed_by=str(claimed_by or "")[:128],
-        meta=meta,
+        meta_updates=meta_updates,
     )
 
 
@@ -104,7 +192,12 @@ def resume_claimed(root: Path, message_id: str = "") -> store.RelayMessage | Non
             replied_targets.add(target)
 
     wanted = str(message_id or "").strip()
-    for path in sorted(claimed.glob("*.json")):
+    if wanted:
+        exact = _claimed_message_path(root, wanted)
+        candidates = [exact] if exact is not None else []
+    else:
+        candidates = sorted(claimed.glob("*.json"))
+    for path in candidates:
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -125,28 +218,46 @@ def resume_claimed(root: Path, message_id: str = "") -> store.RelayMessage | Non
     return None
 
 
-def relay_snapshot(root: Path, *, limit: int = 50) -> dict[str, Any]:
-    """Return bounded lifecycle state without exposing message bodies."""
-    inbox, claimed, replies = store._dirs(root)
-    summaries: list[dict[str, Any]] = []
-    counts = {"queued": 0, "claimed": 0, "busy": 0, "replied": 0}
-
-    def append_message(path: Path, folder: str) -> None:
+def outstanding_depth(root: Path) -> int:
+    """Count unique claimed/busy records for the hot empty-poll path."""
+    _inbox, claimed, _replies = store._dirs(root)
+    outstanding_ids: set[str] = set()
+    for path in claimed.glob("*.json"):
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return
+            continue
+        if not isinstance(raw, dict) or "lifecycle" not in raw:
+            continue
+        message_id = str(raw.get("id") or "")
+        if message_id and raw.get("lifecycle") != "replied":
+            outstanding_ids.add(message_id)
+    return len(outstanding_ids)
+
+
+def relay_snapshot(root: Path, *, limit: int = 50) -> dict[str, Any]:
+    """Return exact lifecycle depths and bounded body-free metadata."""
+    inbox, claimed, replies = store._dirs(root)
+    summaries_by_id: dict[str, dict[str, Any]] = {}
+    counts = {"queued": 0, "claimed": 0, "busy": 0, "replied": 0}
+
+    def read_message(path: Path, folder: str) -> dict[str, Any] | None:
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
         if not isinstance(raw, dict):
-            return
+            return None
         if folder == "claimed" and "lifecycle" not in raw:
-            return
+            return None
         msg = store.RelayMessage.from_dict(raw)
+        if not msg.id:
+            return None
         lifecycle = msg.lifecycle
         if folder == "inbox":
             lifecycle = "queued"
         elif lifecycle not in {"busy", "replied"}:
             lifecycle = "claimed"
-        counts[lifecycle] += 1
         meta = msg.meta if isinstance(msg.meta, dict) else {}
         kind = str(
             meta.get("kind")
@@ -154,30 +265,39 @@ def relay_snapshot(root: Path, *, limit: int = 50) -> dict[str, Any]:
             or meta.get("type")
             or "message"
         )
-        summaries.append(
-            {
-                "id": msg.id,
-                "lifecycle": lifecycle,
-                "kind": kind,
-                "sender": msg.sender,
-                "created_at": msg.created_at,
-                "claimed_at": msg.claimed_at,
-                "busy_at": msg.busy_at,
-                "replied_at": msg.replied_at,
-                "claimed_by": msg.claimed_by,
-                "reply_id": msg.reply_id,
-                "transport": str(meta.get("transport") or ""),
-                "source": str(meta.get("source") or ""),
-                "sequence": meta.get("sequence"),
-            }
-        )
+        return {
+            "id": msg.id,
+            "lifecycle": lifecycle,
+            "kind": kind,
+            "sender": msg.sender,
+            "created_at": msg.created_at,
+            "claimed_at": msg.claimed_at,
+            "busy_at": msg.busy_at,
+            "replied_at": msg.replied_at,
+            "claimed_by": msg.claimed_by,
+            "reply_id": msg.reply_id,
+            "transport": str(meta.get("transport") or ""),
+            "source": str(meta.get("source") or ""),
+            "sequence": meta.get("sequence"),
+        }
 
     for path in sorted(inbox.glob("*.json")):
-        append_message(path, "inbox")
+        summary = read_message(path, "inbox")
+        if summary is not None:
+            summaries_by_id.setdefault(summary["id"], summary)
     for path in sorted(claimed.glob("*.json")):
-        append_message(path, "claimed")
+        summary = read_message(path, "claimed")
+        if summary is not None:
+            # A claimed copy wins when a failed Windows move leaves the locked
+            # inbox name behind. Counting both would invent queued work.
+            summaries_by_id[summary["id"]] = summary
 
-    summaries.sort(key=lambda item: (float(item.get("created_at") or 0.0), item["id"]))
+    summaries = sorted(
+        summaries_by_id.values(),
+        key=lambda item: (float(item.get("created_at") or 0.0), item["id"]),
+    )
+    for item in summaries:
+        counts[item["lifecycle"]] += 1
     bounded = summaries[: max(0, min(int(limit), 200))]
     poll_age = store.agent_poll_age(root)
     return {

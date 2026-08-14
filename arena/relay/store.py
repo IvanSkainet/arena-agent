@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import os
+import re
 import tempfile
 import time
 import uuid
@@ -38,6 +40,15 @@ MAX_BODY_BYTES = 64 * 1024
 
 POLL_INTERVAL_S = 0.2
 POLL_FRESH_S = 60.0
+MESSAGE_ID_RE = re.compile(r"^[0-9a-f]{12}$")
+LOGGER = logging.getLogger(__name__)
+
+
+def validate_message_id(value: Any) -> str:
+    message_id = str(value or "").strip()
+    if not MESSAGE_ID_RE.fullmatch(message_id):
+        raise ValueError("message id must be exactly 12 lowercase hexadecimal characters")
+    return message_id
 
 
 def _optional_float(value: Any) -> float | None:
@@ -148,8 +159,12 @@ def agent_poll_age(root: Path, *, now: Any = time.time) -> float | None:
     path = root / "agent_activity.json"
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-        polled_at = float(raw.get("polled_at"))
+        if not isinstance(raw, dict):
+            return None
+        polled_at = _optional_float(raw.get("polled_at"))
     except (OSError, TypeError, ValueError):
+        return None
+    if polled_at is None:
         return None
     return max(0.0, float(now()) - polled_at)
 
@@ -295,6 +310,7 @@ def post_reply(root: Path, in_reply_to: str, body: str, *,
     """Answer a message. The operator picks this up with `read_replies`."""
     if not isinstance(in_reply_to, str) or not in_reply_to.strip():
         raise ValueError("in_reply_to is required")
+    target_id = validate_message_id(in_reply_to)
     if not isinstance(body, str) or not body.strip():
         raise ValueError("reply body is required")
     encoded = body.encode("utf-8")
@@ -307,24 +323,28 @@ def post_reply(root: Path, in_reply_to: str, body: str, *,
         body=body,
         sender=sender,
         created_at=replied_at,
-        meta={"in_reply_to": in_reply_to},
-        lifecycle="reply",
+        meta={"in_reply_to": target_id},
+        lifecycle="replied",
     )
     name = f"{msg.created_at:015.4f}-{msg.id}.json"
     _write_atomic(replies / name, msg.to_dict())
     # The durable original remains in claimed/. Mark it replied so a fresh
     # Arena session never resumes completed work after the operator has already
     # consumed the reply. Legacy/orphan replies remain supported.
-    with contextlib.suppress(ValueError, OSError):
+    try:
         # Lazy import avoids a store<->lifecycle import cycle at module load.
         from arena.relay.lifecycle import mark_replied
 
         mark_replied(
             root,
-            in_reply_to,
+            target_id,
             replied_at=replied_at,
             reply_id=msg.id,
         )
+    except (ValueError, OSError) as exc:
+        # The correlated reply is already durable and must still be delivered.
+        # Record lifecycle degradation without logging the reply body.
+        LOGGER.warning("relay lifecycle mark_replied failed for %s: %s", target_id, exc)
     return msg
 
 
