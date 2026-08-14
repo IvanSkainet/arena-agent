@@ -63,7 +63,7 @@ def test_compatibility_manifest_is_exact_and_commit_pinned() -> None:
     assert value["repository"] == "StanislavSmetaninSSM/The-Book-of-Eternity-Reborn"
     assert value["defaultBranch"] == "main"
     assert re.fullmatch(r"[0-9a-f]{40}", value["commit"])
-    assert value["commit"] == "11ddf9f5a0d1d5d8ccebedf576f8f5621162d168"
+    assert value["commit"] == "385979a01c08863cf3018b399aad7799b58b8929"
     assert value["protocolRevision"] == "boe-gm-terminal-relay-v1"
 
 
@@ -260,7 +260,7 @@ def test_documentation_keeps_transport_and_game_engine_boundaries_separate() -> 
     text = DOC.read_text(encoding="utf-8")
     assert "The Book of Eternity: Reborn" in text
     assert "transport, not a second game engine" in text
-    assert "11ddf9f5a0d1d5d8ccebedf576f8f5621162d168" in text
+    assert "385979a01c08863cf3018b399aad7799b58b8929" in text
     assert "arena-relay terminal" in text
     flattened = " ".join(text.split())
     assert "does not implement game rules" in flattened
