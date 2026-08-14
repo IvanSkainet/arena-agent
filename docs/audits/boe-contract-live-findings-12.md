@@ -44,6 +44,27 @@ evidence is inspected.
   - bind checkout, evidence, and artifact naming to the pull-request head SHA
     rather than GitHub's synthetic pull-request merge SHA.
 
+## Run 31784757070 — multiline visibility needle crossed a line break
+
+- Exact Arena head and evidence SHA:
+  `5ae27d74659295e880d4bc1c9a44aa6fa24201e6`.
+- The relay launch fix worked: diagnostics contained the real
+  `Arena Terminal Relay` banner, READY footer, and the first long bracketed
+  paste. The game helper/shell, Arena server, synthetic consumer, and temporary
+  workspace all shut down cleanly; the primary failure remained intact in the
+  uploaded evidence.
+- Live failure: upstream `dispatchPrompt` refused to send Enter because its
+  visibility policy did not recognize the pasted first prompt.
+- Root cause: the game builds a 24-character visibility needle after compacting
+  prompt whitespace, while the visible PTY text retains line breaks. The
+  harness's short first line put a compacted space inside the needle, so that
+  needle could not occur verbatim in the multiline terminal output even though
+  the output visibly contained the prompt.
+- Resolution in Arena scope: keep every dispatch's unique first line at least
+  24 characters long. This exercises the upstream safeguard instead of adding
+  a broad configured marker that could match stale output from an earlier
+  dispatch. No C# policy or game rule is copied or changed.
+
 ## Acceptance gate
 
 Do not mark T41 complete from static tests or from the passed setup/build steps.

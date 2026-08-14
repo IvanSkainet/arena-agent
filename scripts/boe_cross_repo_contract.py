@@ -225,7 +225,7 @@ def _dispatches() -> list[DispatchSpec]:
             request_id="boe-contract-turn-1",
             turn_number=101,
             prompt=(
-                "Process turn #101\n"
+                "Process Book of Eternity turn #101 contract\n"
                 "sessionId: boe-contract-session\n"
                 "requestId: boe-contract-turn-1\n"
                 "Read input/turn_request.json.\n"
@@ -239,7 +239,7 @@ def _dispatches() -> list[DispatchSpec]:
             request_id="boe-contract-turn-2",
             turn_number=102,
             prompt=(
-                "Process turn #102\n"
+                "Process Book of Eternity turn #102 contract\n"
                 "sessionId: boe-contract-session\n"
                 "requestId: boe-contract-turn-2\n"
                 "This is the second consecutive ConPTY dispatch.\n"
@@ -252,7 +252,7 @@ def _dispatches() -> list[DispatchSpec]:
             request_id="boe-contract-turn-2",
             turn_number=102,
             prompt=(
-                "VALIDATION REPAIR MODE\n"
+                "VALIDATION REPAIR MODE for turn #102\n"
                 "sessionId: boe-contract-session\n"
                 "requestId: boe-contract-turn-2\n"
                 "turnNumber: 102\n"

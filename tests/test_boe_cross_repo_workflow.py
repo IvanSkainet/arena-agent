@@ -174,6 +174,9 @@ def test_harness_defines_two_turns_then_correlated_repair_without_game_rules() -
     assert [item.kind for item in dispatches] == ["turn", "turn", "repair"]
     assert [item.turn_number for item in dispatches] == [101, 102, 102]
     assert all("\n" in item.prompt for item in dispatches)
+    first_lines = [item.prompt.splitlines()[0] for item in dispatches]
+    assert len(set(first_lines)) == len(dispatches)
+    assert all(len(line) >= 24 for line in first_lines)
     assert len(dispatches[0].prompt) > 2_000
     assert dispatches[1].request_id == dispatches[2].request_id
 
