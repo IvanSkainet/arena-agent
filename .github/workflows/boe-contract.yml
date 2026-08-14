@@ -34,6 +34,9 @@ on:
 
 permissions: {}
 
+env:
+  ARENA_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
 concurrency:
   group: boe-contract-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -54,7 +57,7 @@ jobs:
       - name: Checkout Arena exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.ARENA_SOURCE_SHA }}
           persist-credentials: false
 
       - name: Resolve pinned game contract
@@ -171,7 +174,7 @@ jobs:
       - name: Run real Windows ConPTY cross-repository contract
         shell: pwsh
         env:
-          ARENA_COMMIT: ${{ github.sha }}
+          ARENA_COMMIT: ${{ env.ARENA_SOURCE_SHA }}
           GAME_REPOSITORY: ${{ steps.pin.outputs.game_repository }}
           GAME_COMMIT: ${{ steps.pin.outputs.game_sha }}
         run: |
@@ -188,18 +191,36 @@ jobs:
 
       - name: Verify bounded machine-readable evidence
         shell: pwsh
+        env:
+          ARENA_COMMIT: ${{ env.ARENA_SOURCE_SHA }}
+          GAME_COMMIT: ${{ steps.pin.outputs.game_sha }}
         run: |
           $ErrorActionPreference = 'Stop'
           $path = Join-Path $env:RUNNER_TEMP 'boe-evidence/contract-evidence.json'
           $evidence = Get-Content $path -Raw | ConvertFrom-Json
           if ($evidence.status -ne 'success') { throw 'contract evidence is not successful' }
+          if ($evidence.arenaCommit -ne $env:ARENA_COMMIT -or
+              $evidence.gameCommit -ne $env:GAME_COMMIT) {
+            throw 'contract evidence source SHA mismatch'
+          }
           if (@($evidence.dispatches).Count -ne 3) { throw 'expected three dispatches' }
           if (@($evidence.terminalSignals).Count -ne 3) { throw 'expected three terminal signals' }
           if ($evidence.mailbox.inboxDepth -ne 0 -or $evidence.mailbox.replyDepth -ne 0) {
             throw 'relay mailbox did not drain'
           }
+          if (-not $evidence.gmBridge.helperPid -or -not $evidence.gmBridge.shellPid) {
+            throw 'GM bridge process identity evidence is missing'
+          }
           if (@($evidence.gmBridge.remainingProcessIds).Count -ne 0) {
             throw 'GM bridge process tree survived shutdown'
+          }
+          if (-not $evidence.arenaBridge.shutdown) {
+            throw 'Arena Bridge server process survived shutdown'
+          }
+          if (-not $evidence.cleanup.agentConsumerStopped -or
+              -not $evidence.cleanup.temporaryDirectoryRemoved -or
+              @($evidence.cleanup.errors).Count -ne 0) {
+            throw 'contract runtime cleanup failed'
           }
           if (($path | Get-Item).Length -gt 65536) { throw 'evidence exceeded 64 KiB bound' }
 
@@ -207,7 +228,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: boe-cross-repo-${{ github.sha }}
+          name: boe-cross-repo-${{ env.ARENA_SOURCE_SHA }}
           path: |
             ${{ runner.temp }}/boe-evidence/*
             ${{ runner.temp }}/arena-release-verification.json

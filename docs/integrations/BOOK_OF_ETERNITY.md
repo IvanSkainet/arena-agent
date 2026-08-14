@@ -27,9 +27,11 @@ prove the new revision before merge.
 `.github/workflows/boe-contract.yml` runs on `windows-latest` and uses real
 process boundaries:
 
-1. check out Arena and the exact game commit;
-2. build and structurally verify the Arena release ZIP, then extract it;
-3. build the upstream `BookOfEternityGMBridge` project;
+1. resolve and check out the exact Arena source SHA (the PR head for pull requests);
+2. build and structurally verify the Arena release ZIP from that still-clean tree,
+   then extract it;
+3. check out the exact game commit and build the upstream
+   `BookOfEternityGMBridge` project;
 4. run selected upstream PowerShell terminal-signal and validation-repair
    contracts;
 5. start the extracted Arena Bridge artifact on loopback with an ephemeral
@@ -59,11 +61,14 @@ Every run uploads a bounded artifact named `boe-cross-repo-<arena-sha>` with:
 - correlated terminal-signal summaries;
 - final mailbox depths;
 - GM bridge helper/shell process IDs and shutdown result;
-- bounded Arena server log tail.
+- Arena server PID and confirmed shutdown;
+- atomic-file scan plus confirmed removal of the temporary live workspace;
+- bounded Arena server log tail and bounded GM diagnostics.
 
 Tokens are never written to the evidence. The JSON file is capped at 64 KiB.
 A failed run uploads whatever bounded evidence exists instead of converting a
-missing report into success.
+missing report into success. Live failures and their corrective iterations are
+tracked separately in `docs/audits/boe-contract-live-findings-12.md`.
 
 ## Release and manual operation
 

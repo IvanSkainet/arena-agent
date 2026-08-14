@@ -105,6 +105,9 @@ def test_workflow_checks_out_exact_game_pin_and_rejects_stale_upstream() -> None
     assert "git -C game rev-parse HEAD" in run
     assert "repository: ${{ steps.pin.outputs.game_repository }}" in raw
     assert "ref: ${{ steps.pin.outputs.game_sha }}" in raw
+    assert "ARENA_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}" in raw
+    assert "ref: ${{ env.ARENA_SOURCE_SHA }}" in raw
+    assert "ARENA_COMMIT: ${{ env.ARENA_SOURCE_SHA }}" in raw
     assert "persist-credentials: false" in raw
 
 
@@ -119,9 +122,13 @@ def test_workflow_builds_release_and_game_then_runs_real_contract() -> None:
         "scripts/boe_cross_repo_contract.py",
         "arena-artifact/arena-bridge",
         "contract-evidence.json",
+        "contract evidence source SHA mismatch",
         "expected three dispatches",
         "relay mailbox did not drain",
+        "GM bridge process identity evidence is missing",
         "GM bridge process tree survived shutdown",
+        "Arena Bridge server process survived shutdown",
+        "contract runtime cleanup failed",
     ):
         assert required in run
     assert "runs-on: windows-latest" in WORKFLOW.read_text(encoding="utf-8")
@@ -172,12 +179,16 @@ def test_harness_defines_two_turns_then_correlated_repair_without_game_rules() -
 
     source = HARNESS.read_text(encoding="utf-8")
     assert "arena-relay" in source
+    assert 'f"& {_powershell_literal(sys.executable)} "' in source
+    assert module._powershell_literal("C:\\O'Brien\\relay.py") == "'C:\\O''Brien\\relay.py'"
     assert "dispatchPrompt" in source
     assert "/v1/relay/poll?wait=25" in source
     assert "/v1/relay/reply" in source
     assert "complete_turn" in source
     assert "repair_ready" in source
     assert "remainingProcessIds" in source
+    assert "shutil.rmtree(temp)" in source
+    assert "temporaryDirectoryRemoved" in source
     assert "dice" not in source.lower()
 
 

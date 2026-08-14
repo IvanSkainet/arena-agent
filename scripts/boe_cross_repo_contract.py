@@ -14,6 +14,7 @@ import importlib
 import json
 import os
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -143,6 +144,11 @@ def _powershell() -> str:
         if probe.returncode == 0:
             return candidate
     raise ContractFailure("PowerShell is required for the game control script")
+
+
+def _powershell_literal(value: str) -> str:
+    """Quote one literal for the PowerShell command hosted by the game bridge."""
+    return "'" + value.replace("'", "''") + "'"
 
 
 def _run_control(
@@ -411,7 +417,10 @@ def _wait_for_terminal_ready(
     session: Path,
     environment: dict[str, str],
 ) -> dict[str, Any]:
+    last_value: dict[str, Any] | None = None
+
     def probe() -> dict[str, Any] | None:
+        nonlocal last_value
         value = _control_json(
             powershell,
             control_script,
@@ -420,6 +429,7 @@ def _wait_for_terminal_ready(
             environment=environment,
             timeout=10,
         )
+        last_value = value
         status = value.get("status") or {}
         diagnostics = value.get("diagnostics") or {}
         output = str(diagnostics.get("recentOutputTail") or "")
@@ -427,7 +437,21 @@ def _wait_for_terminal_ready(
             return value
         return None
 
-    return _wait_until("Arena terminal relay READY state", probe, STARTUP_TIMEOUT_SECONDS)
+    try:
+        return _wait_until("Arena terminal relay READY state", probe, STARTUP_TIMEOUT_SECONDS)
+    except ContractFailure as exc:
+        value = last_value or {}
+        status = value.get("status") or {}
+        diagnostics = value.get("diagnostics") or {}
+        summary = {
+            key: status.get(key)
+            for key in ("state", "ready", "lastError", "shellPid", "cliProcessId")
+        }
+        output = str(diagnostics.get("recentOutputTail") or "")[-2_000:]
+        raise ContractFailure(
+            f"{exc}; status={json.dumps(summary, ensure_ascii=False)}; "
+            f"recentOutputTail={output!r}"
+        ) from exc
 
 
 def _process_exists(pid: int) -> bool:
@@ -473,247 +497,367 @@ def run_contract(args: argparse.Namespace) -> int:
     token = "boe-contract-" + secrets.token_urlsafe(24)
     port = _free_port()
     powershell = _powershell()
+    temp = Path(tempfile.mkdtemp(prefix="boe-cross-repo-"))
+    session = temp / "game_session"
+    server_log = temp / "bridge-server.log"
+    status_path = session / "game_state" / "control" / "gm_bridge_status.json"
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "ARENA_TOKEN": token,
+            "ARENA_BRIDGE_URL": f"http://127.0.0.1:{port}",
+            "PYTHONUTF8": "1",
+        }
+    )
+
     server: subprocess.Popen[str] | None = None
     server_log_handle = None
     agent: threading.Thread | None = None
     helper_pids: list[int] = []
+    status: dict[str, Any] = {}
+    diagnostics: dict[str, Any] = {}
+    shutdown: dict[str, Any] = {}
+    bridge_shutdown = False
+    primary_error: Exception | None = None
+    cleanup_errors: list[str] = []
+
+    def record_diagnostics(value: dict[str, Any]) -> None:
+        diagnostic_status = value.get("status") or {}
+        diagnostic_body = value.get("diagnostics") or {}
+        recent_output = str(diagnostic_body.get("recentOutputTail") or "")
+        evidence["gmBridge"] = {
+            "helperPid": diagnostic_status.get("helperPid") or status.get("helperPid"),
+            "shellPid": diagnostic_status.get("shellPid") or status.get("shellPid"),
+            "state": diagnostic_status.get("state"),
+            "ready": diagnostic_status.get("ready"),
+            "lastError": diagnostic_status.get("lastError"),
+            "lastOutputVersion": diagnostic_body.get("outputVersion"),
+            "recentOutputTail": recent_output.replace(token, "<redacted>")[-3_000:],
+        }
 
     try:
         boe_relay = _install_artifact_package(arena_root)
         from arena.constants import VERSION  # noqa: PLC0415
 
         evidence["arenaVersion"] = VERSION
-        with tempfile.TemporaryDirectory(prefix="boe-cross-repo-") as temp_value:
-            temp = Path(temp_value)
-            session = temp / "game_session"
-            session.mkdir()
-            server_log = temp / "bridge-server.log"
-            server_log_handle = server_log.open("w", encoding="utf-8")
-            environment = dict(os.environ)
-            environment.update(
-                {
-                    "ARENA_TOKEN": token,
-                    "ARENA_BRIDGE_URL": f"http://127.0.0.1:{port}",
-                    "PYTHONUTF8": "1",
-                }
-            )
-            launch_command = (
-                f'"{sys.executable}" "{terminal_script}" '
-                f"--url http://127.0.0.1:{port} terminal "
-                "--sender boe-game-daemon --source boe-cross-repo-ci "
-                "--reply-timeout 60"
-            )
-            _write_json(
-                session / "config.json",
-                {
-                    "GmBridgeEnabled": True,
-                    "GmBridgeBackend": "ConPTYBridge",
-                    "GmCliLaunchCommand": launch_command,
-                    "GmBridgeShellWorkingDirectory": str(session),
-                    "GmBridgeAutoStart": False,
-                    "GmBridgePipeNameOverride": "boe-contract-" + secrets.token_hex(8),
-                    "GmWorkerBridgeProfiles": [],
-                },
-            )
+        session.mkdir()
+        server_log_handle = server_log.open("w", encoding="utf-8")
+        launch_command = (
+            f"& {_powershell_literal(sys.executable)} "
+            f"{_powershell_literal(str(terminal_script))} "
+            f"--url http://127.0.0.1:{port} terminal "
+            "--sender boe-game-daemon --source boe-cross-repo-ci "
+            "--reply-timeout 60"
+        )
+        _write_json(
+            session / "config.json",
+            {
+                "GmBridgeEnabled": True,
+                "GmBridgeBackend": "ConPTYBridge",
+                "GmCliLaunchCommand": launch_command,
+                "GmBridgeShellWorkingDirectory": str(session),
+                "GmBridgeAutoStart": False,
+                "GmBridgePipeNameOverride": "boe-contract-" + secrets.token_hex(8),
+                "GmWorkerBridgeProfiles": [],
+            },
+        )
 
-            server = subprocess.Popen(
-                [
-                    sys.executable,
-                    str(server_script),
-                    "serve",
-                    "--bind",
-                    "127.0.0.1",
-                    "--port",
-                    str(port),
-                    "--token",
-                    token,
-                    "--root",
-                    str(temp / "bridge-root"),
-                ],
-                cwd=arena_root,
-                stdout=server_log_handle,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                env=environment,
-            )
-            client = BridgeHttp(port, token)
+        server = subprocess.Popen(
+            [
+                sys.executable,
+                str(server_script),
+                "serve",
+                "--bind",
+                "127.0.0.1",
+                "--port",
+                str(port),
+                "--token",
+                token,
+                "--root",
+                str(temp / "bridge-root"),
+            ],
+            cwd=arena_root,
+            stdout=server_log_handle,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            env=environment,
+        )
+        client = BridgeHttp(port, token)
 
-            def healthy() -> bool:
-                if server is not None and server.poll() is not None:
-                    raise ContractFailure(
-                        f"Arena Bridge exited during startup: {_tail(server_log)}"
-                    )
-                connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
-                try:
-                    connection.request("GET", "/health")
-                    response = connection.getresponse()
-                    value = json.loads(response.read())
-                    return response.status == 200 and value.get("ok") is True
-                finally:
-                    connection.close()
+        def healthy() -> bool:
+            if server is not None and server.poll() is not None:
+                raise ContractFailure(
+                    f"Arena Bridge exited during startup: {_tail(server_log)}"
+                )
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+            try:
+                connection.request("GET", "/health")
+                response = connection.getresponse()
+                value = json.loads(response.read())
+                return response.status == 200 and value.get("ok") is True
+            finally:
+                connection.close()
 
-            _wait_until("Arena Bridge health", healthy, STARTUP_TIMEOUT_SECONDS)
+        _wait_until("Arena Bridge health", healthy, STARTUP_TIMEOUT_SECONDS)
 
-            dispatches = _dispatches()
-            records: list[dict[str, Any]] = []
-            completed = [threading.Event() for _ in dispatches]
-            agent_errors: list[str] = []
-            agent = _start_agent(
-                client,
-                session,
-                dispatches,
-                boe_relay,
-                records,
-                completed,
-                agent_errors,
-            )
+        dispatches = _dispatches()
+        records: list[dict[str, Any]] = []
+        completed = [threading.Event() for _ in dispatches]
+        agent_errors: list[str] = []
+        agent = _start_agent(
+            client,
+            session,
+            dispatches,
+            boe_relay,
+            records,
+            completed,
+            agent_errors,
+        )
 
+        _run_control(
+            powershell,
+            control_script,
+            session,
+            "start-bridge",
+            environment=environment,
+            timeout=30,
+        )
+        status = _wait_until(
+            "GM bridge status file",
+            lambda: _read_json(status_path) if status_path.exists() else None,
+            STARTUP_TIMEOUT_SECONDS,
+        )
+        helper_pids = [
+            int(value)
+            for value in (status.get("helperPid"), status.get("shellPid"))
+            if isinstance(value, int) and value > 0
+        ]
+        _control_json(
+            powershell,
+            control_script,
+            session,
+            "ready",
+            environment=environment,
+        )
+        diagnostics = _wait_for_terminal_ready(
+            powershell,
+            control_script,
+            session,
+            environment,
+        )
+
+        signals: list[dict[str, Any]] = []
+        for index, dispatch in enumerate(dispatches):
+            _prepare_request(session, dispatch)
+            prompt_path = temp / f"prompt-{index + 1}.txt"
+            prompt_path.write_text(dispatch.prompt, encoding="utf-8")
             _run_control(
                 powershell,
                 control_script,
                 session,
-                "start-bridge",
+                "dispatchPrompt",
                 environment=environment,
-                timeout=30,
+                prompt_path=prompt_path,
+                timeout=DISPATCH_TIMEOUT_SECONDS,
             )
-            status_path = session / "game_state" / "control" / "gm_bridge_status.json"
-            status = _wait_until(
-                "GM bridge status file",
-                lambda: _read_json(status_path) if status_path.exists() else None,
-                STARTUP_TIMEOUT_SECONDS,
-            )
-            helper_pids = [
-                int(value)
-                for value in (status.get("helperPid"), status.get("shellPid"))
-                if isinstance(value, int) and value > 0
-            ]
-            _control_json(
-                powershell,
-                control_script,
-                session,
-                "ready",
-                environment=environment,
-            )
-            _wait_for_terminal_ready(
+            if not completed[index].wait(DISPATCH_TIMEOUT_SECONDS):
+                raise ContractFailure(f"agent did not complete dispatch {index + 1}")
+            if agent_errors:
+                raise ContractFailure(agent_errors[0])
+            signals.append(_assert_correlated_signal(session, dispatch))
+            diagnostics = _wait_for_terminal_ready(
                 powershell,
                 control_script,
                 session,
                 environment,
             )
 
-            signals: list[dict[str, Any]] = []
-            for index, dispatch in enumerate(dispatches):
-                _prepare_request(session, dispatch)
-                prompt_path = temp / f"prompt-{index + 1}.txt"
-                prompt_path.write_text(dispatch.prompt, encoding="utf-8")
-                _run_control(
+        agent.join(timeout=10)
+        if agent.is_alive():
+            raise ContractFailure("agent consumer did not exit after three dispatches")
+        if len(records) != EXPECTED_DISPATCH_COUNT:
+            raise ContractFailure(f"expected three dispatch records, got {len(records)}")
+
+        relay_status = client.request("GET", "/v1/relay/status")
+        if relay_status.get("inbox_depth") != 0 or relay_status.get("reply_depth") != 0:
+            raise ContractFailure(f"relay mailbox did not drain: {relay_status}")
+
+        leftovers = [
+            str(path.relative_to(session))
+            for path in session.rglob("*")
+            if path.is_file()
+            and (path.name.endswith(".partial") or path.name.startswith(".tmp_boe_"))
+        ]
+        if leftovers:
+            raise ContractFailure(f"atomic temporary files survived: {leftovers}")
+
+        diagnostics = _control_json(
+            powershell,
+            control_script,
+            session,
+            "diagnostics",
+            environment=environment,
+        )
+        shutdown = _control_json(
+            powershell,
+            control_script,
+            session,
+            "shutdown-bridge",
+            environment=environment,
+            timeout=45,
+        )
+        remaining = list(shutdown.get("remainingProcessIds") or [])
+        if remaining:
+            raise ContractFailure(f"GM bridge left processes alive: {remaining}")
+        for pid in helper_pids:
+            _wait_until(
+                f"GM bridge process {pid} exit",
+                lambda pid=pid: not _process_exists(pid),
+                15,
+            )
+        bridge_shutdown = True
+
+        record_diagnostics(diagnostics)
+        evidence["gmBridge"].update(
+            {
+                "shutdownStatus": shutdown.get("status"),
+                "remainingProcessIds": remaining,
+            }
+        )
+        if server_log_handle is not None:
+            server_log_handle.flush()
+        evidence.update(
+            {
+                "status": "success",
+                "dispatches": records,
+                "terminalSignals": signals,
+                "mailbox": {
+                    "inboxDepth": relay_status["inbox_depth"],
+                    "replyDepth": relay_status["reply_depth"],
+                },
+                "atomicTemporaryFiles": leftovers,
+                "bridgeLogTail": _tail(server_log, 4_000),
+            }
+        )
+    except Exception as exc:  # noqa: BLE001 - preserve exact live failure
+        primary_error = exc
+        evidence["status"] = "failure"
+        evidence["error"] = str(exc).replace(token, "<redacted>")[-4_000:]
+        if status_path.exists():
+            try:
+                diagnostics = _control_json(
                     powershell,
                     control_script,
                     session,
-                    "dispatchPrompt",
+                    "diagnostics",
                     environment=environment,
-                    prompt_path=prompt_path,
-                    timeout=DISPATCH_TIMEOUT_SECONDS,
+                    timeout=15,
                 )
-                if not completed[index].wait(DISPATCH_TIMEOUT_SECONDS):
-                    raise ContractFailure(f"agent did not complete dispatch {index + 1}")
-                if agent_errors:
-                    raise ContractFailure(agent_errors[0])
-                signals.append(_assert_correlated_signal(session, dispatch))
-                _wait_for_terminal_ready(
+                record_diagnostics(diagnostics)
+            except Exception as diagnostic_exc:  # noqa: BLE001 - bounded evidence only
+                evidence["gmBridge"] = {
+                    "helperPid": status.get("helperPid"),
+                    "shellPid": status.get("shellPid"),
+                    "diagnosticsError": str(diagnostic_exc).replace(token, "<redacted>")[-1_000:],
+                }
+    finally:
+        if not bridge_shutdown and status_path.exists():
+            try:
+                shutdown = _control_json(
                     powershell,
                     control_script,
                     session,
-                    environment,
+                    "shutdown-bridge",
+                    environment=environment,
+                    timeout=45,
+                )
+                remaining = list(shutdown.get("remainingProcessIds") or [])
+                if remaining:
+                    cleanup_errors.append(
+                        f"GM bridge cleanup left processes alive: {remaining}"
+                    )
+                else:
+                    bridge_shutdown = True
+                gm_bridge = evidence.setdefault("gmBridge", {})
+                gm_bridge["shutdownStatus"] = shutdown.get("status")
+                gm_bridge["remainingProcessIds"] = remaining
+            except Exception as cleanup_exc:  # noqa: BLE001 - report after all cleanup
+                cleanup_errors.append(
+                    "GM bridge shutdown failed: "
+                    + str(cleanup_exc).replace(token, "<redacted>")[-1_000:]
                 )
 
-            agent.join(timeout=10)
-            if agent.is_alive():
-                raise ContractFailure("agent consumer did not exit after three dispatches")
-            if len(records) != EXPECTED_DISPATCH_COUNT:
-                raise ContractFailure(f"expected three dispatch records, got {len(records)}")
-
-            relay_status = client.request("GET", "/v1/relay/status")
-            if relay_status.get("inbox_depth") != 0 or relay_status.get("reply_depth") != 0:
-                raise ContractFailure(f"relay mailbox did not drain: {relay_status}")
-
-            leftovers = [
-                str(path.relative_to(session))
-                for path in session.rglob("*")
-                if path.is_file()
-                and (path.name.endswith(".partial") or path.name.startswith(".tmp_boe_"))
-            ]
-            if leftovers:
-                raise ContractFailure(f"atomic temporary files survived: {leftovers}")
-
-            diagnostics = _control_json(
-                powershell,
-                control_script,
-                session,
-                "diagnostics",
-                environment=environment,
-            )
-            shutdown = _control_json(
-                powershell,
-                control_script,
-                session,
-                "shutdown-bridge",
-                environment=environment,
-                timeout=45,
-            )
-            remaining = list(shutdown.get("remainingProcessIds") or [])
-            if remaining:
-                raise ContractFailure(f"GM bridge left processes alive: {remaining}")
-            for pid in helper_pids:
+        for pid in helper_pids:
+            try:
                 _wait_until(
                     f"GM bridge process {pid} exit",
                     lambda pid=pid: not _process_exists(pid),
                     15,
                 )
+            except ContractFailure as cleanup_exc:
+                cleanup_errors.append(str(cleanup_exc))
 
-            evidence.update(
-                {
-                    "status": "success",
-                    "dispatches": records,
-                    "terminalSignals": signals,
-                    "mailbox": {
-                        "inboxDepth": relay_status["inbox_depth"],
-                        "replyDepth": relay_status["reply_depth"],
-                    },
-                    "gmBridge": {
-                        "helperPid": status.get("helperPid"),
-                        "shellPid": status.get("shellPid"),
-                        "lastOutputVersion": (diagnostics.get("diagnostics") or {}).get(
-                            "outputVersion"
-                        ),
-                        "shutdownStatus": shutdown.get("status"),
-                        "remainingProcessIds": remaining,
-                    },
-                    "atomicTemporaryFiles": leftovers,
-                    "bridgeLogTail": _tail(server_log, 4_000),
-                }
-            )
-    except Exception as exc:
-        evidence["status"] = "failure"
-        evidence["error"] = str(exc).replace(token, "<redacted>")[-4_000:]
-        raise
-    finally:
-        if agent is not None and agent.is_alive():
-            agent.join(timeout=1)
         if server is not None and server.poll() is None:
-            server.terminate()
             try:
-                server.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                server.kill()
-                server.wait(timeout=5)
+                server.terminate()
+                try:
+                    server.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    server.kill()
+                    server.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired) as cleanup_exc:
+                cleanup_errors.append(f"Arena Bridge shutdown failed: {cleanup_exc}")
+        evidence["arenaBridge"] = {
+            "processId": server.pid if server is not None else None,
+            "shutdown": server is None or server.poll() is not None,
+        }
+        if not evidence["arenaBridge"]["shutdown"]:
+            cleanup_errors.append("Arena Bridge server process survived shutdown")
+
+        if server_log_handle is not None:
+            server_log_handle.flush()
+        evidence["bridgeLogTail"] = _tail(server_log, 4_000).replace(token, "<redacted>")
         if server_log_handle is not None:
             server_log_handle.close()
+        if agent is not None and agent.is_alive():
+            agent.join(timeout=10)
+        agent_stopped = agent is None or not agent.is_alive()
+        if not agent_stopped:
+            cleanup_errors.append("synthetic agent consumer thread survived shutdown")
+
+        removal_error: OSError | None = None
+        for attempt in range(20):
+            try:
+                shutil.rmtree(temp)
+                removal_error = None
+                break
+            except FileNotFoundError:
+                removal_error = None
+                break
+            except OSError as exc:
+                removal_error = exc
+                if attempt < 19:
+                    time.sleep(0.25)
+        if removal_error is not None:
+            cleanup_errors.append(f"temporary workspace cleanup failed: {removal_error}")
+
+        evidence["cleanup"] = {
+            "agentConsumerStopped": agent_stopped,
+            "temporaryDirectoryRemoved": not temp.exists(),
+            "errors": cleanup_errors,
+        }
+        if cleanup_errors and primary_error is None:
+            primary_error = ContractFailure("; ".join(cleanup_errors))
+            evidence["status"] = "failure"
+            evidence["error"] = str(primary_error)[-4_000:]
         evidence_path.write_text(
             json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+
+    if primary_error is not None:
+        raise primary_error
     return 0
 
 
