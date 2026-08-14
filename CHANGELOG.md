@@ -1,3 +1,85 @@
+## v4.169.45 — 2026-08-15
+
+### Arena Agent Mode can serve as the external Game Master
+
+This release productizes the real client → daemon → ConPTY → generic relay →
+Arena Agent Mode path without adding game rules to Skainet Bridge. The Bridge
+owns transport, durable lifecycle, host files, and execution; *The Book of
+Eternity: Reborn* remains authoritative for rules, progression, validation,
+canonical state, and repair semantics.
+
+The generic relay now exposes explicit `queued → claimed → busy → replied`
+states through HTTP, MCP, CLI, and Dashboard surfaces. A fresh Arena session can
+inspect status and explicitly resume the exact durable packet after confirming
+the old session is gone. An inactive Arena session is never reported as a live
+listener: unclaimed work remains queued until a real poll occurs.
+
+Live Windows acceptance used no Codex process. Player-visible turns 4–7 passed
+through the actual game client, daemon, GMBridge/ConPTY, persistent
+`arena-relay terminal`, and Arena Agent Mode. The run proved unattended queue
+persistence, fresh-session resume from canonical host state, correlated replies,
+and a deliberate validation failure followed by the daemon-delivered bounded
+repair. The browser extension's real inline **Run** control also executed
+`relay.status` on arena.ai and inserted the result.
+
+### Independent pre-merge audit hardened malformed relay state
+
+A green PR still contained three honesty/availability failures found by direct
+sabotage:
+
+* JSON `NaN`/`Infinity` in the persisted listener heartbeat could fabricate
+  `agent_polling=true`;
+* one claimed record with a non-numeric timestamp could crash all of
+  `relay.status` and hide healthy queued work;
+* an infinite MCP status limit raised `OverflowError` instead of returning a
+  bounded response.
+
+Persisted timestamps must now be finite. Malformed claimed and reply records are
+isolated without deleting their evidence or blocking healthy traffic, and MCP
+limits fail to the bounded default. The sabotage tests failed on the prior code
+and passed after restoration.
+
+### Source-bound deterministic release candidates
+
+The release pipeline no longer signs arbitrary ZIP bytes that happened to be
+uploaded first. Two independent CI jobs build the exact commit, compare the
+archives byte-for-byte, verify canonical ZIP layout/timestamps/modes, generate an
+SPDX SBOM for the shipped ZIP, and create GitHub provenance plus SBOM
+attestations. Release signing requires the exact tag source digest, exact
+candidate workflow, exact byte-identical public ZIP pair, and the accepted
+candidate manifest before cosign signatures are produced.
+
+The same attested bytes must pass real Windows acceptance before publication and
+must remain unchanged through anonymous post-publication download and install.
+
+### Pinned cross-repository compatibility contract
+
+A Windows workflow now checks out the exact pinned commit of *The Book of
+Eternity: Reborn*, builds its real GMBridge, hosts the shipped generic terminal
+relay in ConPTY, and exercises two multiline turn dispatches plus one validation
+repair. Evidence requires exact correlation, drained queues, no partial files,
+and terminated Arena/GM process trees. A freshness gate refuses scheduled and
+release runs when upstream `main` moves beyond the reviewed compatibility pin.
+
+### Repository governance and CI efficiency
+
+`master` now requires PRs and stable aggregate checks without requiring a human
+approval for the single-maintainer agent workflow. Issue Forms and the PR
+template make root cause, sabotage, live evidence, security impact, and
+cross-repository ownership explicit. A fail-closed change classifier skips the
+expensive platform matrix only for measured documentation-only diffs. The old
+write-to-master version badge bot and its generated metadata were removed.
+
+### Validation
+
+* 8,436 tests collected; the complete local suite passed.
+* Configured coverage: 60.63%.
+* Preflight: 23/23 gates passed; Ruff, lint debt, and quality debt remained zero.
+* Bandit: 0 high/medium; Semgrep: 0 findings; pip-audit: 0 known runtime CVEs.
+* PR #29 exact head: 61/61 acceptable checks, including Linux/macOS/Windows
+  Python matrix and the real Windows ConPTY compatibility contract.
+* Post-merge master checks completed with no failures.
+
 ## v4.169.44 — 2026-08-13
 
 ### A timed-out agent diagnostic survived for three hours and reached 44.5 GiB

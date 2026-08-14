@@ -1,3 +1,84 @@
+## v4.169.45 — 2026-08-15
+
+### Arena Agent Mode может работать внешним Мастером игры
+
+Релиз доводит до пользовательского состояния настоящий тракт client → daemon →
+ConPTY → generic relay → Arena Agent Mode без переноса игровых правил в Skainet
+Bridge. Мост отвечает за транспорт, устойчивый lifecycle, доступ к файлам хоста
+и выполнение; *The Book of Eternity: Reborn* остаётся владельцем правил,
+прогрессии, валидации, канонического состояния и семантики ремонта.
+
+Универсальный relay теперь показывает явные состояния
+`queued → claimed → busy → replied` через HTTP, MCP, CLI и Dashboard. Новая
+Arena-сессия может проверить статус и явно возобновить точный устойчивый пакет,
+убедившись, что старая сессия завершена. Неактивная Arena не изображается живым
+слушателем: невзятая работа остаётся в очереди до настоящего poll.
+
+Живая Windows-проверка прошла без процесса Codex. Видимые игроку ходы 4–7 прошли
+через настоящий клиент игры, daemon, GMBridge/ConPTY, постоянный
+`arena-relay terminal` и Arena Agent Mode. Проверены unattended queue
+persistence, fresh-session resume с перечитыванием канонических файлов,
+коррелированные ответы и намеренно вызванная ошибка валидации с ограниченным
+ремонтом, доставленным daemon. Реальная inline-кнопка **Run** расширения на
+arena.ai также выполнила `relay.status` и вставила результат.
+
+### Независимый pre-merge аудит укрепил обработку повреждённого relay state
+
+В зелёном PR прямой саботаж нашёл три ошибки честности и доступности:
+
+* JSON `NaN`/`Infinity` в сохранённом heartbeat мог ложно показывать
+  `agent_polling=true`;
+* одна claimed-запись с нечисловым timestamp могла обрушить весь
+  `relay.status` и скрыть здоровую очередь;
+* бесконечный MCP status limit вызывал `OverflowError` вместо ограниченного
+  ответа.
+
+Сохранённые timestamps теперь обязаны быть конечными числами. Повреждённые
+claimed/reply-записи изолируются без удаления доказательств и без блокировки
+здорового трафика, а MCP limit при переполнении возвращается к ограниченному
+значению по умолчанию. Саботаж-тесты падали на прежнем коде и прошли после
+восстановления.
+
+### Детерминированные release candidates, привязанные к исходному commit
+
+Release pipeline больше не подписывает произвольный ZIP, предварительно
+загруженный в релиз. Два независимых CI job собирают точный commit, побайтово
+сравнивают архивы, проверяют канонические layout/timestamps/modes, создают SPDX
+SBOM именно для поставляемого ZIP и публикуют GitHub provenance и SBOM
+attestations. Подпись релиза требует точный source digest тега, точный candidate
+workflow, побайтово одинаковую пару публичных ZIP и принятый candidate manifest.
+
+Те же аттестованные байты должны пройти реальную Windows-проверку до публикации
+и остаться неизменными при анонимном скачивании и установке после публикации.
+
+### Закреплённый cross-repository контракт совместимости
+
+Windows workflow извлекает точный закреплённый commit *The Book of Eternity:
+Reborn*, собирает настоящий GMBridge, запускает поставляемый generic terminal
+relay внутри ConPTY и проводит два multiline turn dispatch и один validation
+repair. Evidence требует точной корреляции, пустых очередей, отсутствия partial
+files и завершённых process trees Arena/GM. Freshness gate останавливает
+scheduled/release run, если upstream `main` ушёл дальше проверенного pin.
+
+### Governance репозитория и экономия CI
+
+`master` теперь требует PR и стабильные aggregate checks, но не требует
+человеческого approve в single-maintainer agent workflow. Issue Forms и PR
+template фиксируют root cause, sabotage, live evidence, влияние на безопасность
+и cross-repository ownership. Fail-closed classifier пропускает дорогую
+платформенную матрицу только для измеренного docs-only diff. Старый
+write-to-master version badge bot и его сгенерированное состояние удалены.
+
+### Проверки
+
+* Собрано 8 436 тестов; полный локальный набор прошёл.
+* Настроенное покрытие: 60,63%.
+* Preflight: 23/23; Ruff, lint debt и quality debt остались на нуле.
+* Bandit: 0 high/medium; Semgrep: 0; pip-audit: 0 известных runtime CVE.
+* Exact head PR #29: 61/61 допустимых checks, включая матрицу
+  Linux/macOS/Windows и настоящий Windows ConPTY compatibility contract.
+* Post-merge проверки master завершились без ошибок.
+
 ## v4.169.44 — 2026-08-13
 
 ### Diagnostic агента пережил timeout на три часа и достиг 44,5 ГиБ
