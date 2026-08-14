@@ -93,6 +93,17 @@ def test_multiline_bracketed_paste_is_one_prompt_not_many_lines() -> None:
     assert reader.read_prompt() is None
 
 
+def test_raw_windows_newlines_are_canonicalized_before_relay_dispatch() -> None:
+    raw_body = "Process turn #2\r\nRead input/turn_request.json\rThen write output files."
+    stream = io.StringIO(
+        "\x15" + BRACKETED_PASTE_START + raw_body + BRACKETED_PASTE_END + "\r"
+    )
+    reader = PromptStreamReader(stream)
+    assert reader.read_prompt() == (
+        "Process turn #2\nRead input/turn_request.json\nThen write output files."
+    )
+
+
 def test_bracketed_paste_requires_final_enter() -> None:
     body = "first\nsecond"
     without_enter = io.StringIO(BRACKETED_PASTE_START + body + BRACKETED_PASTE_END)

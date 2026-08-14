@@ -65,6 +65,24 @@ evidence is inspected.
   a broad configured marker that could match stale output from an earlier
   dispatch. No C# policy or game rule is copied or changed.
 
+## Run 31785241973 — raw ConPTY newlines changed the relay body
+
+- Exact Arena head: `f56219e1136c893f44595d2b34ba16bb8cfc3c73`.
+- The longer unique first line passed the upstream visibility safeguard. The
+  first prompt reached the authenticated mailbox, proving dispatch and Enter.
+- Live failure: the synthetic agent rejected dispatch 1 because the mailbox
+  body was not byte-for-byte equal to the LF-normalized harness prompt.
+- Root cause: `BufferedTextChunkReader` deliberately reads
+  `sys.stdin.buffer.read1()` so ConPTY input is non-greedy and UTF-8 safe, but
+  that bypasses `TextIOWrapper` universal-newline translation. Windows ConPTY
+  can surface logical multiline input as CRLF/CR, which then leaked into the
+  relay message body.
+- Resolution: canonicalize CRLF and bare CR to LF at the generic terminal
+  framing boundary before queueing. A Linux-runnable hostile-platform test
+  injects mixed Windows line endings into a real bracketed paste. Mismatch
+  failures now report only bounded lengths, digests, and newline counts rather
+  than dumping prompt contents.
+
 ## Acceptance gate
 
 Do not mark T41 complete from static tests or from the passed setup/build steps.

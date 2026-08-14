@@ -198,6 +198,17 @@ class PromptStreamReader:
             f"terminal prompt exceeds {self.max_chars} characters"
         )
 
+    @staticmethod
+    def _normalized_prompt(chars: list[str], *, strip_controls: bool = False) -> str:
+        text = "".join(chars).strip()
+        if strip_controls:
+            text = text.lstrip("\x00\x15")
+        # Raw Windows console reads bypass TextIOWrapper's universal-newline
+        # translation. ConPTY may therefore surface logical newlines as CRLF
+        # (or CR), while direct terminal input arrives as LF. Canonicalize the
+        # transport representation before it becomes a relay message.
+        return text.replace("\r\n", "\n").replace("\r", "\n")
+
     def read_prompt(self) -> str | None:
         """Return the next submitted prompt, or ``None`` on EOF."""
         prefix: list[str] = []
@@ -214,7 +225,7 @@ class PromptStreamReader:
                 # Deliver a final ordinary line at EOF, but never a truncated
                 # bracketed paste: partial instructions are worse than none.
                 if not bracketed and not conpty_dispatch and prefix:
-                    text = "".join(prefix).strip().lstrip("\x00\x15")
+                    text = self._normalized_prompt(prefix, strip_controls=True)
                     return text or None
                 return None
 
@@ -227,7 +238,7 @@ class PromptStreamReader:
             if bracketed:
                 if bracket_closed:
                     if char in "\r\n":
-                        text = "".join(payload).strip()
+                        text = self._normalized_prompt(payload)
                         return text or ""
                     # Some terminals place harmless NULs between the paste
                     # marker and Enter.  Anything else still belongs to the
@@ -254,7 +265,7 @@ class PromptStreamReader:
                 and self._chunk_is_newline_only
                 and self._chunk_wait_seconds >= self.submit_gap_seconds
             ):
-                text = "".join(prefix).strip().lstrip("\x00\x15")
+                text = self._normalized_prompt(prefix, strip_controls=True)
                 return text or ""
 
             self._checked_append(
@@ -275,7 +286,7 @@ class PromptStreamReader:
                 continue
 
             if char in "\r\n" and not conpty_dispatch:
-                text = "".join(prefix).strip().lstrip("\x00\x15")
+                text = self._normalized_prompt(prefix, strip_controls=True)
                 return text or ""
 
 

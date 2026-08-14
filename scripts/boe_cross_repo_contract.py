@@ -9,6 +9,7 @@ copying game rules into Arena.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import http.client
 import importlib
 import json
@@ -302,7 +303,15 @@ def _start_agent(
                 body = message.get("body")
                 meta = message.get("meta")
                 if body != expected.prompt:
-                    raise ContractFailure(f"dispatch {index} body changed across ConPTY")
+                    actual = body if isinstance(body, str) else repr(body)
+                    expected_digest = hashlib.sha256(expected.prompt.encode("utf-8")).hexdigest()
+                    actual_digest = hashlib.sha256(actual.encode("utf-8")).hexdigest()
+                    raise ContractFailure(
+                        f"dispatch {index} body changed across ConPTY: "
+                        f"expectedChars={len(expected.prompt)} actualChars={len(actual)} "
+                        f"expectedSha256={expected_digest} actualSha256={actual_digest} "
+                        f"actualCR={actual.count(chr(13))} actualLF={actual.count(chr(10))}"
+                    )
                 if not isinstance(meta, dict) or meta != {
                     "transport": "terminal",
                     "source": "boe-cross-repo-ci",
