@@ -94,25 +94,6 @@ jobs:
             throw "game pin is stale: pinned=$env:PINNED_SHA upstream=$upstreamSha"
           }
 
-      - name: Checkout pinned game source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ steps.pin.outputs.game_repository }}
-          ref: ${{ steps.pin.outputs.game_sha }}
-          path: game
-          persist-credentials: false
-
-      - name: Verify exact game checkout
-        shell: pwsh
-        env:
-          PINNED_SHA: ${{ steps.pin.outputs.game_sha }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $actual = git -C game rev-parse HEAD
-          if ($actual -ne $env:PINNED_SHA) {
-            throw "game checkout mismatch: expected=$env:PINNED_SHA actual=$actual"
-          }
-
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -143,6 +124,27 @@ jobs:
             --json-out (Join-Path $env:RUNNER_TEMP 'arena-release-verification.json')
           $artifactRoot = Join-Path $env:RUNNER_TEMP 'arena-artifact'
           Expand-Archive -Path $release -DestinationPath $artifactRoot
+
+      # Build Arena before the second checkout: the deterministic packer must
+      # see the exact clean Arena tree, not the intentionally untracked game/.
+      - name: Checkout pinned game source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.pin.outputs.game_repository }}
+          ref: ${{ steps.pin.outputs.game_sha }}
+          path: game
+          persist-credentials: false
+
+      - name: Verify exact game checkout
+        shell: pwsh
+        env:
+          PINNED_SHA: ${{ steps.pin.outputs.game_sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $actual = git -C game rev-parse HEAD
+          if ($actual -ne $env:PINNED_SHA) {
+            throw "game checkout mismatch: expected=$env:PINNED_SHA actual=$actual"
+          }
 
       - name: Build pinned BookOfEternityGMBridge
         run: >-

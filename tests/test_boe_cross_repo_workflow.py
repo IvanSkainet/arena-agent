@@ -125,6 +125,10 @@ def test_workflow_builds_release_and_game_then_runs_real_contract() -> None:
     ):
         assert required in run
     assert "runs-on: windows-latest" in WORKFLOW.read_text(encoding="utf-8")
+    step_names = [str(step.get("name", "")) for step in job["steps"]]
+    assert step_names.index("Build and verify the Arena release artifact") < step_names.index(
+        "Checkout pinned game source"
+    )
     assert any(
         str(step.get("uses", "")).startswith("actions/upload-artifact@")
         and step.get("if") == "always()"
