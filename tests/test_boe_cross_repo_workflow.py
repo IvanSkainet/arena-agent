@@ -109,6 +109,7 @@ def test_workflow_checks_out_exact_game_pin_and_rejects_stale_upstream() -> None
     assert "ref: ${{ env.ARENA_SOURCE_SHA }}" in raw
     assert "ARENA_COMMIT: ${{ env.ARENA_SOURCE_SHA }}" in raw
     assert "persist-credentials: false" in raw
+    assert "cache-dependency-path: requirements-ci.lock" in raw
 
 
 def test_workflow_builds_release_and_game_then_runs_real_contract() -> None:
@@ -171,6 +172,7 @@ def test_harness_defines_two_turns_then_correlated_repair_without_game_rules() -
     module = _harness()
     dispatches = module._dispatches()
     assert module.PROTOCOL_REVISION == "boe-gm-terminal-relay-v1"
+    assert len(dispatches) == module.EXPECTED_DISPATCH_COUNT
     assert [item.kind for item in dispatches] == ["turn", "turn", "repair"]
     assert [item.turn_number for item in dispatches] == [101, 102, 102]
     assert all("\n" in item.prompt for item in dispatches)
@@ -182,7 +184,11 @@ def test_harness_defines_two_turns_then_correlated_repair_without_game_rules() -
 
     source = HARNESS.read_text(encoding="utf-8")
     assert "arena-relay" in source
-    assert 'f"& {_powershell_literal(sys.executable)} "' in source
+    launch = module._terminal_launch_command(
+        "C:\\Python\\python.exe", Path("C:\\Arena Agent\\bin\\arena-relay"), 8765
+    )
+    assert launch.startswith("& ")
+    assert "terminal --sender boe-game-daemon" in launch
     assert module._powershell_literal("C:\\O'Brien\\relay.py") == "'C:\\O''Brien\\relay.py'"
     assert "dispatchPrompt" in source
     assert "/v1/relay/poll?wait=25" in source
@@ -192,7 +198,62 @@ def test_harness_defines_two_turns_then_correlated_repair_without_game_rules() -
     assert "remainingProcessIds" in source
     assert "shutil.rmtree(temp)" in source
     assert "temporaryDirectoryRemoved" in source
-    assert "dice" not in source.lower()
+    assert not re.search(r"\bdice\b", source, flags=re.IGNORECASE)
+
+
+def test_bridge_http_failure_is_bounded_and_redacts_its_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _harness()
+    token = "ephemeral-contract-secret"
+
+    class Response:
+        status = 500
+
+        @staticmethod
+        def read() -> bytes:
+            return json.dumps({"ok": False, "detail": "x" * 10_000, "token": token}).encode()
+
+    class Connection:
+        def request(self, *_args, **_kwargs) -> None:
+            pass
+
+        @staticmethod
+        def getresponse() -> Response:
+            return Response()
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(module.http.client, "HTTPConnection", lambda *_a, **_kw: Connection())
+    with pytest.raises(module.ContractFailure) as raised:
+        module.BridgeHttp(8765, token).request("GET", "/failure")
+    message = str(raised.value)
+    assert token not in message
+    assert "<redacted>" in message
+    assert len(message) < 2_200
+
+
+def test_harness_fails_closed_on_control_and_process_identity_mismatches() -> None:
+    module = _harness()
+    assert module._required_process_ids({"helperPid": 101, "shellPid": 202}) == [101, 202]
+    for status in (
+        {"helperPid": None, "shellPid": 202},
+        {"helperPid": "101", "shellPid": 202},
+        {"helperPid": 101, "shellPid": 0},
+    ):
+        with pytest.raises(module.ContractFailure, match="invalid"):
+            module._required_process_ids(status)
+
+    with pytest.raises(module.ContractFailure, match="only valid for"):
+        module._run_control(
+            "powershell.exe",
+            Path("control.ps1"),
+            Path("session"),
+            "ready",
+            environment={},
+            prompt_path=Path("prompt.txt"),
+        )
 
 
 def test_documentation_keeps_transport_and_game_engine_boundaries_separate() -> None:

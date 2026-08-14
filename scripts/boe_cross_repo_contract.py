@@ -80,8 +80,11 @@ class BridgeHttp:
                 f"bridge returned non-JSON HTTP {response.status} for {path}"
             ) from exc
         if response.status != 200 or not isinstance(decoded, dict) or not decoded.get("ok"):
+            detail = json.dumps(decoded, ensure_ascii=False).replace(
+                self.token, "<redacted>"
+            )[-2_000:]
             raise ContractFailure(
-                f"bridge request failed: {method} {path} -> {response.status}: {decoded}"
+                f"bridge request failed: {method} {path} -> {response.status}: {detail}"
             )
         return decoded
 
@@ -152,6 +155,16 @@ def _powershell_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _terminal_launch_command(executable: str, terminal_script: Path, port: int) -> str:
+    return (
+        f"& {_powershell_literal(executable)} "
+        f"{_powershell_literal(str(terminal_script))} "
+        f"--url http://127.0.0.1:{port} terminal "
+        "--sender boe-game-daemon --source boe-cross-repo-ci "
+        "--reply-timeout 60"
+    )
+
+
 def _run_control(
     powershell: str,
     control_script: Path,
@@ -172,6 +185,10 @@ def _run_control(
             + " -SessionPath $env:BOE_CONTRACT_SESSION"
         )
     else:
+        if action != "dispatchPrompt":
+            raise ContractFailure(
+                "prompt_path is only valid for the dispatchPrompt control action"
+            )
         env["BOE_CONTRACT_PROMPT"] = str(prompt_path)
         command = (
             "$prompt=[IO.File]::ReadAllText($env:BOE_CONTRACT_PROMPT,"
@@ -463,7 +480,17 @@ def _wait_for_terminal_ready(
         ) from exc
 
 
-def _process_exists(pid: int) -> bool:
+def _required_process_ids(status: dict[str, Any]) -> list[int]:
+    process_ids: list[int] = []
+    for key in ("helperPid", "shellPid"):
+        value = status.get(key)
+        if type(value) is not int or value <= 0:
+            raise ContractFailure(f"GM bridge status has invalid {key}: {value!r}")
+        process_ids.append(value)
+    return process_ids
+
+
+def _process_exists(powershell: str, pid: int) -> bool:
     if pid <= 0:
         return False
     command = (
@@ -471,7 +498,7 @@ def _process_exists(pid: int) -> bool:
         "{ exit 0 } else { exit 1 }"
     )
     result = subprocess.run(
-        [_powershell(), "-NoLogo", "-NoProfile", "-Command", command],
+        [powershell, "-NoLogo", "-NoProfile", "-Command", command],
         check=False,
         capture_output=True,
         timeout=10,
@@ -551,13 +578,7 @@ def run_contract(args: argparse.Namespace) -> int:
         evidence["arenaVersion"] = VERSION
         session.mkdir()
         server_log_handle = server_log.open("w", encoding="utf-8")
-        launch_command = (
-            f"& {_powershell_literal(sys.executable)} "
-            f"{_powershell_literal(str(terminal_script))} "
-            f"--url http://127.0.0.1:{port} terminal "
-            "--sender boe-game-daemon --source boe-cross-repo-ci "
-            "--reply-timeout 60"
-        )
+        launch_command = _terminal_launch_command(sys.executable, terminal_script, port)
         _write_json(
             session / "config.json",
             {
@@ -637,11 +658,7 @@ def run_contract(args: argparse.Namespace) -> int:
             lambda: _read_json(status_path) if status_path.exists() else None,
             STARTUP_TIMEOUT_SECONDS,
         )
-        helper_pids = [
-            int(value)
-            for value in (status.get("helperPid"), status.get("shellPid"))
-            if isinstance(value, int) and value > 0
-        ]
+        helper_pids = _required_process_ids(status)
         _control_json(
             powershell,
             control_script,
@@ -722,7 +739,7 @@ def run_contract(args: argparse.Namespace) -> int:
         for pid in helper_pids:
             _wait_until(
                 f"GM bridge process {pid} exit",
-                lambda pid=pid: not _process_exists(pid),
+                lambda pid=pid: not _process_exists(powershell, pid),
                 15,
             )
         bridge_shutdown = True
@@ -801,7 +818,7 @@ def run_contract(args: argparse.Namespace) -> int:
             try:
                 _wait_until(
                     f"GM bridge process {pid} exit",
-                    lambda pid=pid: not _process_exists(pid),
+                    lambda pid=pid: not _process_exists(powershell, pid),
                     15,
                 )
             except ContractFailure as cleanup_exc:
