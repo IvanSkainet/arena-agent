@@ -103,5 +103,20 @@ evidence is inspected.
 - `contract-evidence.json` is 7,362 bytes (below 64 KiB), contains the exact
   Arena/game SHAs, and does not contain the ephemeral bridge credential.
 
-This run satisfies T41's live acceptance gate. Issue #12 remains open only until
-PR #27 is reviewed and merged.
+This run satisfied T41's live acceptance gate for the declared pin and PR #27
+was merged.
+
+## Post-merge run 31788059685 — freshness gate caught upstream movement
+
+- Arena merge commit: `629b5e8a35590b2fd49427e85d2834d733eb771a`.
+- The non-PR run stopped fail-closed before packaging because upstream `main`
+  had advanced from tested pin `11ddf9f5a0d1d5d8ccebedf576f8f5621162d168`
+  to `385979a01c08863cf3018b399aad7799b58b8929`.
+- Inspection of the exact game diff found no changes to
+  `BookOfEternityGMBridge`, the `bookofeternity.ps1` control surface, or the
+  paste-visibility policy. The three selected upstream contracts remain
+  present. The daemon and its contract tests did change: Mortal location
+  materialization repair now carries full-turn resubmission instructions.
+- This is not converted to a warning: schedule/manual/release paths intentionally
+  require a current tested upstream pin. The compatibility manifest is advanced
+  to `385979a0` and must pass the full Windows contract before Issue #12 closes.

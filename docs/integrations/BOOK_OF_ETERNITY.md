@@ -15,7 +15,7 @@ Moving branches or tags are not accepted as compatibility evidence.
 Current upstream:
 
 - repository: `StanislavSmetaninSSM/The-Book-of-Eternity-Reborn`;
-- commit: `11ddf9f5a0d1d5d8ccebedf576f8f5621162d168`;
+- commit: `385979a01c08863cf3018b399aad7799b58b8929`;
 - protocol: `boe-gm-terminal-relay-v1`.
 
 The scheduled/manual/release paths require the pin to equal upstream `main`.
