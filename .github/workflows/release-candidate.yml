@@ -139,6 +139,10 @@ jobs:
           "$BT/aapt2" dump badging "$APK" > "$RUNNER_TEMP/apk-badging.txt"
           grep -q "package: name='ai.arena.bridge'" "$RUNNER_TEMP/apk-badging.txt"
           grep -q "versionName='$version'" "$RUNNER_TEMP/apk-badging.txt"
+          version_code=$(sed -n 's/.*android:versionCode="\([0-9][0-9]*\)".*/\1/p' \
+            android_app/AndroidManifest.xml | head -1)
+          test -n "$version_code"
+          grep -q "versionCode='$version_code'" "$RUNNER_TEMP/apk-badging.txt"
           "$BT/apksigner" verify --verbose --print-certs "$APK" \
             > "$RUNNER_TEMP/apk-signer.txt"
           grep -q '^Signer #1 certificate SHA-256 digest:' "$RUNNER_TEMP/apk-signer.txt"
