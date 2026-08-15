@@ -42,6 +42,8 @@ def validate_osv(data: dict[str, Any]) -> tuple[int, Counter[str]]:
     results = data.get("results")
     if not isinstance(results, list):
         raise ContractError("OSV report must contain a results array")
+    if any(not isinstance(item, dict) for item in results):
+        raise ContractError("OSV result entries must be objects")
     return len(results), Counter({"finding": len(results)})
 
 
@@ -53,6 +55,8 @@ def validate_cyclonedx(data: dict[str, Any]) -> tuple[int, Counter[str]]:
     components = data.get("components")
     if not isinstance(components, list):
         raise ContractError("CycloneDX report must contain a components array")
+    if any(not isinstance(item, dict) for item in components):
+        raise ContractError("CycloneDX component entries must be objects")
     return len(components), Counter({"component": len(components)})
 
 

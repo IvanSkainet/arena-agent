@@ -57,6 +57,15 @@ def check_bandit(report_path: str) -> int:
     if any(not isinstance(item, dict) for item in results):
         print("error: bandit result must be an object", file=sys.stderr)
         return 2
+    for item in results:
+        if (
+            not isinstance(item.get("issue_severity"), str)
+            or not isinstance(item.get("filename"), str)
+            or not isinstance(item.get("line_number"), int)
+            or not isinstance(item.get("test_id"), str)
+        ):
+            print("error: bandit result has missing/invalid required fields", file=sys.stderr)
+            return 2
     by_sev: dict[str, int] = {}
     for r in results:
         sev = r.get("issue_severity", "?")
@@ -103,6 +112,16 @@ def check_semgrep(report_path: str) -> int:
     if any(not isinstance(item, dict) for item in results):
         print("error: semgrep result must be an object", file=sys.stderr)
         return 2
+    for item in results:
+        start = item.get("start")
+        if (
+            not isinstance(item.get("check_id"), str)
+            or not isinstance(item.get("path"), str)
+            or not isinstance(start, dict)
+            or not isinstance(start.get("line"), int)
+        ):
+            print("error: semgrep result has missing/invalid required fields", file=sys.stderr)
+            return 2
     print(f"semgrep findings: {len(results)}")
     if not results:
         print("OK: semgrep clean across all rule packs")
@@ -133,6 +152,16 @@ def check_pip_audit(report_path: str) -> int:
     if any(not isinstance(dep, dict) for dep in deps):
         print("error: pip-audit dependency must be an object", file=sys.stderr)
         return 2
+    for dep in deps:
+        vulns = dep.get("vulns")
+        if (
+            not isinstance(dep.get("name"), str)
+            or not isinstance(dep.get("version"), str)
+            or not isinstance(vulns, list)
+            or any(not isinstance(vuln, dict) for vuln in vulns)
+        ):
+            print("error: pip-audit dependency has missing/invalid required fields", file=sys.stderr)
+            return 2
     any_cve = False
     for dep in deps:
         vulns = dep.get("vulns") or []

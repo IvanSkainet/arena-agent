@@ -80,6 +80,18 @@ def test_cyclonedx_requires_real_bom_shape(tmp_path: Path) -> None:
     assert _run("--tool", "syft", "--report", str(bad), "--format", "cyclonedx").returncode == 2
 
 
+@pytest.mark.parametrize("member", [None, "component", 7, []])
+def test_osv_and_cyclonedx_reject_malformed_array_members(tmp_path: Path, member) -> None:
+    osv = _report(tmp_path, {"results": [member]}, "osv-member.json")
+    assert _run("--tool", "osv", "--report", str(osv), "--format", "osv").returncode == 2
+    bom = _report(
+        tmp_path,
+        {"bomFormat": "CycloneDX", "specVersion": "1.6", "components": [member]},
+        "bom-member.json",
+    )
+    assert _run("--tool", "syft", "--report", str(bom), "--format", "cyclonedx").returncode == 2
+
+
 def test_grype_critical_blocks_but_high_is_advisory(tmp_path: Path) -> None:
     def match(severity: str) -> dict:
         return {"vulnerability": {"id": "CVE-test", "severity": severity}}
@@ -127,3 +139,21 @@ def test_existing_security_gate_rejects_non_object_and_missing_arrays(tmp_path: 
             text=True,
         )
         assert checked.returncode == 2, tool
+
+
+def test_existing_security_gate_rejects_incomplete_nested_findings(tmp_path: Path) -> None:
+    reports = {
+        "bandit": {"results": [{"issue_severity": "HIGH"}]},
+        "semgrep": {"results": [{"check_id": "rule"}], "errors": []},
+        "pip-audit": {"dependencies": [{"name": "dep", "version": "1", "vulns": [None]}]},
+    }
+    for tool, report in reports.items():
+        path = _report(tmp_path, report, f"{tool}.json")
+        checked = subprocess.run(
+            [sys.executable, str(SECURITY_GATE), tool, str(path)],
+            cwd=REPO,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert checked.returncode == 2, (tool, checked.stdout, checked.stderr)
