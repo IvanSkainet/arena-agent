@@ -100,6 +100,16 @@
    "tool": "mutmut 2.5.1",
    "total": 49
   },
+  "arena/exec/client_lifecycle.py": {
+   "fingerprint": "b947f6ff4bfbce51d040cb593a195f167effed67a7584d9fb18d2a3456f8453a",
+   "reason": "T44 exact target run; 0 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_exec_client_disconnect_v4_169_47.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 54
+  },
   "arena/exec/interpreters.py": {
    "fingerprint": "a879df305a9faa3f3544161d4971ada4c63ed8c7374fae82696b96f9d27ce3e4",
    "reason": "fresh run",

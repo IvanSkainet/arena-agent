@@ -36,6 +36,13 @@ from typing import Any
 from aiohttp import web
 
 from arena.app_keys import APP_CFG
+from arena.exec.client_lifecycle import (
+    ClientDisconnected,
+    await_while_client_connected,
+    client_disconnect_response,
+    forward_stream_events,
+    record_client_disconnect,
+)
 from arena.exec.interpreters import (
     _INTERPRETERS,
     _quote_path,
@@ -156,14 +163,17 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                    "timeout": timeout, "client": request.remote or "127.0.0.1"})
 
         try:
-            result = await ctx.run_shell_command(
-                request_id=request_id,
-                cmd=cmd,
-                cwd=cwd,
-                env=env,
-                timeout=timeout,
-                max_output=max_output,
-                decode_output_fn=ctx.decode_output,
+            result = await await_while_client_connected(
+                request,
+                ctx.run_shell_command(
+                    request_id=request_id,
+                    cmd=cmd,
+                    cwd=cwd,
+                    env=env,
+                    timeout=timeout,
+                    max_output=max_output,
+                    decode_output_fn=ctx.decode_output,
+                ),
             )
             event_type = "exec_timeout" if result.get("timed_out") else "exec_done"
             ctx.audit({"type": event_type, "request_id": request_id, "cmd": cmd,
@@ -177,6 +187,11 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             response = dict(result)
             response.pop("timed_out", None)
             return ctx.cors_json_response(response, status=408 if result.get("timed_out") else 200)
+        except ClientDisconnected:
+            return client_disconnect_response(
+                ctx, request, event_type="exec_client_disconnected",
+                request_id=request_id, cmd=cmd,
+            )
         except Exception as e:
             duration = 0.0
             ctx.audit({"type": "exec_error", "request_id": request_id, "cmd": cmd,
@@ -325,14 +340,17 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                        "cwd": str(cwd), "timeout": timeout,
                        "client": request.remote or "127.0.0.1"})
             try:
-                result = await ctx.run_shell_command(
-                    request_id=request_id,
-                    cmd=full_cmd,
-                    cwd=cwd,
-                    env=env,
-                    timeout=timeout,
-                    max_output=max_output,
-                    decode_output_fn=ctx.decode_output,
+                result = await await_while_client_connected(
+                    request,
+                    ctx.run_shell_command(
+                        request_id=request_id,
+                        cmd=full_cmd,
+                        cwd=cwd,
+                        env=env,
+                        timeout=timeout,
+                        max_output=max_output,
+                        decode_output_fn=ctx.decode_output,
+                    ),
                 )
                 event_type = "exec_script_timeout" if result.get("timed_out") else "exec_script_done"
                 ctx.audit({"type": event_type, "request_id": request_id,
@@ -351,6 +369,11 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 return ctx.cors_json_response(
                     response,
                     status=408 if result.get("timed_out") else 200,
+                )
+            except ClientDisconnected:
+                return client_disconnect_response(
+                    ctx, request, event_type="exec_script_client_disconnected",
+                    request_id=request_id, interpreter=interp_key,
                 )
             except Exception as e:  # noqa: BLE001
                 ctx.audit({"type": "exec_script_error", "request_id": request_id,
@@ -481,38 +504,25 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         ctx.audit({"type": "exec_stream_start", "request_id": request_id, "cmd": cmd,
                    "cwd": str(cwd), "timeout": timeout,
                    "client": request.remote or "127.0.0.1"})
-        # Header event with request_id — the runner will emit "start" once
-        # the pid is known. Two events is worth it: clients often want to
-        # tag the whole stream by request_id before the child even spawns.
-        await _emit({"type": "meta", "request_id": request_id,
-                     "cmd": cmd, "cwd": str(cwd), "timeout": timeout})
-
         exit_event: dict | None = None
+        stream = None
         try:
-            async for ev in run_shell_command_stream(
+            # Keep the first write inside the lifecycle guard: an immediate
+            # reset must still release the semaphore and active_exec count.
+            await _emit({"type": "meta", "request_id": request_id,
+                         "cmd": cmd, "cwd": str(cwd), "timeout": timeout})
+            stream = run_shell_command_stream(
                 request_id=request_id,
                 cmd=cmd,
                 cwd=cwd,
                 env=env,
                 timeout=timeout,
                 max_output=max_output,
-            ):
-                if ev["type"] in ("stdout", "stderr"):
-                    # Decode with the bridge's usual decoder so multi-byte
-                    # UTF-8 that spans chunk boundaries is best-effort
-                    # handled by the same replace policy /v1/exec uses.
-                    payload = ctx.decode_output(ev["data"])
-                    await _emit({"type": ev["type"], "data": payload,
-                                 "bytes": len(ev["data"])})
-                elif ev["type"] == "start":
-                    await _emit({"type": "start", "pid": ev.get("pid"),
-                                 "request_id": request_id})
-                elif ev["type"] == "exit":
-                    exit_event = dict(ev)
-                    exit_event["request_id"] = request_id
-                    await _emit(exit_event)
-                else:
-                    await _emit(ev)
+            )
+            exit_event = await forward_stream_events(
+                request, stream, emit=_emit, decode_output=ctx.decode_output,
+                request_id=request_id,
+            )
 
             duration = float(exit_event.get("duration_sec", 0.0)) if exit_event else 0.0
             timed_out = bool(exit_event.get("timed_out")) if exit_event else False
@@ -525,6 +535,11 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                        "stderr_bytes": exit_event.get("stderr_bytes") if exit_event else 0})
             ctx.record_request(duration=duration, is_exec=True,
                                is_error=timed_out or (exit_code != 0))
+        except ClientDisconnected:
+            record_client_disconnect(
+                ctx, request, event_type="exec_stream_client_disconnected",
+                request_id=request_id, cmd=cmd,
+            )
         except Exception as e:  # noqa: BLE001
             ctx.audit({"type": "exec_stream_error", "request_id": request_id,
                        "cmd": cmd, "error": repr(e)})
@@ -537,6 +552,8 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             except Exception:
                 pass
         finally:
+            if stream is not None:
+                await stream.aclose()
             cfg["active_exec"] -= 1
             sem.release()
             try:

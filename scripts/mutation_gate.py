@@ -139,6 +139,9 @@ TARGETS: dict[str, tuple[str, ...]] = {
         "tests/test_exec_script_path_quoting.py",
         "tests/test_exec_interpreters_parity_v4_169_37.py",
     ),
+    "arena/exec/client_lifecycle.py": (
+        "tests/test_exec_client_disconnect_v4_169_47.py",
+    ),
     "arena/workbench/runtime_fetch.py": (
         "tests/test_workbench_runtime_downloads.py",
         "tests/test_workbench_runtime_fetch_parity_v4_169_37.py",

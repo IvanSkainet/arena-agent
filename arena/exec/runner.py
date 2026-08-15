@@ -16,7 +16,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable
+from typing import Any, AsyncGenerator, Callable
 
 ACTIVE_PROCESSES: dict[str, dict[str, Any]] = {}
 
@@ -166,7 +166,7 @@ async def run_shell_command_stream(
     env: dict[str, str],
     timeout: int,
     max_output: int,
-) -> AsyncIterator[dict[str, Any]]:
+) -> AsyncGenerator[dict[str, Any], None]:
     """Run a shell command and yield stream events as bytes arrive.
 
     Yielded event shapes (all dicts, JSON-serializable):
