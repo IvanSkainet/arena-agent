@@ -36,12 +36,19 @@ def test_ship_smoke_shape(monkeypatch, tmp_path):
     monkeypatch.setattr(S.post_update_smoke, "status", lambda: {"ok": True, "pending": False, "last": None})
     monkeypatch.setattr(S, "_mcp_registry", lambda: {"ok": True, "count": 0, "servers": []})
     monkeypatch.setattr(S.platform, "system", lambda: "Windows")
+    before = S.history(limit=100)
+    before_paths = {row["path"] for row in before["records"]}
+
     out = S.run()
     assert out["ok"] is True
     assert out["mode"] == "nominal"
-    assert Path(out["report_path"]).exists()
-    hist = S.history()
-    assert hist["count"] == 1
+    report_path = Path(out["report_path"])
+    assert report_path.exists()
+
+    hist = S.history(limit=100)
+    after_paths = {row["path"] for row in hist["records"]}
+    assert hist["count"] == before["count"] + 1
+    assert after_paths - before_paths == {str(report_path)}
 
 
 def test_ship_smoke_mcp_tool(monkeypatch):
