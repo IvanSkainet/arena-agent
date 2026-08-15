@@ -117,12 +117,14 @@ def test_it_publishes_digests_too(raw):
     assert "SHA256SUMS" in raw
 
 
-def test_it_fails_closed_unless_the_exact_zip_pair_exists(raw):
-    """Missing or extra ZIP assets must never reach the signing loop."""
+def test_it_fails_closed_unless_the_exact_release_asset_set_exists(raw):
+    """Missing ZIP/APK assets or extra ZIPs must never reach signing."""
     assert "release must contain exactly" in raw
-    assert '[ "$count" -ne 2 ]' in raw
+    assert '[ "$zip_count" -ne 2 ]' in raw
     assert 'versioned="arena-agent-${TAG}.zip"' in raw
     assert 'alias="arena-agent.zip"' in raw
+    assert 'apk="arena-bridge.apk"' in raw
+    assert '[ ! -f "$apk" ]' in raw
     assert raw.count("set -euo pipefail") >= 4, (
         "each run block needs strict mode, or a failed command mid-script "
         "leaves the job green")

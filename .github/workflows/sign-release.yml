@@ -83,17 +83,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist && cd dist
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.zip'
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern '*.zip' --pattern 'arena-bridge.apk'
           versioned="arena-agent-${TAG}.zip"
           alias="arena-agent.zip"
-          count=$(find . -maxdepth 1 -name '*.zip' -type f | wc -l)
-          if [ "$count" -ne 2 ] || [ ! -f "$versioned" ] || [ ! -f "$alias" ]; then
-            echo "::error::release must contain exactly $versioned and $alias; found $count ZIP(s)"
-            find . -maxdepth 1 -name '*.zip' -type f -printf '%f\n' | sort
+          apk="arena-bridge.apk"
+          zip_count=$(find . -maxdepth 1 -name '*.zip' -type f | wc -l)
+          if [ "$zip_count" -ne 2 ] || [ ! -f "$versioned" ] \
+             || [ ! -f "$alias" ] || [ ! -f "$apk" ]; then
+            echo "::error::release must contain exactly $versioned, $alias, and $apk"
+            find . -maxdepth 1 -type f -printf '%f\n' | sort
             exit 1
           fi
           cmp "$versioned" "$alias"
-          echo "downloaded exact byte-identical release ZIP pair"
+          test "$(od -An -tx1 -N2 "$apk" | tr -d ' \n')" = "504b"
+          echo "downloaded exact ZIP pair and Android APK"
 
       - name: Match accepted exact-SHA candidate checksums
         env:
@@ -131,14 +135,15 @@ jobs:
             --dir "$accepted"
           manifest="$accepted/SHA256SUMS-candidate-${TAG}.txt"
           test -f "$manifest"
-          test "$(wc -l < "$manifest")" -eq 2
+          test "$(wc -l < "$manifest")" -eq 3
           sed -E 's/^[0-9a-f]{64}  //' "$manifest" | diff -u \
-            <(printf '%s\n' "arena-agent-${TAG}.zip" arena-agent.zip) -
+            <(printf '%s\n' "arena-agent-${TAG}.zip" arena-agent.zip arena-bridge.apk) -
           (cd "$accepted" && sha256sum -c "$(basename "$manifest")")
           (cd dist && sha256sum -c "$manifest")
           cmp "$accepted/arena-agent-${TAG}.zip" "dist/arena-agent-${TAG}.zip"
           cmp "$accepted/arena-agent.zip" dist/arena-agent.zip
-          echo "release assets match accepted candidate checksums and bytes"
+          cmp "$accepted/arena-bridge.apk" dist/arena-bridge.apk
+          echo "release ZIPs and APK match accepted candidate checksums and bytes"
 
       - name: Verify source-bound candidate provenance and SBOM
         env:
@@ -149,7 +154,7 @@ jobs:
           set -euo pipefail
           cd dist
           signer="${GITHUB_REPOSITORY}/.github/workflows/release-candidate.yml"
-          for f in "arena-agent-${TAG}.zip" arena-agent.zip; do
+          for f in "arena-agent-${TAG}.zip" arena-agent.zip arena-bridge.apk; do
             gh attestation verify "$f" \
               --repo "$GITHUB_REPOSITORY" \
               --signer-workflow "$signer" \
@@ -169,9 +174,9 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum "arena-agent-${TAG}.zip" arena-agent.zip \
+          sha256sum "arena-agent-${TAG}.zip" arena-agent.zip arena-bridge.apk \
             > "SHA256SUMS-${TAG}.txt"
-          test "$(wc -l < "SHA256SUMS-${TAG}.txt")" -eq 2
+          test "$(wc -l < "SHA256SUMS-${TAG}.txt")" -eq 3
           cat "SHA256SUMS-${TAG}.txt"
 
       - name: Sign each asset and the digest file (keyless)
@@ -181,7 +186,7 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          for f in "arena-agent-${TAG}.zip" arena-agent.zip "SHA256SUMS-${TAG}.txt"; do
+          for f in "arena-agent-${TAG}.zip" arena-agent.zip arena-bridge.apk "SHA256SUMS-${TAG}.txt"; do
             echo "signing $f"
             cosign sign-blob "$f" \
               --output-signature "${f}.sig" \
@@ -197,7 +202,7 @@ jobs:
           cd dist
           # A signing step that never verifies is a signing step nobody has
           # seen work. Prove the bundle validates before it reaches users.
-          for f in "arena-agent-${TAG}.zip" arena-agent.zip "SHA256SUMS-${TAG}.txt"; do
+          for f in "arena-agent-${TAG}.zip" arena-agent.zip arena-bridge.apk "SHA256SUMS-${TAG}.txt"; do
             cosign verify-blob "$f" \
               --signature "${f}.sig" \
               --certificate "${f}.pem" \
@@ -227,8 +232,11 @@ jobs:
             -o "arena-agent-${TAG}.zip"
           curl -sSfL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/arena-agent.zip" \
             -o arena-agent.zip
+          curl -sSfL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/arena-bridge.apk" \
+            -o arena-bridge.apk
           curl -sSfL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/SHA256SUMS-${TAG}.txt" \
             -o "SHA256SUMS-${TAG}.txt"
           sha256sum --check "SHA256SUMS-${TAG}.txt"
           cmp "arena-agent-${TAG}.zip" arena-agent.zip
-          echo "Anonymous exact-pair download and SHA256 verification succeeded."
+          test "$(od -An -tx1 -N2 arena-bridge.apk | tr -d ' \n')" = "504b"
+          echo "Anonymous ZIP/APK download and SHA256 verification succeeded."

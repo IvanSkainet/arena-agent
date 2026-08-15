@@ -165,6 +165,7 @@ def test_release_candidate_cannot_attest_before_cross_repo_contract() -> None:
         "boe-contract",
         "build-primary",
         "build-rebuild",
+        "build-apk",
     }
 
 

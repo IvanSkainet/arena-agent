@@ -37,11 +37,12 @@ def test_candidate_is_manual_exact_sha_build_not_a_release_publisher() -> None:
 
 def test_two_independent_builds_must_match_before_attestation() -> None:
     jobs = _workflow(CANDIDATE)["jobs"]
-    assert {"build-primary", "build-rebuild", "attest"} <= set(jobs)
+    assert {"build-primary", "build-rebuild", "build-apk", "attest"} <= set(jobs)
     assert set(jobs["attest"]["needs"]) == {
         "boe-contract",
         "build-primary",
         "build-rebuild",
+        "build-apk",
     }
     for name in ("build-primary", "build-rebuild"):
         run = _runs(jobs[name])
@@ -53,7 +54,7 @@ def test_two_independent_builds_must_match_before_attestation() -> None:
     assert "sha256sum" in attest_run
 
 
-def test_attestation_job_has_narrow_oidc_permissions_and_two_predicates() -> None:
+def test_attestation_job_has_narrow_oidc_permissions_and_per_artifact_sboms() -> None:
     job = _workflow(CANDIDATE)["jobs"]["attest"]
     assert job["permissions"] == {
         "contents": "read",
@@ -65,9 +66,13 @@ def test_attestation_job_has_narrow_oidc_permissions_and_two_predicates() -> Non
         step for step in job["steps"]
         if str(step.get("uses", "")).startswith("actions/attest@")
     ]
-    assert len(attest_steps) == 2
+    assert len(attest_steps) == 3
     assert all("subject-checksums" in step["with"] for step in attest_steps)
-    assert sum("sbom-path" in step["with"] for step in attest_steps) == 1
+    assert sum("sbom-path" in step["with"] for step in attest_steps) == 2
+    sbom_paths = {
+        step["with"].get("sbom-path") for step in attest_steps if "sbom-path" in step["with"]
+    }
+    assert sbom_paths == {"dist/arena-agent.spdx.json", "dist/arena-bridge.spdx.json"}
     raw = CANDIDATE.read_text(encoding="utf-8")
     assert "format: spdx-json" in raw
     assert "upload-release-assets: false" in raw
@@ -107,18 +112,20 @@ def test_signing_binds_attestations_to_exact_tag_commit() -> None:
     assert "SOURCE_DIGEST: ${{ steps.tag.outputs.source_digest }}" in raw
 
 
-def test_signing_accepts_only_the_exact_identical_zip_pair() -> None:
+def test_signing_accepts_only_the_exact_zip_pair_and_apk() -> None:
     raw = SIGN.read_text(encoding="utf-8")
-    assert "[ \"$count\" -ne 2 ]" in raw
+    assert "[ \"$zip_count\" -ne 2 ]" in raw
     assert 'versioned="arena-agent-${TAG}.zip"' in raw
     assert 'alias="arena-agent.zip"' in raw
+    assert 'apk="arena-bridge.apk"' in raw
     assert 'cmp "$versioned" "$alias"' in raw
-    assert 'for f in "arena-agent-${TAG}.zip" arena-agent.zip; do' in raw
-    assert 'sha256sum "arena-agent-${TAG}.zip" arena-agent.zip' in raw
+    assert 'for f in "arena-agent-${TAG}.zip" arena-agent.zip arena-bridge.apk; do' in raw
+    assert 'sha256sum "arena-agent-${TAG}.zip" arena-agent.zip arena-bridge.apk' in raw
     assert 'attested-release-candidate-${SOURCE_DIGEST}' in raw
     assert '(cd "$accepted" && sha256sum -c "$(basename "$manifest")")' in raw
     assert '(cd dist && sha256sum -c "$manifest")' in raw
     assert 'cmp "$accepted/arena-agent-${TAG}.zip"' in raw
+    assert 'cmp "$accepted/arena-bridge.apk" dist/arena-bridge.apk' in raw
     assert "sha256sum --check \"SHA256SUMS-${TAG}.txt\"" in raw
     assert "--ignore-missing" not in raw
 
@@ -130,7 +137,11 @@ def test_candidate_final_artifact_contains_evidence_and_bundles() -> None:
         "release-candidate.json",
         "provenance-bundle.jsonl",
         "sbom-attestation-bundle.jsonl",
+        "apk-sbom-attestation-bundle.jsonl",
         "arena-agent.spdx.json",
+        "arena-bridge.spdx.json",
+        "arena-bridge.apk",
+        "apk-signer.txt",
         "SHA256SUMS-candidate-",
         "attested-release-candidate-${{ github.sha }}",
     ):

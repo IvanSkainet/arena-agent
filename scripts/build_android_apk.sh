@@ -16,10 +16,10 @@
 #   ANDROID_HOME  -> an SDK with platforms;android-34 and
 #                    build-tools;34.0.0.
 #
-# The debug keystore is generated on first run and is NOT a release key.
-# It exists so the APK can be installed at all -- Android refuses
-# unsigned packages. Anything shipped to users should be signed with a
-# key that is kept somewhere other than a build directory.
+# The fallback debug keystore is generated on first run and is NOT a release
+# key. It exists so ordinary CI/local APKs can be installed at all. The release
+# candidate workflow supplies a persistent keystore outside BUILD; shipped APKs
+# must never use the disposable fallback identity.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -77,18 +77,32 @@ say "packaging"
 cp "$BUILD/base.apk" "$BUILD/unsigned.apk"
 ( cd "$BUILD" && zip -q unsigned.apk classes.dex )
 
-KS="$BUILD/arena.jks"
+# CI smoke builds may use the generated disposable debug key below. Release
+# candidates MUST provide a persistent keystore outside BUILD; cleaning BUILD
+# at the top of this script would otherwise rotate Android's signing identity
+# on every release and make in-place app upgrades impossible.
+KS="${ARENA_ANDROID_KEYSTORE:-$BUILD/arena.jks}"
+KEY_ALIAS="${ARENA_ANDROID_KEY_ALIAS:-arena}"
+export ARENA_ANDROID_STORE_PASSWORD="${ARENA_ANDROID_STORE_PASSWORD:-arenabridge}"
+export ARENA_ANDROID_KEY_PASSWORD="${ARENA_ANDROID_KEY_PASSWORD:-$ARENA_ANDROID_STORE_PASSWORD}"
 if [ ! -f "$KS" ]; then
+    if [ -n "${ARENA_ANDROID_KEYSTORE:-}" ]; then
+        die "configured release keystore is missing: $KS"
+    fi
     say "generating a local debug keystore (not a release key)"
-    keytool -genkeypair -keystore "$KS" -alias arena \
-        -storepass arenabridge -keypass arenabridge \
+    keytool -genkeypair -keystore "$KS" -alias "$KEY_ALIAS" \
+        -storepass "$ARENA_ANDROID_STORE_PASSWORD" \
+        -keypass "$ARENA_ANDROID_KEY_PASSWORD" \
         -keyalg RSA -keysize 2048 -validity 10000 \
         -dname "CN=Arena Bridge, O=arena.ai" >/dev/null 2>&1
 fi
 
 say "aligning and signing"
 zipalign -f 4 "$BUILD/unsigned.apk" "$BUILD/aligned.apk"
-apksigner sign --ks "$KS" --ks-pass pass:arenabridge --key-pass pass:arenabridge \
+apksigner sign --ks "$KS" \
+    --ks-pass env:ARENA_ANDROID_STORE_PASSWORD \
+    --key-pass env:ARENA_ANDROID_KEY_PASSWORD \
+    --ks-key-alias "$KEY_ALIAS" \
     --out "$BUILD/arena-bridge.apk" "$BUILD/aligned.apk"
 
 # Verify rather than assume: an APK that fails signature verification
