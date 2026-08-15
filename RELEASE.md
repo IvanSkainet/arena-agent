@@ -57,7 +57,7 @@ gh pr create --base master --head release/vX.Y.Z --title "vX.Y.Z: <summary>"
 #    ConPTY/relay/repair contract; candidate attestation waits for that job.
 gh workflow run release-candidate.yml --ref master
 # Resolve the run whose headSha is the exact intended master commit, wait for success,
-# then download its final artifact without renaming or rebuilding either ZIP.
+# then download its final artifact without renaming or rebuilding the ZIPs or APK.
 gh run download <run-id> \
     --name attested-release-candidate-<full-master-sha> \
     --dir /tmp/arena-release-candidate
@@ -69,8 +69,9 @@ SOURCE_DIGEST=<full-master-sha>
   cd /tmp/arena-release-candidate
   test "$(find . -maxdepth 1 -name '*.zip' -type f | wc -l)" -eq 2
   test -f arena-agent-vX.Y.Z.zip && test -f arena-agent.zip
+  test -f arena-bridge.apk
   cmp arena-agent-vX.Y.Z.zip arena-agent.zip
-  for f in arena-agent-vX.Y.Z.zip arena-agent.zip; do
+  for f in arena-agent-vX.Y.Z.zip arena-agent.zip arena-bridge.apk; do
     gh attestation verify "$f" \
       --repo IvanSkainet/arena-agent \
       --signer-workflow IvanSkainet/arena-agent/.github/workflows/release-candidate.yml \
@@ -94,11 +95,12 @@ test "$(git rev-parse HEAD)" = "<full-master-sha>"
 git tag -a vX.Y.Z -m "vX.Y.Z: <short release summary>"
 git push origin vX.Y.Z
 
-# 8) Stage a DRAFT release with the already-attested ZIPs. Draft first so the
-#    release:published signing workflow can never race an incomplete asset upload.
+# 8) Stage a DRAFT release with the already-attested ZIPs and APK. Draft first
+#    so release:published signing can never race an incomplete asset upload.
 gh release create vX.Y.Z \
     /tmp/arena-release-candidate/arena-agent-vX.Y.Z.zip \
     /tmp/arena-release-candidate/arena-agent.zip \
+    /tmp/arena-release-candidate/arena-bridge.apk \
     --draft \
     --title "vX.Y.Z — <summary>" \
     --notes-file <path-to-release-notes.md>
@@ -268,6 +270,22 @@ Each release gets a section at the top of `CHANGELOG.md` (and a matching one in
 
 Omit a sub-section if it has no entries for this release.
 
+## Android release signing identity
+
+Release candidates use a persistent Android signing identity, not the disposable
+debug keystore created by ordinary CI. The private key is stored as the
+`ANDROID_RELEASE_KEYSTORE_B64` GitHub Actions secret; alias/store/key passwords
+use the three matching `ANDROID_RELEASE_*` secrets. The public certificate
+fingerprint is pinned in `android_app/release-signing-cert.sha256` and candidate
+verification refuses a technically valid APK signed by any other key.
+
+The operator backup lives outside the repository under
+`%USERPROFILE%\.arena\release-keys`; its password backup is DPAPI-protected for
+the same Windows account. Never rotate or delete this identity as routine
+maintenance: Android treats a new key as a different publisher and installed
+users cannot upgrade in place. Ordinary PR CI continues to use an ephemeral
+debug key because its APK is a build test, never a release asset.
+
 ## Pre-release checklist
 
 - [ ] Full test suite passes (`python -m pytest -q`). Record the collection
@@ -296,12 +314,12 @@ Omit a sub-section if it has no entries for this release.
 - [ ] Its reusable pinned **The Book of Eternity: Reborn** Windows contract
       passed on the same SHA with current upstream pin, three correlated
       dispatches, empty relay queues, and no surviving GM bridge process.
-- [ ] Both ZIP names pass build-provenance and SPDX SBOM verification with the
-      pinned release-candidate signer workflow and `--source-digest` equal to
-      the exact intended master commit.
+- [ ] Both ZIP names and `arena-bridge.apk` pass build-provenance and their
+      matching SPDX SBOM verification with the pinned release-candidate signer
+      workflow and `--source-digest` equal to the exact intended master commit.
 - [ ] From the downloaded candidate directory, the documented unmodified
       `sha256sum -c SHA256SUMS-candidate-vX.Y.Z.txt` command passes for exactly
-      the versioned ZIP and `arena-agent.zip`.
+      the versioned ZIP, `arena-agent.zip`, and `arena-bridge.apk`.
 - [ ] The downloaded Actions artifact digest is recorded before it leaves CI.
 - [ ] That exact digest passed the real Windows candidate acceptance before the
       annotated tag or public release was created.
@@ -314,11 +332,12 @@ Omit a sub-section if it has no entries for this release.
       `installed` flag (regression guard for the v3.81.1 fix).
 - [ ] `/v1/skills` contains no bogus category entries like `superpowers/assets`
       (regression guard for the v3.81.1 fix).
-- [ ] Both zip assets are visible on the release page and byte-identical to the
-      previously accepted Actions artifact.
-- [ ] Public ZIPs still pass `gh attestation verify` for both SLSA provenance
-      and SPDX SBOM predicates with the release-candidate signer workflow and
-      `--source-digest` resolved from the exact release tag commit.
+- [ ] Both ZIP assets and `arena-bridge.apk` are visible on the release page and
+      byte-identical to the previously accepted Actions artifact.
+- [ ] Public ZIPs and APK still pass `gh attestation verify` for both build
+      provenance and their matching SPDX SBOM predicates with the
+      release-candidate signer workflow and `--source-digest` resolved from the
+      exact release tag commit.
 - [ ] The alias URL works:
       `curl -sIL https://github.com/IvanSkainet/arena-agent/releases/latest/download/arena-agent.zip`
       returns HTTP 200.
@@ -347,6 +366,7 @@ The human/agent release driver therefore downloads the attested artifact, instal
 those exact bytes on Windows, and only then creates the annotated tag and draft
 release. Publication changes visibility, not bytes. `sign-release.yml` resolves the tag
 to its exact commit, downloads the successful exact-SHA candidate evidence,
-requires exactly the two documented ZIP assets, checks both against the accepted
-candidate manifest, and verifies source-bound provenance before adding its
-independent Sigstore signatures.
+requires exactly the two documented ZIP assets plus `arena-bridge.apk`, checks
+all three against the accepted candidate manifest, and verifies source-bound
+provenance and per-artifact SBOM attestations before adding independent Sigstore
+signatures.

@@ -85,10 +85,84 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build-apk:
+    timeout-minutes: 20
+    name: Exact-SHA Android release APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          packages: "platforms;android-34 build-tools;34.0.0"
+      - name: Restore persistent Android release identity
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_B64 }}
+          KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for value in "$KEYSTORE_B64" "$KEY_ALIAS" "$STORE_PASSWORD" "$KEY_PASSWORD"; do
+            test -n "$value" || { echo "::error::Android release signing secret missing"; exit 1; }
+          done
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/arena-release.jks"
+          chmod 600 "$RUNNER_TEMP/arena-release.jks"
+          test -s "$RUNNER_TEMP/arena-release.jks"
+      - name: Build and verify release-signed APK
+        env:
+          ARENA_ANDROID_KEYSTORE: ${{ runner.temp }}/arena-release.jks
+          ARENA_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ARENA_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          ARENA_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          python3 scripts/android_lint.py
+          bash scripts/build_android_apk.sh
+          APK=android_app/build/arena-bridge.apk
+          BT="$ANDROID_HOME/build-tools/34.0.0"
+          version=$(python3 -c 'from scripts.make_release_zip import detect_version; print(detect_version())')
+          "$BT/aapt2" dump badging "$APK" > "$RUNNER_TEMP/apk-badging.txt"
+          grep -q "package: name='ai.arena.bridge'" "$RUNNER_TEMP/apk-badging.txt"
+          grep -q "versionName='$version'" "$RUNNER_TEMP/apk-badging.txt"
+          "$BT/apksigner" verify --verbose --print-certs "$APK" \
+            > "$RUNNER_TEMP/apk-signer.txt"
+          grep -q '^Signer #1 certificate SHA-256 digest:' "$RUNNER_TEMP/apk-signer.txt"
+          expected_cert=$(tr -d ':[:space:]' < android_app/release-signing-cert.sha256 | tr 'A-F' 'a-f')
+          actual_cert=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
+            "$RUNNER_TEMP/apk-signer.txt" | head -1 | tr -d ':[:space:]' | tr 'A-F' 'a-f')
+          test -n "$expected_cert" && test "$actual_cert" = "$expected_cert"
+          cp "$RUNNER_TEMP/apk-signer.txt" android_app/build/apk-signer.txt
+          sha256sum "$APK" > android_app/build/apk-sha256.txt
+      - name: Upload exact-SHA release APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-apk
+          path: |
+            android_app/build/arena-bridge.apk
+            android_app/build/apk-signer.txt
+            android_app/build/apk-sha256.txt
+          if-no-files-found: error
+          retention-days: 30
+
   attest:
     timeout-minutes: 20
     name: Compare, verify, SBOM, and attest candidate
-    needs: [boe-contract, build-primary, build-rebuild]
+    needs: [boe-contract, build-primary, build-rebuild, build-apk]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -114,6 +188,11 @@ jobs:
         with:
           name: release-build-b
           path: candidate-b
+      - name: Download exact-SHA release APK
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-apk
+          path: candidate-apk
       - name: Require independent builds to be byte-identical
         env:
           VERSION: ${{ needs.build-primary.outputs.version }}
@@ -123,11 +202,21 @@ jobs:
           b="candidate-b/arena-agent-v${VERSION}.zip"
           test -f "$a" && test -f "$b"
           cmp "$a" "$b"
+          apk="candidate-apk/arena-bridge.apk"
+          signer="candidate-apk/apk-signer.txt"
+          test -f "$apk" && test -f "$signer"
           mkdir -p dist
           cp "$a" "dist/arena-agent-v${VERSION}.zip"
           cp "$a" dist/arena-agent.zip
+          cp "$apk" dist/arena-bridge.apk
+          cp "$signer" dist/apk-signer.txt
           sha256sum "dist/arena-agent-v${VERSION}.zip" dist/arena-agent.zip \
+            dist/arena-bridge.apk \
             | sed 's#  dist/#  #' > "dist/SHA256SUMS-candidate-v${VERSION}.txt"
+          sha256sum "dist/arena-agent-v${VERSION}.zip" dist/arena-agent.zip \
+            | sed 's#  dist/#  #' > "dist/SHA256SUMS-zip-sbom-v${VERSION}.txt"
+          sha256sum dist/arena-bridge.apk \
+            | sed 's#  dist/#  #' > "dist/SHA256SUMS-apk-sbom-v${VERSION}.txt"
       - name: Verify final candidate artifact contract
         env:
           VERSION: ${{ needs.build-primary.outputs.version }}
@@ -146,35 +235,61 @@ jobs:
           output-file: dist/arena-agent.spdx.json
           upload-artifact: false
           upload-release-assets: false
-      - name: Attest build provenance for both public asset names
+      - name: Generate SPDX SBOM from the shipped APK
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          file: dist/arena-bridge.apk
+          format: spdx-json
+          output-file: dist/arena-bridge.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Attest build provenance for every public binary
         id: provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-checksums: ${{ format('dist/SHA256SUMS-candidate-v{0}.txt', needs.build-primary.outputs.version) }}
-      - name: Attest the artifact SBOM
-        id: sbom
+      - name: Attest the ZIP artifact SBOM
+        id: zip-sbom
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-checksums: ${{ format('dist/SHA256SUMS-candidate-v{0}.txt', needs.build-primary.outputs.version) }}
+          subject-checksums: ${{ format('dist/SHA256SUMS-zip-sbom-v{0}.txt', needs.build-primary.outputs.version) }}
           sbom-path: dist/arena-agent.spdx.json
+      - name: Attest the APK artifact SBOM
+        id: apk-sbom
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: ${{ format('dist/SHA256SUMS-apk-sbom-v{0}.txt', needs.build-primary.outputs.version) }}
+          sbom-path: dist/arena-bridge.spdx.json
       - name: Preserve local attestation bundles and candidate identity
         env:
           VERSION: ${{ needs.build-primary.outputs.version }}
           PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
-          SBOM_BUNDLE: ${{ steps.sbom.outputs.bundle-path }}
+          ZIP_SBOM_BUNDLE: ${{ steps.zip-sbom.outputs.bundle-path }}
+          APK_SBOM_BUNDLE: ${{ steps.apk-sbom.outputs.bundle-path }}
         run: |
           set -euo pipefail
           cp "$PROVENANCE_BUNDLE" dist/provenance-bundle.jsonl
-          cp "$SBOM_BUNDLE" dist/sbom-attestation-bundle.jsonl
+          cp "$ZIP_SBOM_BUNDLE" dist/sbom-attestation-bundle.jsonl
+          cp "$APK_SBOM_BUNDLE" dist/apk-sbom-attestation-bundle.jsonl
           python3 - <<'PY'
-          import json, os, pathlib
+          import json, os, pathlib, re
+          signer = pathlib.Path("dist/apk-signer.txt").read_text(encoding="utf-8")
+          match = re.search(r"^Signer #1 certificate SHA-256 digest: (.+)$", signer, re.MULTILINE)
+          if match is None:
+              raise SystemExit("APK signer certificate evidence missing")
           doc = {
-              "schemaVersion": 1,
+              "schemaVersion": 2,
               "repository": os.environ["GITHUB_REPOSITORY"],
               "commit": os.environ["GITHUB_SHA"],
               "workflowRunId": os.environ["GITHUB_RUN_ID"],
               "workflowRunAttempt": os.environ["GITHUB_RUN_ATTEMPT"],
               "version": os.environ["VERSION"],
+              "assets": [
+                  f"arena-agent-v{os.environ['VERSION']}.zip",
+                  "arena-agent.zip",
+                  "arena-bridge.apk",
+              ],
+              "androidCertificateSha256": match.group(1).replace(":", "").lower(),
           }
           pathlib.Path("dist/release-candidate.json").write_text(
               json.dumps(doc, indent=2) + "\n", encoding="utf-8"
