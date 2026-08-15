@@ -303,9 +303,10 @@ def test_alert_checker_does_not_print_the_secret_field() -> None:
 def test_devskim_suppressions_are_narrow_and_explained() -> None:
     """A suppression without a reason is indistinguishable from hiding.
 
-    Twelve devskim notes fired on `127.0.0.1` in a bridge whose whole
-    job is to listen on loopback. Leaving them open buries a real
-    finding in noise; blanket-disabling the rule removes the check.
+    DevSkim notes include intentional loopback listeners, public artifact
+    digests, RFC-mandated hashes, and an explicit insecure-TLS opt-out. Leaving
+    them open buries a real finding in noise; blanket-disabling rules removes
+    the check.
     Each suppression is one line, names the rule, and says why -- so the
     next reader can disagree with a specific claim rather than a silence.
     """
@@ -335,7 +336,7 @@ def test_devskim_suppressions_are_narrow_and_explained() -> None:
         )
     # A cap, not a policy: this many is a deliberate list, hundreds would
     # mean the rule is being switched off one line at a time.
-    assert len(suppressions) <= 12, f"{len(suppressions)} suppressions is a blanket"
+    assert len(suppressions) <= 20, f"{len(suppressions)} suppressions is a blanket"
 
 
 def test_no_blanket_devskim_disables() -> None:

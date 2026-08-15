@@ -347,7 +347,9 @@ jobs:
         with:
           directory-to-scan: .
           should-scan-archives: false
-          ignore-globs: "**/.git/**,**/bin/**,**/tests/**,**/docs/**,**/.venv/**"
+          # Two JSON data files contain only mutation-test paths or a pinned
+          # public commit SHA; JSON cannot carry DevSkim same-line suppressions.
+          ignore-globs: "**/.git/**,**/bin/**,**/tests/**,**/docs/**,**/.venv/**,**/scripts/mutation_cache.json,**/integrations/book_of_eternity_compatibility.json"
 
       - name: Validate DevSkim SARIF and gate errors
         if: always()

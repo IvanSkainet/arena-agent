@@ -79,6 +79,16 @@ def test_devskim_sarif_policy_and_artifact_are_explicit() -> None:
     assert "--format sarif --block error" in text
     assert "devskim-results.sarif" in text
     assert "if-no-files-found" in text and "error" in text
+    assert "scripts/mutation_cache.json" in text
+    assert "integrations/book_of_eternity_compatibility.json" in text
+    assert "exclude-rules" not in text
+
+
+def test_public_tunnel_diagnostic_uses_shared_strict_tls_policy() -> None:
+    source = (REPO / "scripts" / "check_bridge.py").read_text(encoding="utf-8")
+    assert "build_ssl_context(p_url)" in source
+    assert "CERT_NONE" not in source
+    assert "check_hostname = False" not in source
 
 
 def test_trufflehog_verified_secret_policy_is_blocking() -> None:
