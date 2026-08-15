@@ -1,3 +1,43 @@
+## v4.169.46 — 2026-08-15
+
+### Android APK стал полноценным аттестованным release asset
+
+Release candidate теперь собирает `arena-bridge.apk` из точного candidate
+commit, проверяет package name, версию, Android-подпись и закреплённый сертификат
+подписанта, затем включает APK рядом с побайтово одинаковой парой ZIP. Итоговый
+candidate checksum содержит три записи. Для APK отдельно создаются provenance и
+SPDX SBOM, не подменяемый ZIP SBOM.
+
+`sign-release.yml` теперь отказывает, если APK отсутствует, подменён или не
+входит в принятый exact-SHA candidate. Workflow проверяет APK provenance/SBOM,
+добавляет APK в `SHA256SUMS`, создаёт для него Sigstore certificate/signature и
+повторяет анонимную post-publication проверку скачивания.
+
+### Постоянная Android signing identity
+
+Обычный CI сохраняет одноразовый debug key, потому что его APK — только build
+проверка. Release candidates используют постоянный JKS из GitHub Actions secrets
+с DPAPI-защищённым operator backup. Публичный SHA-256 сертификата закреплён в
+`android_app/release-signing-cert.sha256`; замена secret другим валидным ключом
+делает candidate красным.
+
+APK, добавленный задним числом в v4.169.45, был взят из exact-source CI run, но
+подписан одноразовой debug identity того запуска. Установившему backfill нужно
+один раз удалить его перед установкой v4.169.46. Начиная с v4.169.46 APK имеют
+стабильную release identity и обновляются поверх предыдущей версии.
+
+### Проверки
+
+* Обязательный sabotage: удаление APK dependency из attestation делает release
+  contract красным; восстановленный workflow проходит.
+* Полные локальные preflight и security gates прошли.
+* Полная платформенная матрица PR #37 прошла; отдельный Windows flake абсолютного
+  ship-smoke history count записан отдельно, failed job прошёл при rerun.
+* Exact merged candidate run `31880691097` прошёл ZIP A/B, release APK build,
+  pinned Windows game contract, provenance, ZIP SBOM и APK SBOM.
+* Сертификат candidate APK совпал с закреплённым fingerprint; обе GitHub
+  attestation проверки прошли.
+
 ## v4.169.45 — 2026-08-15
 
 ### Arena Agent Mode может работать внешним Мастером игры

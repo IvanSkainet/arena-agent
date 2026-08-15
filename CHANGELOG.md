@@ -1,3 +1,43 @@
+## v4.169.46 — 2026-08-15
+
+### Android APK is a first-class attested release asset
+
+The release candidate now builds `arena-bridge.apk` from the exact candidate
+commit, verifies package name, version, Android signature, and the pinned signer
+certificate, then includes the APK beside the byte-identical ZIP pair. The final
+candidate checksum has three entries. APK provenance and a dedicated SPDX SBOM
+are generated independently from the ZIP SBOM.
+
+`sign-release.yml` now refuses a release when the APK is absent, substituted, or
+not present in the accepted exact-SHA candidate. It verifies APK provenance and
+SBOM, includes the APK in `SHA256SUMS`, creates a Sigstore certificate/signature
+pair for it, and repeats anonymous post-publication download verification.
+
+### Persistent Android signing identity
+
+Ordinary CI continues to use a disposable debug key because its APK is only a
+build test. Release candidates use a persistent JKS identity stored in GitHub
+Actions secrets with a DPAPI-protected operator backup. The public certificate
+SHA-256 is pinned in `android_app/release-signing-cert.sha256`; replacing the
+secret with another valid key fails the candidate.
+
+The APK backfilled into v4.169.45 came from its exact-source CI run but used that
+run's disposable debug identity. Anyone who installed that backfill must remove
+it once before installing v4.169.46. APKs from v4.169.46 onward share the stable
+release identity and support normal in-place upgrades.
+
+### Validation
+
+* Mandatory sabotage: removing the APK dependency from attestation makes the
+  release contract red; restoring it passes.
+* Full local preflight and security gates passed.
+* PR #37 full platform matrix passed; one unrelated Windows ship-smoke absolute
+  history-count flake was tracked separately and its failed job passed on rerun.
+* Exact merged candidate run `31880691097` passed ZIP A/B, release APK build,
+  pinned Windows game contract, provenance, ZIP SBOM, and APK SBOM jobs.
+* Candidate APK certificate matched the pinned fingerprint and both GitHub
+  attestation verifications passed.
+
 ## v4.169.45 — 2026-08-15
 
 ### Arena Agent Mode can serve as the external Game Master
