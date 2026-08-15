@@ -25,6 +25,12 @@ def _job_text(name: str) -> str:
     )
 
 
+def test_security_workflow_has_manual_acceptance_trigger() -> None:
+    workflow = _workflow()
+    triggers = workflow.get("on") or workflow.get(True) or {}
+    assert "workflow_dispatch" in triggers
+
+
 def test_advisory_scanner_jobs_have_no_continue_on_error() -> None:
     jobs = _workflow()["jobs"]
     for name in ("trufflehog", "osv-scanner", "sbom-and-grype", "socket-firewall", "devskim"):
