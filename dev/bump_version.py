@@ -7,7 +7,7 @@ per the AGENTS.md release rule:
   1. ``arena/constants.py``          — ``VERSION = "…"``
   2. ``pyproject.toml``              — ``version = "…"``
   3. ``tests/_version_matrix.py``    — append to ``BRIDGE_VERSIONS`` tuple
-  4. ``android_app/AndroidManifest.xml`` — ``android:versionName``
+  4. ``android_app/AndroidManifest.xml`` — ``versionName`` + monotonic ``versionCode``
 
 Usage
 -----
@@ -86,8 +86,19 @@ def _bump_pyproject(new: str, *, dry_run: bool) -> str:
     return f"{PYPROJECT_TOML.relative_to(REPO_ROOT)}: {old} -> {new}"
 
 
+def _android_version_code(version: str) -> int:
+    """Encode semver monotonically inside Android's signed 32-bit limit."""
+    major, minor, patch = (int(part) for part in version.split("."))
+    if minor >= 1000 or patch >= 10_000:
+        _die("Android versionCode encoding requires minor < 1000 and patch < 10000")
+    code = major * 10_000_000 + minor * 10_000 + patch
+    if code < 1 or code > 2_100_000_000:
+        _die(f"Android versionCode out of range: {code}")
+    return code
+
+
 def _bump_android_manifest(new: str, *, dry_run: bool) -> str:
-    """Keep the APK's versionName in step with the bridge.
+    """Keep the APK's versionName/versionCode in step with the bridge.
 
     v4.169.29 was bumped and the full suite failed on
     ``test_app_version_matches_the_bridge``: this script knew about three
@@ -97,9 +108,10 @@ def _bump_android_manifest(new: str, *, dry_run: bool) -> str:
     every single release until somebody fixes the bumper instead of the
     manifest.
 
-    versionCode is deliberately left alone. It is a monotonic integer
-    Android uses to order installs and has no relationship to a semantic
-    version; deriving one from the other guesses at a rule nobody wrote.
+    Android and app stores order upgrades by ``versionCode``, not versionName.
+    The old bumper left it at 1 forever. The documented encoding reserves three
+    decimal digits for minor and four for patch, remaining monotonic for this
+    project's semver scheme while staying below Android's 2.1B maximum.
     """
     def _label() -> str:
         try:
@@ -113,16 +125,28 @@ def _bump_android_manifest(new: str, *, dry_run: bool) -> str:
     if not ANDROID_MANIFEST.exists():
         return f"{_label()}: absent, skipped"
     src = ANDROID_MANIFEST.read_text(encoding="utf-8")
-    m = re.search(r'android:versionName="([^"]+)"', src)
-    if not m:
-        _die(f"{ANDROID_MANIFEST} has no android:versionName")
-    old = m.group(1)
-    if old == new:
-        return f"{_label()}: already at {new}"
-    updated = src[: m.start()] + f'android:versionName="{new}"' + src[m.end():]
+    name_match = re.search(r'android:versionName="([^"]+)"', src)
+    code_match = re.search(r'android:versionCode="([0-9]+)"', src)
+    if not name_match or not code_match:
+        _die(f"{ANDROID_MANIFEST} must define numeric versionCode and versionName")
+    old_name = name_match.group(1)
+    old_code = int(code_match.group(1))
+    new_code = _android_version_code(new)
+    if old_name == new and old_code == new_code:
+        return f"{_label()}: already at {new} (versionCode {new_code})"
+    updated = (
+        src[: code_match.start()]
+        + f'android:versionCode="{new_code}"'
+        + src[code_match.end() : name_match.start()]
+        + f'android:versionName="{new}"'
+        + src[name_match.end() :]
+    )
     if not dry_run:
         ANDROID_MANIFEST.write_text(updated, encoding="utf-8")
-    return f"{_label()}: {old} -> {new}"
+    return (
+        f"{_label()}: {old_name} ({old_code}) -> "
+        f"{new} ({new_code})"
+    )
 
 
 def _bump_version_matrix(new: str, *, dry_run: bool) -> str:

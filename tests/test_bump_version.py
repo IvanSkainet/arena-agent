@@ -83,11 +83,13 @@ def test_dry_run_does_not_write(repo_copy):
     before_c = (dst / "arena" / "constants.py").read_text(encoding="utf-8")
     before_p = (dst / "pyproject.toml").read_text(encoding="utf-8")
     before_m = (dst / "tests" / "_version_matrix.py").read_text(encoding="utf-8")
+    before_android = (dst / "android_app" / "AndroidManifest.xml").read_text(encoding="utf-8")
     rc = mod.main(["--dry-run", "99.99.99"])
     assert rc == 0
     assert (dst / "arena" / "constants.py").read_text(encoding="utf-8") == before_c
     assert (dst / "pyproject.toml").read_text(encoding="utf-8") == before_p
     assert (dst / "tests" / "_version_matrix.py").read_text(encoding="utf-8") == before_m
+    assert (dst / "android_app" / "AndroidManifest.xml").read_text(encoding="utf-8") == before_android
 
 
 def test_full_bump_updates_all_three_files(repo_copy):
@@ -99,6 +101,25 @@ def test_full_bump_updates_all_three_files(repo_copy):
     assert re.search(r'^version = "99\.99\.99"\s*$', py, re.MULTILINE)
     vm = (dst / "tests" / "_version_matrix.py").read_text(encoding="utf-8")
     assert '"99.99.99"' in vm
+    manifest = (dst / "android_app" / "AndroidManifest.xml").read_text(encoding="utf-8")
+    assert 'android:versionName="99.99.99"' in manifest
+    assert 'android:versionCode="990990099"' in manifest
+
+
+@pytest.mark.parametrize(
+    ("older", "newer"),
+    [("4.169.45", "4.169.46"), ("4.169.9999", "4.170.0"), ("4.999.9999", "5.0.0")],
+)
+def test_android_version_code_is_monotonic(older, newer):
+    mod = _load_bump_module()
+    assert mod._android_version_code(older) < mod._android_version_code(newer)
+
+
+@pytest.mark.parametrize("invalid", ["4.1000.0", "4.1.10000", "211.0.0"])
+def test_android_version_code_refuses_out_of_range_components(invalid):
+    mod = _load_bump_module()
+    with pytest.raises(SystemExit):
+        mod._android_version_code(invalid)
 
 
 def test_bumped_matrix_still_parses_and_has_new_last_entry(repo_copy):
