@@ -24,7 +24,9 @@ secret with another valid key fails the candidate.
 The APK backfilled into v4.169.45 came from its exact-source CI run but used that
 run's disposable debug identity. Anyone who installed that backfill must remove
 it once before installing v4.169.46. APKs from v4.169.46 onward share the stable
-release identity and support normal in-place upgrades.
+release identity and support normal in-place upgrades. `dev/bump_version.py` now
+also derives a monotonic Android `versionCode` from semver; v4.169.46 uses
+`41690046` instead of leaving every release at `1`.
 
 ### Validation
 
