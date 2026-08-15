@@ -70,6 +70,8 @@ def test_candidate_verifies_apk_identity_version_signature_and_cert() -> None:
         "scripts/build_android_apk.sh",
         "package: name='ai.arena.bridge'",
         "versionName='$version'",
+        "versionCode='$version_code'",
+        "android:versionCode",
         "apksigner\" verify --verbose --print-certs",
         "Signer #1 certificate SHA-256 digest:",
         "release-signing-cert.sha256",
