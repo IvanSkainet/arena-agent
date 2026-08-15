@@ -4,12 +4,12 @@
 
 ---
 
-## Актуальное состояние (на 2026-08-13)
+## Актуальное состояние (на 2026-08-15)
 
-- **Опубликованная версия:** `v4.169.44` (9 release assets; Sigstore, exact-commit CI и installed-artifact timeout/restart sabotage проверены).
-- **CI:** exact release commit зелёный: CI (35 jobs), Linux/Windows/macOS matrices, CodeQL, Scorecard, Zizmor, Security scan и sign-release.
+- **Опубликованная версия:** `v4.169.47` (12 release assets: ZIP pair + APK, Sigstore, exact-commit provenance и отдельные SPDX SBOM).
+- **CI:** exact release commit `7995541d` зелёный: 63 check runs; candidate `31906141722`, sign-release `31907053903`, Linux/Windows/macOS matrices, CodeQL, Scorecard, Zizmor и fail-closed Security scan.
 - **Security Alerts:** 0 открытых во всех трёх лентах (CodeQL, Secret Scanning, Dependabot).
-- **Мутационный храповик:** 15 модулей зафиксированы на уровне **0 выживших мутантов**.
+- **Мутационный храповик:** 16 модулей зафиксированы на уровне **0 выживших мутантов**.
 
 ---
 
@@ -76,8 +76,9 @@
 - [x] **T42 [ARENA.AI / GM PRODUCTIZATION]** ([#13](https://github.com/IvanSkainet/arena-agent/issues/13)) Довести Arena.ai Agent Mode до пользовательского внешнего Game Master: универсальные full-capability `relay.*` / `fs.*` / `exec.*`, актуальный bootstrap skill, resume новой Arena-сессией, честные active/queued/busy состояния и многоходовой live E2E. Узкий game-specific token/toolset не является обязательным; operator-owned глобальная safety posture остаётся отдельным уровнем.
   - Завершено PR #29 (`82d4d501`): generic `relay.status/check/resume/busy/reply/send`, durable fresh-session resume, честные queued/claimed/busy/replied/repair depths, Arena.ai extension scopes `relay`/`gm`, bootstrap skill и public guide. Реальный Windows-контур без Codex принял ходы 4–7, inactive queue persistence, session restart и daemon repair; ручная кнопка расширения Arena.ai выполнила `relay.status`. Независимый pre-merge аудит добавил fail-closed malformed-state guards; exact-head CI 61/61. Журнал — `docs/audits/arena-agent-gm-live-findings-13.md`.
 - [ ] **T43 [UPSTREAM / GAME LIFECYCLE]** ([#14](https://github.com/IvanSkainet/arena-agent/issues/14)) Через обязательные tracked Issues, а затем отдельные PR в репозитории игры передать воспроизводимые upstream-дефекты: stale `pending_turn_snapshot` после cancellation, зависимость обработки terminal signal от console event/F12 и невызванный `Ensure-CliBootstrapSent`.
-- [ ] **T44 [HTTP / EXEC LIFECYCLE]** ([#16](https://github.com/IvanSkainet/arena-agent/issues/16)) Отмена in-flight exec при разрыве remote HTTP client/proxy: ngrok 503 оставил низкопамятное дерево `cmd → powershell → gh run watch` живым до ручного `taskkill /T`; server-side timeout v4.169.44 при этом работает. Нужны handler cancellation propagation, общий process-tree cleanup и реальный Windows client-abort sabotage.
-  - Реализация: общий transport watcher связывает buffered/script/stream handlers с lifetime HTTP-клиента; отмена обязательно дожидается runner cleanup, который убивает и reap-ит всё дерево. Изолированный aiohttp TCP-abort E2E покрывает все три endpoint, semaphore/tmp cleanup и отсутствие записи в `ACTIVE_PROCESSES`; новый модуль закреплён на 0/14 surviving mutants. Exact-branch Windows sabotage прошёл (19 tests, surviving child=0); до закрытия остаётся remote Tailscale/proxy sabotage на установленном candidate.
+- [x] **T44 [HTTP / EXEC LIFECYCLE]** ([#16](https://github.com/IvanSkainet/arena-agent/issues/16)) Отмена in-flight exec при разрыве remote HTTP client/proxy: ngrok 503 оставил низкопамятное дерево `cmd → powershell → gh run watch` живым до ручного `taskkill /T`; server-side timeout v4.169.44 при этом работает. Нужны handler cancellation propagation, общий process-tree cleanup и реальный Windows client-abort sabotage.
+  - Завершено PR #46 и v4.169.47: общий transport watcher связывает buffered/script/stream handlers с lifetime HTTP-клиента; отмена дожидается runner cleanup, убивающего и reap-ящего всё дерево. Изолированный aiohttp TCP-abort E2E покрывает три endpoint, semaphore/tmp cleanup и `ACTIVE_PROCESSES`; модуль закреплён на 0/54 surviving mutants. Exact Windows head: 19 tests, surviving child=0. На установленном exact candidate реальный abrupt TLS/Tailscale client abort удалил `cmd.exe` PID 15452 и `powershell.exe` PID 9156 за 0,961 с; `/v1/ps` очистился, оба PID отсутствовали, Bridge остался healthy v4.169.47.
+- [ ] **T48 [WINDOWS / DIAGNOSTICS]** ([#48](https://github.com/IvanSkainet/arena-agent/issues/48)) На реальном RU-locale mover log `inspect_update_log.py` не распознал `DD.MM.YYYY  H:MM:SS,ff`, хотя все фазы и `mover-done` присутствовали. Добавить строгий localized timestamp parser, parity и sabotage без ослабления malformed-line rejection.
 - [ ] **T45 [GOVERNANCE / AI REVIEW]** ([#22](https://github.com/IvanSkainet/arena-agent/issues/22)) Перекалибровать GitHub Apps по живым PR evidence: CodeRabbit оставить manual high-risk reviewer, Sourcery — automatic informational reviewer, DeepSource удалить из-за exhausted quota и дублирования; читать review bodies/comments/checks вместе с threads, а bot autofix считать непроверенным входом. T45 открыта до Settings permission audit и фактического удаления DeepSource.
 
 - [x] **T47 [TEST / SHIP SMOKE]** ([#38](https://github.com/IvanSkainet/arena-agent/issues/38)) Устранить зависимость `test_ship_smoke_shape` от пустого каталога flight-records: проверять дельту до/после, точный возвращённый `report_path` и двусторонним саботажем доказывать обнаружение двойной записи.
