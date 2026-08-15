@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import ssl
 import sys
 import urllib.error
 import urllib.request
@@ -21,13 +20,9 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
-
-def _ssl_context() -> ssl.SSLContext:
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return ctx
+from arena.agentctl_cli.tls import build_ssl_context  # noqa: E402
 
 
 def _read_token(token_file: Path | str | None = None) -> str:
@@ -147,7 +142,11 @@ def probe_bridge(
                 f"{p_url}/v1/version",
                 headers={"User-Agent": "arena-doctor-probe"},
             )
-            with urllib.request.urlopen(probe_req, context=_ssl_context(), timeout=timeout + 2) as p_resp:
+            with urllib.request.urlopen(
+                probe_req,
+                context=build_ssl_context(p_url),
+                timeout=timeout + 2,
+            ) as p_resp:
                 p_data = json.loads(p_resp.read().decode("utf-8", "ignore"))
                 if p_data.get("ok"):
                     report["public_reachable"] = True

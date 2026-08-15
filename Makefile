@@ -60,13 +60,15 @@ security-scan: security-bandit security-semgrep security-pip-audit
 # a handful of runtime invariants.
 security-bandit:
 	@echo "-- bandit --"
-	@bandit -r arena/ --skip B101 -f json -o /tmp/bandit-local.json > /dev/null 2>&1 || true
+	@set +e; bandit -r arena/ --skip B101 -f json -o /tmp/bandit-local.json > /dev/null 2>&1; \
+	  scanner_rc=$$?; set -e; \
+	  $(PYTHON) scripts/scanner_contract_gate.py --tool bandit --exit-code "$$scanner_rc" --allowed-exits 0,1
 	@$(PYTHON) scripts/security_gate.py bandit /tmp/bandit-local.json
 
 # semgrep: 9 rule packs, must exit with 0 findings.
 security-semgrep:
 	@echo "-- semgrep --"
-	@semgrep \
+	@set +e; semgrep \
 	    --config=p/python \
 	    --config=p/security-audit \
 	    --config=p/owasp-top-ten \
@@ -77,15 +79,19 @@ security-semgrep:
 	    --config=p/secrets \
 	    --config=p/gitleaks \
 	    --error --severity=ERROR --severity=WARNING \
-	    --json --output=/tmp/semgrep-local.json arena/ > /dev/null 2>&1 || true
+	    --json --output=/tmp/semgrep-local.json arena/ > /dev/null 2>&1; \
+	  scanner_rc=$$?; set -e; \
+	  $(PYTHON) scripts/scanner_contract_gate.py --tool semgrep --exit-code "$$scanner_rc" --allowed-exits 0,1
 	@$(PYTHON) scripts/security_gate.py semgrep /tmp/semgrep-local.json
 
 # pip-audit: 0 CVEs in runtime + full-extras deps.
 security-pip-audit:
 	@echo "-- pip-audit --"
 	@$(PYTHON) scripts/extract_runtime_reqs.py > /tmp/runtime-reqs.txt
-	@pip-audit --requirement /tmp/runtime-reqs.txt --format json \
-	    --output /tmp/pip-audit-local.json > /dev/null 2>&1 || true
+	@set +e; pip-audit --requirement /tmp/runtime-reqs.txt --format json \
+	    --output /tmp/pip-audit-local.json > /dev/null 2>&1; \
+	  scanner_rc=$$?; set -e; \
+	  $(PYTHON) scripts/scanner_contract_gate.py --tool pip-audit --exit-code "$$scanner_rc" --allowed-exits 0,1
 	@$(PYTHON) scripts/security_gate.py pip-audit /tmp/pip-audit-local.json
 
 # Install the three security tools. Split so a contributor who only

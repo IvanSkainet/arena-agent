@@ -53,7 +53,12 @@ jobs:
         # need deliberately-vulnerable shapes to prove they get
         # rejected).
         run: |
-          bandit -r arena/ --skip B101 -f json -o bandit.json || true
+          set +e
+          bandit -r arena/ --skip B101 -f json -o bandit.json
+          scanner_rc=$?
+          set -e
+          python3 scripts/scanner_contract_gate.py \
+            --tool bandit --exit-code "$scanner_rc" --allowed-exits 0,1
 
       - name: Gate on HIGH + MEDIUM (LOW allowed as code hygiene)
         # Delegates to the shared gate script so CI and `make
@@ -97,6 +102,7 @@ jobs:
         # annotation follows. New nosemgrep additions in a PR require
         # a rationale (grep-visible in code review).
         run: |
+          set +e
           semgrep \
             --config=p/python \
             --config=p/security-audit \
@@ -109,7 +115,11 @@ jobs:
             --config=p/gitleaks \
             --error --severity=ERROR --severity=WARNING \
             --json --output=semgrep.json \
-            arena/ || true
+            arena/
+          scanner_rc=$?
+          set -e
+          python3 scripts/scanner_contract_gate.py \
+            --tool semgrep --exit-code "$scanner_rc" --allowed-exits 0,1
 
       - name: Gate on any ERROR + WARNING
         run: python3 scripts/security_gate.py semgrep semgrep.json
@@ -139,8 +149,9 @@ jobs:
       - name: Run trufflehog
         uses: trufflesecurity/trufflehog@6f3c981e7b77f235fd2702dd74af25fc4b72bf11 # v3.96.0
         with:
+          # Policy: every verified credential is blocking. Unverified detector
+          # hits are intentionally excluded rather than hidden after execution.
           extra_args: --only-verified --json
-        continue-on-error: true
 
   gitleaks:
     timeout-minutes: 5
@@ -208,10 +219,27 @@ jobs:
       - name: Run OSV-Scanner
         uses: google/osv-scanner-action/osv-scanner-action@8deb546fdb875b9996d27d4950be7312dac076a1 # v2.5.0
         with:
+          # Policy: any known vulnerability is blocking. JSON is retained so
+          # no-packages (128), execution errors (127), and findings (1) remain
+          # distinguishable in the report/log instead of one ignored exit.
           scan-args: |-
             --recursive
+            --format=json
+            --output-file=osv-results.json
             .
-        continue-on-error: true  # advisory, don't block CI
+
+      - name: Validate OSV JSON report
+        if: always()
+        run: python3 scripts/scanner_contract_gate.py --tool osv --report osv-results.json --format osv --block finding
+
+      - name: Upload OSV report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: osv-report
+          path: osv-results.json
+          if-no-files-found: error
+          retention-days: 30
 
   sbom-and-grype:
     timeout-minutes: 10
@@ -230,26 +258,38 @@ jobs:
 
       - name: Generate SBOM with Syft
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        continue-on-error: true
         with:
           format: cyclonedx-json
           output-file: sbom.cyclonedx.json
 
+      - name: Validate CycloneDX SBOM
+        if: always()
+        run: python3 scripts/scanner_contract_gate.py --tool syft --report sbom.cyclonedx.json --format cyclonedx
+
       - name: Scan SBOM with Grype
         uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2  # v7.4.0
-        continue-on-error: true
         with:
           sbom: sbom.cyclonedx.json
-          fail-build: false  # advisory
+          # Policy: Critical is blocking; High and below remain visible in the
+          # retained JSON report without being confused with scanner failure.
+          fail-build: false
           severity-cutoff: critical
+          output-format: json
+          output-file: grype.json
 
-      - name: Upload SBOM
+      - name: Gate Grype Critical findings and validate report
+        if: always()
+        run: python3 scripts/scanner_contract_gate.py --tool grype --report grype.json --format grype --block critical
+
+      - name: Upload SBOM and Grype reports
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
-        continue-on-error: true
         with:
-          name: sbom-cyclonedx
-          path: sbom.cyclonedx.json
+          name: sbom-and-grype-reports
+          path: |
+            sbom.cyclonedx.json
+            grype.json
+          if-no-files-found: error
           retention-days: 30
 
   socket-firewall:
@@ -279,10 +319,13 @@ jobs:
           mode: firewall-free
 
       - name: Safe pip install
+        # Policy: any Socket firewall refusal is blocking. A missing/broken sfw
+        # executable is an execution failure and must also make the job red.
         run: |
           python3 scripts/extract_runtime_reqs.py > runtime-reqs.txt
+          test -s runtime-reqs.txt
+          command -v sfw
           sfw pip install -r runtime-reqs.txt
-        continue-on-error: true
 
   devskim:
     timeout-minutes: 10
@@ -304,16 +347,23 @@ jobs:
         with:
           directory-to-scan: .
           should-scan-archives: false
-          ignore-globs: "**/.git/**,**/bin/**,**/tests/**,**/docs/**,**/.venv/**"
-        continue-on-error: true
+          # Two JSON data files contain only mutation-test paths or a pinned
+          # public commit SHA; JSON cannot carry DevSkim same-line suppressions.
+          ignore-globs: "**/.git/**,**/bin/**,**/tests/**,**/docs/**,**/.venv/**,**/scripts/mutation_cache.json,**/integrations/book_of_eternity_compatibility.json"
+
+      - name: Validate DevSkim SARIF and gate errors
+        if: always()
+        # Policy: SARIF error blocks. Warning/note findings remain visible in
+        # the retained report and are advisory, not execution failures.
+        run: python3 scripts/scanner_contract_gate.py --tool devskim --report devskim-results.sarif --format sarif --block error
 
       - name: Upload DevSkim report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
-        continue-on-error: true
         with:
           name: devskim-report
           path: devskim-results.sarif
+          if-no-files-found: error
           retention-days: 30
 
   pip-audit:
@@ -343,12 +393,18 @@ jobs:
         # CI runs is impossible.
         run: |
           python3 scripts/extract_runtime_reqs.py > runtime-reqs.txt
-          cat requirements-ci.in requirements-packaging.in >> runtime-reqs.txt || true
+          cat requirements-ci.in requirements-packaging.in >> runtime-reqs.txt
+          test -s runtime-reqs.txt
 
       - name: Run pip-audit
         run: |
+          set +e
           pip-audit --requirement runtime-reqs.txt --format json \
-              --output pip-audit.json || true
+              --output pip-audit.json
+          scanner_rc=$?
+          set -e
+          python3 scripts/scanner_contract_gate.py \
+            --tool pip-audit --exit-code "$scanner_rc" --allowed-exits 0,1
 
       - name: Gate on any CVE
         run: python3 scripts/security_gate.py pip-audit pip-audit.json

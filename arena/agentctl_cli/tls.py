@@ -4,13 +4,8 @@ Historical context
 ------------------
 Before v4.41.0 both ``agentctl_common.py`` and ``agentctl_bridge.py``
 each had their own private ``_ssl_context`` / ``_ssl_ctx`` helper
-and both did the same thing::
-
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = 0
-
-That is ``CERT_NONE`` — no hostname check, no certificate
+and both created an SSL context, then disabled hostname and certificate
+verification. That is ``CERT_NONE`` — no hostname check, no certificate
 validation. Any MITM on the path between the CLI and the bridge
 could read and modify every request, including the
 ``Authorization: Bearer <BRIDGE_TOKEN>`` header. The audit that
@@ -149,8 +144,9 @@ def build_ssl_context(url: str) -> ssl.SSLContext | None:
     ctx = ssl.create_default_context()
     if is_insecure_tls_enabled():
         _warn_once_on_insecure()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        # Explicit operator opt-out, guarded by a loud warning above.
+        ctx.check_hostname = False  # DevSkim: ignore DS130822
+        ctx.verify_mode = ssl.CERT_NONE  # DevSkim: ignore DS130822
     # else: leave the defaults from create_default_context in
     # place — check_hostname=True, verify_mode=CERT_REQUIRED.
     return ctx

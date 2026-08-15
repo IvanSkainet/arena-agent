@@ -42,7 +42,8 @@ ADBKEYBOARD_VERSION = "v2.5-dev"
 #   curl -sSfL <release> | sha256sum
 # Anyone updating the bundle must update this constant too — the tests
 # assert the hash matches the on-disk APK.
-ADBKEYBOARD_SHA256 = "41a8a0996d7397a2390d1ca16a75cb66c4a7bdaa89cf4e63600a4d3fb346fbbb"
+# Public artifact digest, not a credential or authentication token.
+ADBKEYBOARD_SHA256 = "41a8a0996d7397a2390d1ca16a75cb66c4a7bdaa89cf4e63600a4d3fb346fbbb"  # DevSkim: ignore DS173237
 
 
 def _err(msg: str, **extra: Any) -> dict[str, Any]:

@@ -215,9 +215,11 @@ export ARENA_WEBHOOK_STRICT=1
 
 ## Static analysis + CI gates
 
-Every push to `master` and every PR runs the security scan
-pipeline in `.github/workflows/security-scan.yml` — three
-independent tools, all must exit clean.
+Every push to `master` and every PR runs the security scan pipeline in
+`.github/workflows/security-scan.yml`. Scanner execution, report validity, and
+finding policy are separate gates: a missing executable or malformed/missing
+report is always blocking even when that scanner's lower-severity findings are
+advisory.
 
 ### Baseline (must remain green)
 
@@ -241,14 +243,28 @@ independent tools, all must exit clean.
   are allowed only with a specific rationale (see existing
   `nosemgrep` annotations for the required shape).
 
-- **pip-audit** — dependency CVE scan against
-  `pyproject.toml` runtime deps + optional `full`/`dev`
-  extras. Any known-CVE bumps the build red.
+- **pip-audit** — dependency CVE scan against the reviewed runtime/CI/package
+  requirement inputs. Any known CVE is blocking.
+- **TruffleHog** — full-history scan; every verified credential is blocking.
+  Unverified detector hits are excluded by policy, not swallowed after failure.
+- **OSV-Scanner** — recursive dependency scan with retained JSON. Any known
+  vulnerability is blocking; no-packages and execution exits are failures.
+- **Syft + Grype** — Syft must emit a valid CycloneDX BOM. Grype must emit valid
+  JSON; Critical findings block, High and below remain visible advisory data.
+- **Socket Firewall** — a refusal or missing/broken `sfw` executable blocks the
+  dependency installation job.
+- **DevSkim** — must emit valid SARIF. `error` results block; warning/note remain
+  visible in the retained artifact.
+
+Command scanners may use exit `1` to mean "valid report with findings". Only
+explicitly documented exits `0/1` are accepted before report policy is applied;
+all other exits are execution failures. `scripts/scanner_contract_gate.py`
+contains the shared report contracts.
 
 ### Test suite
 
-- `pytest tests/` — currently 2319 tests on `master`. Must
-  stay green.
+- `pytest tests/` must stay green; the current collection count is reported by
+  the exact CI run rather than copied into this document.
 - Two known-flaky tests are deselected in CI:
   `tests/test_superpowers_layout.py::test_sync_script_exists_and_executable`
   (fs execute-bit lost on some hosts) and
@@ -261,11 +277,11 @@ Run locally before pushing:
 
 ```bash
 pip install bandit 'semgrep>=1.170' pip-audit pytest ruff
-make security-scan  # runs all four
+make security-scan  # local Bandit + Semgrep + pip-audit blocking subset
 ```
 
-`make security-scan` is defined in the repo `Makefile` and is
-what CI runs, so passing locally means passing in CI.
+`make security-scan` exercises the locally installable blocking subset. The
+pinned action/container scanners and their report contracts run in GitHub CI.
 
 
 ## Audit history

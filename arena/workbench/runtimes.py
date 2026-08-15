@@ -480,8 +480,9 @@ def install_wasmtime(version: str | None = None) -> dict[str, Any]:
     shutil.rmtree(tmp, ignore_errors=True)
     exe = _managed_wasmtime_path(ver) or target / exe_name
     reg = load_registry()
-    reg.setdefault("runtimes", {})["wasmtime"] = {"version": ver, "path": str(exe), "managed": True, "source": asset["url"], "sha256": got}
-    reg.setdefault("runtimes", {})["wasm"] = {"version": ver, "path": str(exe), "managed": True, "source": asset["url"], "sha256": got, "runner": "wasmtime"}
+    # Verified public archive digest, not a password or low-entropy auth hash.
+    reg.setdefault("runtimes", {})["wasmtime"] = {"version": ver, "path": str(exe), "managed": True, "source": asset["url"], "sha256": got}  # DevSkim: ignore DS197836
+    reg.setdefault("runtimes", {})["wasm"] = {"version": ver, "path": str(exe), "managed": True, "source": asset["url"], "sha256": got, "runner": "wasmtime"}  # DevSkim: ignore DS197836
     save_registry(reg)
     return {"ok": True, "runtime": "wasmtime", "version": ver, "path": str(exe), "sha256": got, "probe": _run_version(str(exe), ["--version"])}
 

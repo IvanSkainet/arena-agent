@@ -35,9 +35,10 @@ def _load(path: str) -> dict:
         sys.exit(2)
     try:
         data = json.loads(p.read_text())
-        # A valid-but-not-an-object report (``null``, a bare list) must not
-        # reach callers annotated ``-> dict``; treat it as an empty report.
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            print(f"error: report root must be an object: {path}", file=sys.stderr)
+            sys.exit(2)
+        return data
     except Exception as e:  # noqa: BLE001
         print(f"error: could not parse {path}: {e}", file=sys.stderr)
         sys.exit(2)
@@ -49,7 +50,22 @@ def check_bandit(report_path: str) -> int:
     path) that we tolerate to keep the sweep focused on real
     security issues."""
     d = _load(report_path)
-    results = d.get("results", [])
+    results = d.get("results")
+    if not isinstance(results, list):
+        print("error: bandit report must contain a results array", file=sys.stderr)
+        return 2
+    if any(not isinstance(item, dict) for item in results):
+        print("error: bandit result must be an object", file=sys.stderr)
+        return 2
+    for item in results:
+        if (
+            not isinstance(item.get("issue_severity"), str)
+            or not isinstance(item.get("filename"), str)
+            or not isinstance(item.get("line_number"), int)
+            or not isinstance(item.get("test_id"), str)
+        ):
+            print("error: bandit result has missing/invalid required fields", file=sys.stderr)
+            return 2
     by_sev: dict[str, int] = {}
     for r in results:
         sev = r.get("issue_severity", "?")
@@ -85,7 +101,27 @@ def check_semgrep(report_path: str) -> int:
     either a real bug or a new rule that needs its own annotation
     (with a code-review-visible rationale)."""
     d = _load(report_path)
-    results = d.get("results", [])
+    results = d.get("results")
+    errors = d.get("errors")
+    if not isinstance(results, list) or not isinstance(errors, list):
+        print("error: semgrep report must contain results and errors arrays", file=sys.stderr)
+        return 2
+    if errors:
+        print(f"error: semgrep reported {len(errors)} execution/config error(s)", file=sys.stderr)
+        return 2
+    if any(not isinstance(item, dict) for item in results):
+        print("error: semgrep result must be an object", file=sys.stderr)
+        return 2
+    for item in results:
+        start = item.get("start")
+        if (
+            not isinstance(item.get("check_id"), str)
+            or not isinstance(item.get("path"), str)
+            or not isinstance(start, dict)
+            or not isinstance(start.get("line"), int)
+        ):
+            print("error: semgrep result has missing/invalid required fields", file=sys.stderr)
+            return 2
     print(f"semgrep findings: {len(results)}")
     if not results:
         print("OK: semgrep clean across all rule packs")
@@ -109,7 +145,23 @@ def check_semgrep(report_path: str) -> int:
 def check_pip_audit(report_path: str) -> int:
     """Fail on any CVE in the runtime + full-extras deps."""
     d = _load(report_path)
-    deps = d.get("dependencies", [])
+    deps = d.get("dependencies")
+    if not isinstance(deps, list):
+        print("error: pip-audit report must contain a dependencies array", file=sys.stderr)
+        return 2
+    if any(not isinstance(dep, dict) for dep in deps):
+        print("error: pip-audit dependency must be an object", file=sys.stderr)
+        return 2
+    for dep in deps:
+        vulns = dep.get("vulns")
+        if (
+            not isinstance(dep.get("name"), str)
+            or not isinstance(dep.get("version"), str)
+            or not isinstance(vulns, list)
+            or any(not isinstance(vuln, dict) for vuln in vulns)
+        ):
+            print("error: pip-audit dependency has missing/invalid required fields", file=sys.stderr)
+            return 2
     any_cve = False
     for dep in deps:
         vulns = dep.get("vulns") or []
