@@ -1,3 +1,45 @@
+## v4.169.47 — 2026-08-15
+
+### Security scanners fail closed
+
+Security workflow success now requires both a valid scanner execution envelope
+and a structurally valid report. TruffleHog, OSV, Syft/Grype, Socket Firewall,
+DevSkim, Bandit, Semgrep and pip-audit no longer turn missing, empty, malformed,
+incomplete or unexpectedly terminated scans into green checks. Finding policy
+is explicit and separate from scanner health: OSV findings and DevSkim errors
+block; Grype Critical blocks; lower configured severities remain advisory.
+
+The first real fail-closed DevSkim run exposed one genuine defect among the
+classified findings: `scripts/check_bridge.py` unconditionally disabled TLS
+verification for public tunnel probes. Public probes now use the shared strict
+TLS context by default. Only the explicit operator insecure-TLS opt-out remains.
+
+### Remote exec follows the HTTP client lifetime
+
+Buffered `/v1/exec`, raw `/v1/exec/script`, and silent waits in
+`/v1/exec/stream` now watch the underlying HTTP transport. A client/proxy
+disconnect cancels and awaits the runner, converging on the existing Windows and
+POSIX process-tree cleanup. Semaphore slots, `ACTIVE_PROCESSES`, stream
+generators and temporary scripts are released on the same path. This closes the
+class that left `cmd → powershell → gh run watch` alive after a tunnel failure.
+
+### Ship-smoke history test is isolated
+
+The smoke test no longer assumes an empty flight-record directory. It measures
+the history before and after a run, requires exactly one new record, and checks
+that record against the returned `report_path`.
+
+### Validation
+
+* Merged-head manual Security run `31900724582` passed every scanner and the
+  aggregate `Security required` gate.
+* T44 transport lifecycle module: 0/54 surviving mutants. Disabling transport
+  close detection made the watcher test fail with `TimeoutError`.
+* Exact PR head `492fc8f5` passed the full 60-check rollup.
+* Exact Windows PR head passed 19 focused client-abort/tree-kill tests on Python
+  3.14; no `time.sleep(30)` child survived.
+* Full local preflight and fail-closed local security gates passed.
+
 ## v4.169.46 — 2026-08-15
 
 ### Android APK is a first-class attested release asset

@@ -1,3 +1,45 @@
+## v4.169.47 — 2026-08-15
+
+### Security scanners теперь fail closed
+
+Успех Security workflow теперь требует и допустимый exit envelope сканера, и
+структурно валидный отчёт. TruffleHog, OSV, Syft/Grype, Socket Firewall,
+DevSkim, Bandit, Semgrep и pip-audit больше не превращают отсутствующий, пустой,
+повреждённый, неполный или аварийно завершённый scan в зелёную проверку. Политика
+findings отделена от здоровья сканера: OSV findings и DevSkim errors блокируют,
+Grype Critical блокирует, явно заданные меньшие severity остаются advisory.
+
+Первый настоящий fail-closed DevSkim run среди классифицированных findings нашёл
+реальный дефект: `scripts/check_bridge.py` безусловно отключал TLS verification
+для публичного tunnel probe. Теперь публичные probes по умолчанию используют
+общий strict TLS context. Сохранён только явный operator opt-out insecure TLS.
+
+### Remote exec привязан к lifetime HTTP-клиента
+
+Buffered `/v1/exec`, raw `/v1/exec/script` и silent waits в
+`/v1/exec/stream` теперь наблюдают за базовым HTTP transport. Разрыв
+client/proxy отменяет runner и дожидается его завершения через общий Windows/POSIX
+process-tree cleanup. На том же пути освобождаются semaphore slots,
+`ACTIVE_PROCESSES`, stream generators и временные scripts. Закрыт класс утечки,
+оставлявший `cmd → powershell → gh run watch` после сбоя туннеля.
+
+### Ship-smoke history test изолирован
+
+Smoke test больше не предполагает пустой flight-record directory. Он измеряет
+history до и после запуска, требует ровно одну новую запись и сопоставляет её с
+возвращённым `report_path`.
+
+### Проверки
+
+* Merged-head manual Security run `31900724582` прошёл все scanners и aggregate
+  gate `Security required`.
+* T44 transport lifecycle module: 0/54 surviving mutants. Отключение transport
+  close detection сделало watcher test красным с `TimeoutError`.
+* Exact PR head `492fc8f5` прошёл полный rollup из 60 checks.
+* Exact Windows PR head прошёл 19 focused client-abort/tree-kill tests на Python
+  3.14; ни один `time.sleep(30)` child не выжил.
+* Полные local preflight и fail-closed local security gates прошли.
+
 ## v4.169.46 — 2026-08-15
 
 ### Android APK стал полноценным аттестованным release asset
