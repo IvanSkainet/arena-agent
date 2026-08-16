@@ -83,6 +83,7 @@ def _run_gate(
     payload: object | None,
     *,
     raw: str | None = None,
+    raw_expected: str | None = None,
     allowed_skipped: set[str] | None = None,
     policy: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
@@ -93,7 +94,8 @@ def _run_gate(
         env["NEEDS_JSON"] = json.dumps(payload)
     else:
         env.pop("NEEDS_JSON", None)
-    command = [sys.executable, str(GATE), "--expected", ",".join(sorted(expected))]
+    expected_arg = ",".join(sorted(expected)) if raw_expected is None else raw_expected
+    command = [sys.executable, str(GATE), "--expected", expected_arg]
     if allowed_skipped is not None:
         command.extend([
             "--allow-skipped",
@@ -192,7 +194,35 @@ def test_security_aggregate_names_every_security_job() -> None:
     assert set(jobs) == SECURITY_BLOCKING | {"security-required"}
     assert aggregate["permissions"] == {"contents": "read"}
     run = "\n".join(str(step.get("run", "")) for step in aggregate["steps"])
-    assert set(run.split('"')[-2].split(",")) == SECURITY_BLOCKING
+    expected = re.search(r'--expected\s+"([^"]+)"', run)
+    assert expected
+    assert set(expected.group(1).split(",")) == SECURITY_BLOCKING
+
+
+def test_expected_job_list_rejects_empty_and_duplicates() -> None:
+    module = _load_gate()
+    with pytest.raises(ValueError, match="^expected job list is empty$"):
+        module._expected_names(" , ")
+    with pytest.raises(ValueError, match="^expected job list contains duplicates$"):
+        module._expected_names("bandit, semgrep, bandit")
+
+
+@pytest.mark.parametrize(
+    "raw_expected, message",
+    [
+        ("", "expected job list is empty"),
+        ("bandit,bandit", "expected job list contains duplicates"),
+    ],
+)
+def test_expected_job_list_cli_rejections_exit_two(raw_expected, message) -> None:
+    result = _run_gate(
+        set(),
+        {"bandit": {"result": "success"}},
+        raw_expected=raw_expected,
+    )
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert message in result.stderr
 
 
 def test_required_jobs_gate_accepts_only_the_exact_all_success_shape() -> None:
@@ -240,6 +270,16 @@ def test_required_jobs_gate_cli_bilateral_sabotage() -> None:
     absent = _run_gate(SECURITY_BLOCKING, None)
     assert absent.returncode == 2
     assert "is absent" in absent.stderr
+
+    non_object = _run_gate(SECURITY_BLOCKING, [])
+    assert non_object.returncode == 1
+    assert "needs payload must be a JSON object" in non_object.stdout
+
+    malformed_record = _needs_payload(SECURITY_BLOCKING)
+    malformed_record["devskim"] = ["success"]
+    malformed_job = _run_gate(SECURITY_BLOCKING, malformed_record)
+    assert malformed_job.returncode == 1
+    assert "devskim: result record is missing or malformed" in malformed_job.stdout
 
 
 def test_docs_only_skip_requires_an_explicit_true_policy_and_allowlist() -> None:
