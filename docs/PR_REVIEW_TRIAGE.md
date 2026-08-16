@@ -2,28 +2,35 @@
 
 <!-- pr-review-surfaces: review-threads,submitted-reviews,ordinary-pr-comments,check-rollup -->
 <!-- pr-review-dispositions: accepted,partially-accepted,rejected,duplicate,follow-up,noise -->
-<!-- pr-review-apps: keep=coderabbit,sourcery;remove=deepsource;sample-min=10 -->
+<!-- pr-review-apps: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor;pending=deepsource;codefactor-probation=10-prs;exact-head-required -->
 
 Automated review is evidence, not authority. A green check does not prove the
 change works, and a bot-authored patch does not become correct because another
 bot approved it.
 
 This procedure applies to every non-trivial pull request. Release, security,
-workflow, protocol, and cross-repository changes require both CodeRabbit and
-Sourcery evidence before merge.
+workflow, protocol, and cross-repository changes require every available
+configured reviewer surface to be read, but quota-skipped/unavailable Apps are
+recorded as no signal rather than treated as blockers. A manual CodeRabbit or
+Qodo review is preferred for high-risk changes when its independent quota is
+available.
 
 ## Current reviewer roles
 
 | Integration | Role | Merge status |
 |---|---|---|
-| CodeRabbit | Manually triggered independent review for high-risk changes; strongest observed signal is cross-file security and release invariants. | Informational; never merge autofixes without re-deriving and testing the invariant. |
-| Sourcery | Automatic second review; strongest observed signal is missing tests, brittle assertions, maintainability, and documentation consistency. | Informational; summary feedback must be triaged even when it creates no review thread. |
-| DeepSource | Analysis quota exhausted; recent PR and `master` checks are skipped. Existing scanners already cover its static-analysis and secret-scanning classes. | Remove the GitHub App installation; do not treat a skipped check as evidence. |
+| CodeRabbit | Manually triggered semantic review for high-risk changes; benchmark strength was exact DNS-rebinding analysis. | Informational; one-review rolling quota observed. Never merge autofixes without re-deriving and testing the invariant. |
+| Qodo | Independent semantic/cross-file review. Benchmark found insecure TLS and a cross-file release-packaging concern. | Informational trial; automatic commits/autofix remain disabled and every finding is revalidated. |
+| SonarQube Cloud | Whole-tree and PR-delta static analysis with low content permission. | Informational; legacy baseline and PR Quality Gate are not required until rule-level precision is measured. |
+| Codacy | Multi-analyzer static analysis and independent quota. | Informational/manual disposition; duplicate annotations are collapsed by root location before counting. |
+| Sourcery | Automatic maintainability/test-completeness review when quota exists. | Informational; exact-head rate-limit reviews count as no signal. |
+| DeepSource | Historical signal exists, but current analyses are quota-skipped and the vendor dashboard is Cloudflare-blocked for the owner. | Keep pending vendor response; skipped checks are no signal. |
+| CodeFactor | Fast independent static quota; benchmark recall was low with one control false positive and high App permission cost. | Informational 10-real-PR probation; remove if it adds no unique accepted finding. |
 
-Do not add another AI reviewer until CodeRabbit and Sourcery have a classified
-sample of at least ten representative PRs. Functional overlap alone is not a
-reason to remove a reviewer, but every additional App must demonstrate a new
-signal that exceeds its false-positive and permission costs.
+Functional overlap is allowed because independent quotas improve availability.
+Every App must still justify its false-positive, permission, cost, and failure-mode
+budget. The measured baseline and decisions are in
+[`reviewer-benchmark-67.md`](audits/reviewer-benchmark-67.md).
 
 ## Read every GitHub review surface
 
