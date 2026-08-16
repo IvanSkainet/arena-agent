@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from types import ModuleType
 
@@ -10,6 +11,9 @@ SCRIPT = REPO / "scripts" / "release_published_check.py"
 
 
 def _module() -> ModuleType:
+    scripts_dir = str(SCRIPT.parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
     spec = importlib.util.spec_from_file_location("release_monotonic_probe", SCRIPT)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -36,7 +40,39 @@ def test_missing_or_malformed_latest_release_fails_closed(capsys) -> None:
         module.current_version = lambda: "4.169.44"
         module._api = lambda _path, value=latest: value
         assert module.main([]) == 1
-    assert "valid semantic version" in capsys.readouterr().out
+    assert "strict vX.Y.Z contract" in capsys.readouterr().out
+
+
+def test_source_and_release_tag_parsers_have_distinct_strict_contracts() -> None:
+    module = _module()
+    assert module.source_parts("4.169.47") == (4, 169, 47)
+    assert module.source_parts("v4.169.47") == ()
+    assert module.source_parts("04.169.47") == ()
+    assert module.release_tag_parts("v4.169.47") == (4, 169, 47)
+    assert module.release_tag_parts("4.169.47") == ()
+    assert module.release_tag_parts("v04.169.47") == ()
+
+
+def test_malformed_source_versions_fail_closed(capsys) -> None:
+    for source in ("v4.169.47", "4.169", "4.x.47"):
+        module = _module()
+        module.current_version = lambda value=source: value
+        module._api = lambda _path: _release("v4.169.47")
+        assert module.main([]) == 1
+    output = capsys.readouterr().out
+    assert output.count("strict X.Y.Z contract") == 3
+
+
+def test_malformed_latest_tags_cannot_bypass_the_release_gate(capsys) -> None:
+    for latest_tag in ("4.169.47", "vv4.169.47", "v4.169", "v4.x.47"):
+        module = _module()
+        module.current_version = lambda: "4.169.47"
+        # Deliberately omit the required alias: the malformed tag must never
+        # reach an OK result merely because raw tag equality skipped assets.
+        module._api = lambda _path, value=latest_tag: _release(value, alias=False)
+        assert module.main([]) == 1
+    output = capsys.readouterr().out
+    assert output.count("strict vX.Y.Z contract") == 4
 
 
 def test_one_unpublished_candidate_is_allowed_only_in_non_strict_mode() -> None:

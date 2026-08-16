@@ -192,6 +192,16 @@
    "tool": "mutmut 2.5.1",
    "total": 150
   },
+  "scripts/release_version_contract.py": {
+   "fingerprint": "6e712e252102bee9a7a87cb5f3960ff3501cceebc03a1aacab7d6518e4c91560",
+   "reason": "T50 exact target run; 0 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_release_version_monotonic.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 7
+  },
   "scripts/update_log_timestamp.py": {
    "fingerprint": "599bdd3a0778ae1f24a8c7704d51fda178fc23c7304e1bf3871b91a084691ee9",
    "reason": "T48 exact target run; 0 survivors",

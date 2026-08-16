@@ -29,6 +29,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from release_version_contract import release_tag_parts, source_parts
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REPO = os.environ.get("ARENA_RELEASE_REPO", "IvanSkainet/arena-agent")
 TIMEOUT = 30
@@ -79,15 +81,6 @@ def tags_without_releases() -> list[str]:
     return [t.strip() for t in out.stdout.splitlines() if t.strip()]
 
 
-def parts(tag: str) -> tuple[int, ...]:
-    """Parse the project's strict three-component release tag."""
-    raw = tag[1:] if tag.startswith("v") else tag
-    fields = raw.split(".")
-    if len(fields) != 3 or any(not field.isdigit() for field in fields):
-        return ()
-    return tuple(int(field) for field in fields)
-
-
 def _gap(tree: tuple[int, ...], published: tuple[int, ...]) -> int:
     """How many releases the tree is ahead, counted crudely on the patch level."""
     if not tree or not published:
@@ -122,13 +115,15 @@ def main(argv: list[str]) -> int:
     names = {a.get("name") for a in (latest.get("assets") or [])}
 
     problems = []
-    tree_parts = parts(tag)
-    latest_parts = parts(latest_tag)
+    tree_parts = source_parts(version)
+    latest_parts = release_tag_parts(latest_tag)
     if not tree_parts:
-        problems.append(f"the source version {tag!r} is not a valid semantic version")
+        problems.append(
+            f"the source VERSION {version!r} must match the strict X.Y.Z contract"
+        )
     if not latest_parts:
         problems.append(
-            f"releases/latest has no valid semantic version tag: {latest_tag!r}"
+            f"releases/latest tag {latest_tag!r} must match the strict vX.Y.Z contract"
         )
     elif tree_parts and latest_parts > tree_parts:
         problems.append(
@@ -156,8 +151,8 @@ def main(argv: list[str]) -> int:
         for line in problems:
             print(f"  {line}")
         print()
-        print("  Tagging is not shipping. Publish the release with both zips")
-        print("  (versioned + unversioned alias) -- see RELEASE.md step 7.")
+        print("  Tagging is not shipping. Publish the accepted candidate ZIP pair")
+        print("  and APK without rebuilding them -- see RELEASE.md steps 8-10.")
         return 1
 
     print(f"release check: OK (releases/latest = {latest_tag}, assets present)")
