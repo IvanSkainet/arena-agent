@@ -160,12 +160,19 @@ def test_automated_review_triage_reads_every_surface_and_records_disposition() -
         "pr-review-dispositions: "
         "accepted,partially-accepted,rejected,duplicate,follow-up,noise"
     ) in text
-    assert "pr-review-apps: keep=coderabbit,sourcery;remove=deepsource;sample-min=10" in text
+    assert (
+        "pr-review-apps: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor;"
+        "pending=deepsource;codefactor-probation=10-prs;exact-head-required"
+    ) in text
     assert "## Validate before resolving" in text
     assert "## Generated autofix branches" in text
 
     survey = APP_SURVEY.read_text(encoding="utf-8")
-    assert "ai-review-policy: keep=coderabbit,sourcery;remove=deepsource;sample-min=10" in survey
+    assert (
+        "ai-review-policy: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor;"
+        "pending=deepsource;codefactor-probation=10-prs;exact-head-required"
+    ) in survey
+    assert "reviewer-benchmark-67.md" in survey
 
 
 def test_ci_aggregate_names_every_blocking_job_and_excludes_debt_noise() -> None:

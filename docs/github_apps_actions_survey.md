@@ -22,20 +22,21 @@
 | Качество | ruff (+ratchet), pyrefly (+ratchet), vulture (+ratchet), import-linter contracts, coverage gate 70% (pyproject, branch coverage) |
 | Упаковка | packaging-e2e (build→twine→check-wheel-contents→install→import) |
 | E2E | e2e-installed (живой сервер из wheel: auth/MCP/fs/jail/teardown) |
-| AI review | CodeRabbit (manual high-risk review) + Sourcery (automatic informational review); DeepSource quota exhausted and marked for removal |
+| AI review | Measured quota pool: CodeRabbit + Qodo semantic review; SonarQube Cloud/Codacy/CodeFactor static review; Sourcery when quota exists; DeepSource pending vendor recovery |
 | Тесты | pytest-randomly + timeout, 4764 шт., contract/catalogue/legacy guards |
 
 ## Рынок по категориям
 
 ### AI code review
-CodeRabbit и Sourcery остаются двумя разными informational-контурами:
-CodeRabbit дал сильный cross-file security/release сигнал, а Sourcery —
-отдельный сигнал по полноте тестов, хрупким assertions и документации.
-Исторический массовый прогон Sourcery по всему дереву действительно был
-шумным, но переносить его precision на текущий PR-review режим было ошибкой.
-DeepSource не анализирует текущие PR из-за исчерпанной квоты и помечен на
-удаление. Третий AI-review App не добавляется до измеренной выборки минимум из
-10 репрезентативных PR. Процедура: [PR Review Triage](PR_REVIEW_TRIAGE.md).
+T52 заменил ставку на два Apps измеренным quota pool: CodeRabbit и Qodo дают
+разные semantic/cross-file сигналы; SonarQube Cloud и Codacy дают независимые
+static-analysis квоты; Sourcery остаётся полезным при доступной квоте.
+DeepSource сохраняется до ответа вендора, но quota-skipped check считается
+нулём сигнала. CodeFactor измерен как low-recall/high-permission, но оставлен
+на probationary 10-real-PR sample ради быстрой независимой квоты. Functional overlap допустим:
+он покупает availability, но не отменяет triage каждого finding. Результаты:
+[`reviewer-benchmark-67.md`](audits/reviewer-benchmark-67.md). Процедура:
+[PR Review Triage](PR_REVIEW_TRIAGE.md).
 
 ### Дашборды качества (SonarCloud / Codacy / Qlty / CodeScene / Qodana)
 SonarCloud (бесплатно для OSS, quality gates), Codacy ($15/user, all-in-one),
@@ -96,15 +97,15 @@ e2e-installed — естественное продолжение «продви
 | 4 | Playwright dashboard E2E | P2→Tier-3 | blocking e2e job | позже |
 | 5 | Codecov | P3 | PR comment | **РАБОТАЕТ** 2026-08-02: codecov-action v7.0.0 SHA-pinned, token-auth, 15 legs upload, statuses informational-only. Первое покрытие: **52.75%** (20185/38261). Badge в обоих README |
 | 6 | Renovate | P3 | PR queue | после автоматизации regen-lock |
-| 7 | SonarCloud/Codacy/Qodana/CodeScene | — | — | не добавлять (дубль ruff/pyrefly) |
-| 8 | AI-review Apps | — | PR review, informational | **CodeRabbit + Sourcery оставить; DeepSource удалить; третий reviewer не добавлять до 10-PR baseline** |
+| 7 | SonarQube Cloud / Codacy | measured shadow | PR/static baseline, informational | **Оставить non-blocking для rule-level triage; не bulk-fix и не делать required** |
+| 8 | AI-review Apps | measured shadow | PR review, informational | **CodeRabbit + Qodo оставить; Sourcery quota-dependent; DeepSource pending vendor; CodeFactor оставить на 10-PR probation ради quota availability** |
 
 Статус: P1 выполнен (harden-runner@bf7454d egress-policy: audit как первый
 шаг 29 jobs). Остальное ждёт явного решения пользователя.
 
 ## Перекалибровка AI-review по живым PR (2026-08-14, Asia/Yekaterinburg)
 
-<!-- ai-review-policy: keep=coderabbit,sourcery;remove=deepsource;sample-min=10 -->
+<!-- ai-review-policy: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor;pending=deepsource;codefactor-probation=10-prs;exact-head-required -->
 
 Старый вывод «Sourcery ≈100% false-positive» смешивал два разных режима:
 массовые диагностики по историческому дереву и текущий review конкретного PR.
@@ -132,11 +133,13 @@ exact source commit, exact two-ZIP/candidate checksums, рабочая дире�
 непроверенными входными данными.
 
 DeepSource имеет другой verdict. `DeepSource: Analysis` был `skipped` на PR
-`#5`, `#6`, `#15`, `#17`–`#21` и девяти последних проверенных commit `master`. Владелец
-репозитория подтвердил root cause: **Analysis quota is exhausted**. Покупать
-квоту для слоя, дублирующего CodeQL/Semgrep/Bandit и локальные quality
-ratchets, нецелесообразно; старый Secrets check также дублирует GitHub secret
-scanning, Gitleaks и TruffleHog. **DeepSource удалить из GitHub Apps.**
+`#5`, `#6`, `#15`, `#17`–`#21`, последних проверенных commit `master` и T52
+benchmark. Владелец подтвердил root cause: **Analysis quota is exhausted**, а
+доступ к dashboard блокируется Cloudflare со всех проверенных сетей. При этом
+исторически DeepSource дал одну принятую и четыре отклонённые находки. Решение
+T52: не покупать квоту и не считать skipped зелёным, но оставить App до ответа
+вендора как потенциально независимый quota lane; затем пересмотреть по живому
+сигналу и permissions.
 
 Наблюдаемые права и поведение:
 
