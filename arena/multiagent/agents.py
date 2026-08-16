@@ -31,7 +31,7 @@ agent -- which is fine for a rolling bridge upgrade because the
 master token restores full access.
 """
 from __future__ import annotations
-
+import hmac
 import hashlib
 import hmac
 import secrets
@@ -111,17 +111,16 @@ class AgentRegistry:
         with self._lock:
             return self._by_id.get(agent_id)
 
-    def resolve_token(self, token: str) -> AgentRecord | None:
-        """Look up an agent by its bearer token. Constant-time via
-        `hmac.compare_digest` inside `_derive_agent_token` (aliases
-        share the same hash prefix)."""
-        if not token:
-            return None
-        with self._lock:
-            agent_id = self._by_token.get(token)
-            if not agent_id:
-                return None
-            return self._by_id.get(agent_id)
+def resolve_token(self, token: str) -> AgentRecord | None:
+    """Look up an agent by its bearer token. Uses constant-time comparison
+    via `hmac.compare_digest` to prevent timing attacks."""
+    if not token:
+        return None
+    with self._lock:
+        for stored_token, agent_id in self._by_token.items():
+            if hmac.compare_digest(token, stored_token):
+                return self._by_id.get(agent_id)
+        return None
 
     def list(self) -> list[AgentRecord]:
         with self._lock:
