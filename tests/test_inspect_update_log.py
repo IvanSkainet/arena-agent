@@ -7,8 +7,11 @@ garbage an operator might leave behind.
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
+
+import pytest
 
 # scripts/ is not on sys.path by default in this repo (the install
 # flow puts it there, but pytest collects from tests/ directly).
@@ -22,6 +25,7 @@ from inspect_update_log import (  # noqa: E402  -- import after sys.path tweak
     _resolve_log_paths,
     main,
 )
+from update_log_timestamp import parse_timestamp  # noqa: E402
 
 # A canonical, complete log: bridge exited, files copied, bridge relaunched.
 GOOD_LOG = (
@@ -31,6 +35,19 @@ GOOD_LOG = (
     "[2026-07-23 10:00:07.456] copy done, launching relaunch\n"
     "[2026-07-23 10:00:07.500] relaunched via schtasks\n"
     "[2026-07-23 10:00:07.600] mover-done\n"
+)
+
+# Exact shape retained from the real v4.169.47 mover on Ivan's RU-locale
+# Windows host. `%DATE%` uses DD.MM.YYYY, `%TIME%` permits a one-digit hour,
+# and fractional seconds use a comma.
+RU_LOCALE_LOG = (
+    "[16.08.2026  1:27:14,48] mover-start pid_target=9032\n"
+    "[16.08.2026  1:27:14,48] wait-loop-entry\n"
+    "[16.08.2026  1:27:14,57] bridge exited, starting copy\n"
+    "[16.08.2026  1:27:15,76] copy done, launching relaunch\n"
+    "[16.08.2026  1:27:15,78] fired schtasks, waiting for port 8765\n"
+    "[16.08.2026  1:27:22,88] relaunched via schtasks\n"
+    "[16.08.2026  1:27:22,89] mover-done\n"
 )
 
 
@@ -46,6 +63,70 @@ def test_line_regex_accepts_marker_with_no_detail():
     m = _LINE_RE.match("[2026-07-23 10:00:00.000] wait-loop-entry")
     assert m is not None
     assert m.group("rest") == "wait-loop-entry"
+
+
+def test_line_regex_accepts_real_ru_locale_shape():
+    m = _LINE_RE.match("[16.08.2026  1:27:14,48] mover-start pid_target=9032")
+    assert m is not None
+    assert m.group("date") == "16.08.2026"
+    assert m.group("time") == "1:27:14,48"
+    assert m.group("rest") == "mover-start pid_target=9032"
+
+
+def test_parse_real_ru_locale_log_is_complete(tmp_path):
+    log = tmp_path / ".arena-update-apply.log"
+    log.write_text(RU_LOCALE_LOG, encoding="utf-8")
+    rep = _parse_log(log)
+    assert rep.parse_errors == []
+    assert len(rep.entries) == 7
+    assert rep.entries[0].when.isoformat() == "2026-08-16T01:27:14.480000"
+    assert rep.entries[-1].when.isoformat() == "2026-08-16T01:27:22.890000"
+    assert rep.finished_cleanly is True
+    assert rep.missing_phases == []
+    assert rep.relaunched_via == "Scheduled Task path was used"
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "[2026-08-16 01:27:14,48] mover-start",  # mixed ISO date/comma time
+        "[16.08.2026 01:27:14.48] mover-start",  # mixed locale date/dot time
+        "[08/16/2026 01:27:14.48] mover-start",  # unobserved US spelling
+    ],
+)
+def test_mixed_or_unobserved_timestamp_shapes_fail_closed(tmp_path, line):
+    log = tmp_path / ".arena-update-apply.log"
+    log.write_text(line + "\n", encoding="utf-8")
+    rep = _parse_log(log)
+    assert rep.entries == []
+    assert len(rep.parse_errors) == 1
+
+
+def test_impossible_localized_date_is_rejected(tmp_path):
+    log = tmp_path / ".arena-update-apply.log"
+    log.write_text("[31.02.2026  1:27:14,48] mover-start\n", encoding="utf-8")
+    rep = _parse_log(log)
+    assert rep.entries == []
+    assert len(rep.parse_errors) == 1
+    assert "bad timestamp" in rep.parse_errors[0]
+
+
+@pytest.mark.parametrize(
+    "date_text, time_text",
+    [
+        ("2026/08/16", "01:27:14;48"),
+        ("2026-08-16", "01:27:14,48"),
+        ("16.08.2026", "01:27:14.48"),
+    ],
+)
+def test_timestamp_parser_rejects_unsupported_shape_with_actionable_value(
+    date_text, time_text,
+):
+    with pytest.raises(
+        ValueError,
+        match=rf"^unsupported mover timestamp shape: {re.escape(date_text)} {re.escape(time_text)}$",
+    ):
+        parse_timestamp(date_text, time_text)
 
 
 def test_parse_good_log_records_all_entries(tmp_path):
