@@ -21,6 +21,7 @@ from __future__ import annotations
 import io
 import json
 import os
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -231,12 +232,14 @@ def test_region_env_override_appears_in_argv(monkeypatch, tmp_path):
     binary is invoked."""
     monkeypatch.setenv(ENV_REGION, "eu")
 
-    captured = {}
+    captured: list[tuple[list[str], dict]] = []
 
     class _StubProc:
         def __init__(self, argv, *a, **kw):
-            captured["argv"] = argv
-            captured["kwargs"] = kw
+            captured.append((list(argv), kw))
+            # Deterministic reproduction of the macOS CI failure: an unrelated
+            # background Android probe lands after the owned ngrok invocation.
+            captured.append((["/opt/android-sdk/platform-tools/adb", "version"], {}))
             self.stdout = io.StringIO("")
         def poll(self):
             return 0  # already exited so the wait loop bails immediately
@@ -257,22 +260,30 @@ def test_region_env_override_appears_in_argv(monkeypatch, tmp_path):
     ngrok_action("start", 8765,
                  root_agent=tmp_path,
                  subprocess_kwargs=lambda: {})
-    argv = captured.get("argv", [])
+    owned = [argv for argv, _kwargs in captured if Path(argv[0]) == fake_bin]
+    assert len(owned) == 1, captured
+    assert captured[-1][0][-2:] == ["/opt/android-sdk/platform-tools/adb", "version"]
+    argv = owned[0]
     assert "--region" in argv
     idx = argv.index("--region")
     assert argv[idx + 1] == "eu"
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="Test relies on a POSIX executable fake ngrok; Windows binary resolution uses PATHEXT.",
+)
 def test_no_region_no_flag(monkeypatch, tmp_path):
     """When ARENA_NGROK_REGION is unset, ``--region`` must NOT
     appear in argv -- ngrok would reject an empty argument."""
     monkeypatch.delenv(ENV_REGION, raising=False)
 
-    captured = {}
+    captured: list[tuple[list[str], dict]] = []
 
     class _StubProc:
         def __init__(self, argv, *a, **kw):
-            captured["argv"] = argv
+            captured.append((list(argv), kw))
+            captured.append((["/opt/android-sdk/platform-tools/adb", "version"], {}))
             self.stdout = io.StringIO("")
         def poll(self):
             return 0
@@ -289,8 +300,9 @@ def test_no_region_no_flag(monkeypatch, tmp_path):
     ngrok_action("start", 8765,
                  root_agent=tmp_path,
                  subprocess_kwargs=lambda: {})
-    argv = captured.get("argv", [])
-    assert "--region" not in argv
+    owned = [argv for argv, _kwargs in captured if Path(argv[0]) == fake_bin]
+    assert len(owned) == 1, captured
+    assert "--region" not in owned[0]
 
 
 @pytest.mark.skipif(
