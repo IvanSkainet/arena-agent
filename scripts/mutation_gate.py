@@ -142,6 +142,9 @@ TARGETS: dict[str, tuple[str, ...]] = {
     "arena/exec/client_lifecycle.py": (
         "tests/test_exec_client_disconnect_v4_169_47.py",
     ),
+    "scripts/update_log_timestamp.py": (
+        "tests/test_inspect_update_log.py",
+    ),
     "arena/workbench/runtime_fetch.py": (
         "tests/test_workbench_runtime_downloads.py",
         "tests/test_workbench_runtime_fetch_parity_v4_169_37.py",

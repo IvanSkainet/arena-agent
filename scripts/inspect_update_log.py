@@ -23,11 +23,15 @@ The script has no third-party dependencies and works on any platform
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+
+from update_log_timestamp import (
+    LINE_RE as _LINE_RE,
+    parse_timestamp as _parse_timestamp,
+)
 
 # Lines emitted by arena/admin/auto_update_windows.py:_write_windows_installer.
 # The phase ordering is part of the protocol -- if a phase is missing the
@@ -49,11 +53,6 @@ OPTIONAL_PHASES: dict[str, str] = {
     "WARN no relaunch mechanism found": "No relaunch mechanism matched -- bridge will stay down",
 }
 
-# Lines we don't recognise but still print, so an operator can spot a new
-# marker we haven't catalogued yet.
-_LINE_RE = re.compile(
-    r"^\[(?P<date>\d{4}-\d{2}-\d{2})\s+(?P<time>\d{2}:\d{2}:\d{2}\.\d+)\]\s+(?P<rest>.*)$"
-)
 
 
 @dataclass(frozen=True)
@@ -134,9 +133,7 @@ def _parse_log(path: Path) -> LogReport:
                 rep.parse_errors.append(f"L{n}: unrecognised line: {line!r}")
             continue
         try:
-            when = datetime.strptime(
-                f"{m.group('date')} {m.group('time')}", "%Y-%m-%d %H:%M:%S.%f"
-            )
+            when = _parse_timestamp(m.group("date"), m.group("time"))
         except ValueError as e:
             rep.parse_errors.append(f"L{n}: bad timestamp: {e}")
             continue
