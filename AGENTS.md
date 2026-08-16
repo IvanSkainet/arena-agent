@@ -42,6 +42,28 @@ compatibility entrypoints or large catch-all files.
 - **Serena Continuity:** To prevent context loss across session truncations, read `docs/TASK_BOARD.md`
   and run `python scripts/serena_reminder.py` upon session bootstrap.
 
+**Active work continuity (2026-08-16; re-check against latest operator message and Task Board)**
+
+- **Current sequence:** finish T43 independent review of *The Book of Eternity: Reborn*
+  first; then return to deployed provenance (`IvanSkainet/arena-agent#59`), confirmed Sonar clusters, and the
+  next source-bound release. A newer operator instruction always overrides this line.
+- **Upstream game rules:** Lottarend explicitly permits independent findings. Prefer
+  an Issue titled `[Arena AI Finding] ...`; Arena cannot assign the label itself. If
+  Issue creation remains unavailable, use `IvanSkainet/The-Book-of-Eternity-Reborn`
+  and PR into `StanislavSmetaninSSM/The-Book-of-Eternity-Reborn:main`. Never push to upstream
+  directly. Rebase and duplicate-search first, account for the ongoing entity-
+  materialization rewrite, keep diffs minimal, and leave review/approval/merge to
+  Codex plus Lottarend as CODEOWNER.
+- **Reviewer probation:** T52's synthetic corpus is an initial calibration, not a
+  final product verdict. Keep external reviewers informational and exact-head
+  triaged; `skipped`/quota errors are no signal. Measure at least 10 substantial
+  real PRs before removing an App for low signal. Functional overlap is acceptable
+  when it buys independent quota. Never enable required status, blind autofix, or
+  automatic commits from an external reviewer.
+- **Untrusted fork PRs:** inspect the complete diff, author/check provenance, and
+  review surfaces before approving first-time-contributor Actions. Do not execute
+  fork code with credentials; `pull_request_target` remains forbidden.
+
 **Agent workspace hygiene (added v4.165.0 -- learned the hard way)**
 
 An agent sandbox has a snapshot budget (128 MB / 10 000 files on Arena).
