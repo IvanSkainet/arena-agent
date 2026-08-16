@@ -58,6 +58,7 @@ from arena.web_utils import CORS_HEADERS
 _BLOCKED_ENV_PATTERNS = [
     "ARENA_TOKEN", "TOKEN", "SECRET", "PASSWORD", "KEY",
     "LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH", "PYTHONSTARTUP",
+    "PATH", "COMSPEC", "SYSTEMROOT",
 ]
 
 @dataclass(frozen=True)
