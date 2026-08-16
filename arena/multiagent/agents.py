@@ -31,7 +31,6 @@ agent -- which is fine for a rolling bridge upgrade because the
 master token restores full access.
 """
 from __future__ import annotations
-import hmac
 import hashlib
 import hmac
 import secrets
