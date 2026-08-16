@@ -31,6 +31,13 @@ def _entries(version: str = "9.9.9") -> dict[str, bytes]:
     entries[f"{M.PREFIX}pyproject.toml"] = (
         f'[project]\nname = "arena-agent"\nversion = "{version}"\n'
     ).encode()
+    entries[M.RELEASE_PROVENANCE] = (json.dumps({
+        "schemaVersion": 1,
+        "repository": "IvanSkainet/arena-agent",
+        "sourceCommit": "a" * 40,
+        "releaseTag": f"v{version}",
+        "candidateRunId": "12345",
+    }, sort_keys=True, separators=(",", ":")) + "\n").encode()
     return entries
 
 
@@ -83,6 +90,28 @@ def test_alias_must_be_the_exact_same_bytes(tmp_path: Path) -> None:
         M.verify_pair(versioned, alias, expected_version="9.9.9")
 
 
+def test_embedded_source_and_candidate_identity_must_match_workflow(tmp_path: Path) -> None:
+    artifact = tmp_path / "candidate.zip"
+    _write_zip(artifact)
+    result = M.verify_zip(
+        artifact, expected_version="9.9.9",
+        expected_source_commit="a" * 40,
+        expected_candidate_run="12345",
+    )
+    assert result["provenance"]["sourceCommit"] == "a" * 40
+    assert result["provenance"]["candidateRunId"] == "12345"
+    with pytest.raises(M.VerificationError, match="workflow SHA"):
+        M.verify_zip(
+            artifact, expected_version="9.9.9",
+            expected_source_commit="b" * 40,
+        )
+    with pytest.raises(M.VerificationError, match="workflow run"):
+        M.verify_zip(
+            artifact, expected_version="9.9.9",
+            expected_candidate_run="99999",
+        )
+
+
 def test_forbidden_development_path_is_rejected(tmp_path: Path) -> None:
     artifact = tmp_path / "bad.zip"
     _write_zip(artifact, extra={f"{M.PREFIX}tests/test_secret.py": b"bad\n"})
@@ -93,7 +122,7 @@ def test_forbidden_development_path_is_rejected(tmp_path: Path) -> None:
 def test_source_versions_must_match_candidate_version(tmp_path: Path) -> None:
     artifact = tmp_path / "bad-version.zip"
     _write_zip(artifact, version="9.9.8")
-    with pytest.raises(M.VerificationError, match="version mismatch"):
+    with pytest.raises(M.VerificationError, match="version|tag"):
         M.verify_zip(artifact, expected_version="9.9.9")
 
 

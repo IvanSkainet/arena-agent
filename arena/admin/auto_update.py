@@ -59,6 +59,15 @@ from typing import Any
 # other. The test correctly failed the moment the cycle disappeared and
 # told us to hoist for real, which is this.
 from arena.admin.auto_update_windows import _write_windows_installer
+from arena.admin.deployment_provenance import (
+    DEPLOYED_PROVENANCE,
+    ProvenanceError,
+    build_deployed_provenance,
+    deployment_id,
+    read_deployed_provenance,
+    read_release_provenance,
+    write_deployed_provenance,
+)
 from arena.admin.update_github import (
     fetch_asset_size as _fetch_asset_size,
     fetch_changelog_section as _fetch_changelog_section,
@@ -338,46 +347,67 @@ def _extract(zip_path: Path, dest: Path) -> Path:
     return dest
 
 
-def _swap_unix(payload_root: Path, install_root: Path) -> dict[str, Any]:
-    """POSIX swap: for each replace-target, atomically `mv` the
-    payload copy over the installed copy (with a `.old-<ts>` backup
-    so we can roll back if the caller's chown or restart fails)."""
+def _swap_unix(payload_root: Path, install_root: Path, *,
+               backup_root: Path | None = None,
+               provenance_path: Path | None = None) -> dict[str, Any]:
+    """Atomically replace targets while retaining an identified rollback tree."""
     ts = int(time.time())
     swapped: list[str] = []
     backups: list[tuple[Path, Path]] = []
     try:
-        for name in replace_targets(payload_root):
-            src = payload_root / name
+        if backup_root is not None:
+            backup_root.mkdir(parents=True, exist_ok=False)
+        names = list(replace_targets(payload_root))
+        if provenance_path is not None:
+            names.append(DEPLOYED_PROVENANCE)
+        for name in names:
+            src = provenance_path if name == DEPLOYED_PROVENANCE else payload_root / name
             dst = install_root / name
-            if not src.exists():
+            if src is None or not src.exists():
                 continue
-            backup = install_root / f".{name}.old-{ts}"
+            backup = (
+                backup_root / name if backup_root is not None
+                else install_root / f".{name}.old-{ts}"
+            )
             if dst.exists():
                 dst.rename(backup)
                 backups.append((backup, dst))
             shutil.move(str(src), str(dst))
             swapped.append(name)
     except Exception as e:
-        # Roll back any moves we already did.
-        for backup, dst in backups:
+        # Remove every newly moved target, including ones that had no prior
+        # destination, then restore the retained old targets.
+        for name in reversed(swapped):
+            dst = install_root / name
             try:
-                if dst.exists():
-                    shutil.rmtree(dst, ignore_errors=True) if dst.is_dir() else dst.unlink()
+                if dst.is_dir():
+                    shutil.rmtree(dst, ignore_errors=True)
+                else:
+                    dst.unlink(missing_ok=True)
+            except Exception:
+                pass
+        for backup, dst in reversed(backups):
+            try:
                 backup.rename(dst)
             except Exception:
                 pass
         return _err(f"swap failed: {e!r}", swapped=swapped)
-    # Delete backups asynchronously so a slow-mounted filesystem
-    # doesn't stall the restart.
-    for backup, _dst in backups:
-        try:
-            if backup.is_dir():
-                shutil.rmtree(backup, ignore_errors=True)
-            else:
-                backup.unlink(missing_ok=True)
-        except Exception:
-            pass
-    return {"ok": True, "swapped": swapped}
+    # Ephemeral backups only protect the in-flight swap. Identified rollback
+    # trees are retained under backups/deployments until explicit pruning.
+    if backup_root is None:
+        for backup, _dst in backups:
+            try:
+                if backup.is_dir():
+                    shutil.rmtree(backup, ignore_errors=True)
+                else:
+                    backup.unlink(missing_ok=True)
+            except Exception:
+                pass
+    return {
+        "ok": True,
+        "swapped": swapped,
+        "rollback_path": str(backup_root) if backup_root is not None else None,
+    }
 
 
 
@@ -442,10 +472,32 @@ def apply_update(*, asset_url: str, asset_name: str,
     extract_root = staging / "extracted"
     payload_root = _extract(zip_path, extract_root)
     install_root = _install_root()
+    try:
+        release_identity = read_release_provenance(payload_root)
+        previous = read_deployed_provenance(install_root)
+        deployed = build_deployed_provenance(
+            release=release_identity,
+            tag=tag,
+            downloaded_sha256=str(dl.get("sha256") or ""),
+            expected_sha256=None if unverified else expected,
+            previous=previous,
+        )
+        staged_provenance = staging / DEPLOYED_PROVENANCE
+        write_deployed_provenance(staged_provenance, deployed)
+        backup_root = (
+            install_root / "backups" / "deployments" / deployment_id(previous)
+            if previous is not None else None
+        )
+    except ProvenanceError as exc:
+        return _err(f"release provenance verification failed: {exc}")
 
     if _WIN:
         marker = staging / "done.txt"
-        script = _write_windows_installer(payload_root, install_root, marker)
+        script = _write_windows_installer(
+            payload_root, install_root, marker,
+            backup_root=backup_root,
+            provenance_path=staged_provenance,
+        )
         # v4.60.16: launch the mover via wscript+VBS wrapper instead of
         # subprocess.Popen(cmd, DETACHED_PROCESS). The naive Popen path
         # ended up sharing the parent's console because DETACHED_PROCESS
@@ -484,11 +536,18 @@ def apply_update(*, asset_url: str, asset_name: str,
             "restart_pending": True,
             "verification": "unverified" if unverified else "sha256",
             "downloaded_sha256": dl.get("sha256"),
+            "deployment": deployed,
+            "rollback_path": str(backup_root) if backup_root is not None else None,
             "hint": "The bridge will exit; a supervisor (systemd / nssm / "
                     "Windows service) must relaunch it.",
         }
 
-    swap = _swap_unix(payload_root, install_root)
+    swap = _swap_unix(
+        payload_root,
+        install_root,
+        backup_root=backup_root,
+        provenance_path=staged_provenance,
+    )
     if not swap.get("ok"):
         return swap
     result = {
@@ -502,6 +561,8 @@ def apply_update(*, asset_url: str, asset_name: str,
         "applied_version": tag.lstrip("vV"),
         "restart_pending": bool(restart),
         "sha256": dl["sha256"],
+        "deployment": deployed,
+        "rollback_path": swap.get("rollback_path"),
     }
     return result
 

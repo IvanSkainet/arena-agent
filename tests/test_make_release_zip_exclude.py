@@ -162,6 +162,8 @@ def test_release_zip_is_byte_reproducible_and_preserves_index_modes(tmp_path, mo
     monkeypatch.setattr(_mod, "ROOT", root)
     monkeypatch.setattr(_mod, "untracked_files", lambda: [])
     monkeypatch.setattr(_mod, "tracked_modes", lambda: modes)
+    monkeypatch.setenv("ARENA_SOURCE_COMMIT", "a" * 40)
+    monkeypatch.setenv("ARENA_CANDIDATE_RUN_ID", "12345")
 
     first = tmp_path / "first.zip"
     second = tmp_path / "second.zip"

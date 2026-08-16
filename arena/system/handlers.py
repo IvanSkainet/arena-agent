@@ -7,6 +7,7 @@ import socket
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from aiohttp import web
@@ -51,6 +52,23 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
             cfg = request.app[APP_CFG]
             bind = str(cfg.get("bind", "") or "")
             loopback_only = bind in LOOPBACK_BINDS
+            from arena.admin.deployment_provenance import (
+                ProvenanceError,
+                read_deployed_provenance,
+            )
+            try:
+                deployment = read_deployed_provenance(Path(__file__).resolve().parents[2])
+                deployment_status = deployment or {
+                    "deploymentModel": "unknown",
+                    "authenticated": False,
+                    "reason": "DEPLOYED_PROVENANCE.json is absent",
+                }
+            except ProvenanceError as exc:
+                deployment_status = {
+                    "deploymentModel": "archive",
+                    "authenticated": False,
+                    "reason": f"invalid deployed provenance: {exc}",
+                }
             return ctx.cors_json_response({
                 "ok": True,
                 "version": ctx.version,
@@ -58,6 +76,7 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
                 "python": sys.version.split()[0],
                 "platform": ctx.clean_platform_name(),
                 "loopback_only": loopback_only,
+                "deployment": deployment_status,
             })
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)

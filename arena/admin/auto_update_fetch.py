@@ -83,7 +83,6 @@ def download_release(*, asset_url: str, asset_name: str,
             return _err(f"asset_url rejected: {ssrf_err}",
                         asset_url=asset_url)
         req = urllib.request.Request(asset_url, headers={"User-Agent": _user_agent()})
-        _MAX = 512 * 1024 * 1024
         with urllib.request.urlopen(req, timeout=60) as resp, zip_path.open("wb") as out:  # nosec B310 -- SSRF-validated above; scheme forced to http/https by _validate_url  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
             written = 0
             while True:

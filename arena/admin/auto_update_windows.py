@@ -28,6 +28,7 @@ from pathlib import Path
 # From a third module, not from auto_update: importing back into
 # auto_update here is the circular dependency that
 # used to document (removed in v4.169.1 once the cycle was gone).
+from arena.admin.deployment_provenance import DEPLOYED_PROVENANCE
 from arena.admin.update_targets import replace_targets
 
 
@@ -41,7 +42,9 @@ def _bridge_port() -> int:
 
 
 def _write_windows_installer(payload_root: Path, install_root: Path,
-                             done_marker: Path, *, port: int | None = None) -> Path:
+                             done_marker: Path, *, port: int | None = None,
+                             backup_root: Path | None = None,
+                             provenance_path: Path | None = None) -> Path:
     """Windows can't overwrite files that a running Python process has
     open. We write a .cmd script that waits for our PID to exit, then
     robocopies (dirs) / ``copy /Y`` (files) the payload over the install
@@ -109,34 +112,71 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
         ":after_wait",
         f'echo [%DATE% %TIME%] bridge exited, starting copy >> "{log}"',
     ]
+    backup = None
+    if backup_root is not None:
+        backup = backup_root.as_posix().replace("/", "\\")
+        lines.extend([
+            f'mkdir "{backup}" 2>NUL',
+            f'if errorlevel 1 echo [%DATE% %TIME%] rollback directory unavailable >> "{log}"',
+            'if errorlevel 1 goto :copy_failed',
+        ])
 
-    # Per-target copy step, expressed as a straight-line sequence of
-    # ``if EXPR goto :label`` — no ``if ( ) else ( )`` blocks, so the
-    # parens in ``arena-agent (2)`` never close a block early.
-    # v4.169.1: discover from the payload rather than a hand-maintained
-    # list. `chat_extension_firefox` shipped in v4.169.0 and reached
-    # nobody because it was never named here -- and `chat_extension`
-    # itself had never been updated by auto-update at all.
-    # Imported here, not at module scope: auto_update imports THIS
-    # module at its own bottom (see the comment there), so a top-level
-    # import back into it is a circular import at init --
-    for idx, name in enumerate(replace_targets(payload_root)):
+    # Snapshot every old target before replacing any of them. Interleaving
+    # backup and install leaves a half-updated tree when a later backup fails.
+    targets = tuple(replace_targets(payload_root))
+    if backup is not None:
+        for idx, name in enumerate(targets):
+            d = f"{dst}\\{name}"
+            b = f"{backup}\\{name}"
+            backup_file = f"backup_file_{idx}"
+            backup_done = f"backup_done_{idx}"
+            lines.extend([
+                f'rem ---- backup target {idx}: {name} ----',
+                f'if not exist "{d}" goto :{backup_done}',
+                f'if not exist "{d}\\*" goto :{backup_file}',
+                f'robocopy "{d}" "{b}" /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 >NUL',
+                'if errorlevel 8 goto :copy_failed',
+                f'goto :{backup_done}',
+                f':{backup_file}',
+                f'copy /Y "{d}" "{b}" >NUL',
+                'if errorlevel 1 goto :copy_failed',
+                f':{backup_done}',
+            ])
+        if provenance_path is not None:
+            provenance_dst = f"{dst}\\{DEPLOYED_PROVENANCE}"
+            backup_provenance = f"{backup}\\{DEPLOYED_PROVENANCE}"
+            lines.extend([
+                f'copy /Y "{provenance_dst}" "{backup_provenance}" >NUL',
+                'if errorlevel 1 goto :copy_failed',
+            ])
+
+    # Only after the complete rollback snapshot exists may replacement begin.
+    for idx, name in enumerate(targets):
         s = f"{src}\\{name}"
         d = f"{dst}\\{name}"
         as_file = f"as_file_{idx}"
         nxt = f"next_{idx}"
         lines.extend([
-            f'rem ---- target {idx}: {name} ----',
-            # If the source doesn't exist at all, skip.
+            f'rem ---- install target {idx}: {name} ----',
             f'if not exist "{s}" goto :{nxt}',
-            # If the source has children (i.e. it's a directory with contents),
-            # use robocopy. Otherwise treat as a plain file and use copy /Y.
             f'if not exist "{s}\\*" goto :{as_file}',
             f'robocopy "{s}" "{d}" /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 >NUL',
+            'if errorlevel 8 goto :copy_failed',
             f'goto :{nxt}',
             f':{as_file}',
             f'copy /Y "{s}" "{d}" >NUL',
+            'if errorlevel 1 goto :copy_failed',
             f':{nxt}',
+        ])
+
+    # Publish provenance last: its presence means every release target copy
+    # reached the end of the mover.  A missing record is therefore fail-closed.
+    if provenance_path is not None:
+        provenance_src = provenance_path.as_posix().replace("/", "\\")
+        provenance_dst = f"{dst}\\{DEPLOYED_PROVENANCE}"
+        lines.extend([
+            f'copy /Y "{provenance_src}" "{provenance_dst}" >NUL',
+            'if errorlevel 1 goto :copy_failed',
         ])
 
     # Mark done so any watcher can observe completion.
@@ -220,6 +260,12 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
         f'echo [%DATE% %TIME%] mover-done >> "{log}"',
         "endlocal",
         "exit /b 0",
+        "",
+        ":copy_failed",
+        f'echo [%DATE% %TIME%] ERROR copy or rollback backup failed >> "{log}"',
+        f'rmdir "{lockdir}" 2>nul',
+        "endlocal",
+        "exit /b 1",
         "",
         # Poll the port for ~30s. Returns errorlevel 0 once something
         # answers, 1 on timeout. Placed after `exit /b 0` so it runs only

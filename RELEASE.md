@@ -203,7 +203,18 @@ The digest file is signed too, so the cosign check above can be run against
 - `pyproject.toml`, `requirements.txt`;
 - `README.md`, `README.ru.md`, `CHANGELOG.md`, `CHANGELOG.ru.md`, `LICENSE`,
   `CONTRIBUTING.md`, `AGENTS.md`;
-- `docs/` (architecture and navigation notes).
+- `docs/` (architecture and navigation notes);
+- virtual `.arena-release-provenance.json` with the exact source commit,
+  strict release tag, and candidate workflow run. It is generated canonically
+  by the packer and verified against `GITHUB_SHA` / `GITHUB_RUN_ID`; it does not
+  contain the ZIP digest because an archive cannot contain its own hash.
+
+On installation, the updater combines that immutable identity with the verified
+ZIP SHA-256 and install time in runtime `DEPLOYED_PROVENANCE.json`. The previous
+identified deployment is retained under `backups/deployments/<identity>/` before
+replacement starts. `/v1/version` exposes the deployed identity and an explicit
+`authenticated` boolean; absent or malformed state is reported as unauthenticated,
+never inferred from a nested vendored `.git` directory.
 
 It MUST NOT include (excluded automatically by the script):
 

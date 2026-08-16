@@ -14,7 +14,9 @@ from typing import Any
 
 PREFIX = "arena-bridge/"
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+RELEASE_PROVENANCE = f"{PREFIX}.arena-release-provenance.json"
 REQUIRED = frozenset({
+    RELEASE_PROVENANCE,
     f"{PREFIX}unified_bridge.py",
     f"{PREFIX}_arena_helper.py",
     f"{PREFIX}arena/constants.py",
@@ -80,7 +82,38 @@ def _archive_version(archive: zipfile.ZipFile) -> tuple[str, str]:
     return constants_version, project_version
 
 
-def verify_zip(path: Path, *, expected_version: str) -> dict[str, Any]:
+def _archive_provenance(archive: zipfile.ZipFile, *, expected_version: str,
+                        expected_source_commit: str | None,
+                        expected_candidate_run: str | None) -> dict[str, Any]:
+    try:
+        value = json.loads(archive.read(RELEASE_PROVENANCE).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, KeyError) as exc:
+        raise VerificationError(f"invalid release provenance: {exc}") from exc
+    required = {"schemaVersion", "repository", "sourceCommit", "releaseTag", "candidateRunId"}
+    if not isinstance(value, dict) or set(value) != required:
+        raise VerificationError("release provenance keys do not match the contract")
+    if value["schemaVersion"] != 1 or isinstance(value["schemaVersion"], bool):
+        raise VerificationError("unsupported release provenance schemaVersion")
+    if value["repository"] != "IvanSkainet/arena-agent":
+        raise VerificationError("unexpected release provenance repository")
+    source = value["sourceCommit"]
+    run_id = value["candidateRunId"]
+    if not isinstance(source, str) or re.fullmatch(r"[0-9a-f]{40}", source) is None:
+        raise VerificationError("release provenance sourceCommit is malformed")
+    if value["releaseTag"] != f"v{expected_version}":
+        raise VerificationError("release provenance tag does not match expected version")
+    if not isinstance(run_id, str) or (run_id != "local" and re.fullmatch(r"[1-9][0-9]*", run_id) is None):
+        raise VerificationError("release provenance candidateRunId is malformed")
+    if expected_source_commit is not None and source != expected_source_commit:
+        raise VerificationError("release provenance sourceCommit does not match workflow SHA")
+    if expected_candidate_run is not None and run_id != expected_candidate_run:
+        raise VerificationError("release provenance candidateRunId does not match workflow run")
+    return value
+
+
+def verify_zip(path: Path, *, expected_version: str,
+               expected_source_commit: str | None = None,
+               expected_candidate_run: str | None = None) -> dict[str, Any]:
     if not path.is_file():
         raise VerificationError(f"artifact does not exist: {path}")
     try:
@@ -121,6 +154,12 @@ def verify_zip(path: Path, *, expected_version: str) -> dict[str, Any]:
                         f"non-canonical permissions for {name}: {oct(permissions)}"
                     )
 
+            provenance = _archive_provenance(
+                archive,
+                expected_version=expected_version,
+                expected_source_commit=expected_source_commit,
+                expected_candidate_run=expected_candidate_run,
+            )
             constants_version, project_version = _archive_version(archive)
             if constants_version != expected_version or project_version != expected_version:
                 raise VerificationError(
@@ -139,12 +178,25 @@ def verify_zip(path: Path, *, expected_version: str) -> dict[str, Any]:
         "sha256": _sha256(path),
         "files": len(names),
         "uncompressedBytes": total_size,
+        "provenance": provenance,
     }
 
 
-def verify_pair(versioned: Path, alias: Path, *, expected_version: str) -> dict[str, Any]:
-    first = verify_zip(versioned, expected_version=expected_version)
-    second = verify_zip(alias, expected_version=expected_version)
+def verify_pair(versioned: Path, alias: Path, *, expected_version: str,
+                expected_source_commit: str | None = None,
+                expected_candidate_run: str | None = None) -> dict[str, Any]:
+    first = verify_zip(
+        versioned,
+        expected_version=expected_version,
+        expected_source_commit=expected_source_commit,
+        expected_candidate_run=expected_candidate_run,
+    )
+    second = verify_zip(
+        alias,
+        expected_version=expected_version,
+        expected_source_commit=expected_source_commit,
+        expected_candidate_run=expected_candidate_run,
+    )
     if versioned.read_bytes() != alias.read_bytes():
         raise VerificationError("versioned ZIP and arena-agent.zip are not byte-identical")
     return {
@@ -155,6 +207,7 @@ def verify_pair(versioned: Path, alias: Path, *, expected_version: str) -> dict[
         "uncompressedBytes": first["uncompressedBytes"],
         "artifacts": [versioned.name, alias.name],
         "aliasSha256": second["sha256"],
+        "provenance": first["provenance"],
     }
 
 
@@ -163,6 +216,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--versioned", required=True, type=Path)
     parser.add_argument("--alias", required=True, type=Path)
     parser.add_argument("--expected-version", required=True)
+    parser.add_argument("--expected-source-commit")
+    parser.add_argument("--expected-candidate-run")
     parser.add_argument("--json-out", type=Path)
     args = parser.parse_args(argv)
     try:
@@ -170,6 +225,8 @@ def main(argv: list[str] | None = None) -> int:
             args.versioned,
             args.alias,
             expected_version=args.expected_version,
+            expected_source_commit=args.expected_source_commit,
+            expected_candidate_run=args.expected_candidate_run,
         )
     except VerificationError as exc:
         print(f"release ZIP verification failed: {exc}", file=sys.stderr)
