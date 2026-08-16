@@ -6,6 +6,7 @@
  "arena/agent_helpers/files.py": 0,
  "arena/agentctl_cli/agentctl_memory.py": 0,
  "arena/agentic/handlers.py": 0,
+ "arena/autonomy/posture_identity.py": 0,
  "arena/browser/cdp_client/tabs_http.py": 0,
  "arena/exec/client_lifecycle.py": 0,
  "arena/exec/interpreters.py": 0,

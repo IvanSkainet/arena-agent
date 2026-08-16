@@ -1,6 +1,7 @@
 """v4.102.0 -- operator posture ("cubes") model tests."""
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from arena.autonomy import posture as P  # noqa: E402
+from arena.autonomy.posture_identity import derive_preset_name  # noqa: E402
 from arena.files.sandbox import SENSITIVE_DIR_PREFIXES  # noqa: E402
 
 
@@ -23,6 +25,7 @@ def _isolated(tmp_path, monkeypatch):
 def test_default_is_strict_and_low():
     p = P.load_posture()
     assert p["sandbox"] == "systemd" and p["network"] == "deny"
+    assert p["preset"] == "strict"
     assert P.risk_level(p) == "low"
     assert P.required_ack(p) is None
 
@@ -30,6 +33,36 @@ def test_default_is_strict_and_low():
 @pytest.mark.parametrize("name", list(P.PRESETS))
 def test_every_preset_is_valid(name):
     assert P.validate_posture(P.PRESETS[name]) is None
+    assert derive_preset_name(P.PRESETS[name], P.PRESETS, P.AXES) == name
+
+
+def test_stale_persisted_label_cannot_claim_strict_for_naked_axes():
+    path = P.store_path()
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({**P.PRESETS["naked"], "preset": "strict"}), encoding="utf-8")
+
+    posture = P.load_posture()
+    assert posture["preset"] == "naked"
+    assert P.risk_level(posture) == "critical"
+    assert P.get_posture()["posture"]["preset"] == "naked"
+
+
+def test_non_preset_axis_tuple_is_custom():
+    custom = {**P.PRESETS["strict"], "network": "allowlist"}
+    assert derive_preset_name(custom, P.PRESETS, P.AXES) == "custom"
+
+
+def test_duplicate_preset_definitions_fail_closed_as_custom():
+    duplicated = {"first": P.PRESETS["strict"], "second": P.PRESETS["strict"]}
+    assert derive_preset_name(P.PRESETS["strict"], duplicated, P.AXES) == "custom"
+
+
+def test_set_posture_ignores_forged_preset_label_and_persists_identity():
+    forged = {**P.PRESETS["naked"], "preset": "strict"}
+    result = P.set_posture(forged, ack=P.ACK_PHRASES["critical"])
+    assert result["posture"]["preset"] == "naked"
+    saved = json.loads(P.store_path().read_text(encoding="utf-8"))
+    assert saved["preset"] == "naked"
 
 
 def test_risk_levels():
