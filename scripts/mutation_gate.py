@@ -145,6 +145,9 @@ TARGETS: dict[str, tuple[str, ...]] = {
     "scripts/update_log_timestamp.py": (
         "tests/test_inspect_update_log.py",
     ),
+    "scripts/release_version_contract.py": (
+        "tests/test_release_version_monotonic.py",
+    ),
     "arena/workbench/runtime_fetch.py": (
         "tests/test_workbench_runtime_downloads.py",
         "tests/test_workbench_runtime_fetch_parity_v4_169_37.py",

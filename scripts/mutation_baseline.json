@@ -15,5 +15,6 @@
  "arena/mobile/mirror.py": 0,
  "arena/observability/live_metrics.py": 0,
  "arena/workbench/runtime_fetch.py": 0,
+ "scripts/release_version_contract.py": 0,
  "scripts/update_log_timestamp.py": 0
 }

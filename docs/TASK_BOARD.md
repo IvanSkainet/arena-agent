@@ -9,7 +9,7 @@
 - **Опубликованная версия:** `v4.169.47` (12 release assets: ZIP pair + APK, Sigstore, exact-commit provenance и отдельные SPDX SBOM).
 - **CI:** exact release commit `7995541d` зелёный: 63 check runs; candidate `31906141722`, sign-release `31907053903`, Linux/Windows/macOS matrices, CodeQL, Scorecard, Zizmor и fail-closed Security scan.
 - **Security Alerts:** 0 открытых во всех трёх лентах (CodeQL, Secret Scanning, Dependabot).
-- **Мутационный храповик:** 17 модулей зафиксированы на уровне **0 выживших мутантов**.
+- **Мутационный храповик:** 18 модулей зафиксированы на уровне **0 выживших мутантов**.
 
 ---
 
@@ -82,6 +82,8 @@
   - Завершено: отдельный strict timestamp contract принимает только доказанные ISO и RU Windows shapes, mixed/unobserved формы остаются fail-closed; exact retained log покрыт parity, sabotage ISO-only делает тест красным, новый модуль закреплён на 0/15 surviving mutants. Exact Windows branch source прочитал реальный mover log, восстановил все шесть фаз, `Scheduled Task path was used` и `OK (mover-done present)` с exit code 0.
 - [x] **T49 [CI / REQUIRED JOBS GATE]** ([#24](https://github.com/IvanSkainet/arena-agent/issues/24)) Закрыть fail-closed contract gaps для empty/duplicate expected lists, non-object `needs`, malformed per-job records и заменить brittle quote-position parsing Security aggregate на anchored argument extraction. Обязательны CLI exit-code parity, bilateral sabotage и exact-head CI.
   - Добавлены direct + CLI contracts с точными exit codes: invalid expected input = 2, valid JSON с invalid `needs`/job shape = 1. Security aggregate теперь извлекает значение только из anchored `--expected` argument. Совместный sabotage отключения четырёх guards сделал шесть тестов красными; healthy governance suite 11/11.
+- [x] **T50 [RELEASE / VERSION CONTRACT]** ([#25](https://github.com/IvanSkainet/arena-agent/issues/25)) Разделить strict source `X.Y.Z` и published tag `vX.Y.Z` contracts, закрыть bare/double-prefix/incomplete/nonnumeric tags, malformed source versions и доказать, что malformed latest tag не обходит asset gate. Обязательны sabotage и full preflight.
+  - Source и published tag переведены на разные anchored contracts без optional prefix и leading-zero ambiguity. Bare/double-prefixed/incomplete/nonnumeric latest tags и prefixed/incomplete/nonnumeric source values fail closed; accepted candidate ZIP pair/APK wording синхронизировано с текущим RELEASE.md. Новый parser закреплён на 0/7 surviving mutants; optional-`v` sabotage сделал три release tests красными и воспроизвёл два ложных OK.
 - [ ] **T45 [GOVERNANCE / AI REVIEW]** ([#22](https://github.com/IvanSkainet/arena-agent/issues/22)) Перекалибровать GitHub Apps по живым PR evidence: CodeRabbit оставить manual high-risk reviewer, Sourcery — automatic informational reviewer, DeepSource удалить из-за exhausted quota и дублирования; читать review bodies/comments/checks вместе с threads, а bot autofix считать непроверенным входом. T45 открыта до Settings permission audit и фактического удаления DeepSource.
 
 - [x] **T47 [TEST / SHIP SMOKE]** ([#38](https://github.com/IvanSkainet/arena-agent/issues/38)) Устранить зависимость `test_ship_smoke_shape` от пустого каталога flight-records: проверять дельту до/после, точный возвращённый `report_path` и двусторонним саботажем доказывать обнаружение двойной записи.
