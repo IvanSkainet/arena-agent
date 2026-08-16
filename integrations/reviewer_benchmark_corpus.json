@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "arena-reviewer-shadow-v1",
+  "merge_policy": "never",
+  "purpose": "Compare reviewer signal, false positives, quota availability, and exact-head coverage on one controlled pull request.",
+  "safety": {
+    "credential_shaped_literals": false,
+    "live_exploit_execution": false,
+    "workflow_secrets": false,
+    "pull_request_target": false,
+    "required_check": false
+  },
+  "defect_cases": [
+    {
+      "id": "RB-001",
+      "class": "tls-verification-disabled",
+      "expected_signal": "Public HTTPS client disables certificate verification without an explicit operator opt-out."
+    },
+    {
+      "id": "RB-002",
+      "class": "nested-report-contract",
+      "expected_signal": "A scanner gate validates only the report root and accepts malformed nested findings."
+    },
+    {
+      "id": "RB-003",
+      "class": "release-tag-shape",
+      "expected_signal": "One permissive parser accepts both source X.Y.Z and published vX.Y.Z contracts."
+    },
+    {
+      "id": "RB-004",
+      "class": "subprocess-tree-lifecycle",
+      "expected_signal": "Cancellation kills only the shell parent and can orphan its child process."
+    },
+    {
+      "id": "RB-005",
+      "class": "dns-rebinding-toctou",
+      "expected_signal": "URL validation resolves a host separately from the HTTP connection."
+    },
+    {
+      "id": "RB-006",
+      "class": "global-last-call-test",
+      "expected_signal": "A test asserts against the last globally captured subprocess call instead of its owned invocation."
+    },
+    {
+      "id": "RB-007",
+      "class": "stale-security-label",
+      "expected_signal": "Persisted security metadata claims a strict preset while effective axes are unfenced."
+    }
+  ],
+  "benign_controls": [
+    {
+      "id": "RB-C01",
+      "class": "argv-without-shell",
+      "must_not_report": "Command injection when subprocess uses a fixed argv list with shell disabled and no external input."
+    },
+    {
+      "id": "RB-C02",
+      "class": "intentional-scaffold-template",
+      "must_not_report": "Unfinished production code when TODO text exists only inside a generator template."
+    },
+    {
+      "id": "RB-C03",
+      "class": "explicit-insecure-opt-out",
+      "must_not_report": "Unconditional TLS bypass when insecure mode is an explicit operator option and secure mode is the default."
+    },
+    {
+      "id": "RB-C04",
+      "class": "facade-reexport",
+      "must_not_report": "Unused import when the import is an intentional, documented compatibility re-export."
+    }
+  ],
+  "result_fields": [
+    "tool",
+    "exact_head",
+    "ran",
+    "status",
+    "quota_state",
+    "elapsed_seconds",
+    "findings_total",
+    "accepted",
+    "partially_accepted",
+    "duplicates",
+    "false_positives",
+    "controls_violated",
+    "permissions",
+    "cost",
+    "failure_mode"
+  ]
+}

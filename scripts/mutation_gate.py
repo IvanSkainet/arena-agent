@@ -151,6 +151,9 @@ TARGETS: dict[str, tuple[str, ...]] = {
     "arena/autonomy/posture_identity.py": (
         "tests/test_autonomy_posture.py",
     ),
+    "arena/governance/reviewer_evidence.py": (
+        "tests/test_reviewer_evidence.py",
+    ),
     "arena/workbench/runtime_fetch.py": (
         "tests/test_workbench_runtime_downloads.py",
         "tests/test_workbench_runtime_fetch_parity_v4_169_37.py",

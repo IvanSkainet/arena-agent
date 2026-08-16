@@ -11,6 +11,7 @@
  "arena/exec/client_lifecycle.py": 0,
  "arena/exec/interpreters.py": 0,
  "arena/files/sandbox.py": 0,
+ "arena/governance/reviewer_evidence.py": 0,
  "arena/mcp_client/client.py": 0,
  "arena/mobile/apk_paths.py": 0,
  "arena/mobile/mirror.py": 0,
