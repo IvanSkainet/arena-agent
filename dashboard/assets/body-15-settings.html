@@ -26,15 +26,15 @@
 <h1>Settings</h1>
 <div class="card">
 <h2>Browser Extension <span id="extBadge" class="badge gray">checking...</span></h2>
-<p class="st-hint" id="extHint" style="margin:4px 0 10px 0">Loading…</p>
+<p class="st-hint" id="extHint" style="margin:4px 0 10px">Loading…</p>
 <button class="sm" onclick="extensionDownload('chromium')">Download for Chrome / Edge</button>
 <button class="sm" onclick="extensionDownload('firefox')">Download for Firefox</button>
 <div id="extSteps" class="mono" style="font-size:11px;margin-top:8px;color:var(--text3);white-space:pre-wrap"></div>
 </div>
 <div class="card">
 <h2>Access Profile <span id="profBadge" class="badge gray">checking...</span></h2>
-<p class="st-hint" id="profMeaning" style="margin:4px 0 10px 0">Loading…</p>
-<div id="profWarn" class="st-hint" style="display:none;background:var(--surface-warn);padding:10px 12px;border-radius:6px;margin:4px 0 10px 0;font-size:12px;line-height:1.5"></div>
+<p class="st-hint" id="profMeaning" style="margin:4px 0 10px">Loading…</p>
+<div id="profWarn" class="st-hint" style="display:none;background:var(--surface-warn);padding:10px 12px;border-radius:6px;margin:4px 0 10px;font-size:12px;line-height:1.5"></div>
 <button id="profWiden" class="sm" onclick="profileWiden()">Enable full shell</button>
 <button id="profNarrow" class="sm" onclick="profileNarrow()">Restore restrictions</button>
 <div id="profResult" class="mono" style="font-size:11px;margin-top:8px;color:var(--text3)"></div>
@@ -97,7 +97,7 @@
   Auto-update
   <span id="adminUpdateBadge" style="display:none;font-size:11px;padding:2px 8px;border-radius:10px;color:var(--text-inverse);font-weight:600;background:var(--blue)">checking…</span>
 </h2>
-<p style="margin:4px 0 10px 0;font-size:12px;color:var(--text2)">
+<p style="margin:4px 0 10px;font-size:12px;color:var(--text2)">
   Check GitHub for a newer release and install it atomically.
   Consent-gated (SHA-256 verification), cross-platform, never touches
   your config or bridge home; only the source tree gets replaced.
@@ -118,8 +118,8 @@
   <div id="adminUpdateReleaseBody" style="margin-top:6px;font-size:12px;max-height:280px;overflow:auto;padding:8px;background:var(--bg3);border:1px solid var(--accent);border-radius:4px;display:none;white-space:pre-wrap"></div>
 </details>
 <div class="card" style="margin-top:10px;background:var(--bg3)">
-  <h3 style="margin:0 0 6px 0;font-size:13px;color:var(--blue)">GitHub token for verified installs</h3>
-  <p id="adminUpdateTokenStatus" style="margin:2px 0 8px 0;font-size:12px;color:var(--text2)">
+  <h3 style="margin:0 0 6px;font-size:13px;color:var(--blue)">GitHub token for verified installs</h3>
+  <p id="adminUpdateTokenStatus" style="margin:2px 0 8px;font-size:12px;color:var(--text2)">
     Loading token status…
   </p>
   <div class="row" style="gap:6px;margin-bottom:6px">
@@ -138,7 +138,7 @@
       <li>Only permission you need: repository <em>Contents = Read-only</em> on <code>arena-agent</code>. No other scopes.</li>
       <li>Copy the <code>github_pat_...</code> string and paste it into the box above. The token is stored on this machine only, in a 0600 file under the install root — it is never sent anywhere except <code>api.github.com</code>.</li>
     </ol>
-    <p style="margin:6px 0 0 0">Classic tokens (<code>ghp_...</code>) work too. You can also set <code>GITHUB_TOKEN</code> or <code>GH_TOKEN</code> in the service environment as before — env values take precedence over this saved token. <code>gh auth login</code> is <em>not</em> read (env-only for that).</p>
+    <p style="margin:6px 0 0">Classic tokens (<code>ghp_...</code>) work too. You can also set <code>GITHUB_TOKEN</code> or <code>GH_TOKEN</code> in the service environment as before — env values take precedence over this saved token. <code>gh auth login</code> is <em>not</em> read (env-only for that).</p>
   </details>
 </div>
 </div>
@@ -148,7 +148,7 @@
   Multi-agent sessions
   <span id="agentsBadge" style="display:none;font-size:11px;padding:2px 8px;border-radius:10px;color:var(--text-inverse);font-weight:600;background:var(--blue)">0 active</span>
 </h2>
-<p style="margin:4px 0 10px 0;font-size:12px;color:var(--text2)">
+<p style="margin:4px 0 10px;font-size:12px;color:var(--text2)">
   Isolated bearer tokens for multiple parallel agents on this bridge.
   Each agent gets its own request counter + audit ring so you can see
   what each one is doing. Revoking an agent invalidates its token
