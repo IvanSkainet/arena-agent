@@ -144,6 +144,16 @@
    "tool": "mutmut 2.5.1",
    "total": 150
   },
+  "arena/governance/reviewer_evidence.py": {
+   "fingerprint": "545cf42272db162c65009da9c3697ecce8bebe05e698ff8d90dbc129e8eeea44",
+   "reason": "T52 exact target run; 0 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_reviewer_evidence.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 217
+  },
   "arena/mcp_client/client.py": {
    "fingerprint": "dbde9f8c802a58cd7a8ec7a146cb63a868e851f3cb3d0ac12fff691776b2a047",
    "reason": "fresh run",
