@@ -23,6 +23,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from arena.autonomy.posture_identity import derive_preset_name
+
 AXES = ("sandbox", "network", "privilege", "filesystem", "runtime")
 SANDBOX_VALUES = ("off", "appcontainer", "systemd", "microvm")
 NETWORK_VALUES = ("deny", "allowlist", "open")
@@ -76,6 +78,12 @@ def _blank() -> dict[str, Any]:
     }
 
 
+def _with_derived_preset(posture: dict[str, Any]) -> dict[str, Any]:
+    effective = dict(posture)
+    effective["preset"] = derive_preset_name(effective, PRESETS, AXES)
+    return effective
+
+
 def load_posture() -> dict[str, Any]:
     global _cache
     if _cache is not None:
@@ -86,7 +94,8 @@ def load_posture() -> dict[str, Any]:
         data = {}
     if not isinstance(data, dict):
         data = {}
-    _cache = {**_blank(), **{k: data[k] for k in _blank() if k in data}}
+    merged = {**_blank(), **{k: data[k] for k in _blank() if k in data}}
+    _cache = _with_derived_preset(merged)
     return _cache
 
 
@@ -99,8 +108,9 @@ def save_posture(p: dict[str, Any]) -> None:
     global _cache
     path = store_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(p, ensure_ascii=False, indent=2), encoding="utf-8")
-    _cache = dict(p)
+    effective = _with_derived_preset(p)
+    path.write_text(json.dumps(effective, ensure_ascii=False, indent=2), encoding="utf-8")
+    _cache = effective
 
 
 def validate_posture(p: Any) -> str | None:
@@ -165,7 +175,7 @@ def set_posture(p: dict[str, Any], ack: str | None = None) -> dict[str, Any]:
                 "risk": risk_level(p),
                 "message": (f"this posture is risk={risk_level(p)}; re-send with "
                             f"ack set to the required phrase to confirm.")}
-    merged = {**_blank(), **p}
+    merged = _with_derived_preset({**_blank(), **p})
     save_posture(merged)
     return {"ok": True, "posture": merged, "risk": risk_level(merged)}
 

@@ -89,6 +89,16 @@
    "tool": "mutmut 2.5.1",
    "total": 150
   },
+  "arena/autonomy/posture_identity.py": {
+   "fingerprint": "237c96a691dc82613bd745e421a5fa39bc86646dd11f5b1a34ef919ff402f0c4",
+   "reason": "T53 exact target run; 0 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_autonomy_posture.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 6
+  },
   "arena/browser/cdp_client/tabs_http.py": {
    "fingerprint": "7e6ba347a6f4d01468a8a8df773b6312f6858b514e7fc559215356b8f1b0975d",
    "reason": "fresh run",
