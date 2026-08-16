@@ -117,8 +117,10 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
         backup = backup_root.as_posix().replace("/", "\\")
         lines.extend([
             f'mkdir "{backup}" 2>NUL',
-            f'if errorlevel 1 echo [%DATE% %TIME%] rollback directory unavailable >> "{log}"',
-            'if errorlevel 1 goto :copy_failed',
+            'if not errorlevel 1 goto :rollback_dir_ready',
+            f'echo [%DATE% %TIME%] rollback directory unavailable >> "{log}"',
+            'goto :copy_failed',
+            ':rollback_dir_ready',
         ])
 
     # Snapshot every old target before replacing any of them. Interleaving

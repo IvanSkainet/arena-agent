@@ -7,7 +7,6 @@ import socket
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from aiohttp import web
@@ -57,12 +56,23 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
                 read_deployed_provenance,
             )
             try:
-                deployment = read_deployed_provenance(Path(__file__).resolve().parents[2])
-                deployment_status = deployment or {
-                    "deploymentModel": "unknown",
-                    "authenticated": False,
-                    "reason": "DEPLOYED_PROVENANCE.json is absent",
-                }
+                from arena.admin.auto_update import _install_root
+                deployment = read_deployed_provenance(_install_root())
+                deployment_status = (
+                    {
+                        key: deployment[key]
+                        for key in (
+                            "deploymentModel", "sourceCommit", "releaseTag",
+                            "candidateRunId", "zipSha256", "installedAt",
+                            "authenticated",
+                        )
+                    }
+                    if deployment else {
+                        "deploymentModel": "unknown",
+                        "authenticated": False,
+                        "reason": "DEPLOYED_PROVENANCE.json is absent",
+                    }
+                )
             except ProvenanceError as exc:
                 deployment_status = {
                     "deploymentModel": "archive",

@@ -67,6 +67,7 @@ SUPPORTED_GIT_FILE_MODES = frozenset({"100644", "100755"})
 RELEASE_PROVENANCE = ".arena-release-provenance.json"
 _COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 _RUN_RE = re.compile(r"[1-9][0-9]*")
+_VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 
 
 def detect_version() -> str:
@@ -250,6 +251,8 @@ def _git_source_commit() -> str:
 
 def release_provenance(version: str) -> bytes:
     """Canonical source identity embedded before the archive hash exists."""
+    if _VERSION_RE.fullmatch(version) is None:
+        raise SystemExit("ERROR: release version must be strict X.Y.Z")
     source = (os.environ.get("ARENA_SOURCE_COMMIT")
               or os.environ.get("GITHUB_SHA") or _git_source_commit()).lower()
     run_id = (os.environ.get("ARENA_CANDIDATE_RUN_ID")

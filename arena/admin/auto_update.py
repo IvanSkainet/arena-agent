@@ -354,9 +354,11 @@ def _swap_unix(payload_root: Path, install_root: Path, *,
     ts = int(time.time())
     swapped: list[str] = []
     backups: list[tuple[Path, Path]] = []
+    created_backup_root = False
     try:
         if backup_root is not None:
             backup_root.mkdir(parents=True, exist_ok=False)
+            created_backup_root = True
         names = list(replace_targets(payload_root))
         if provenance_path is not None:
             names.append(DEPLOYED_PROVENANCE)
@@ -386,11 +388,14 @@ def _swap_unix(payload_root: Path, install_root: Path, *,
                     dst.unlink(missing_ok=True)
             except Exception:
                 pass
+        restore_ok = True
         for backup, dst in reversed(backups):
             try:
                 backup.rename(dst)
             except Exception:
-                pass
+                restore_ok = False
+        if created_backup_root and backup_root is not None and restore_ok:
+            shutil.rmtree(backup_root, ignore_errors=True)
         return _err(f"swap failed: {e!r}", swapped=swapped)
     # Ephemeral backups only protect the in-flight swap. Identified rollback
     # trees are retained under backups/deployments until explicit pruning.

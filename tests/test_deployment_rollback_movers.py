@@ -59,6 +59,7 @@ def test_posix_swap_failure_removes_new_targets_and_restores_old_tree(
     result = auto_update._swap_unix(payload, install, backup_root=backup)
 
     assert result["ok"] is False
+    assert not backup.exists(), "a fully restored failed attempt must remain retryable"
     assert (install / "arena" / "old.py").read_text() == "old"
     assert not (install / "arena" / "new.py").exists()
     assert not (install / "unified_bridge.py").exists()
@@ -91,6 +92,8 @@ def test_windows_mover_backs_up_before_copy_and_publishes_provenance_last(tmp_pa
         f'copy /Y "{staged_win}" "{install_win}\\{DEPLOYED_PROVENANCE}" >NUL'
     )
 
+    assert 'if not errorlevel 1 goto :rollback_dir_ready' in text
+    assert 'if errorlevel 1 echo' not in text
     assert backup_command in text
     assert install_command in text
     assert text.index(backup_command) < text.index(install_command)

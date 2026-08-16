@@ -144,6 +144,14 @@ def test_real_sources_are_not_mistaken_for_caches():
         assert _mod.should_exclude(path) is False, path
 
 
+def test_release_provenance_rejects_malformed_version(monkeypatch):
+    monkeypatch.setenv("ARENA_SOURCE_COMMIT", "a" * 40)
+    monkeypatch.setenv("ARENA_CANDIDATE_RUN_ID", "12345")
+    for malformed in ("9.9", "v9.9.9", "9.9.9-rc1", "９.９.９"):
+        with pytest.raises(SystemExit, match="strict X.Y.Z"):
+            _mod.release_provenance(malformed)
+
+
 def test_release_zip_is_byte_reproducible_and_preserves_index_modes(tmp_path, monkeypatch):
     root = tmp_path / "repo"
     (root / "arena").mkdir(parents=True)

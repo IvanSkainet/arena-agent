@@ -216,6 +216,15 @@ replacement starts. `/v1/version` exposes the deployed identity and an explicit
 `authenticated` boolean; absent or malformed state is reported as unauthenticated,
 never inferred from a nested vendored `.git` directory.
 
+Archive compatibility starts with the first release containing T55 provenance
+(planned `v4.169.48`). Once that updater is installed, it rejects older
+pre-provenance ZIPs, including `v4.169.45`–`v4.169.47`, with an explicit
+`release provenance verification failed` error. They remain independently
+verifiable public artifacts, but are not accepted as rollback inputs by the new
+updater. Supported rollback uses the retained identified tree under
+`backups/deployments/{identity}/`; the first migration from a pre-T55 install
+cannot invent the old commit/SHA and therefore reports no identified rollback.
+
 It MUST NOT include (excluded automatically by the script):
 
 - `tests/`, `.github/`, `dev/`, `.git/`;

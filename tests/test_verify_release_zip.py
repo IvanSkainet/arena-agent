@@ -112,6 +112,14 @@ def test_embedded_source_and_candidate_identity_must_match_workflow(tmp_path: Pa
         )
 
 
+def test_expected_version_must_be_strict_three_part_ascii_semver(tmp_path: Path) -> None:
+    artifact = tmp_path / "candidate.zip"
+    _write_zip(artifact)
+    for malformed in ("9.9", "v9.9.9", "9.9.9-rc1", "９.９.９"):
+        with pytest.raises(M.VerificationError, match="strict X.Y.Z"):
+            M.verify_zip(artifact, expected_version=malformed)
+
+
 def test_forbidden_development_path_is_rejected(tmp_path: Path) -> None:
     artifact = tmp_path / "bad.zip"
     _write_zip(artifact, extra={f"{M.PREFIX}tests/test_secret.py": b"bad\n"})

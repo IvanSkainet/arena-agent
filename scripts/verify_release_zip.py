@@ -41,7 +41,8 @@ FORBIDDEN_BASENAMES = frozenset({
     "coverage.xml",
     ".coverage",
 })
-_VERSION_RE = re.compile(r'^VERSION\s*=\s*["\']([^"\']+)["\']', re.MULTILINE)
+_SOURCE_VERSION_RE = re.compile(r'^VERSION\s*=\s*["\']([^"\']+)["\']', re.MULTILINE)
+_STRICT_VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 
 
 class VerificationError(ValueError):
@@ -58,7 +59,7 @@ def _sha256(path: Path) -> str:
 
 def _archive_version(archive: zipfile.ZipFile) -> tuple[str, str]:
     constants = archive.read(f"{PREFIX}arena/constants.py").decode("utf-8")
-    match = _VERSION_RE.search(constants)
+    match = _SOURCE_VERSION_RE.search(constants)
     if not match:
         raise VerificationError("arena/constants.py has no literal VERSION")
     constants_version = match.group(1)
@@ -114,6 +115,8 @@ def _archive_provenance(archive: zipfile.ZipFile, *, expected_version: str,
 def verify_zip(path: Path, *, expected_version: str,
                expected_source_commit: str | None = None,
                expected_candidate_run: str | None = None) -> dict[str, Any]:
+    if _STRICT_VERSION_RE.fullmatch(expected_version) is None:
+        raise VerificationError("expected version must be strict X.Y.Z")
     if not path.is_file():
         raise VerificationError(f"artifact does not exist: {path}")
     try:

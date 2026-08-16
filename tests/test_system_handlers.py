@@ -1,6 +1,11 @@
 """System handler factory smoke tests."""
+import asyncio
+import json
 import sys
 from pathlib import Path
+from unittest.mock import patch
+
+from aiohttp.test_utils import make_mocked_request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -28,6 +33,58 @@ def test_system_handlers_factory_outputs():
     assert callable(handlers.info)
     assert callable(handlers.status)
     assert callable(handlers.config)
+
+
+def test_version_uses_configured_install_root_and_public_provenance_allowlist(tmp_path):
+    from arena.admin.deployment_provenance import (
+        DEPLOYED_PROVENANCE,
+        build_deployed_provenance,
+        write_deployed_provenance,
+    )
+
+    release = {
+        "schemaVersion": 1,
+        "repository": "IvanSkainet/arena-agent",
+        "sourceCommit": "a" * 40,
+        "releaseTag": "v4.170.0",
+        "candidateRunId": "123",
+    }
+    deployed = build_deployed_provenance(
+        release=release, tag="v4.170.0", downloaded_sha256="b" * 64,
+        expected_sha256="b" * 64, previous=None,
+        installed_at="2026-08-17T10:00:00Z",
+    )
+    write_deployed_provenance(tmp_path / DEPLOYED_PROVENANCE, deployed)
+    ctx = SystemHandlerContext(
+        require_auth=ub.require_auth,
+        record_request=lambda: None,
+        cors_json_response=ub._cors_json_response,
+        executor=ub._EXECUTOR,
+        common_status=ub.common_status,
+        version=ub.VERSION,
+        clean_platform_name=ub.get_clean_platform_name,
+        doctor_sync=lambda token: {},
+        sysinfo_sync=lambda root: {},
+        play_beep_sync=lambda beep_type, freq, dur: {},
+        send_notification_sync=lambda title, msg: {},
+    )
+    handlers = make_system_handlers(ctx)
+    app = ub.make_app({"token": "test", "bind": "127.0.0.1", "root": str(tmp_path)})
+    request = make_mocked_request("GET", "/v1/version", app=app)
+    with patch("arena.admin.auto_update._install_root", return_value=tmp_path):
+        response = asyncio.run(handlers.version(request))
+    body = json.loads(response.text)
+    assert body["deployment"] == {
+        "deploymentModel": "archive",
+        "sourceCommit": "a" * 40,
+        "releaseTag": "v4.170.0",
+        "candidateRunId": "123",
+        "zipSha256": "b" * 64,
+        "installedAt": "2026-08-17T10:00:00Z",
+        "authenticated": True,
+    }
+    assert "previousDeployment" not in body["deployment"]
+    assert "rollback" not in body["deployment"]
 
 
 def test_unified_routes_use_extracted_system_handlers():
