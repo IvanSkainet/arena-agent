@@ -84,13 +84,16 @@ jobs:
       # for the interpreter it happens to run on and every marker-guarded pin
       # (async-timeout, exceptiongroup, tomli) vanishes from the lock. That is
       # the "cold-cache marker-drop" scripts/check_ci_lock.py exists to catch.
+      #
+      # The installed executable remains the OLD hash-locked uv for this whole
+      # step. It may safely resolve requirements-relock.in into the NEW lock:
+      # the newly resolved uv is data only and is never installed/executed in
+      # this run. Skipping that pair deadlocks every uv Dependabot bump because
+      # the subsequent freshness gate correctly rejects the stale old lock.
       - name: Regenerate every .in/.lock pair
         run: |
           set -euo pipefail
           for in_file in requirements-*.in; do
-            # Skip our own resolver lock: regenerating the tool with itself
-            # mid-run is self-referential and would mask a bad uv release.
-            [ "$in_file" = "requirements-relock.in" ] && continue
             lock_file="${in_file%.in}.lock"
             echo "::group::$in_file -> $lock_file"
             uv pip compile --universal --generate-hashes --strip-extras \
