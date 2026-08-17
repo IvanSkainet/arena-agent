@@ -78,16 +78,17 @@ def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
                     # Skills that legitimately live on local
                     # LAN can use ``file://`` -- that branch is
                     # above and unchanged.
+                    from arena.security_http import open_public_url
                     from arena.security_ssrf import _validate_url
+
                     ssrf_err = _validate_url(url)
                     if ssrf_err:
                         return {"ok": False,
                                 "error": f"skill URL rejected: {ssrf_err}"}
                     # Add a small timeout so a hostile server
                     # cannot hang the install indefinitely.
-                    import urllib.request as _ur
                     # SSRF-validated via arena.security_ssrf._validate_url (see v4.42.2)
-                    _r = _ur.urlopen(url, timeout=60)  # nosec B310 -- SSRF-validated above  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
+                    _r = open_public_url(url, timeout=60)
                     with _r, open(tmp_path, "wb") as _out:
                         # Cap at 128 MiB so a malicious server
                         # streaming /dev/urandom can't fill disk.

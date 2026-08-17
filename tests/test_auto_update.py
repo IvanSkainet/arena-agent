@@ -224,7 +224,7 @@ def test_fetch_asset_size_returns_none_on_network_error(monkeypatch):
 # Download + verify
 # ---------------------------------------------------------------------------
 def test_download_release_detects_sha_mismatch(monkeypatch, tmp_path):
-    from arena.admin import auto_update as au
+    from arena.admin import auto_update as au, auto_update_fetch as auf
 
     payload = b"fake-zip-contents"
     real_sha = hashlib.sha256(payload).hexdigest()
@@ -241,7 +241,7 @@ def test_download_release_detects_sha_mismatch(monkeypatch, tmp_path):
     def _fake_urlopen(req, timeout=None):
         return _FakeResp(payload)
 
-    monkeypatch.setattr(au.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(auf, "open_public_url", _fake_urlopen)
 
     # First: wrong expected sha -> mismatch.
     r = au.download_release(

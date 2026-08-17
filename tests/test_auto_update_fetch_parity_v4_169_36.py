@@ -69,7 +69,7 @@ def test_download_release_two_colons_in_digest(tmp_path, monkeypatch):
     content = b"PK\x03\x04test"
 
     monkeypatch.setattr(
-        auf.urllib.request, "urlopen", lambda req, timeout=None: _FakeStreamResponse([content])
+        auf, "open_public_url", lambda req, timeout=None: _FakeStreamResponse([content])
     )
 
     # With split(":", 1), "prefix:tag:val" takes "tag:val"
@@ -138,8 +138,8 @@ def test_download_release_size_cap_exact_boundary(tmp_path, monkeypatch):
     content_100 = b"X" * 100
     content_hash_100 = hashlib.sha256(content_100).hexdigest()
     monkeypatch.setattr(
-        auf.urllib.request,
-        "urlopen",
+        auf,
+        "open_public_url",
         lambda req, timeout=None: _FakeStreamResponse([b"X" * 50, b"X" * 50]),
     )
     res_ok = auf.download_release(
@@ -152,8 +152,8 @@ def test_download_release_size_cap_exact_boundary(tmp_path, monkeypatch):
 
     # 2. Exceeded limit (101 bytes) -> MUST fail
     monkeypatch.setattr(
-        auf.urllib.request,
-        "urlopen",
+        auf,
+        "open_public_url",
         lambda req, timeout=None: _FakeStreamResponse([b"X" * 50, b"X" * 51]),
     )
     res_exceeded = auf.download_release(
@@ -175,7 +175,7 @@ def test_download_release_network_exception(tmp_path, monkeypatch):
     def _fail_open(req, timeout=None):
         raise ConnectionResetError("connection dropped")
 
-    monkeypatch.setattr(auf.urllib.request, "urlopen", _fail_open)
+    monkeypatch.setattr(auf, "open_public_url", _fail_open)
 
     res = auf.download_release(
         asset_url="https://github.com/test/release.zip",
@@ -206,7 +206,7 @@ def test_download_release_verified_success(tmp_path, monkeypatch):
         captured_timeouts.append(timeout)
         return _FakeStreamResponse([chunk1, chunk2])
 
-    monkeypatch.setattr(auf.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(auf, "open_public_url", _fake_urlopen)
 
     res = auf.download_release(
         asset_url="https://github.com/test/valid.zip",
@@ -235,7 +235,7 @@ def test_download_release_default_allow_unverified_is_false(tmp_path, monkeypatc
     content_hash = hashlib.sha256(content).hexdigest()
 
     monkeypatch.setattr(
-        auf.urllib.request, "urlopen", lambda req, timeout=None: _FakeStreamResponse([content])
+        auf, "open_public_url", lambda req, timeout=None: _FakeStreamResponse([content])
     )
 
     # Call without allow_unverified (tests default False)
@@ -261,7 +261,7 @@ def test_download_release_unverified_accepted_when_allowed(tmp_path, monkeypatch
     content_hash = hashlib.sha256(content).hexdigest()
 
     monkeypatch.setattr(
-        auf.urllib.request, "urlopen", lambda req, timeout=None: _FakeStreamResponse([content])
+        auf, "open_public_url", lambda req, timeout=None: _FakeStreamResponse([content])
     )
 
     res = auf.download_release(
@@ -290,7 +290,7 @@ def test_download_release_sha_mismatch(tmp_path, monkeypatch):
     wrong_hash = "0" * 64
 
     monkeypatch.setattr(
-        auf.urllib.request, "urlopen", lambda req, timeout=None: _FakeStreamResponse([content])
+        auf, "open_public_url", lambda req, timeout=None: _FakeStreamResponse([content])
     )
 
     res = auf.download_release(
@@ -315,7 +315,7 @@ def test_download_release_default_dest_dir_prefix(monkeypatch):
     content = b"PK\x03\x04temp"
 
     monkeypatch.setattr(
-        auf.urllib.request, "urlopen", lambda req, timeout=None: _FakeStreamResponse([content])
+        auf, "open_public_url", lambda req, timeout=None: _FakeStreamResponse([content])
     )
 
     res = auf.download_release(
