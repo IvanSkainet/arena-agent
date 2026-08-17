@@ -62,11 +62,8 @@ from arena.admin.auto_update_windows import _write_windows_installer
 from arena.admin.deployment_provenance import (
     DEPLOYED_PROVENANCE,
     ProvenanceError,
-    build_deployed_provenance,
-    deployment_id,
-    read_deployed_provenance,
-    read_release_provenance,
-    write_deployed_provenance,
+    official_asset_authenticated as _official_asset_authenticated,
+    prepare_install_provenance,
 )
 from arena.admin.update_github import (
     fetch_asset_size as _fetch_asset_size,
@@ -122,6 +119,7 @@ def _install_root() -> Path:
         return Path(override).resolve()
     # arena/admin/auto_update.py -> arena/admin -> arena -> repo root.
     return Path(__file__).resolve().parent.parent.parent
+
 
 
 # ---------------------------------------------------------------------------
@@ -347,6 +345,7 @@ def _extract(zip_path: Path, dest: Path) -> Path:
     return dest
 
 
+
 def _swap_unix(payload_root: Path, install_root: Path, *,
                backup_root: Path | None = None,
                provenance_path: Path | None = None) -> dict[str, Any]:
@@ -477,24 +476,32 @@ def apply_update(*, asset_url: str, asset_name: str,
     extract_root = staging / "extracted"
     payload_root = _extract(zip_path, extract_root)
     install_root = _install_root()
-    try:
-        release_identity = read_release_provenance(payload_root)
-        previous = read_deployed_provenance(install_root)
-        deployed = build_deployed_provenance(
-            release=release_identity,
-            tag=tag,
-            downloaded_sha256=str(dl.get("sha256") or ""),
-            expected_sha256=None if unverified else expected,
-            previous=previous,
+    actual_sha256 = str(dl.get("sha256") or "")
+    authenticated = (
+        not unverified
+        and _official_asset_authenticated(
+            repo=_repo(), trusted_repo=DEFAULT_REPO, tag=tag,
+            asset_url=asset_url, asset_name=asset_name, sha256=actual_sha256,
+            fetch_json=_http_get_json,
         )
-        staged_provenance = staging / DEPLOYED_PROVENANCE
-        write_deployed_provenance(staged_provenance, deployed)
-        backup_root = (
-            install_root / "backups" / "deployments" / deployment_id(previous)
-            if previous is not None else None
+    )
+    try:
+        prepared = prepare_install_provenance(
+            payload_root=payload_root,
+            install_root=install_root,
+            staging=staging,
+            tag=tag,
+            downloaded_sha256=actual_sha256,
+            expected_sha256=None if unverified else expected,
+            authenticated=authenticated,
         )
     except ProvenanceError as exc:
         return _err(f"release provenance verification failed: {exc}")
+    deployed = prepared["deployed"]
+    staged_provenance = prepared["staged"]
+    backup_root = prepared["backup_root"]
+    history_quarantine = prepared["history_quarantine"]
+
 
     if _WIN:
         marker = staging / "done.txt"
@@ -543,6 +550,7 @@ def apply_update(*, asset_url: str, asset_name: str,
             "downloaded_sha256": dl.get("sha256"),
             "deployment": deployed,
             "rollback_path": str(backup_root) if backup_root is not None else None,
+            "history_quarantine": history_quarantine,
             "hint": "The bridge will exit; a supervisor (systemd / nssm / "
                     "Windows service) must relaunch it.",
         }
@@ -568,6 +576,7 @@ def apply_update(*, asset_url: str, asset_name: str,
         "sha256": dl["sha256"],
         "deployment": deployed,
         "rollback_path": swap.get("rollback_path"),
+        "history_quarantine": history_quarantine,
     }
     return result
 

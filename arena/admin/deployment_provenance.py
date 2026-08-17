@@ -9,7 +9,10 @@ contain its own digest without a recursive hash problem).
 from __future__ import annotations
 
 import json
+import os
 import re
+import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -100,6 +103,7 @@ def build_deployed_provenance(
     tag: str,
     downloaded_sha256: str,
     expected_sha256: str | None,
+    authenticated: bool,
     previous: dict[str, Any] | None,
     installed_at: str | None = None,
 ) -> dict[str, Any]:
@@ -115,6 +119,10 @@ def build_deployed_provenance(
         raise ProvenanceError("expected SHA-256 is malformed")
     if expected is not None and actual != expected:
         raise ProvenanceError("downloaded SHA-256 does not match expected digest")
+    if not isinstance(authenticated, bool):
+        raise ProvenanceError("authenticated must be boolean")
+    if authenticated and (expected is None or release["candidateRunId"] == "local"):
+        raise ProvenanceError("authenticated deployment requires trusted release evidence")
     if previous is not None:
         # Refuse to chain history from malformed or unauthenticated-shaped state.
         previous = read_deployed_value(previous)
@@ -124,7 +132,7 @@ def build_deployed_provenance(
         "deploymentModel": "archive",
         "zipSha256": actual,
         "installedAt": timestamp,
-        "authenticated": expected is not None and release["candidateRunId"] != "local",
+        "authenticated": authenticated,
         "previousDeployment": _identity(previous) if previous else None,
         "rollback": {
             "available": previous is not None,
@@ -197,6 +205,92 @@ def read_deployed_value(value: Any) -> dict[str, Any]:
     return dict(value)
 
 
+def official_asset_authenticated(
+    *, repo: str, trusted_repo: str, tag: str, asset_url: str,
+    asset_name: str, sha256: str, fetch_json: Callable[[str], Any],
+) -> bool:
+    """Bind request parameters to digest metadata controlled by GitHub Releases."""
+    if repo != trusted_repo or _TAG_RE.fullmatch(tag) is None:
+        return False
+    try:
+        data = fetch_json(
+            f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
+        )
+    except Exception:
+        return False
+    if not isinstance(data, dict) or data.get("tag_name") != tag:
+        return False
+    assets = data.get("assets")
+    if not isinstance(assets, list):
+        return False
+    expected_digest = f"sha256:{sha256}"
+    return any(
+        isinstance(asset, dict)
+        and asset.get("name") == asset_name
+        and asset.get("browser_download_url") == asset_url
+        and isinstance(asset.get("digest"), str)
+        and asset["digest"].lower() == expected_digest
+        for asset in assets
+    )
+
+
+def quarantine_invalid_deployed_provenance(install_root: Path) -> Path:
+    """Preserve malformed runtime history while allowing a valid repair install."""
+    source = install_root / DEPLOYED_PROVENANCE
+    quarantine = install_root / "backups" / "provenance-quarantine"
+    quarantine.mkdir(parents=True, exist_ok=True)
+    target = quarantine / f"invalid-{time.time_ns()}.json"
+    try:
+        os.replace(source, target)
+    except OSError as exc:
+        raise ProvenanceError(f"cannot quarantine invalid deployed provenance: {exc}") from exc
+    return target
+
+
+def prepare_install_provenance(
+    *, payload_root: Path, install_root: Path, staging: Path, tag: str,
+    downloaded_sha256: str, expected_sha256: str | None,
+    authenticated: bool,
+) -> dict[str, Any]:
+    """Validate archive/current identity and stage the next deployed record."""
+    release = read_release_provenance(payload_root)
+    # Validate the incoming identity before mutating malformed historical state.
+    build_deployed_provenance(
+        release=release,
+        tag=tag,
+        downloaded_sha256=downloaded_sha256,
+        expected_sha256=expected_sha256,
+        authenticated=authenticated,
+        previous=None,
+    )
+    quarantine = None
+    try:
+        previous = read_deployed_provenance(install_root)
+    except ProvenanceError:
+        quarantine = str(quarantine_invalid_deployed_provenance(install_root))
+        previous = None
+    deployed = build_deployed_provenance(
+        release=release,
+        tag=tag,
+        downloaded_sha256=downloaded_sha256,
+        expected_sha256=expected_sha256,
+        authenticated=authenticated,
+        previous=previous,
+    )
+    staged = staging / DEPLOYED_PROVENANCE
+    write_deployed_provenance(staged, deployed)
+    backup_root = (
+        install_root / "backups" / "deployments" / deployment_id(previous)
+        if previous is not None else None
+    )
+    return {
+        "deployed": deployed,
+        "staged": staged,
+        "backup_root": backup_root,
+        "history_quarantine": quarantine,
+    }
+
+
 def write_deployed_provenance(path: Path, value: dict[str, Any]) -> None:
     """Write canonical bytes to staging; the platform mover publishes them."""
     checked = read_deployed_value(value)
@@ -205,3 +299,7 @@ def write_deployed_provenance(path: Path, value: dict[str, Any]) -> None:
         json.dumps(checked, sort_keys=True, separators=(",", ":")) + "\n",
         encoding="utf-8",
     )
+    try:
+        path.chmod(0o600)
+    except OSError as exc:
+        raise ProvenanceError(f"cannot restrict deployed provenance permissions: {exc}") from exc

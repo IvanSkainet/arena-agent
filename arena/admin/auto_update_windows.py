@@ -111,6 +111,7 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
         "goto :wait",
         ":after_wait",
         f'echo [%DATE% %TIME%] bridge exited, starting copy >> "{log}"',
+        "set _install_started=0",
     ]
     backup = None
     if backup_root is not None:
@@ -138,10 +139,12 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
                 f'if not exist "{d}\\*" goto :{backup_file}',
                 f'robocopy "{d}" "{b}" /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 >NUL',
                 'if errorlevel 8 goto :copy_failed',
+                f'echo dir>"{backup}\\.arena-target-{idx}-dir"',
                 f'goto :{backup_done}',
                 f':{backup_file}',
                 f'copy /Y "{d}" "{b}" >NUL',
                 'if errorlevel 1 goto :copy_failed',
+                f'echo file>"{backup}\\.arena-target-{idx}-file"',
                 f':{backup_done}',
             ])
         if provenance_path is not None:
@@ -150,9 +153,11 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
             lines.extend([
                 f'copy /Y "{provenance_dst}" "{backup_provenance}" >NUL',
                 'if errorlevel 1 goto :copy_failed',
+                f'echo file>"{backup}\\.arena-provenance-present"',
             ])
 
     # Only after the complete rollback snapshot exists may replacement begin.
+    lines.append("set _install_started=1")
     for idx, name in enumerate(targets):
         s = f"{src}\\{name}"
         d = f"{dst}\\{name}"
@@ -180,6 +185,68 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
             f'copy /Y "{provenance_src}" "{provenance_dst}" >NUL',
             'if errorlevel 1 goto :copy_failed',
         ])
+
+    rollback_lines: list[str] = []
+    if backup is not None:
+        rollback_lines.extend([
+            'if "%_install_started%"=="0" goto :rollback_backup_only',
+            "set _rollback_failed=0",
+        ])
+        for idx, name in enumerate(targets):
+            d = f"{dst}\\{name}"
+            b = f"{backup}\\{name}"
+            as_dir = f"rollback_dir_{idx}"
+            as_file = f"rollback_file_{idx}"
+            remove_new = f"rollback_remove_new_{idx}"
+            remove_dir = f"rollback_remove_dir_{idx}"
+            done = f"rollback_done_{idx}"
+            rollback_lines.extend([
+                f'if exist "{backup}\\.arena-target-{idx}-dir" goto :{as_dir}',
+                f'if exist "{backup}\\.arena-target-{idx}-file" goto :{as_file}',
+                f'goto :{remove_new}',
+                f':{as_dir}',
+                f'robocopy "{b}" "{d}" /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 >NUL',
+                'if errorlevel 8 set _rollback_failed=1',
+                f'goto :{done}',
+                f':{as_file}',
+                f'copy /Y "{b}" "{d}" >NUL',
+                'if errorlevel 1 set _rollback_failed=1',
+                f'goto :{done}',
+                f':{remove_new}',
+                f'if not exist "{d}" goto :{done}',
+                f'if exist "{d}\\*" goto :{remove_dir}',
+                f'del /F /Q "{d}" >NUL 2>&1',
+                'if errorlevel 1 set _rollback_failed=1',
+                f'goto :{done}',
+                f':{remove_dir}',
+                f'rmdir /S /Q "{d}"',
+                'if errorlevel 1 set _rollback_failed=1',
+                f':{done}',
+            ])
+        provenance_dst = f"{dst}\\{DEPLOYED_PROVENANCE}"
+        backup_provenance = f"{backup}\\{DEPLOYED_PROVENANCE}"
+        rollback_lines.extend([
+            f'if not exist "{backup}\\.arena-provenance-present" goto :rollback_remove_provenance',
+            f'copy /Y "{backup_provenance}" "{provenance_dst}" >NUL',
+            'if errorlevel 1 set _rollback_failed=1',
+            'goto :rollback_provenance_done',
+            ':rollback_remove_provenance',
+            f'del /F /Q "{provenance_dst}" >NUL 2>&1',
+            ':rollback_provenance_done',
+            'if not "%_rollback_failed%"=="0" goto :rollback_incomplete',
+            f'rmdir /S /Q "{backup}"',
+            ':rollback_incomplete',
+            'goto :rollback_end',
+            ':rollback_backup_only',
+            f'rmdir /S /Q "{backup}"',
+            ':rollback_end',
+        ])
+    else:
+        # A pre-T55 tree has no exact rollback snapshot. Never leave an old
+        # authenticated marker over a partially replaced tree.
+        rollback_lines.append(
+            f'del /F /Q "{dst}\\{DEPLOYED_PROVENANCE}" >NUL 2>&1'
+        )
 
     # Mark done so any watcher can observe completion.
     done_win = done_marker.as_posix().replace("/", "\\")
@@ -264,7 +331,8 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
         "exit /b 0",
         "",
         ":copy_failed",
-        f'echo [%DATE% %TIME%] ERROR copy or rollback backup failed >> "{log}"',
+        f'echo [%DATE% %TIME%] ERROR copy failed, restoring rollback snapshot >> "{log}"',
+        *rollback_lines,
         f'rmdir "{lockdir}" 2>nul',
         "endlocal",
         "exit /b 1",

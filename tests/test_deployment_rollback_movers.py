@@ -109,3 +109,9 @@ def test_windows_mover_backs_up_before_copy_and_publishes_provenance_last(tmp_pa
     assert text.index(provenance_command) < text.index('echo done >')
     assert ":copy_failed" in text
     assert "if errorlevel 8 goto :copy_failed" in text
+    assert 'set _install_started=1' in text
+    assert '.arena-target-0-dir' in text
+    assert ':rollback_dir_0' in text
+    assert f'robocopy "{old}" "{dst}" /MIR' in text
+    assert text.index(':copy_failed') < text.index(':rollback_dir_0')
+    assert text.index(':rollback_provenance_done') < text.rindex(f'rmdir "{install_win}\\.arena-update-apply.lock"')

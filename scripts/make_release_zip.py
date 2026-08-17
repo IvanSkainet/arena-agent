@@ -239,7 +239,7 @@ def _write_entry(
 
 
 def _git_source_commit() -> str:
-    result = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
+    result = subprocess.run(  # nosec B603,B607 -- maintainer-controlled fixed git argv; no caller input or shell
         ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True,
         text=True, timeout=30, check=False,
     )

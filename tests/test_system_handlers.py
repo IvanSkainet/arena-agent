@@ -51,7 +51,7 @@ def test_version_uses_configured_install_root_and_public_provenance_allowlist(tm
     }
     deployed = build_deployed_provenance(
         release=release, tag="v4.170.0", downloaded_sha256="b" * 64,
-        expected_sha256="b" * 64, previous=None,
+        expected_sha256="b" * 64, authenticated=True, previous=None,
         installed_at="2026-08-17T10:00:00Z",
     )
     write_deployed_provenance(tmp_path / DEPLOYED_PROVENANCE, deployed)

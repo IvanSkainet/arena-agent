@@ -375,6 +375,7 @@ def test_apply_update_end_to_end_on_posix_writes_new_files(monkeypatch,
                 "staging_dir": str(staging)}
 
     monkeypatch.setattr(au, "download_release", _fake_download)
+    monkeypatch.setattr(au, "_official_asset_authenticated", lambda **_kw: False)
 
     tag = "v3.85.0"
     sha = "a" * 64

@@ -213,8 +213,13 @@ On installation, the updater combines that immutable identity with the verified
 ZIP SHA-256 and install time in runtime `DEPLOYED_PROVENANCE.json`. The previous
 identified deployment is retained under `backups/deployments/<identity>/` before
 replacement starts. `/v1/version` exposes the deployed identity and an explicit
-`authenticated` boolean; absent or malformed state is reported as unauthenticated,
-never inferred from a nested vendored `.git` directory.
+`authenticated` boolean; it is true only when the ZIP digest, asset URL/name,
+and tag also match metadata fetched from the official GitHub Release. A digest
+supplied only by the update caller is integrity input, not provenance
+authentication. Absent or malformed state is reported as unauthenticated, never
+inferred from a nested vendored `.git` directory. During a valid repair update,
+a malformed old record is preserved under `backups/provenance-quarantine/` and
+is not used as authenticated history.
 
 Archive compatibility starts with the first release containing T55 provenance
 (planned `v4.169.48`). Once that updater is installed, it rejects older
