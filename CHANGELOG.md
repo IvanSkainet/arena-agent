@@ -1,3 +1,49 @@
+## v4.169.48 — 2026-08-17
+
+### Archive deployments have verifiable identity
+
+Release ZIPs now carry canonical source provenance: repository, exact source
+commit, strict release tag, and candidate workflow run. Installation writes a
+separate `DEPLOYED_PROVENANCE.json` that binds those fields to the downloaded
+ZIP SHA-256 and install time without attempting the impossible recursive
+self-hash. Runtime authentication is reported only when tag, asset URL/name,
+and digest also match metadata fetched from the official GitHub Release; a
+caller-supplied checksum alone proves integrity, not provenance.
+
+The unauthenticated `/v1/version` exposes only the deployment model, release
+tag, install time, and authentication state. Exact commit/run/SHA and rollback
+history remain behind `/v1/info` and `/v1/status`.
+
+### Updates retain and restore an identified rollback tree
+
+Before replacing an identified deployment, both POSIX and Windows update paths
+retain the old release targets under `backups/deployments/<identity>/`. Windows
+backs up every target before copying any new one, restores the complete old
+target shape after a partial failure, and relaunches the restored bridge. An
+incomplete rollback remains stopped with an explicit retained-snapshot path.
+Malformed historical provenance is preserved in a restricted quarantine only
+after the incoming archive has passed validation.
+
+### Gates and operator status are honest
+
+Semgrep keeps its fail-closed report contract while receiving a bounded
+120-second per-rule/file budget for the real tree. Required-job parsing,
+release/source tag contracts, localized Windows mover diagnostics, ngrok argv
+test isolation, and autonomy-preset reporting gained bilateral sabotage and
+mutation-backed parity. Hosted reviewers remain informational and are measured
+on exact PR heads; no external reviewer became a required merge check.
+
+### Validation
+
+* Deployment provenance module: 0/286 surviving mutants.
+* Reviewer exact-head collector: 0/217 surviving mutants.
+* T55 exact head passed 62 GitHub checks plus all four required ruleset checks;
+  the only red external check was Codacy's advisory complexity/noise aggregate.
+* Full local suite before release bump: 8,516 passed, 36 skipped.
+* Exact candidate Windows installation, authenticated runtime identity,
+  release attestations, and post-publication reinstall are the T56 release
+  acceptance gates.
+
 ## v4.169.47 — 2026-08-15
 
 ### Security scanners fail closed

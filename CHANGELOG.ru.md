@@ -1,3 +1,49 @@
+## v4.169.48 — 2026-08-17
+
+### Archive deployment получил проверяемую identity
+
+Release ZIP теперь содержит canonical source provenance: repository, точный
+source commit, strict release tag и run candidate workflow. При установке
+создаётся отдельный `DEPLOYED_PROVENANCE.json`, связывающий эти поля с SHA-256
+скачанного ZIP и временем установки без невозможного recursive self-hash.
+Runtime отмечается authenticated только если tag, asset URL/name и digest также
+совпали с metadata официального GitHub Release; checksum от самого вызывающего
+доказывает integrity, но не provenance.
+
+Неаутентифицированный `/v1/version` показывает только deployment model, release
+tag, install time и authentication state. Точные commit/run/SHA и rollback
+history доступны через аутентифицированные `/v1/info` и `/v1/status`.
+
+### Update сохраняет и восстанавливает identified rollback tree
+
+Перед заменой identified deployment POSIX и Windows сохраняют старые release
+targets в `backups/deployments/<identity>/`. Windows сначала создаёт полный
+backup, затем копирует новые файлы, восстанавливает точную старую форму дерева
+после частичного сбоя и перезапускает восстановленный Bridge. При неполном
+rollback Bridge остаётся остановленным и сообщает путь сохранённого snapshot.
+Повреждённая старая provenance сохраняется в restricted quarantine только после
+полной проверки нового архива.
+
+### Gates и operator status не изображают ложный успех
+
+Semgrep сохраняет fail-closed report contract и получает bounded budget 120
+секунд на rule/file для реального дерева. Required-jobs parsing, release/source
+tag contracts, localized Windows mover diagnostics, ngrok argv isolation и
+autonomy preset reporting получили bilateral sabotage и mutation-backed parity.
+Hosted reviewers остаются informational и измеряются только на exact PR heads;
+ни один внешний reviewer не стал required merge check.
+
+### Проверки
+
+* Deployment provenance module: 0/286 surviving mutants.
+* Reviewer exact-head collector: 0/217 surviving mutants.
+* Exact head T55 прошёл 62 GitHub checks и все четыре required ruleset checks;
+  единственным красным external check был advisory complexity/noise aggregate
+  Codacy.
+* Полный local suite перед version bump: 8 516 passed, 36 skipped.
+* Exact candidate Windows install, authenticated runtime identity, release
+  attestations и post-publication reinstall являются acceptance gates T56.
+
 ## v4.169.47 — 2026-08-15
 
 ### Security scanners теперь fail closed
