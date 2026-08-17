@@ -44,6 +44,11 @@ def test_coverage_xml_never_ships_from_a_post_test_release_tree():
     assert _mod.should_exclude(".coverage") is True
 
 
+def test_legacy_version_json_never_ships() -> None:
+    assert _mod.should_exclude("version.json") is True
+    assert _mod.should_exclude("nested/version.json") is True
+
+
 def test_workspace_guard_queries_ignored_files_too(monkeypatch):
     calls: list[list[str]] = []
 

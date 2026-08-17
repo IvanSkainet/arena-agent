@@ -120,6 +120,13 @@ def test_expected_version_must_be_strict_three_part_ascii_semver(tmp_path: Path)
             M.verify_zip(artifact, expected_version=malformed)
 
 
+def test_legacy_version_json_is_forbidden_even_if_reintroduced(tmp_path: Path) -> None:
+    artifact = tmp_path / "legacy-version.zip"
+    _write_zip(artifact, extra={f"{M.PREFIX}version.json": b'{"version":"stale"}\n'})
+    with pytest.raises(M.VerificationError, match="forbidden runtime artifact"):
+        M.verify_zip(artifact, expected_version="9.9.9")
+
+
 def test_forbidden_development_path_is_rejected(tmp_path: Path) -> None:
     artifact = tmp_path / "bad.zip"
     _write_zip(artifact, extra={f"{M.PREFIX}tests/test_secret.py": b"bad\n"})

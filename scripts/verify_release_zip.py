@@ -40,6 +40,7 @@ FORBIDDEN_BASENAMES = frozenset({
     "bridge.log",
     "coverage.xml",
     ".coverage",
+    "version.json",
 })
 _SOURCE_VERSION_RE = re.compile(r'^VERSION\s*=\s*["\']([^"\']+)["\']', re.MULTILINE)
 _STRICT_VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")

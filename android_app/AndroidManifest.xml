@@ -17,8 +17,8 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ai.arena.bridge"
-    android:versionCode="41690047"
-    android:versionName="4.169.47">
+    android:versionCode="41690048"
+    android:versionName="4.169.48">
 
   <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
 
