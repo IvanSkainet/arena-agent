@@ -44,6 +44,8 @@ def test_windows_and_posix_names_from_the_issue_are_present():
         "APPINIT_DLLS", "PSMODULEPATH", "AUTORUN",
         # POSIX execution control
         "IFS", "BASH_ENV", "ENV", "ZDOTDIR", "GIT_CONFIG_PARAMETERS", "GIT_SSH_COMMAND",
+        # macOS execution control (DYLD_* is the LD_PRELOAD counterpart on Darwin)
+        "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH",
     ):
         assert name in _BLOCKED_ENV_EXACT, name
 
@@ -61,6 +63,13 @@ def test_secret_families_are_blocked_by_substring_in_any_case():
         "SIGNING_KEY": "x", "STRIPE_CREDENTIAL": "x", "OpenAI_API_Key": "x",
     }
     assert filter_caller_env(blocked) == {}
+
+def test_macos_and_shell_function_injection_vectors_are_blocked():
+    # DYLD_* is the macOS counterpart of LD_PRELOAD; BASH_FUNC_-prefixed
+    # names smuggle exported shell functions into the child shell.
+    assert filter_caller_env({"DYLD_INSERT_LIBRARIES": "/evil.dylib"}) == {}
+    assert filter_caller_env({"dyld_library_path": "/evil/lib"}) == {}
+    assert filter_caller_env({"BASH_FUNC_steal%%": "() { id; }"}) == {}
 
 
 def test_secret_family_false_positives_are_accepted_by_design():

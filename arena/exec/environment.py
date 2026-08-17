@@ -27,6 +27,9 @@ _BLOCKED_ENV_EXACT = frozenset({
     "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "LD_DEBUG",
     "PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME",
     "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_SSH_COMMAND",
+    # macOS execution control: the DYLD_* family is the counterpart of
+    # LD_PRELOAD / LD_LIBRARY_PATH on Darwin.
+    "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
     # Windows execution control: interpreter and shell selection, DLL
     # preload, module path, cmd AutoRun.
     "PATHEXT", "COMSPEC", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR",
@@ -37,7 +40,9 @@ _BLOCKED_ENV_EXACT = frozenset({
 # variable names is unknowable, so the families are matched broadly and
 # the false positives (MONKEY, TOKENIZE) are accepted — dropping a benign
 # variable costs a caller nothing, leaking a credential costs everything.
-_BLOCKED_ENV_SUBSTRINGS = ("TOKEN", "SECRET", "PASSWORD", "KEY", "CREDENTIAL")
+# BASH_FUNC_ covers exported-shell-function injection
+# ("BASH_FUNC_foo%%=() {...}"), which is name-prefixed rather than exact.
+_BLOCKED_ENV_SUBSTRINGS = ("TOKEN", "SECRET", "PASSWORD", "KEY", "CREDENTIAL", "BASH_FUNC_")
 
 
 def filter_caller_env(env_extra: dict[str, Any]) -> dict[str, str]:
