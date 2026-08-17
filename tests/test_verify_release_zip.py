@@ -127,6 +127,12 @@ def test_legacy_version_json_is_forbidden_even_if_reintroduced(tmp_path: Path) -
         M.verify_zip(artifact, expected_version="9.9.9")
 
 
+def test_nested_version_json_can_be_a_real_product_asset(tmp_path: Path) -> None:
+    artifact = tmp_path / "nested-version.zip"
+    _write_zip(artifact, extra={f"{M.PREFIX}nested/version.json": b'{}\n'})
+    assert M.verify_zip(artifact, expected_version="9.9.9")["ok"] is True
+
+
 def test_forbidden_development_path_is_rejected(tmp_path: Path) -> None:
     artifact = tmp_path / "bad.zip"
     _write_zip(artifact, extra={f"{M.PREFIX}tests/test_secret.py": b"bad\n"})

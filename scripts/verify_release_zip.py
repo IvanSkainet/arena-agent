@@ -40,7 +40,6 @@ FORBIDDEN_BASENAMES = frozenset({
     "bridge.log",
     "coverage.xml",
     ".coverage",
-    "version.json",
 })
 _SOURCE_VERSION_RE = re.compile(r'^VERSION\s*=\s*["\']([^"\']+)["\']', re.MULTILINE)
 _STRICT_VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
@@ -143,7 +142,7 @@ def verify_zip(path: Path, *, expected_version: str,
                 name = info.filename
                 if name.startswith(FORBIDDEN_PREFIXES):
                     raise VerificationError(f"forbidden development path: {name}")
-                if Path(name).name in FORBIDDEN_BASENAMES:
+                if name == f"{PREFIX}version.json" or Path(name).name in FORBIDDEN_BASENAMES:
                     raise VerificationError(f"forbidden runtime artifact: {name}")
                 if info.date_time != ZIP_TIMESTAMP:
                     raise VerificationError(
