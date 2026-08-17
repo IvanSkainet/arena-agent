@@ -112,6 +112,8 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
         ":after_wait",
         f'echo [%DATE% %TIME%] bridge exited, starting copy >> "{log}"',
         "set _install_started=0",
+        "set _backup_created=0",
+        "set _update_failed=0",
     ]
     backup = None
     if backup_root is not None:
@@ -122,6 +124,7 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
             f'echo [%DATE% %TIME%] rollback directory unavailable >> "{log}"',
             'goto :copy_failed',
             ':rollback_dir_ready',
+            'set _backup_created=1',
         ])
 
     # Snapshot every old target before replacing any of them. Interleaving
@@ -235,10 +238,17 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
             ':rollback_provenance_done',
             'if not "%_rollback_failed%"=="0" goto :rollback_incomplete',
             f'rmdir /S /Q "{backup}"',
+            'set _update_failed=1',
+            'goto :launch_recovery',
             ':rollback_incomplete',
+            f'echo [%DATE% %TIME%] ERROR rollback incomplete; retained snapshot={backup} >> "{log}"',
             'goto :rollback_end',
             ':rollback_backup_only',
+            'if not "%_backup_created%"=="1" goto :rollback_backup_preserved',
             f'rmdir /S /Q "{backup}"',
+            ':rollback_backup_preserved',
+            'set _update_failed=1',
+            'goto :launch_recovery',
             ':rollback_end',
         ])
     else:
@@ -298,6 +308,7 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
         '$ok=$false }; $c.Close(); if ($ok) { exit 0 } else { exit 1 }"'
     )
     lines.extend([
+        ':launch_recovery',
         # 1) schtasks -- fire, then VERIFY rather than trusting errorlevel.
         f'schtasks /Run /TN "{task_name}" >NUL 2>&1',
         f'echo [%DATE% %TIME%] fired schtasks, waiting for port {port} >> "{log}"',
@@ -327,8 +338,12 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
         # the operator with a mover that "failed" after copying fine.
         f'rmdir "{lockdir}" 2>nul',
         f'echo [%DATE% %TIME%] mover-done >> "{log}"',
+        'if "%_update_failed%"=="1" goto :recovery_exit',
         "endlocal",
         "exit /b 0",
+        ":recovery_exit",
+        "endlocal",
+        "exit /b 1",
         "",
         ":copy_failed",
         f'echo [%DATE% %TIME%] ERROR copy failed, restoring rollback snapshot >> "{log}"',

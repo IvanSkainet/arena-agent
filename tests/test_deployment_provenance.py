@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -328,6 +329,9 @@ def test_prepare_quarantines_malformed_history_and_repairs_with_unauthenticated_
     quarantined = install / "backups" / "provenance-quarantine" / "invalid-123.json"
     assert result["history_quarantine"] == str(quarantined)
     assert quarantined.read_text(encoding="utf-8") == "{truncated"
+    if os.name != "nt":
+        assert quarantined.parent.stat().st_mode & 0o777 == 0o700
+        assert quarantined.stat().st_mode & 0o777 == 0o600
     assert result["deployed"]["previousDeployment"] is None
     assert result["deployed"]["rollback"]["available"] is False
     assert result["staged"].is_file()
@@ -401,6 +405,20 @@ def test_quarantine_and_permission_failures_are_explicit(tmp_path: Path, monkeyp
     assert str(permission_error.value) == "cannot restrict deployed provenance permissions: chmod denied"
 
 
+def test_quarantine_mkdir_failure_is_wrapped(tmp_path: Path, monkeypatch) -> None:
+    from arena.admin.deployment_provenance import quarantine_invalid_deployed_provenance
+
+    (tmp_path / DEPLOYED_PROVENANCE).write_text("bad")
+
+    def fail_mkdir(*_args, **_kwargs):
+        raise OSError("read only")
+
+    monkeypatch.setattr(Path, "mkdir", fail_mkdir)
+    with pytest.raises(ProvenanceError) as caught:
+        quarantine_invalid_deployed_provenance(tmp_path)
+    assert str(caught.value) == "cannot quarantine invalid deployed provenance: read only"
+
+
 def test_default_install_timestamp_is_utc_and_canonical_write_creates_parents(tmp_path: Path) -> None:
     current = build_deployed_provenance(
         release=release(), tag="v4.170.0", downloaded_sha256="b" * 64,
@@ -412,7 +430,8 @@ def test_default_install_timestamp_is_utc_and_canonical_write_creates_parents(tm
     write_deployed_provenance(nested, current)
     text = nested.read_text(encoding="utf-8")
     assert text == json.dumps(current, sort_keys=True, separators=(",", ":")) + "\n"
-    assert nested.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert nested.stat().st_mode & 0o777 == 0o600
 
 
 def test_absent_deployed_record_is_explicitly_unknown(tmp_path: Path) -> None:

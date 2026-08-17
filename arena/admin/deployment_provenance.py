@@ -238,10 +238,12 @@ def quarantine_invalid_deployed_provenance(install_root: Path) -> Path:
     """Preserve malformed runtime history while allowing a valid repair install."""
     source = install_root / DEPLOYED_PROVENANCE
     quarantine = install_root / "backups" / "provenance-quarantine"
-    quarantine.mkdir(parents=True, exist_ok=True)
     target = quarantine / f"invalid-{time.time_ns()}.json"
     try:
+        quarantine.mkdir(parents=True, exist_ok=True)
+        quarantine.chmod(0o700)
         os.replace(source, target)
+        target.chmod(0o600)
     except OSError as exc:
         raise ProvenanceError(f"cannot quarantine invalid deployed provenance: {exc}") from exc
     return target

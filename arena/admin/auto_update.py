@@ -313,11 +313,9 @@ def consent_token(*, tag: str, sha256: str, asset_url: str = "") -> str:
     digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
     return f"yes-update-{digest[:16]}"
 
-
 # ---------------------------------------------------------------------------
 # Install (cross-platform)
 # ---------------------------------------------------------------------------
-
 _WIN = platform.system().lower() == "windows"
 
 
@@ -395,7 +393,11 @@ def _swap_unix(payload_root: Path, install_root: Path, *,
                 restore_ok = False
         if created_backup_root and backup_root is not None and restore_ok:
             shutil.rmtree(backup_root, ignore_errors=True)
-        return _err(f"swap failed: {e!r}", swapped=swapped)
+        return _err(f"swap failed: {e!r}",
+                    swapped=swapped,
+                    restored=restore_ok,
+                    rollback_path=str(backup_root) if backup_root is not None else None,
+                    rollback_retained=bool(backup_root and backup_root.exists()))
     # Ephemeral backups only protect the in-flight swap. Identified rollback
     # trees are retained under backups/deployments until explicit pruning.
     if backup_root is None:
@@ -412,8 +414,6 @@ def _swap_unix(payload_root: Path, install_root: Path, *,
         "swapped": swapped,
         "rollback_path": str(backup_root) if backup_root is not None else None,
     }
-
-
 
 
 
@@ -501,7 +501,6 @@ def apply_update(*, asset_url: str, asset_name: str,
     staged_provenance = prepared["staged"]
     backup_root = prepared["backup_root"]
     history_quarantine = prepared["history_quarantine"]
-
 
     if _WIN:
         marker = staging / "done.txt"

@@ -56,11 +56,11 @@ def test_version_uses_configured_install_root_and_public_provenance_allowlist(tm
     )
     write_deployed_provenance(tmp_path / DEPLOYED_PROVENANCE, deployed)
     ctx = SystemHandlerContext(
-        require_auth=ub.require_auth,
+        require_auth=lambda _request: None,
         record_request=lambda: None,
         cors_json_response=ub._cors_json_response,
         executor=ub._EXECUTOR,
-        common_status=ub.common_status,
+        common_status=lambda _cfg: {"ok": True},
         version=ub.VERSION,
         clean_platform_name=ub.get_clean_platform_name,
         doctor_sync=lambda token: {},
@@ -76,15 +76,18 @@ def test_version_uses_configured_install_root_and_public_provenance_allowlist(tm
     body = json.loads(response.text)
     assert body["deployment"] == {
         "deploymentModel": "archive",
-        "sourceCommit": "a" * 40,
         "releaseTag": "v4.170.0",
-        "candidateRunId": "123",
-        "zipSha256": "b" * 64,
         "installedAt": "2026-08-17T10:00:00Z",
         "authenticated": True,
     }
-    assert "previousDeployment" not in body["deployment"]
-    assert "rollback" not in body["deployment"]
+
+    info_request = make_mocked_request(
+        "GET", "/v1/info", headers={"Authorization": "Bearer test"}, app=app,
+    )
+    with patch("arena.admin.auto_update._install_root", return_value=tmp_path):
+        info_response = asyncio.run(handlers.info(info_request))
+    info = json.loads(info_response.text)
+    assert info["deployment"] == deployed
 
 
 def test_unified_routes_use_extracted_system_handlers():

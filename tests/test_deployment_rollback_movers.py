@@ -59,10 +59,52 @@ def test_posix_swap_failure_removes_new_targets_and_restores_old_tree(
     result = auto_update._swap_unix(payload, install, backup_root=backup)
 
     assert result["ok"] is False
+    assert result["restored"] is True
+    assert result["rollback_path"] == str(backup)
+    assert result["rollback_retained"] is False
     assert not backup.exists(), "a fully restored failed attempt must remain retryable"
     assert (install / "arena" / "old.py").read_text() == "old"
     assert not (install / "arena" / "new.py").exists()
     assert not (install / "unified_bridge.py").exists()
+
+
+def test_posix_failed_restore_reports_retained_snapshot(tmp_path: Path, monkeypatch) -> None:
+    payload = tmp_path / "payload"
+    install = tmp_path / "install"
+    backup = install / "backups" / "deployments" / "previous"
+    (payload / "arena").mkdir(parents=True)
+    (payload / "arena" / "new.py").write_text("new")
+    (payload / "unified_bridge.py").write_text("new bridge")
+    (install / "arena").mkdir(parents=True)
+    (install / "arena" / "old.py").write_text("old")
+    real_move = auto_update.shutil.move
+    real_rename = Path.rename
+    move_calls = 0
+    rename_calls = 0
+
+    def fail_second_move(src: str, dst: str) -> None:
+        nonlocal move_calls
+        move_calls += 1
+        if move_calls == 2:
+            raise OSError("sabotaged move")
+        real_move(src, dst)
+
+    def fail_restore(self: Path, target: Path):
+        nonlocal rename_calls
+        rename_calls += 1
+        if rename_calls == 2:
+            raise OSError("sabotaged restore")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(auto_update.shutil, "move", fail_second_move)
+    monkeypatch.setattr(Path, "rename", fail_restore)
+    result = auto_update._swap_unix(payload, install, backup_root=backup)
+
+    assert result["ok"] is False
+    assert result["restored"] is False
+    assert result["rollback_retained"] is True
+    assert result["rollback_path"] == str(backup)
+    assert (backup / "arena" / "old.py").read_text() == "old"
 
 
 def test_windows_mover_backs_up_before_copy_and_publishes_provenance_last(tmp_path: Path) -> None:
@@ -110,8 +152,15 @@ def test_windows_mover_backs_up_before_copy_and_publishes_provenance_last(tmp_pa
     assert ":copy_failed" in text
     assert "if errorlevel 8 goto :copy_failed" in text
     assert 'set _install_started=1' in text
+    assert 'set _backup_created=0' in text
+    assert ':rollback_dir_ready\nset _backup_created=1' in text
+    assert 'if not "%_backup_created%"=="1" goto :rollback_backup_preserved' in text
+    assert ':rollback_backup_preserved\nset _update_failed=1\ngoto :launch_recovery' in text
     assert '.arena-target-0-dir' in text
     assert ':rollback_dir_0' in text
     assert f'robocopy "{old}" "{dst}" /MIR' in text
     assert text.index(':copy_failed') < text.index(':rollback_dir_0')
+    assert 'ERROR rollback incomplete; retained snapshot=' in text
+    assert ':launch_recovery' in text
+    assert 'if "%_update_failed%"=="1" goto :recovery_exit' in text
     assert text.index(':rollback_provenance_done') < text.rindex(f'rmdir "{install_win}\\.arena-update-apply.lock"')
