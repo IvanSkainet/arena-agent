@@ -65,7 +65,7 @@ from arena.admin.deployment_provenance import (
     official_asset_authenticated as _official_asset_authenticated,
     prepare_install_provenance,
 )
-from arena.admin.deployment_tombstones import remove_release_tombstones
+from arena.admin.deployment_tombstones import stage_release_tombstones
 from arena.admin.update_github import (
     fetch_asset_size as _fetch_asset_size,
     fetch_changelog_section as _fetch_changelog_section,
@@ -373,7 +373,8 @@ def _swap_unix(payload_root: Path, install_root: Path, *,
                 backups.append((backup, dst))
             shutil.move(str(src), str(dst))
             swapped.append(name)
-        remove_release_tombstones(install_root)
+        backups.extend(stage_release_tombstones(
+            install_root, backup_root=backup_root, timestamp=ts))
     except Exception as e:
         # Remove every newly moved target, including ones that had no prior
         # destination, then restore the retained old targets.

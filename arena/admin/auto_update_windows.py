@@ -180,15 +180,25 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
             f':{nxt}',
         ])
 
-    # Delete explicit release-owned tombstones. Copy-only updates otherwise
-    # retain removed top-level files forever (the stale root version.json did).
+    # Stage release tombstones into rollback storage before removing them.
+    # Pre-provenance installs use the update staging tree as ephemeral storage.
+    tombstone_backup = (
+        backup if backup is not None
+        else f"{done_marker.parent.as_posix().replace('/', chr(92))}\\tombstones"
+    )
+    if backup is None:
+        lines.extend([
+            f'mkdir "{tombstone_backup}" 2>NUL',
+            'if errorlevel 1 goto :copy_failed',
+        ])
     for idx, name in enumerate(REMOVED_RELEASE_TARGETS):
         obsolete = f"{dst}\\{name}"
+        staged_obsolete = f"{tombstone_backup}\\{name}"
         done = f"tombstone_done_{idx}"
         lines.extend([
             f'if not exist "{obsolete}" goto :{done}',
             f'if exist "{obsolete}\\*" goto :copy_failed',
-            f'del /F /Q "{obsolete}" >NUL 2>&1',
+            f'move /Y "{obsolete}" "{staged_obsolete}" >NUL',
             'if errorlevel 1 goto :copy_failed',
             f':{done}',
         ])
@@ -202,13 +212,26 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
             f'copy /Y "{provenance_src}" "{provenance_dst}" >NUL',
             'if errorlevel 1 goto :copy_failed',
         ])
+    if backup is None:
+        lines.append(f'rmdir /S /Q "{tombstone_backup}" 2>NUL')
 
     rollback_lines: list[str] = []
     if backup is not None:
+        rollback_lines.append(
+            'if "%_install_started%"=="0" goto :rollback_backup_only'
+        )
+    rollback_lines.append("set _rollback_failed=0")
+    for idx, name in enumerate(REMOVED_RELEASE_TARGETS):
+        obsolete = f"{dst}\\{name}"
+        staged_obsolete = f"{tombstone_backup}\\{name}"
+        done = f"rollback_tombstone_done_{idx}"
         rollback_lines.extend([
-            'if "%_install_started%"=="0" goto :rollback_backup_only',
-            "set _rollback_failed=0",
+            f'if not exist "{staged_obsolete}" goto :{done}',
+            f'move /Y "{staged_obsolete}" "{obsolete}" >NUL',
+            'if errorlevel 1 set _rollback_failed=1',
+            f':{done}',
         ])
+    if backup is not None:
         for idx, name in enumerate(targets):
             d = f"{dst}\\{name}"
             b = f"{backup}\\{name}"
@@ -266,11 +289,17 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
             ':rollback_end',
         ])
     else:
-        # A pre-T55 tree has no exact rollback snapshot. Never leave an old
-        # authenticated marker over a partially replaced tree.
-        rollback_lines.append(
-            f'del /F /Q "{dst}\\{DEPLOYED_PROVENANCE}" >NUL 2>&1'
-        )
+        # A pre-T55 tree has no exact target snapshot. Restore tombstones, but
+        # never leave an authenticated marker over a partially replaced tree.
+        rollback_lines.extend([
+            f'del /F /Q "{dst}\\{DEPLOYED_PROVENANCE}" >NUL 2>&1',
+            'if "%_rollback_failed%"=="0" goto :tombstone_rollback_clean',
+            f'echo [%DATE% %TIME%] ERROR tombstone rollback incomplete; retained={tombstone_backup} >> "{log}"',
+            'goto :tombstone_rollback_done',
+            ':tombstone_rollback_clean',
+            f'rmdir /S /Q "{tombstone_backup}" 2>NUL',
+            ':tombstone_rollback_done',
+        ])
 
     # Mark done so any watcher can observe completion.
     done_win = done_marker.as_posix().replace("/", "\\")

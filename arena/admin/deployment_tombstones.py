@@ -1,4 +1,4 @@
-"""Obsolete release-owned files removed by archive updates."""
+"""Obsolete release-owned files staged out by archive updates."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,14 +7,25 @@ from pathlib import Path
 REMOVED_RELEASE_TARGETS = ("version.json",)
 
 
-def remove_release_tombstones(install_root: Path) -> tuple[str, ...]:
-    """Delete obsolete release files and refuse directory-shaped surprises."""
-    removed: list[str] = []
+def stage_release_tombstones(
+    install_root: Path,
+    *,
+    backup_root: Path | None,
+    timestamp: int,
+) -> list[tuple[Path, Path]]:
+    """Move tombstones into rollback storage and return restore pairs."""
+    staged: list[tuple[Path, Path]] = []
     for name in REMOVED_RELEASE_TARGETS:
-        path = Path(install_root) / name
-        if path.is_dir():
-            raise IsADirectoryError(f"release tombstone is a directory: {path}")
-        if path.exists():
-            path.unlink()
-            removed.append(name)
-    return tuple(removed)
+        destination = Path(install_root) / name
+        if destination.is_dir():
+            raise IsADirectoryError(
+                f"release tombstone is a directory: {destination}"
+            )
+        if destination.exists():
+            backup = (
+                backup_root / name if backup_root is not None
+                else Path(install_root) / f".{name}.old-{timestamp}"
+            )
+            destination.rename(backup)
+            staged.append((backup, destination))
+    return staged
