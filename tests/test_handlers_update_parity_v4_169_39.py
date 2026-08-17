@@ -252,6 +252,14 @@ def test_update_check_with_repo_override_and_malformed_json(monkeypatch):
         import os
         assert os.environ.get("ARENA_UPDATE_REPO") == "custom/repo-test"
 
+    # Missing/null override must not synthesize a repository name.
+    monkeypatch.delenv("ARENA_UPDATE_REPO", raising=False)
+    for payload in ({}, {"repo": None}):
+        req_empty = _make_req("POST", "/v1/admin/update/check", payload)
+        with patch("arena.admin.auto_update.check_updates", return_value=check_res):
+            assert asyncio.run(handlers["update_check"](req_empty)).status == 200
+        assert "ARENA_UPDATE_REPO" not in os.environ
+
     # Malformed json fallback
     req_bad = _make_req("POST", "/v1/admin/update/check", is_bad_json=True)
     with patch("arena.admin.auto_update.check_updates", return_value=check_res):
@@ -796,6 +804,17 @@ def test_update_token_set_bad_json():
         resp = asyncio.run(handlers["update_token_set"](req))
         assert resp.status == 200
         mock_save.assert_called_once_with("")
+
+
+def test_update_token_set_missing_or_null_token_is_empty():
+    ctx = _MockContext()
+    handlers = make_update_handlers(ctx)
+    for payload in ({}, {"token": None}):
+        req = _make_req("POST", "/v1/admin/update/token-set", payload)
+        with patch("arena.admin.update_github.save_github_token", return_value={"ok": False}) as mock_save, \
+             patch("arena.admin.update_github.github_token_source", return_value="none"):
+            assert asyncio.run(handlers["update_token_set"](req)).status == 200
+            mock_save.assert_called_once_with("")
 
 
 def test_update_token_clear():

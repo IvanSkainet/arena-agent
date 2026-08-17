@@ -15,6 +15,7 @@ outside a tempdir:
 from __future__ import annotations
 
 import hashlib
+import json
 import zipfile
 from pathlib import Path
 
@@ -353,6 +354,13 @@ def test_apply_update_end_to_end_on_posix_writes_new_files(monkeypatch,
     with zipfile.ZipFile(payload_zip, "w") as zf:
         zf.writestr("arena-agent/arena/new.py", "# new")
         zf.writestr("arena-agent/unified_bridge.py", "print('new')")
+        zf.writestr("arena-agent/.arena-release-provenance.json", json.dumps({
+            "schemaVersion": 1,
+            "repository": "IvanSkainet/arena-agent",
+            "sourceCommit": "b" * 40,
+            "releaseTag": "v3.85.0",
+            "candidateRunId": "12345",
+        }))
 
     def _fake_download(*, asset_url, asset_name, expected_sha256=None,
                        allow_unverified=False, dest_dir=None):
@@ -367,6 +375,7 @@ def test_apply_update_end_to_end_on_posix_writes_new_files(monkeypatch,
                 "staging_dir": str(staging)}
 
     monkeypatch.setattr(au, "download_release", _fake_download)
+    monkeypatch.setattr(au, "_official_asset_authenticated", lambda **_kw: False)
 
     tag = "v3.85.0"
     sha = "a" * 64

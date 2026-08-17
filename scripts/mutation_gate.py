@@ -170,6 +170,9 @@ TARGETS: dict[str, tuple[str, ...]] = {
         "tests/test_update_consent_binds_the_source.py",
         "tests/test_post_update_smoke_and_autostart.py",
     ),
+    "arena/admin/deployment_provenance.py": (
+        "tests/test_deployment_provenance.py",
+    ),
     "arena/admin/auto_update_fetch.py": (
         "tests/test_auto_update_digest_required.py",
         "tests/test_auto_update.py",

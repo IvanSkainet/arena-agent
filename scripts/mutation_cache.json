@@ -1,7 +1,7 @@
 {
  "entries": {
   "arena/admin/auto_update_fetch.py": {
-   "fingerprint": "fbe50790bf706608e2794094917f0bd34a04bba95ef9d6432ca13be7c6f9818d",
+   "fingerprint": "c1a52d74b47bc58a06250b07bd675bb6a879ad271c14b65d8bf27dbd1ee15f38",
    "reason": "fresh run",
    "survived": 0,
    "tests": [
@@ -10,7 +10,7 @@
     "tests/test_auto_update_fetch_parity_v4_169_36.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 150
+   "total": 70
   },
   "arena/admin/bore.py": {
    "fingerprint": "749e34bbef24682aecff26cca717337f0e76605251c0af6061fa84820e966e77",
@@ -41,8 +41,18 @@
    "tool": "mutmut 2.5.1",
    "total": 150
   },
+  "arena/admin/deployment_provenance.py": {
+   "fingerprint": "a7100c58a37982ab80eeaa8e3f82587b1bae4a6028922b64cfa828ea5159225c",
+   "reason": "fresh run",
+   "survived": 0,
+   "tests": [
+    "tests/test_deployment_provenance.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 286
+  },
   "arena/admin/handlers_update.py": {
-   "fingerprint": "0ec6f5725f8d791ec74fdf9850410264ced90911826c50395741824772726361",
+   "fingerprint": "f6b60add7893bc36e75b6119e8f68d041836ed461bf8cbc3f3e9ac549cdc5a8d",
    "reason": "fresh run",
    "survived": 0,
    "tests": [
@@ -54,7 +64,7 @@
     "tests/test_update_consent_binds_the_source.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 150
+   "total": 224
   },
   "arena/agent_helpers/files.py": {
    "fingerprint": "7a329e05007e2a291563e3d54e0fa0037f5fda73aa05f857b82355774aefef48",

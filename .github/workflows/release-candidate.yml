@@ -230,6 +230,8 @@ jobs:
             --versioned "dist/arena-agent-v${VERSION}.zip" \
             --alias dist/arena-agent.zip \
             --expected-version "$VERSION" \
+            --expected-source-commit "$GITHUB_SHA" \
+            --expected-candidate-run "$GITHUB_RUN_ID" \
             --json-out dist/release-verification.json
       - name: Generate SPDX SBOM from the shipped ZIP
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0

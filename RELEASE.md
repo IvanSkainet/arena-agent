@@ -203,7 +203,32 @@ The digest file is signed too, so the cosign check above can be run against
 - `pyproject.toml`, `requirements.txt`;
 - `README.md`, `README.ru.md`, `CHANGELOG.md`, `CHANGELOG.ru.md`, `LICENSE`,
   `CONTRIBUTING.md`, `AGENTS.md`;
-- `docs/` (architecture and navigation notes).
+- `docs/` (architecture and navigation notes);
+- virtual `.arena-release-provenance.json` with the exact source commit,
+  strict release tag, and candidate workflow run. It is generated canonically
+  by the packer and verified against `GITHUB_SHA` / `GITHUB_RUN_ID`; it does not
+  contain the ZIP digest because an archive cannot contain its own hash.
+
+On installation, the updater combines that immutable identity with the verified
+ZIP SHA-256 and install time in runtime `DEPLOYED_PROVENANCE.json`. The previous
+identified deployment is retained under `backups/deployments/<identity>/` before
+replacement starts. `/v1/version` exposes the deployed identity and an explicit
+`authenticated` boolean; it is true only when the ZIP digest, asset URL/name,
+and tag also match metadata fetched from the official GitHub Release. A digest
+supplied only by the update caller is integrity input, not provenance
+authentication. Absent or malformed state is reported as unauthenticated, never
+inferred from a nested vendored `.git` directory. During a valid repair update,
+a malformed old record is preserved under `backups/provenance-quarantine/` and
+is not used as authenticated history.
+
+Archive compatibility starts with the first release containing T55 provenance
+(planned `v4.169.48`). Once that updater is installed, it rejects older
+pre-provenance ZIPs, including `v4.169.45`–`v4.169.47`, with an explicit
+`release provenance verification failed` error. They remain independently
+verifiable public artifacts, but are not accepted as rollback inputs by the new
+updater. Supported rollback uses the retained identified tree under
+`backups/deployments/{identity}/`; the first migration from a pre-T55 install
+cannot invent the old commit/SHA and therefore reports no identified rollback.
 
 It MUST NOT include (excluded automatically by the script):
 

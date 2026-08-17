@@ -15,6 +15,7 @@ established for the current release layout. Excludes development-only and runtim
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -63,6 +64,10 @@ EXCLUDE_EXTRA = {".DS_Store", "Thumbs.db"}
 # DOS ZIP timestamps cannot represent dates before 1980.
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 SUPPORTED_GIT_FILE_MODES = frozenset({"100644", "100755"})
+RELEASE_PROVENANCE = ".arena-release-provenance.json"
+_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
+_RUN_RE = re.compile(r"[1-9][0-9]*")
+_VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 
 
 def detect_version() -> str:
@@ -207,6 +212,17 @@ def _archive_permissions(rel_path: str, abs_path: Path, modes: dict[str, str]) -
     return 0o755 if git_mode == "100755" else 0o644
 
 
+def _write_bytes_entry(archive: zipfile.ZipFile, *, rel_path: str,
+                       content: bytes, permissions: int = 0o644) -> None:
+    info = zipfile.ZipInfo(f"arena-bridge/{rel_path}", date_time=ZIP_TIMESTAMP)
+    info.create_system = 3
+    info.external_attr = (stat.S_IFREG | permissions) << 16
+    info.compress_type = zipfile.ZIP_DEFLATED
+    archive.writestr(
+        info, content, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9
+    )
+
+
 def _write_entry(
     archive: zipfile.ZipFile,
     *,
@@ -214,17 +230,45 @@ def _write_entry(
     rel_path: str,
     modes: dict[str, str],
 ) -> None:
-    info = zipfile.ZipInfo(f"arena-bridge/{rel_path}", date_time=ZIP_TIMESTAMP)
-    info.create_system = 3  # Unix permission semantics, even when built on Windows.
-    permissions = _archive_permissions(rel_path, abs_path, modes)
-    info.external_attr = (stat.S_IFREG | permissions) << 16
-    info.compress_type = zipfile.ZIP_DEFLATED
-    archive.writestr(
-        info,
-        abs_path.read_bytes(),
-        compress_type=zipfile.ZIP_DEFLATED,
-        compresslevel=9,
+    _write_bytes_entry(
+        archive,
+        rel_path=rel_path,
+        content=abs_path.read_bytes(),
+        permissions=_archive_permissions(rel_path, abs_path, modes),
     )
+
+
+def _git_source_commit() -> str:
+    result = subprocess.run(  # nosec B603,B607 -- maintainer-controlled fixed git argv; no caller input or shell
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True,
+        text=True, timeout=30, check=False,
+    )
+    commit = result.stdout.strip().lower() if result.returncode == 0 else ""
+    if _COMMIT_RE.fullmatch(commit) is None:
+        raise SystemExit("ERROR: cannot resolve a strict 40-hex source commit")
+    return commit
+
+
+def release_provenance(version: str) -> bytes:
+    """Canonical source identity embedded before the archive hash exists."""
+    if _VERSION_RE.fullmatch(version) is None:
+        raise SystemExit("ERROR: release version must be strict X.Y.Z")
+    source = (os.environ.get("ARENA_SOURCE_COMMIT")
+              or os.environ.get("GITHUB_SHA") or _git_source_commit()).lower()
+    run_id = (os.environ.get("ARENA_CANDIDATE_RUN_ID")
+              or os.environ.get("GITHUB_RUN_ID") or "local")
+    if _COMMIT_RE.fullmatch(source) is None:
+        raise SystemExit("ERROR: ARENA_SOURCE_COMMIT/GITHUB_SHA must be 40 lowercase hex")
+    if run_id != "local" and _RUN_RE.fullmatch(run_id) is None:
+        raise SystemExit("ERROR: candidate run id must be positive decimal or local")
+    value = {
+        "candidateRunId": run_id,
+        "releaseTag": f"v{version}",
+        "repository": "IvanSkainet/arena-agent",
+        "schemaVersion": 1,
+        "sourceCommit": source,
+    }
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
 
 
 def main(argv: list[str]) -> int:
@@ -270,9 +314,12 @@ def main(argv: list[str]) -> int:
                 entries.append((rel_path, abs_path))
     entries.sort(key=lambda item: item[0])
 
-    file_count = 0
-    total_bytes = 0
+    provenance = release_provenance(version)
+    file_count = 1
+    total_bytes = len(provenance)
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        # Dot-prefixed virtual metadata sorts before every tracked entry.
+        _write_bytes_entry(zf, rel_path=RELEASE_PROVENANCE, content=provenance)
         for rel_path, abs_path in entries:
             _write_entry(zf, abs_path=abs_path, rel_path=rel_path, modes=modes)
             file_count += 1

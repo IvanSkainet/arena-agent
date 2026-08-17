@@ -79,6 +79,7 @@ security-semgrep:
 	    --config=p/secrets \
 	    --config=p/gitleaks \
 	    --error --severity=ERROR --severity=WARNING \
+	    --timeout=120 \
 	    --json --output=/tmp/semgrep-local.json arena/ > /dev/null 2>&1; \
 	  scanner_rc=$$?; set -e; \
 	  $(PYTHON) scripts/scanner_contract_gate.py --tool semgrep --exit-code "$$scanner_rc" --allowed-exits 0,1

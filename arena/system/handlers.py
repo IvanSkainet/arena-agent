@@ -31,6 +31,39 @@ class SystemHandlers:
 
 
 def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
+    async def deployment_status(*, public: bool) -> dict[str, Any]:
+        from arena.admin.auto_update import _install_root
+        from arena.admin.deployment_provenance import (
+            ProvenanceError,
+            read_deployed_provenance,
+        )
+
+        loop = asyncio.get_running_loop()
+        try:
+            deployment = await loop.run_in_executor(
+                ctx.executor, read_deployed_provenance, _install_root()
+            )
+        except ProvenanceError as exc:
+            return {
+                "deploymentModel": "archive",
+                "authenticated": False,
+                "reason": f"invalid deployed provenance: {exc}",
+            }
+        if deployment is None:
+            return {
+                "deploymentModel": "unknown",
+                "authenticated": False,
+                "reason": "DEPLOYED_PROVENANCE.json is absent",
+            }
+        if not public:
+            return deployment
+        return {
+            key: deployment[key]
+            for key in (
+                "deploymentModel", "releaseTag", "installedAt", "authenticated",
+            )
+        }
+
     async def handle_v1_version(request: web.Request) -> web.Response:
         try:
             ctx.record_request()
@@ -51,6 +84,7 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
             cfg = request.app[APP_CFG]
             bind = str(cfg.get("bind", "") or "")
             loopback_only = bind in LOOPBACK_BINDS
+            deployed = await deployment_status(public=True)
             return ctx.cors_json_response({
                 "ok": True,
                 "version": ctx.version,
@@ -58,6 +92,7 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
                 "python": sys.version.split()[0],
                 "platform": ctx.clean_platform_name(),
                 "loopback_only": loopback_only,
+                "deployment": deployed,
             })
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
@@ -68,7 +103,9 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
             if r:
                 return r
             ctx.record_request()
-            return ctx.cors_json_response(ctx.common_status(request.app[APP_CFG]))
+            payload = ctx.common_status(request.app[APP_CFG])
+            payload["deployment"] = await deployment_status(public=False)
+            return ctx.cors_json_response(payload)
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
@@ -78,7 +115,9 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
             if r:
                 return r
             ctx.record_request()
-            return ctx.cors_json_response(ctx.common_status(request.app[APP_CFG]))
+            payload = ctx.common_status(request.app[APP_CFG])
+            payload["deployment"] = await deployment_status(public=False)
+            return ctx.cors_json_response(payload)
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
