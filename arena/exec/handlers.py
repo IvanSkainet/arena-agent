@@ -43,6 +43,7 @@ from arena.exec.client_lifecycle import (
     forward_stream_events,
     record_client_disconnect,
 )
+from arena.exec.control_gate import control_injection_response
 from arena.exec.interpreters import (
     _INTERPRETERS,
     _quote_path,
@@ -100,21 +101,12 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return err_json(ctx, reason, status=403, request_id=request_id)
 
-        ctrl_err = ctx.control_check()
-        if ctrl_err:
-            inj = ctx.is_input_injection_cmd(cmd)
-            if inj:
-                ctx.audit({"type": "exec_blocked_control", "request_id": request_id, "cmd": cmd,
-                           "reason": ctrl_err.get("error"), "matched": inj,
-                           "client": request.remote or "127.0.0.1"})
-                ctx.record_request(is_error=True, count_request=False)
-                err = dict(ctrl_err)
-                err["request_id"] = request_id
-                err["message"] = (
-                    "Desktop input injection blocked while control is "
-                    f"{ctrl_err.get('status')}. Resume control to inject input."
-                )
-                return ctx.cors_json_response(err, status=403)
+        blocked = control_injection_response(
+            ctx=ctx, request=request, command=cmd, request_id=request_id,
+            event_type="exec_blocked_control", audit_fields={"cmd": cmd},
+        )
+        if blocked is not None:
+            return blocked
 
         profile = cfg["profile"]
         first = ctx.first_word(cmd)
@@ -265,6 +257,22 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 ctx, f"interpreter {interp_key!r} not installed / not on PATH",
                 status=400, request_id=request_id,
             )
+
+        if cfg["profile"] == "cautious":
+            reason = "raw scripts require owner-shell; cautious cannot inspect script semantics"
+            ctx.audit({"type": "exec_script_blocked", "request_id": request_id,
+                       "interpreter": interp_key, "reason": reason,
+                       "client": request.remote or "local-client"})
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(ctx, reason, status=403, request_id=request_id)
+
+        blocked = control_injection_response(
+            ctx=ctx, request=request, command=ctx.decode_output(body),
+            request_id=request_id, event_type="exec_script_blocked_control",
+            audit_fields={"interpreter": interp_key},
+        )
+        if blocked is not None:
+            return blocked
 
         # Timeout / cwd via headers (fall back to cfg defaults).
         try:
@@ -425,21 +433,12 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return err_json(ctx, reason, status=403, request_id=request_id)
 
-        ctrl_err = ctx.control_check()
-        if ctrl_err:
-            inj = ctx.is_input_injection_cmd(cmd)
-            if inj:
-                ctx.audit({"type": "exec_stream_blocked_control", "request_id": request_id,
-                           "cmd": cmd, "reason": ctrl_err.get("error"), "matched": inj,
-                           "client": request.remote or "127.0.0.1"})
-                ctx.record_request(is_error=True, count_request=False)
-                err = dict(ctrl_err)
-                err["request_id"] = request_id
-                err["message"] = (
-                    "Desktop input injection blocked while control is "
-                    f"{ctrl_err.get('status')}. Resume control to inject input."
-                )
-                return ctx.cors_json_response(err, status=403)
+        blocked = control_injection_response(
+            ctx=ctx, request=request, command=cmd, request_id=request_id,
+            event_type="exec_stream_blocked_control", audit_fields={"cmd": cmd},
+        )
+        if blocked is not None:
+            return blocked
 
         profile = cfg["profile"]
         first = ctx.first_word(cmd)

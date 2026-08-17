@@ -140,6 +140,16 @@
    "tool": "mutmut 2.5.1",
    "total": 54
   },
+  "arena/exec/control_gate.py": {
+   "fingerprint": "01aabbf3a7dfc8c1ad212459d0832a766fe7601b9923dc2a37327f4c3af70655",
+   "reason": "fresh run",
+   "survived": 0,
+   "tests": [
+    "tests/test_exec_control_gate.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 27
+  },
   "arena/exec/interpreters.py": {
    "fingerprint": "a879df305a9faa3f3544161d4971ada4c63ed8c7374fae82696b96f9d27ce3e4",
    "reason": "fresh run",
