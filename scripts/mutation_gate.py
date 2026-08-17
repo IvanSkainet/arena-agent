@@ -188,6 +188,9 @@ TARGETS: dict[str, tuple[str, ...]] = {
         "tests/test_cdp_websocket_url_is_loopback.py",
         "tests/test_cdp_tabs_http_parity_v4_169_36.py",
     ),
+    "arena/desktop/capability.py": (
+        "tests/test_windows_desktop_capability.py",
+    ),
     "arena/observability/live_metrics.py": (
         "tests/test_live_metrics_rates.py",
         "tests/test_live_metrics_gpu_parse.py",
