@@ -213,6 +213,7 @@ def read_deployed_value(value: Any) -> dict[str, Any]:
         rollback_id = rollback["deploymentId"]
         valid_rollback = (
             rollback["available"] is True
+            and isinstance(rollback_id, str)
             and rollback_id in accepted_ids
             and rollback["path"] == f"backups/deployments/{rollback_id}"
         )

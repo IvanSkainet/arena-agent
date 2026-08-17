@@ -261,6 +261,10 @@ def test_same_artifact_installs_get_distinct_event_ids_and_legacy_still_reads() 
     unavailable["rollback"] = dict(legacy["rollback"], available=False)
     with pytest.raises(ProvenanceError, match="rollback identity"):
         read_deployed_value(unavailable)
+    unhashable = dict(legacy)
+    unhashable["rollback"] = dict(legacy["rollback"], deploymentId=[])
+    with pytest.raises(ProvenanceError, match="rollback identity"):
+        read_deployed_value(unhashable)
 
 
 def test_first_identified_deployment_does_not_invent_previous_identity() -> None:

@@ -42,7 +42,7 @@
    "total": 150
   },
   "arena/admin/deployment_provenance.py": {
-   "fingerprint": "602a86784a70c8b0561d369c657ca8335614df8528432d3bfc274096131e2084",
+   "fingerprint": "c7adc228130092828d43cfb6543d599397851cb9a68186a5572125455da502d3",
    "reason": "fresh run",
    "survived": 0,
    "tests": [
