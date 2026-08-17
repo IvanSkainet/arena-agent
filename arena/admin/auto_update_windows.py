@@ -29,6 +29,7 @@ from pathlib import Path
 # auto_update here is the circular dependency that
 # used to document (removed in v4.169.1 once the cycle was gone).
 from arena.admin.deployment_provenance import DEPLOYED_PROVENANCE
+from arena.admin.deployment_tombstones import REMOVED_RELEASE_TARGETS
 from arena.admin.update_targets import replace_targets
 
 
@@ -177,6 +178,19 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
             f'copy /Y "{s}" "{d}" >NUL',
             'if errorlevel 1 goto :copy_failed',
             f':{nxt}',
+        ])
+
+    # Delete explicit release-owned tombstones. Copy-only updates otherwise
+    # retain removed top-level files forever (the stale root version.json did).
+    for idx, name in enumerate(REMOVED_RELEASE_TARGETS):
+        obsolete = f"{dst}\\{name}"
+        done = f"tombstone_done_{idx}"
+        lines.extend([
+            f'if not exist "{obsolete}" goto :{done}',
+            f'if exist "{obsolete}\\*" goto :copy_failed',
+            f'del /F /Q "{obsolete}" >NUL 2>&1',
+            'if errorlevel 1 goto :copy_failed',
+            f':{done}',
         ])
 
     # Publish provenance last: its presence means every release target copy

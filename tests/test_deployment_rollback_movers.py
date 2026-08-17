@@ -18,6 +18,7 @@ def test_posix_swap_retains_exact_previous_tree_and_publishes_provenance_last(tm
     (install / "arena").mkdir(parents=True)
     (install / "arena" / "old.py").write_text("old", encoding="utf-8")
     (install / DEPLOYED_PROVENANCE).write_text("old provenance", encoding="utf-8")
+    (install / "version.json").write_text('{"version":"4.153.3"}', encoding="utf-8")
     staged.parent.mkdir()
     staged.write_text("new provenance", encoding="utf-8")
 
@@ -31,6 +32,7 @@ def test_posix_swap_retains_exact_previous_tree_and_publishes_provenance_last(tm
     assert (backup / "arena" / "old.py").read_text() == "old"
     assert (backup / DEPLOYED_PROVENANCE).read_text() == "old provenance"
     assert (install / DEPLOYED_PROVENANCE).read_text() == "new provenance"
+    assert not (install / "version.json").exists()
     assert result["rollback_path"] == str(backup)
 
 
@@ -145,8 +147,11 @@ def test_windows_mover_backs_up_before_copy_and_publishes_provenance_last(tmp_pa
         f'"{backup_win}\\{DEPLOYED_PROVENANCE}" >NUL'
     )
     assert backup_provenance_command in text
+    tombstone_command = f'del /F /Q "{install_win}\\version.json" >NUL 2>&1'
+    assert tombstone_command in text
     assert provenance_command in text
     assert text.index(backup_provenance_command) < text.index(install_command)
+    assert text.index(tombstone_command) < text.index(provenance_command)
     assert text.index(backup_provenance_command) < text.index(provenance_command)
     assert text.index(provenance_command) < text.index('echo done >')
     assert ":copy_failed" in text

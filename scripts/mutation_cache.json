@@ -51,6 +51,16 @@
    "tool": "mutmut 2.5.1",
    "total": 286
   },
+  "arena/admin/deployment_tombstones.py": {
+   "fingerprint": "00da6a4882bdfc86fdc724596d59a01bc0a3c0ca162da72be0872be91b1c88a4",
+   "reason": "fresh run",
+   "survived": 0,
+   "tests": [
+    "tests/test_update_release_tombstones.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 6
+  },
   "arena/admin/handlers_update.py": {
    "fingerprint": "f6b60add7893bc36e75b6119e8f68d041836ed461bf8cbc3f3e9ac549cdc5a8d",
    "reason": "fresh run",

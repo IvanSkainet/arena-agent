@@ -65,6 +65,7 @@ from arena.admin.deployment_provenance import (
     official_asset_authenticated as _official_asset_authenticated,
     prepare_install_provenance,
 )
+from arena.admin.deployment_tombstones import remove_release_tombstones
 from arena.admin.update_github import (
     fetch_asset_size as _fetch_asset_size,
     fetch_changelog_section as _fetch_changelog_section,
@@ -343,7 +344,6 @@ def _extract(zip_path: Path, dest: Path) -> Path:
     return dest
 
 
-
 def _swap_unix(payload_root: Path, install_root: Path, *,
                backup_root: Path | None = None,
                provenance_path: Path | None = None) -> dict[str, Any]:
@@ -373,6 +373,7 @@ def _swap_unix(payload_root: Path, install_root: Path, *,
                 backups.append((backup, dst))
             shutil.move(str(src), str(dst))
             swapped.append(name)
+        remove_release_tombstones(install_root)
     except Exception as e:
         # Remove every newly moved target, including ones that had no prior
         # destination, then restore the retained old targets.
@@ -414,7 +415,6 @@ def _swap_unix(payload_root: Path, install_root: Path, *,
         "swapped": swapped,
         "rollback_path": str(backup_root) if backup_root is not None else None,
     }
-
 
 
 def apply_update(*, asset_url: str, asset_name: str,
