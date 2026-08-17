@@ -21,7 +21,7 @@ def stage_release_tombstones(
             raise IsADirectoryError(
                 f"release tombstone is a directory: {destination}"
             )
-        if destination.exists():
+        if destination.exists() or destination.is_symlink():
             backup = (
                 backup_root / name if backup_root is not None
                 else Path(install_root) / f".{name}.old-{timestamp}"

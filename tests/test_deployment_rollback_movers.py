@@ -37,6 +37,38 @@ def test_posix_swap_retains_exact_previous_tree_and_publishes_provenance_last(tm
     assert result["rollback_path"] == str(backup)
 
 
+def test_posix_publishes_provenance_after_tombstones_are_staged(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    payload = tmp_path / "payload"
+    install = tmp_path / "install"
+    backup = install / "backups" / "deployments" / "old"
+    staged = tmp_path / "staging" / DEPLOYED_PROVENANCE
+    (payload / "arena").mkdir(parents=True)
+    (payload / "arena" / "new.py").write_text("new")
+    install.mkdir()
+    (install / "version.json").write_text("legacy")
+    staged.parent.mkdir()
+    staged.write_text("new provenance")
+    real_publish = auto_update.publish_deployed_provenance
+    observed = False
+
+    def assert_tombstone_first(*args, **kwargs):
+        nonlocal observed
+        observed = True
+        assert not (install / "version.json").exists()
+        assert (backup / "version.json").read_text() == "legacy"
+        return real_publish(*args, **kwargs)
+
+    monkeypatch.setattr(auto_update, "publish_deployed_provenance", assert_tombstone_first)
+    result = auto_update._swap_unix(
+        payload, install, backup_root=backup, provenance_path=staged,
+    )
+    assert result["ok"] is True
+    assert observed is True
+    assert (install / DEPLOYED_PROVENANCE).read_text() == "new provenance"
+
+
 def test_posix_swap_failure_removes_new_targets_and_restores_old_tree(
     tmp_path: Path, monkeypatch,
 ) -> None:

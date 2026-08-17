@@ -43,6 +43,21 @@ def test_absent_tombstone_is_a_noop(tmp_path: Path) -> None:
     assert stage_release_tombstones(tmp_path, backup_root=None, timestamp=123) == []
 
 
+def test_dangling_symlink_tombstone_is_staged_without_following_target(tmp_path: Path) -> None:
+    marker = tmp_path / "version.json"
+    try:
+        marker.symlink_to(tmp_path / "missing-target")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable")
+
+    pairs = stage_release_tombstones(tmp_path, backup_root=None, timestamp=123)
+
+    backup = tmp_path / ".version.json.old-123"
+    assert pairs == [(backup, marker)]
+    assert backup.is_symlink()
+    assert not marker.is_symlink()
+
+
 def test_tombstone_refuses_directory_shaped_surprise(tmp_path: Path) -> None:
     marker = tmp_path / "version.json"
     marker.mkdir()

@@ -42,24 +42,24 @@
    "total": 150
   },
   "arena/admin/deployment_provenance.py": {
-   "fingerprint": "a7100c58a37982ab80eeaa8e3f82587b1bae4a6028922b64cfa828ea5159225c",
+   "fingerprint": "1c94e366a483b866c3c0ed278227f7d2e9e27adba7d66447b1bbe97bc27552e7",
    "reason": "fresh run",
    "survived": 0,
    "tests": [
     "tests/test_deployment_provenance.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 286
+   "total": 296
   },
   "arena/admin/deployment_tombstones.py": {
-   "fingerprint": "0b80174ed267585d099e6b31ae953365b218d221b28b458f35f5af6cb4bfcffc",
+   "fingerprint": "75f3ea260806ab9e52c53fd6f11a6332d8af5b7fb5e25d64e1821e17532339f9",
    "reason": "fresh run",
    "survived": 0,
    "tests": [
     "tests/test_update_release_tombstones.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 11
+   "total": 12
   },
   "arena/admin/handlers_update.py": {
    "fingerprint": "f6b60add7893bc36e75b6119e8f68d041836ed461bf8cbc3f3e9ac549cdc5a8d",

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -291,6 +292,29 @@ def prepare_install_provenance(
         "backup_root": backup_root,
         "history_quarantine": quarantine,
     }
+
+
+def publish_deployed_provenance(
+    provenance_path: Path,
+    install_root: Path,
+    *,
+    backup_root: Path | None,
+    timestamp: int,
+) -> list[tuple[Path, Path]]:
+    """Publish provenance last and return any previous-record restore pair."""
+    if not provenance_path.is_file():
+        raise ProvenanceError("staged deployed provenance is missing")
+    destination = Path(install_root) / DEPLOYED_PROVENANCE
+    backup = (
+        backup_root / DEPLOYED_PROVENANCE if backup_root is not None
+        else Path(install_root) / f".{DEPLOYED_PROVENANCE}.old-{timestamp}"
+    )
+    restore: list[tuple[Path, Path]] = []
+    if destination.exists():
+        destination.rename(backup)
+        restore.append((backup, destination))
+    shutil.move(str(provenance_path), str(destination))
+    return restore
 
 
 def write_deployed_provenance(path: Path, value: dict[str, Any]) -> None:
