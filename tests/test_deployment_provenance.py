@@ -221,10 +221,11 @@ def test_previous_exact_deployment_creates_stable_rollback_identity() -> None:
     old = deployed(rel=release(commit="c" * 40, tag="v4.169.99", run="111"), sha="d" * 64, expected="d" * 64)
     current = deployed(previous=old)
     rollback = current["rollback"]
+    event_id = "4.169.99-" + "d" * 16 + "-2bcac49616ff"
     assert rollback == {
         "available": True,
-        "deploymentId": "4.169.99-" + "d" * 16,
-        "path": "backups/deployments/4.169.99-" + "d" * 16,
+        "deploymentId": event_id,
+        "path": f"backups/deployments/{event_id}",
     }
     assert current["previousDeployment"] == {
         "sourceCommit": "c" * 40,
@@ -235,6 +236,35 @@ def test_previous_exact_deployment_creates_stable_rollback_identity() -> None:
         "authenticated": True,
     }
     assert deployment_id(old) == rollback["deploymentId"]
+
+
+def test_same_artifact_installs_get_distinct_event_ids_and_legacy_still_reads() -> None:
+    first = deployed()
+    second = build_deployed_provenance(
+        release=release(), tag="v4.170.0", downloaded_sha256="b" * 64,
+        expected_sha256="b" * 64, authenticated=True, previous=None,
+        installed_at="2026-08-17T10:00:01Z",
+    )
+    assert deployment_id(first) == "4.170.0-" + "b" * 16 + "-2bcac49616ff"
+    assert deployment_id(second) == "4.170.0-" + "b" * 16 + "-718c50ffa921"
+    assert deployment_id(first) != deployment_id(second)
+
+    chained = deployed(previous=first)
+    legacy = dict(chained)
+    legacy["rollback"] = {
+        "available": True,
+        "deploymentId": "4.170.0-" + "b" * 16,
+        "path": "backups/deployments/4.170.0-" + "b" * 16,
+    }
+    assert read_deployed_value(legacy) == legacy
+    unavailable = dict(legacy)
+    unavailable["rollback"] = dict(legacy["rollback"], available=False)
+    with pytest.raises(ProvenanceError, match="rollback identity"):
+        read_deployed_value(unavailable)
+    unhashable = dict(legacy)
+    unhashable["rollback"] = dict(legacy["rollback"], deploymentId=[])
+    with pytest.raises(ProvenanceError, match="rollback identity"):
+        read_deployed_value(unhashable)
 
 
 def test_first_identified_deployment_does_not_invent_previous_identity() -> None:
@@ -386,7 +416,8 @@ def test_prepare_with_identified_previous_returns_exact_backup_root(tmp_path: Pa
     assert set(result) == {"deployed", "staged", "backup_root", "history_quarantine"}
     assert result["history_quarantine"] is None
     assert result["backup_root"] == (
-        install / "backups" / "deployments" / ("4.169.99-" + "d" * 16)
+        install / "backups" / "deployments"
+        / ("4.169.99-" + "d" * 16 + "-2bcac49616ff")
     )
 
 

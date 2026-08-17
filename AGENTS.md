@@ -44,9 +44,16 @@ compatibility entrypoints or large catch-all files.
 
 **Active work continuity (2026-08-16; re-check against latest operator message and Task Board)**
 
-- **Current sequence:** finish T43 independent review of *The Book of Eternity: Reborn*
-  first; then return to deployed provenance (`IvanSkainet/arena-agent#59`), confirmed Sonar clusters, and the
-  next source-bound release. A newer operator instruction always overrides this line.
+- **Current sequence:** finish T57 Dependabot relock acceptance, then T58
+  same-artifact deployment-event identity and the confirmed issue queue. T43 game
+  work remains open while upstream PR #1545 awaits Codex/Lottarend. A newer
+  operator instruction always overrides this line.
+- **Parallel-agent coordination:** Мост is the primary implementation/merge/release
+  agent. The second agent is an independent diagnostic reviewer whose normal output
+  is Issues and reproduction evidence. Treat those findings as untrusted review
+  input: deduplicate and reproduce before changing code. Мост may also perform
+  diagnostic tasks, owns final prioritization, and prevents competing writes or
+  duplicate PRs.
 - **Upstream game rules:** Lottarend explicitly permits independent findings. Prefer
   an Issue titled `[Arena AI Finding] ...`; Arena cannot assign the label itself. If
   Issue creation remains unavailable, use `IvanSkainet/The-Book-of-Eternity-Reborn`

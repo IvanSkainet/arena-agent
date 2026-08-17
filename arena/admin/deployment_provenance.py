@@ -8,6 +8,7 @@ contain its own digest without a recursive hash problem).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -93,9 +94,15 @@ def _identity(value: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def deployment_id(value: dict[str, Any]) -> str:
-    """Stable, path-safe identity for the exact previously installed archive."""
+def _legacy_deployment_id(value: dict[str, Any]) -> str:
+    """Pre-T58 artifact-only identity retained for on-disk compatibility."""
     return f"{value['releaseTag'][1:]}-{value['zipSha256'][:16]}"
+
+
+def deployment_id(value: dict[str, Any]) -> str:
+    """Path-safe identity for one install event of exact archive bytes."""
+    event = hashlib.sha256(value["installedAt"].encode("utf-8")).hexdigest()[:12]
+    return f"{_legacy_deployment_id(value)}-{event}"
 
 
 def build_deployed_provenance(
@@ -195,13 +202,22 @@ def read_deployed_value(value: Any) -> dict[str, Any]:
         raise ProvenanceError("rollback does not match the contract")
     if not isinstance(rollback["available"], bool):
         raise ProvenanceError("rollback.available must be boolean")
-    expected_id = deployment_id(previous) if previous is not None else None
-    expected_path = f"backups/deployments/{expected_id}" if expected_id else None
-    if rollback != {
-        "available": previous is not None,
-        "deploymentId": expected_id,
-        "path": expected_path,
-    }:
+    if previous is None:
+        valid_rollback = rollback == {
+            "available": False, "deploymentId": None, "path": None,
+        }
+    else:
+        # v4.169.48 wrote artifact-only ids. Accept those records without
+        # renaming/deleting their snapshots; every new record uses event ids.
+        accepted_ids = {deployment_id(previous), _legacy_deployment_id(previous)}
+        rollback_id = rollback["deploymentId"]
+        valid_rollback = (
+            rollback["available"] is True
+            and isinstance(rollback_id, str)
+            and rollback_id in accepted_ids
+            and rollback["path"] == f"backups/deployments/{rollback_id}"
+        )
+    if not valid_rollback:
         raise ProvenanceError("rollback identity does not match previousDeployment")
     return dict(value)
 
