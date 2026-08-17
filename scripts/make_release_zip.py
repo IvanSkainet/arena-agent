@@ -47,9 +47,6 @@ EXCLUDE_FILES = {
     # first clean-tag build still packed its 1.9 MB local report because the
     # old untracked guard deliberately did not inspect git-ignored files.
     "coverage.xml",
-    # Legacy root release marker; arena/constants.py + embedded provenance are
-    # authoritative. Shipping this stale side channel misidentified v4.169.47.
-    "version.json",
 }
 # Rotated runtime logs (logrotate-style: requests.jsonl.1, requests.jsonl.2,
 # audit.jsonl.3, bridge.log.1, ...) must not ship either. Match on prefix so
@@ -109,6 +106,10 @@ def _is_cache_dir(name: str) -> bool:
 
 
 def should_exclude(rel_path: str) -> bool:
+    # Legacy root release marker; nested version.json files may be real product
+    # assets and must not be hidden by a basename-wide rule.
+    if rel_path == "version.json":
+        return True
     parts = rel_path.split("/")
     if not parts:
         return True

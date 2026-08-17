@@ -14,6 +14,7 @@ from arena.admin.deployment_provenance import (
     build_deployed_provenance,
     deployment_id,
     prepare_install_provenance,
+    publish_deployed_provenance,
     read_deployed_provenance,
     read_deployed_value,
     read_release_provenance,
@@ -403,6 +404,42 @@ def test_quarantine_and_permission_failures_are_explicit(tmp_path: Path, monkeyp
     with pytest.raises(ProvenanceError) as permission_error:
         write_deployed_provenance(target, deployed())
     assert str(permission_error.value) == "cannot restrict deployed provenance permissions: chmod denied"
+
+
+def test_publish_deployed_provenance_is_last_and_rollback_aware(tmp_path: Path) -> None:
+    install = tmp_path / "install"
+    staging = tmp_path / "staging"
+    rollback = install / "backups" / "deployments" / "old"
+    install.mkdir()
+    staging.mkdir()
+    rollback.mkdir(parents=True)
+    staged = staging / DEPLOYED_PROVENANCE
+
+    with pytest.raises(ProvenanceError) as missing:
+        publish_deployed_provenance(
+            staged, install, backup_root=rollback, timestamp=123,
+        )
+    assert str(missing.value) == "staged deployed provenance is missing"
+
+    (install / DEPLOYED_PROVENANCE).write_text("old")
+    staged.write_text("new")
+    pairs = publish_deployed_provenance(
+        staged, install, backup_root=rollback, timestamp=123,
+    )
+    old_backup = rollback / DEPLOYED_PROVENANCE
+    assert pairs == [(old_backup, install / DEPLOYED_PROVENANCE)]
+    assert old_backup.read_text() == "old"
+    assert (install / DEPLOYED_PROVENANCE).read_text() == "new"
+    assert not staged.exists()
+
+    staged.write_text("newer")
+    pairs = publish_deployed_provenance(
+        staged, install, backup_root=None, timestamp=456,
+    )
+    ephemeral = install / f".{DEPLOYED_PROVENANCE}.old-456"
+    assert pairs == [(ephemeral, install / DEPLOYED_PROVENANCE)]
+    assert ephemeral.read_text() == "new"
+    assert (install / DEPLOYED_PROVENANCE).read_text() == "newer"
 
 
 def test_quarantine_mkdir_failure_is_wrapped(tmp_path: Path, monkeypatch) -> None:

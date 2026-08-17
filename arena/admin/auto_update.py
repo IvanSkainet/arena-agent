@@ -64,7 +64,9 @@ from arena.admin.deployment_provenance import (
     ProvenanceError,
     official_asset_authenticated as _official_asset_authenticated,
     prepare_install_provenance,
+    publish_deployed_provenance,
 )
+from arena.admin.deployment_tombstones import stage_release_tombstones
 from arena.admin.update_github import (
     fetch_asset_size as _fetch_asset_size,
     fetch_changelog_section as _fetch_changelog_section,
@@ -263,7 +265,6 @@ def check_updates(*, current_version: str | None = None) -> dict[str, Any]:
         ),
     }
 
-
 # ---------------------------------------------------------------------------
 # Download + verify
 # ---------------------------------------------------------------------------
@@ -343,7 +344,6 @@ def _extract(zip_path: Path, dest: Path) -> Path:
     return dest
 
 
-
 def _swap_unix(payload_root: Path, install_root: Path, *,
                backup_root: Path | None = None,
                provenance_path: Path | None = None) -> dict[str, Any]:
@@ -356,13 +356,10 @@ def _swap_unix(payload_root: Path, install_root: Path, *,
         if backup_root is not None:
             backup_root.mkdir(parents=True, exist_ok=False)
             created_backup_root = True
-        names = list(replace_targets(payload_root))
-        if provenance_path is not None:
-            names.append(DEPLOYED_PROVENANCE)
-        for name in names:
-            src = provenance_path if name == DEPLOYED_PROVENANCE else payload_root / name
+        for name in replace_targets(payload_root):
+            src = payload_root / name
             dst = install_root / name
-            if src is None or not src.exists():
+            if not src.exists():
                 continue
             backup = (
                 backup_root / name if backup_root is not None
@@ -373,6 +370,11 @@ def _swap_unix(payload_root: Path, install_root: Path, *,
                 backups.append((backup, dst))
             shutil.move(str(src), str(dst))
             swapped.append(name)
+        backups.extend(stage_release_tombstones(install_root, backup_root=backup_root, timestamp=ts))
+        if provenance_path is not None:
+            backups.extend(publish_deployed_provenance(
+                provenance_path, install_root, backup_root=backup_root, timestamp=ts))
+            swapped.append(DEPLOYED_PROVENANCE)
     except Exception as e:
         # Remove every newly moved target, including ones that had no prior
         # destination, then restore the retained old targets.
@@ -414,7 +416,6 @@ def _swap_unix(payload_root: Path, install_root: Path, *,
         "swapped": swapped,
         "rollback_path": str(backup_root) if backup_root is not None else None,
     }
-
 
 
 def apply_update(*, asset_url: str, asset_name: str,

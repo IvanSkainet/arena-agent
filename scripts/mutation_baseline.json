@@ -1,6 +1,7 @@
 {
  "arena/admin/auto_update_fetch.py": 0,
  "arena/admin/deployment_provenance.py": 0,
+ "arena/admin/deployment_tombstones.py": 0,
  "arena/admin/bore.py": 0,
  "arena/admin/browseract.py": 0,
  "arena/admin/handlers_update.py": 0,

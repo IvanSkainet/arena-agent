@@ -18,6 +18,7 @@ def test_posix_swap_retains_exact_previous_tree_and_publishes_provenance_last(tm
     (install / "arena").mkdir(parents=True)
     (install / "arena" / "old.py").write_text("old", encoding="utf-8")
     (install / DEPLOYED_PROVENANCE).write_text("old provenance", encoding="utf-8")
+    (install / "version.json").write_text('{"version":"4.153.3"}', encoding="utf-8")
     staged.parent.mkdir()
     staged.write_text("new provenance", encoding="utf-8")
 
@@ -30,8 +31,42 @@ def test_posix_swap_retains_exact_previous_tree_and_publishes_provenance_last(tm
     assert not (install / "arena" / "old.py").exists()
     assert (backup / "arena" / "old.py").read_text() == "old"
     assert (backup / DEPLOYED_PROVENANCE).read_text() == "old provenance"
+    assert (backup / "version.json").read_text() == '{"version":"4.153.3"}'
     assert (install / DEPLOYED_PROVENANCE).read_text() == "new provenance"
+    assert not (install / "version.json").exists()
     assert result["rollback_path"] == str(backup)
+
+
+def test_posix_publishes_provenance_after_tombstones_are_staged(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    payload = tmp_path / "payload"
+    install = tmp_path / "install"
+    backup = install / "backups" / "deployments" / "old"
+    staged = tmp_path / "staging" / DEPLOYED_PROVENANCE
+    (payload / "arena").mkdir(parents=True)
+    (payload / "arena" / "new.py").write_text("new")
+    install.mkdir()
+    (install / "version.json").write_text("legacy")
+    staged.parent.mkdir()
+    staged.write_text("new provenance")
+    real_publish = auto_update.publish_deployed_provenance
+    observed = False
+
+    def assert_tombstone_first(*args, **kwargs):
+        nonlocal observed
+        observed = True
+        assert not (install / "version.json").exists()
+        assert (backup / "version.json").read_text() == "legacy"
+        return real_publish(*args, **kwargs)
+
+    monkeypatch.setattr(auto_update, "publish_deployed_provenance", assert_tombstone_first)
+    result = auto_update._swap_unix(
+        payload, install, backup_root=backup, provenance_path=staged,
+    )
+    assert result["ok"] is True
+    assert observed is True
+    assert (install / DEPLOYED_PROVENANCE).read_text() == "new provenance"
 
 
 def test_posix_swap_failure_removes_new_targets_and_restores_old_tree(
@@ -107,6 +142,32 @@ def test_posix_failed_restore_reports_retained_snapshot(tmp_path: Path, monkeypa
     assert (backup / "arena" / "old.py").read_text() == "old"
 
 
+def test_windows_pre_provenance_tombstone_uses_ephemeral_rollback(tmp_path: Path) -> None:
+    payload = tmp_path / "payload"
+    install = tmp_path / "install"
+    staged = tmp_path / "staging" / DEPLOYED_PROVENANCE
+    (payload / "arena").mkdir(parents=True)
+    (payload / "arena" / "new.py").write_text("new")
+    install.mkdir()
+    staged.parent.mkdir()
+    staged.write_text("new provenance")
+
+    script = _write_windows_installer(
+        payload, install, tmp_path / "done.txt", port=8765,
+        backup_root=None, provenance_path=staged,
+    ).read_text(encoding="utf-8")
+    install_win = str(install).replace("/", "\\")
+    ephemeral = str(tmp_path / "tombstones").replace("/", "\\")
+    stage = f'move /Y "{install_win}\\version.json" "{ephemeral}\\version.json" >NUL'
+    restore = f'move /Y "{ephemeral}\\version.json" "{install_win}\\version.json" >NUL'
+    assert f'mkdir "{ephemeral}" 2>NUL' in script
+    assert stage in script
+    assert restore in script
+    assert script.index(stage) < script.index('copy /Y', script.index(stage))
+    assert script.index('\n:copy_failed\n') < script.index(restore)
+    assert f'rmdir /S /Q "{ephemeral}" 2>NUL' in script
+
+
 def test_windows_mover_backs_up_before_copy_and_publishes_provenance_last(tmp_path: Path) -> None:
     payload = tmp_path / "payload"
     install = tmp_path / "install"
@@ -145,8 +206,20 @@ def test_windows_mover_backs_up_before_copy_and_publishes_provenance_last(tmp_pa
         f'"{backup_win}\\{DEPLOYED_PROVENANCE}" >NUL'
     )
     assert backup_provenance_command in text
+    tombstone_stage = (
+        f'move /Y "{install_win}\\version.json" '
+        f'"{backup_win}\\version.json" >NUL'
+    )
+    tombstone_restore = (
+        f'move /Y "{backup_win}\\version.json" '
+        f'"{install_win}\\version.json" >NUL'
+    )
+    assert tombstone_stage in text
+    assert tombstone_restore in text
     assert provenance_command in text
     assert text.index(backup_provenance_command) < text.index(install_command)
+    assert text.index(tombstone_stage) < text.index(provenance_command)
+    assert text.index('\n:copy_failed\n') < text.index(tombstone_restore)
     assert text.index(backup_provenance_command) < text.index(provenance_command)
     assert text.index(provenance_command) < text.index('echo done >')
     assert ":copy_failed" in text
