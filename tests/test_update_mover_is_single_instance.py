@@ -81,9 +81,11 @@ def test_the_lock_is_released_so_the_next_update_is_not_blocked(script_text):
 
 def test_releasing_the_lock_cannot_fail_the_mover(script_text):
     """A stale lock costs one skipped update; a failed mover costs trust."""
-    rmdir_line = next(line for line in script_text.splitlines()
-                      if "rmdir" in line)
-    assert "2>nul" in rmdir_line
+    rmdir_line = next(
+        line for line in script_text.splitlines()
+        if "rmdir" in line and ".arena-update-apply.lock" in line
+    )
+    assert "2>nul" in rmdir_line.lower()
 
 
 def test_the_wait_loop_still_waits_for_the_bridge_to_exit(script_text):
