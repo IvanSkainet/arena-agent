@@ -120,6 +120,7 @@ TARGETS: dict[str, tuple[str, ...]] = {
     "arena/agentic/handlers.py": (
         "tests/test_agentic.py",
         "tests/test_agentic_handlers_parity_v4_169_35.py",
+        "tests/test_cognitive_input_contract.py",
     ),
     # v4.165.0: the files fixed during the v4.163/v4.164 bug hunt, each
     # paired with the guard written for it. Every one is above 60%
@@ -153,6 +154,9 @@ TARGETS: dict[str, tuple[str, ...]] = {
     ),
     "arena/autonomy/posture_identity.py": (
         "tests/test_autonomy_posture.py",
+    ),
+    "arena/cognitive_input.py": (
+        "tests/test_cognitive_input_contract.py",
     ),
     "arena/governance/reviewer_evidence.py": (
         "tests/test_reviewer_evidence.py",

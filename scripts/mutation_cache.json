@@ -99,15 +99,16 @@
    "total": 150
   },
   "arena/agentic/handlers.py": {
-   "fingerprint": "d8c33b52acb8bb721a0629218763a07414075108466b26a2626ad8f9496d6408",
+   "fingerprint": "c275394a68375352d01c1dea2e9eca11b70400e86c525bbd8b1cf230a9797361",
    "reason": "fresh run",
    "survived": 0,
    "tests": [
     "tests/test_agentic.py",
-    "tests/test_agentic_handlers_parity_v4_169_35.py"
+    "tests/test_agentic_handlers_parity_v4_169_35.py",
+    "tests/test_cognitive_input_contract.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 150
+   "total": 68
   },
   "arena/autonomy/posture_identity.py": {
    "fingerprint": "237c96a691dc82613bd745e421a5fa39bc86646dd11f5b1a34ef919ff402f0c4",
@@ -129,6 +130,16 @@
    ],
    "tool": "mutmut 2.5.1",
    "total": 49
+  },
+  "arena/cognitive_input.py": {
+   "fingerprint": "da491c88c2fbb3bb85b23d81b585940348f1f6f2628bab39fe2103e7f599c5eb",
+   "reason": "fresh run",
+   "survived": 0,
+   "tests": [
+    "tests/test_cognitive_input_contract.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 37
   },
   "arena/desktop/capability.py": {
    "fingerprint": "f0f5350939a7fc93a09c4207d97e7a123700961aa061f33d1af6c54baa6b73e4",
