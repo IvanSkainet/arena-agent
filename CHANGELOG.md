@@ -33,6 +33,10 @@ test isolation, and autonomy-preset reporting gained bilateral sabotage and
 mutation-backed parity. Hosted reviewers remain informational and are measured
 on exact PR heads; no external reviewer became a required merge check.
 
+The obsolete root `version.json` marker (stuck at `4.153.3`) was removed rather
+than synchronized. Runtime version and embedded archive provenance are the only
+release identity sources; packer and verifier now reject this legacy side file.
+
 ### Validation
 
 * Deployment provenance module: 0/286 surviving mutants.

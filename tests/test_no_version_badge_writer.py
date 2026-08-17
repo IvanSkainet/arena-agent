@@ -13,6 +13,8 @@ def _violations() -> list[str]:
         violations.append("version-badge.yml still exists")
     if (REPO / "docs" / "version.json").exists():
         violations.append("docs/version.json still exists")
+    if (REPO / "version.json").exists():
+        violations.append("root version.json still exists")
 
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         text = path.read_text(encoding="utf-8")

@@ -33,6 +33,11 @@ autonomy preset reporting получили bilateral sabotage и mutation-backed
 Hosted reviewers остаются informational и измеряются только на exact PR heads;
 ни один внешний reviewer не стал required merge check.
 
+Устаревший root `version.json`, застрявший на `4.153.3`, удалён, а не
+синхронизирован. Runtime version и встроенная archive provenance остаются
+единственными источниками release identity; packer и verifier теперь отклоняют
+этот legacy side file.
+
 ### Проверки
 
 * Deployment provenance module: 0/286 surviving mutants.
