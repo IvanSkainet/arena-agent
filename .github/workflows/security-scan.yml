@@ -115,6 +115,7 @@ jobs:
             --config=p/secrets \
             --config=p/gitleaks \
             --error --severity=ERROR --severity=WARNING \
+            --timeout=120 \
             --json --output=semgrep.json \
             arena/
           scanner_rc=$?

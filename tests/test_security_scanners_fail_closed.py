@@ -55,6 +55,15 @@ def test_command_scanners_capture_only_documented_policy_exits() -> None:
         assert "|| true" not in section
 
 
+def test_semgrep_has_bounded_per_rule_budget_large_enough_for_real_tree() -> None:
+    workflow_text = _job_text("semgrep")
+    makefile = MAKEFILE.read_text(encoding="utf-8")
+    section = makefile.split("security-semgrep:", 1)[1].split("\n\n", 1)[0]
+    for text in (workflow_text, section):
+        assert "--timeout=120" in text
+        assert "--timeout=0" not in text
+
+
 def test_osv_report_and_zero_findings_policy_are_explicit() -> None:
     text = _job_text("osv-scanner")
     assert "--format=json" in text
