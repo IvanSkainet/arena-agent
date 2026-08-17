@@ -12,10 +12,14 @@ def control_injection_error(
     control_check: Callable[[], dict[str, Any] | None],
     injection_matcher: Callable[[str], str | None],
 ) -> dict[str, Any] | None:
-    """Return the common 403 payload only for paused input injection."""
+    """Return 403 state for full halt, or paused/revoked input injection."""
     control = control_check()
     if not control:
         return None
+    if control.get("error") == "agent_halted":
+        error = dict(control)
+        error.update({"request_id": request_id, "matched": None})
+        return error
     matched = injection_matcher(command)
     if not matched:
         return None

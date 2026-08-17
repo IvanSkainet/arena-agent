@@ -141,14 +141,14 @@
    "total": 54
   },
   "arena/exec/control_gate.py": {
-   "fingerprint": "01aabbf3a7dfc8c1ad212459d0832a766fe7601b9923dc2a37327f4c3af70655",
+   "fingerprint": "94e7cb2c26112009305106fc017d891a6e473a8bf973987cc40da7af09d394e1",
    "reason": "fresh run",
    "survived": 0,
    "tests": [
     "tests/test_exec_control_gate.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 27
+   "total": 33
   },
   "arena/exec/interpreters.py": {
    "fingerprint": "a879df305a9faa3f3544161d4971ada4c63ed8c7374fae82696b96f9d27ce3e4",

@@ -51,6 +51,23 @@ def test_pure_gate_only_blocks_injection_while_control_is_paused() -> None:
     ) is None
     assert active.matcher_calls == [], "do not classify input when control is active"
 
+    halted = FakeContext(
+        control={
+            "ok": False, "error": "agent_halted", "status": "halted",
+            "message": "full stop",
+        },
+        matched=None,
+    )
+    assert control_injection_error(
+        command="echo benign", request_id="halted",
+        control_check=halted.control_check,
+        injection_matcher=halted.is_input_injection_cmd,
+    ) == {
+        "ok": False, "error": "agent_halted", "status": "halted",
+        "message": "full stop", "request_id": "halted", "matched": None,
+    }
+    assert halted.matcher_calls == [], "full halt blocks before injection classification"
+
     paused_benign = FakeContext(
         control={"ok": False, "error": "paused", "status": "paused"},
         matched=None,
@@ -182,6 +199,33 @@ def test_raw_script_blocks_paused_input_before_writing_or_running(tmp_path: Path
     assert response.status == 403
     assert json.loads(response.text)["matched"] == "xdotool key"
     assert audits[0]["type"] == "exec_script_blocked_control"
+    assert not (tmp_path / ".arena_script_tmp").exists()
+
+
+def test_full_halt_blocks_benign_raw_script_without_matcher(tmp_path: Path) -> None:
+    audits, records = [], []
+    ctx = _handler_context(
+        profile="owner-shell",
+        control={
+            "ok": False, "error": "agent_halted", "status": "halted",
+            "message": "full stop",
+        },
+        matched=None,
+        audits=audits,
+        records=records,
+    )
+    handlers = make_exec_handlers(ctx)
+    interpreter = "powershell" if os.name == "nt" else "bash"
+    request = ScriptRequest(
+        _script_cfg(tmp_path, "owner-shell"), b"echo harmless", interpreter,
+    )
+    with patch("arena.exec.handlers._which_interpreter", return_value=True):
+        response = asyncio.run(handlers.script.__wrapped__(request))
+    body = json.loads(response.text)
+    assert response.status == 403
+    assert body["error"] == "agent_halted"
+    assert body["message"] == "full stop"
+    assert audits[0]["matched"] is None
     assert not (tmp_path / ".arena_script_tmp").exists()
 
 
