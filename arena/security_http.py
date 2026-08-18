@@ -53,6 +53,7 @@ def _public_addresses(url: str) -> tuple[ParseResult, str, tuple[str, ...]]:
     try:
         parsed = urlparse(url)
         host = (parsed.hostname or "").strip().removesuffix(".").lower()
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
     except (TypeError, ValueError) as exc:
         raise PublicUrlRejected("invalid URL") from exc
 
@@ -65,7 +66,6 @@ def _public_addresses(url: str) -> tuple[ParseResult, str, tuple[str, ...]]:
         return parsed, host, (str(literal),)
 
     try:
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
         answers = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except (socket.gaierror, ValueError) as exc:
         raise urllib.error.URLError(f"cannot resolve public host {host!r}") from exc

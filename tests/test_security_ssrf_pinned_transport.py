@@ -36,6 +36,7 @@ def answer(address: str, port: int = 443):
         ("https://user@example.test/", "credentials in URL are not allowed"),
         ("https://user:secret@example.test/", "credentials in URL are not allowed"),
         ("http://99999999999999/", "malformed numeric address not allowed"),
+        ("http://8.8.8.8:99999/", "invalid URL"),
         ("http://[/", "invalid URL"),
     ],
 )

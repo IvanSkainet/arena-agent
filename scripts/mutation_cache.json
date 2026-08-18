@@ -242,8 +242,8 @@
    "total": 150
   },
   "arena/security_http.py": {
-   "fingerprint": "36f2c554cdaa10ba361881701d709cf952fe57c702528bd341b278677c57babd",
-   "reason": "T62 exact final reviewer-followup run; strict hostname verification, legacy HTTPS kwargs, userinfo rejection; 0 survivors",
+   "fingerprint": "a3e7b5048982f74522d2070f4866973d8d0bc73fd3f9695ed817f4c66fb5d20d",
+   "reason": "T62 exact final run including malformed literal-port guard; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_security.py",
