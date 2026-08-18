@@ -114,20 +114,20 @@ def test_utc_now_uses_utc_timezone() -> None:
 # -------------------------------------------------------------------
 
 
-def test_get_clean_platform_name_on_linux_returns_linux_string() -> None:
-    """On Linux, get_clean_platform_name returns a non-empty string mentioning Linux.
+def test_get_clean_platform_name_on_non_windows_is_unchanged() -> None:
+    """Non-Windows platforms return platform.platform() unchanged.
 
-    We don't assert the exact value (it depends on the
-    kernel version) — only that the function returns a
-    string and that it doesn't accidentally hit the
-    Windows branch on Linux.
+    macOS runners may legitimately include the token ``WindowsPE`` in the
+    architecture suffix, so string exclusion is not a platform invariant.
+    Exact equality proves the Windows rewrite branch was not applied.
     """
     if sys.platform == "win32":
         pytest.skip("Linux-only branch")
+    expected = util.platform.platform()
     out = util.get_clean_platform_name()
     assert isinstance(out, str)
     assert len(out) > 0
-    assert "Windows" not in out
+    assert out == expected
 
 
 def test_get_clean_platform_name_handles_windows_build_gracefully() -> None:

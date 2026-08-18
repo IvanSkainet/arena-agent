@@ -826,11 +826,14 @@ jobs:
       - name: Install oxlint (hash-locked, no install scripts)
         run: npm ci --no-audit --no-fund --ignore-scripts
 
+      - name: Firefox generated-tree parity (blocking)
+        run: python3 scripts/build_firefox_extension.py --check
+
       - name: JS lint debt ratchet (blocking)
         run: python3 scripts/js_lint_ratchet.py
 
       - name: Full JS lint (informational)
-        run: npx --no-install oxlint -c .oxlintrc.json dashboard/assets chat_extension || true
+        run: npx --no-install oxlint -c .oxlintrc.json dashboard/assets chat_extension chat_extension_firefox || true
 
   # ----------------------------------------------------------------
   # Debt visibility gate (NON-blocking, red BY DESIGN while any legacy

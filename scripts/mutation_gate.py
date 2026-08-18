@@ -146,6 +146,9 @@ TARGETS: dict[str, tuple[str, ...]] = {
     "arena/exec/control_gate.py": (
         "tests/test_exec_control_gate.py",
     ),
+    "arena/governance/firefox_tree_parity.py": (
+        "tests/test_firefox_extension_parity.py",
+    ),
     "scripts/update_log_timestamp.py": (
         "tests/test_inspect_update_log.py",
     ),
