@@ -21,6 +21,7 @@ from arena.cognitive_input import (
     required_text,
 )
 from arena.planner.handlers import make_planner_handlers
+from arena.public.openapi import _cognitive_request_schemas
 
 
 def test_pure_field_contracts_cover_valid_defaults_and_copies() -> None:
@@ -96,6 +97,36 @@ def test_unknown_fields_are_rejected_deterministically() -> None:
             frozenset({"goal"}),
         )
     assert str(caught.value) == "unexpected field(s): observations, zzz"
+
+
+def test_openapi_cognitive_schemas_match_strict_handler_contracts() -> None:
+    plan, react, reflect = _cognitive_request_schemas()
+    assert set(plan["properties"]) == {
+        "goal", "context", "constraints", "memory_profile", "max_steps",
+    }
+    assert set(react["properties"]) == {
+        "goal", "context", "constraints", "memory_profile", "max_iterations", "url",
+    }
+    assert set(reflect["properties"]) == {"goal", "run", "notes", "outcome"}
+    for schema in (plan, react, reflect):
+        assert schema["type"] == "object"
+        assert schema["additionalProperties"] is False
+        assert schema["required"] == ["goal"]
+        assert schema["properties"]["goal"] == {
+            "type": "string", "minLength": 1, "pattern": r".*\S.*",
+        }
+    assert plan["properties"]["max_steps"] == {
+        "type": "integer", "minimum": 1, "default": 8, "nullable": True,
+    }
+    assert react["properties"]["max_iterations"] == {
+        "type": "integer", "minimum": 1, "default": 4, "nullable": True,
+    }
+    for name in ("context", "constraints", "memory_profile"):
+        assert plan["properties"][name]["nullable"] is True
+    for name in ("context", "constraints", "memory_profile", "url"):
+        assert react["properties"][name]["nullable"] is True
+    for name in ("run", "notes", "outcome"):
+        assert reflect["properties"][name]["nullable"] is True
 
 
 class Context:

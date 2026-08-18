@@ -99,8 +99,8 @@
    "total": 150
   },
   "arena/agentic/handlers.py": {
-   "fingerprint": "363aaa14c0bf3d656dd380326d88a8fdc445ac02da84b841ebbee6737a23f91a",
-   "reason": "T61 exact handler guard rerun after test-contract changes; 0 survivors",
+   "fingerprint": "a9872e26a692b86cd263a714df4034811901332f51a32008f87eb47f02a4930e",
+   "reason": "T61 exact OpenAPI parity guarding-test rerun; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_agentic.py",
@@ -132,8 +132,8 @@
    "total": 49
   },
   "arena/cognitive_input.py": {
-   "fingerprint": "5a21b3b10df7eea6f3371c87d167611f4be68a7bdba86e9403b8d8dea7b94190",
-   "reason": "T61 exact Codacy consistency follow-up; explicit null defaults; 0 survivors",
+   "fingerprint": "327729d86de0628f56cf791e40e346fdcb85f2d3eec292ab3d39a5d16ebf30d2",
+   "reason": "T61 exact OpenAPI parity follow-up; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_cognitive_input_contract.py"

@@ -2,7 +2,63 @@
 from __future__ import annotations
 
 
+def _text_schema(*, required: bool = False) -> dict:
+    schema: dict = {"type": "string"}
+    if required:
+        schema.update({"minLength": 1, "pattern": r".*\S.*"})
+    else:
+        schema["nullable"] = True
+    return schema
+
+
+def _cognitive_request_schemas() -> tuple[dict, dict, dict]:
+    common = {
+        "goal": _text_schema(required=True),
+        "context": _text_schema(),
+        "constraints": {
+            "type": "array", "items": {"type": "string"}, "nullable": True,
+        },
+        "memory_profile": _text_schema(),
+    }
+    plan = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            **common,
+            "max_steps": {
+                "type": "integer", "minimum": 1, "default": 8, "nullable": True,
+            },
+        },
+        "required": ["goal"],
+    }
+    react = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            **common,
+            "max_iterations": {
+                "type": "integer", "minimum": 1, "default": 4, "nullable": True,
+            },
+            "url": _text_schema(),
+        },
+        "required": ["goal"],
+    }
+    reflect = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "goal": _text_schema(required=True),
+            "run": {"type": "object", "nullable": True},
+            "notes": _text_schema(),
+            "outcome": _text_schema(),
+        },
+        "required": ["goal"],
+    }
+    return plan, react, reflect
+
+
 def build_openapi_spec(ctx) -> dict:
+    plan_schema, react_schema, reflect_schema = _cognitive_request_schemas()
     return {
         "openapi": "3.0.3",
         "info": {
@@ -37,9 +93,9 @@ def build_openapi_spec(ctx) -> dict:
             },
             "/v1/recall": {"get": {"summary": "Recall relevant facts", "tags": ["Memory"], "parameters": [{"name": "q", "in": "query", "required": True, "schema": {"type": "string"}}, {"name": "top", "in": "query", "schema": {"type": "integer", "default": 5}}, {"name": "profile", "in": "query", "schema": {"type": "string"}}], "responses": {"200": {"description": "Recall result"}}}},
             "/v1/recall/digest": {"get": {"summary": "Generate a memory digest", "tags": ["Memory"], "parameters": [{"name": "profile", "in": "query", "schema": {"type": "string"}}], "responses": {"200": {"description": "Digest markdown"}}}},
-            "/v1/plan": {"post": {"summary": "Create a structured execution plan for a goal", "tags": ["Planner"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"goal": {"type": "string"}, "context": {"type": "string"}, "constraints": {"type": "array", "items": {"type": "string"}}, "max_steps": {"type": "integer", "default": 8}, "memory_profile": {"type": "string"}}, "required": ["goal"]}}}}, "responses": {"200": {"description": "Planner output"}}}},
-            "/v1/react": {"post": {"summary": "Run a bounded reason-act-observe loop", "tags": ["Agentic"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"goal": {"type": "string"}, "context": {"type": "string"}, "constraints": {"type": "array", "items": {"type": "string"}}, "max_iterations": {"type": "integer", "default": 4}, "memory_profile": {"type": "string"}, "url": {"type": "string"}}, "required": ["goal"]}}}}, "responses": {"200": {"description": "ReAct run output"}}}},
-            "/v1/reflect": {"post": {"summary": "Reflect on a prior run", "tags": ["Agentic"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"goal": {"type": "string"}, "run": {"type": "object"}, "notes": {"type": "string"}, "outcome": {"type": "string"}}}}}}, "responses": {"200": {"description": "Reflection output"}}}},
+            "/v1/plan": {"post": {"summary": "Create a structured execution plan for a goal", "tags": ["Planner"], "requestBody": {"content": {"application/json": {"schema": plan_schema}}}, "responses": {"200": {"description": "Planner output"}}}},
+            "/v1/react": {"post": {"summary": "Run a bounded reason-act-observe loop", "tags": ["Agentic"], "requestBody": {"content": {"application/json": {"schema": react_schema}}}, "responses": {"200": {"description": "ReAct run output"}}}},
+            "/v1/reflect": {"post": {"summary": "Reflect on a prior run", "tags": ["Agentic"], "requestBody": {"content": {"application/json": {"schema": reflect_schema}}}, "responses": {"200": {"description": "Reflection output"}}}},
             "/v1/watch/files": {
                 "get": {"summary": "List active file watchers", "tags": ["Watchers"], "responses": {"200": {"description": "Watcher list"}}},
                 "post": {"summary": "Add a file watcher", "tags": ["Watchers"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"path": {"type": "string"}, "recursive": {"type": "boolean", "default": True}, "patterns": {"type": "array", "items": {"type": "string"}}, "label": {"type": "string"}}, "required": ["path"]}}}}, "responses": {"200": {"description": "Watcher added"}}},
