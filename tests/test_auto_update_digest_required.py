@@ -40,7 +40,7 @@ import hashlib
 
 import pytest
 
-from arena.admin import auto_update as au
+from arena.admin import auto_update as au, auto_update_fetch as auf
 
 ARCHIVE = b"PK\x03\x04" + b"NOT-A-REAL-RELEASE" * 50
 DIGEST = hashlib.sha256(ARCHIVE).hexdigest()
@@ -67,8 +67,7 @@ def stubbed_download(monkeypatch, tmp_path):
         def __exit__(self, *exc):
             return False
 
-    monkeypatch.setattr(au.urllib.request, "urlopen",
-                        lambda *a, **kw: _Response())
+    monkeypatch.setattr(auf, "open_public_url", lambda *a, **kw: _Response())
     return str(tmp_path)
 
 

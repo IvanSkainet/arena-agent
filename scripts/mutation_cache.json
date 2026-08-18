@@ -1,8 +1,8 @@
 {
  "entries": {
   "arena/admin/auto_update_fetch.py": {
-   "fingerprint": "c1a52d74b47bc58a06250b07bd675bb6a879ad271c14b65d8bf27dbd1ee15f38",
-   "reason": "fresh run",
+   "fingerprint": "678a75155f86973865e520cf09107a9abcfb3b1365c3c13ed01bf57e889a71bc",
+   "reason": "T62 transport migration exact run; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_auto_update.py",
@@ -240,6 +240,18 @@
    ],
    "tool": "mutmut 2.5.1",
    "total": 150
+  },
+  "arena/security_http.py": {
+   "fingerprint": "a3e7b5048982f74522d2070f4866973d8d0bc73fd3f9695ed817f4c66fb5d20d",
+   "reason": "T62 exact final run including malformed literal-port guard; 0 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_security.py",
+    "tests/test_security_ssrf_bypass_corpus.py",
+    "tests/test_security_ssrf_pinned_transport.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 92
   },
   "arena/workbench/runtime_fetch.py": {
    "fingerprint": "903feb6cc9f2f3de56481c98754954be3dcf73903a7027c91d3ca5ffca24cd96",

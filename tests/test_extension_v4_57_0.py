@@ -241,7 +241,7 @@ def test_net_http_auth_secret_reference_resolves(tmp_path, monkeypatch):
         captured["headers"] = dict(req.header_items())
         return _Resp()
 
-    with mock.patch("arena.mcp.tool_net.urllib.request.urlopen", _fake_urlopen):
+    with mock.patch("arena.mcp.tool_net.open_public_url", _fake_urlopen):
         out = _handle_net_http({
             "url": "https://api.example.com/x",
             "auth": {"type": "bearer", "value": "secret:gk"},
@@ -280,7 +280,7 @@ def test_net_http_json_body_sets_content_type(monkeypatch):
         captured["ct"] = req.headers.get("Content-type")
         return _Resp()
 
-    with mock.patch("arena.mcp.tool_net.urllib.request.urlopen", _fake_urlopen):
+    with mock.patch("arena.mcp.tool_net.open_public_url", _fake_urlopen):
         out = _handle_net_http({
             "url": "https://api.example.com/x",
             "method": "POST",
@@ -301,7 +301,7 @@ def test_net_http_returns_base64_for_binary(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *a): return False
 
-    with mock.patch("arena.mcp.tool_net.urllib.request.urlopen", lambda req, timeout=None: _Resp()):
+    with mock.patch("arena.mcp.tool_net.open_public_url", lambda req, timeout=None: _Resp()):
         out = _handle_net_http({"url": "https://example.com/img.png"})
     assert out["ok"] is True
     assert "base64" in out

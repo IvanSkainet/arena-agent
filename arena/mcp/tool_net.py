@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.mcp.tool_utils import text_content
+from arena.security_http import open_public_url
 from arena.security_ssrf import _validate_url
 
 _MAX_RESPONSE_BYTES = 2 * 1024 * 1024  # 2 MiB cap on returned body
@@ -154,7 +155,7 @@ def _handle_net_http(args: dict[str, Any]) -> dict[str, Any]:
     req = urllib.request.Request(url, data=body_bytes, headers=headers, method=method)
 
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 -- SSRF-validated user URL, timeout bounded  # nosemgrep: dynamic-urllib-use-detected -- URL passes through arena.security_ssrf._validate_url on line above
+        with open_public_url(req, timeout=timeout) as resp:
             status = resp.status
             mime = resp.headers.get("Content-Type", "application/octet-stream").split(";", 1)[0].strip().lower()
             raw = resp.read(_MAX_RESPONSE_BYTES + 1)

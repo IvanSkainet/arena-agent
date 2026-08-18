@@ -76,7 +76,7 @@ class _MockResponse:
 
 def test_browser_search_parses_results():
     """browser_search correctly parses DDG lite HTML into results list."""
-    with patch("urllib.request.urlopen", return_value=_MockResponse(_SAMPLE_DDG_HTML)):
+    with patch("arena.browser.fetch.open_public_url", return_value=_MockResponse(_SAMPLE_DDG_HTML)):
         result = browser_search("python", 3, version="test")
     assert result["ok"] is True
     assert result["query"] == "python"
@@ -95,7 +95,7 @@ def test_browser_search_parses_results():
 
 def test_browser_search_limits_results():
     """browser_search respects the n parameter (max results)."""
-    with patch("urllib.request.urlopen", return_value=_MockResponse(_SAMPLE_DDG_HTML)):
+    with patch("arena.browser.fetch.open_public_url", return_value=_MockResponse(_SAMPLE_DDG_HTML)):
         result = browser_search("python", 2, version="test")
     assert result["count"] == 2
     assert len(result["results"]) == 2
@@ -103,7 +103,7 @@ def test_browser_search_limits_results():
 
 def test_browser_search_empty_results():
     """browser_search returns empty list when DDG has no results."""
-    with patch("urllib.request.urlopen", return_value=_MockResponse(_EMPTY_DDG_HTML)):
+    with patch("arena.browser.fetch.open_public_url", return_value=_MockResponse(_EMPTY_DDG_HTML)):
         result = browser_search("zzznonexistent", 5, version="test")
     assert result["ok"] is True
     assert result["count"] == 0
@@ -112,7 +112,7 @@ def test_browser_search_empty_results():
 
 def test_browser_search_strips_html_tags_from_title():
     """browser_search strips <b> tags from titles."""
-    with patch("urllib.request.urlopen", return_value=_MockResponse(_BOLD_DDG_HTML)):
+    with patch("arena.browser.fetch.open_public_url", return_value=_MockResponse(_BOLD_DDG_HTML)):
         result = browser_search("example", 1, version="test")
     assert result["count"] == 1
     assert result["results"][0]["title"] == "Example Domain"
@@ -121,7 +121,7 @@ def test_browser_search_strips_html_tags_from_title():
 
 def test_browser_search_strips_html_tags_from_snippet():
     """browser_search strips <b> tags from snippets."""
-    with patch("urllib.request.urlopen", return_value=_MockResponse(_BOLD_DDG_HTML)):
+    with patch("arena.browser.fetch.open_public_url", return_value=_MockResponse(_BOLD_DDG_HTML)):
         result = browser_search("example", 1, version="test")
     assert "<b>" not in result["results"][0]["snippet"]
     assert "documentation" in result["results"][0]["snippet"]
@@ -129,7 +129,7 @@ def test_browser_search_strips_html_tags_from_snippet():
 
 def test_browser_search_url_decoding():
     """browser_search correctly URL-decodes the uddg parameter to get real URL."""
-    with patch("urllib.request.urlopen", return_value=_MockResponse(_SAMPLE_DDG_HTML)):
+    with patch("arena.browser.fetch.open_public_url", return_value=_MockResponse(_SAMPLE_DDG_HTML)):
         result = browser_search("python", 3, version="test")
     # The uddg parameter contains URL-encoded real URL
     assert result["results"][0]["url"] == "https://www.python.org/"
@@ -138,14 +138,14 @@ def test_browser_search_url_decoding():
 
 def test_browser_search_query_in_response():
     """browser_search includes the original query in the response."""
-    with patch("urllib.request.urlopen", return_value=_MockResponse(_SAMPLE_DDG_HTML)):
+    with patch("arena.browser.fetch.open_public_url", return_value=_MockResponse(_SAMPLE_DDG_HTML)):
         result = browser_search("python programming", 1, version="test")
     assert result["query"] == "python programming"
 
 
 def test_browser_search_n_zero():
     """browser_search with n=0 returns 0 results."""
-    with patch("urllib.request.urlopen", return_value=_MockResponse(_SAMPLE_DDG_HTML)):
+    with patch("arena.browser.fetch.open_public_url", return_value=_MockResponse(_SAMPLE_DDG_HTML)):
         result = browser_search("python", 0, version="test")
     assert result["count"] == 0
     assert result["results"] == []
@@ -153,7 +153,7 @@ def test_browser_search_n_zero():
 
 def test_browser_search_n_larger_than_available():
     """browser_search with n larger than available results returns all available."""
-    with patch("urllib.request.urlopen", return_value=_MockResponse(_SAMPLE_DDG_HTML)):
+    with patch("arena.browser.fetch.open_public_url", return_value=_MockResponse(_SAMPLE_DDG_HTML)):
         result = browser_search("python", 10, version="test")
     assert result["count"] == 3  # only 3 in the sample HTML
     assert len(result["results"]) == 3
@@ -166,7 +166,7 @@ def test_browser_search_sets_user_agent():
         captured_req.append(req)
         return _MockResponse(_SAMPLE_DDG_HTML)
 
-    with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+    with patch("arena.browser.fetch.open_public_url", side_effect=mock_urlopen):
         browser_search("test", 1, version="3.2.1")
 
     assert len(captured_req) == 1

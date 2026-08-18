@@ -1,9 +1,9 @@
 {
  "arena/admin/auto_update_fetch.py": 0,
- "arena/admin/deployment_provenance.py": 0,
- "arena/admin/deployment_tombstones.py": 0,
  "arena/admin/bore.py": 0,
  "arena/admin/browseract.py": 0,
+ "arena/admin/deployment_provenance.py": 0,
+ "arena/admin/deployment_tombstones.py": 0,
  "arena/admin/handlers_update.py": 0,
  "arena/agent_helpers/files.py": 0,
  "arena/agentctl_cli/agentctl_memory.py": 0,
@@ -20,6 +20,7 @@
  "arena/mobile/apk_paths.py": 0,
  "arena/mobile/mirror.py": 0,
  "arena/observability/live_metrics.py": 0,
+ "arena/security_http.py": 0,
  "arena/workbench/runtime_fetch.py": 0,
  "scripts/release_version_contract.py": 0,
  "scripts/update_log_timestamp.py": 0
