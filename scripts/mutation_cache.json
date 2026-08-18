@@ -110,6 +110,16 @@
    "tool": "mutmut 2.5.1",
    "total": 68
   },
+  "arena/async_lifecycle.py": {
+   "fingerprint": "5911e2fcfd3f17298a280c980510f4ffa36e52d275287f58f9e4cde55d7e64b1",
+   "reason": "T67 reviewer follow-up: required error sink and cleanup cancellation; 0 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_async_lifecycle.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 9
+  },
   "arena/autonomy/posture_identity.py": {
    "fingerprint": "237c96a691dc82613bd745e421a5fa39bc86646dd11f5b1a34ef919ff402f0c4",
    "reason": "T53 exact target run; 0 survivors",
@@ -152,8 +162,8 @@
    "total": 24
   },
   "arena/exec/client_lifecycle.py": {
-   "fingerprint": "b947f6ff4bfbce51d040cb593a195f167effed67a7584d9fb18d2a3456f8453a",
-   "reason": "T44 exact target run; 0 survivors",
+   "fingerprint": "8ffe18038c0d242bc00a03f013aadd85cc707282d44ea020f7a54a4bb1212de3",
+   "reason": "T66 post-merge timeout-guard test fingerprint refresh; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_exec_client_disconnect_v4_169_47.py"
@@ -206,8 +216,8 @@
    "total": 57
   },
   "arena/governance/pytest_execution_guard.py": {
-   "fingerprint": "b06a1a5da2e4e73193ca9f6cfa83b5e392443a17d828d72c9f57a55758ffe4ac",
-   "reason": "T66 exact post-alias/generated-test collection floors; 0 survivors",
+   "fingerprint": "c0e7192bcaa07346ac0475badbd4540e8f8afaf7cf0f22e1ff8398a72938b457",
+   "reason": "T67 reviewer follow-up collection floors; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_pytest_execution_guard.py"

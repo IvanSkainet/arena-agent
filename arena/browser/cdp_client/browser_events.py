@@ -4,6 +4,7 @@ from __future__ import annotations
 import itertools
 from typing import TYPE_CHECKING
 
+from arena.async_lifecycle import spawn_background
 from arena.browser.cdp_client.common import (
     HAS_AIOHTTP,
     Any,
@@ -111,6 +112,23 @@ class CDPBrowserEventsMixin:
         finally:
             self.off(event_name, one_shot)
 
+    def _dispatch_event(self, method: str, params: Dict) -> None:
+        """Call synchronous handlers and retain asynchronous results."""
+        for handler in self._event_handlers.get(method, []):
+            try:
+                result = handler(params)
+                if asyncio.iscoroutine(result):
+                    spawn_background(
+                        result,
+                        on_error=lambda exc, event=method: logger.error(
+                            "[CDP] Async event handler error for %s: %s",
+                            event,
+                            exc,
+                        ),
+                    )
+            except Exception as e:
+                logger.error("[CDP] Event handler error for %s: %s", method, e)
+
     async def _listen_loop(self) -> None:
         """Background task that reads WebSocket messages and dispatches them."""
         # Determine TEXT/CLOSED/ERROR type constants based on WS implementation
@@ -147,15 +165,7 @@ class CDPBrowserEventsMixin:
                     # Dispatch event to handlers
                     method = data.get("method")
                     if method:
-                        params = data.get("params", {})
-                        # Call registered handlers
-                        for handler in self._event_handlers.get(method, []):
-                            try:
-                                result = handler(params)
-                                if asyncio.iscoroutine(result):
-                                    asyncio.create_task(result)
-                            except Exception as e:
-                                logger.error("[CDP] Event handler error for %s: %s", method, e)
+                        self._dispatch_event(method, data.get("params", {}))
 
                 elif msg.type in CLOSED_TYPES:
                     logger.warning("[CDP] WebSocket closed/error")

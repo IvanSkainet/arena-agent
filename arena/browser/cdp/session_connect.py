@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 
+from arena.async_lifecycle import spawn_background
 from arena.browser.cdp.session_diagnostics import (
     build_connect_timeout_error,
     collect_connect_timeout_diagnostics,
@@ -140,7 +141,12 @@ def make_cdp_connect_handler(ctx: CdpSessionHandlerContext):
                     return timeout_response(ctx, mgr)
 
                 store_connected_state(ctx, mgr, port=port, headless=headless)
-                asyncio.create_task(ctx.emit_event("cdp_connect", {"port": port, "headless": headless}))
+                spawn_background(
+                    ctx.emit_event("cdp_connect", {"port": port, "headless": headless}),
+                    on_error=lambda exc: ctx.log_warning(
+                        "[CDP] connect event delivery failed: %s", exc
+                    ),
+                )
                 ctx.start_cdp_watcher()
 
                 tab_connected = await retry_active_tab_connection(ctx, mgr, port)

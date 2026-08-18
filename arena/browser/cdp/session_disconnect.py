@@ -1,8 +1,7 @@
 """CDP session disconnect handler."""
 from __future__ import annotations
 
-import asyncio
-
+from arena.async_lifecycle import spawn_background
 from arena.handler_context import CdpSessionHandlerContext
 from arena.handler_helpers import authed
 
@@ -48,7 +47,12 @@ def make_cdp_disconnect_handler(ctx: CdpSessionHandlerContext):
                 await stop_active_cdp_components(ctx)
                 await close_cdp_manager(ctx)
                 reset_disconnected_state(ctx)
-                asyncio.create_task(ctx.emit_event("cdp_disconnect", {"reason": "User disconnected"}))
+                spawn_background(
+                    ctx.emit_event("cdp_disconnect", {"reason": "User disconnected"}),
+                    on_error=lambda exc: ctx.log_warning(
+                        "[CDP] disconnect event delivery failed: %s", exc
+                    ),
+                )
                 return ctx.cors_json_response({"ok": True, "message": "CDP disconnected"})
             except Exception as e:
                 ctx.record_request(is_error=True, count_request=False)
