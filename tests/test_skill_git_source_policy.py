@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import stat
 from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 
@@ -181,6 +182,56 @@ def test_resolution_failure_is_structured(monkeypatch):
     )
 
 
+def test_readonly_tree_cleanup_is_fail_closed(tmp_path, monkeypatch):
+    metadata = tmp_path / ".git"
+    metadata.mkdir()
+    locked = metadata / "locked"
+    locked.write_text("x", encoding="utf-8")
+    locked.chmod(stat.S_IREAD)
+    assert policy.remove_tree_readonly(metadata) is True
+    assert not metadata.exists()
+    assert policy.remove_tree_readonly(metadata) is True
+
+    failed = tmp_path / "failed"
+    failed.mkdir()
+    monkeypatch.setattr(
+        policy.shutil,
+        "rmtree",
+        lambda *_a, **_k: (_ for _ in ()).throw(OSError("denied")),
+    )
+    assert policy.remove_tree_readonly(failed) is False
+
+
+def test_readonly_cleanup_callback_retries_exact_path_and_mode(tmp_path, monkeypatch):
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    locked = tree / "locked"
+    locked.write_text("x", encoding="utf-8")
+    original_rmtree = policy.shutil.rmtree
+    chmod_calls = []
+    retry_calls = []
+
+    def fake_rmtree(path, *, onerror):
+        onerror(
+            lambda value: retry_calls.append(value),
+            locked,
+            None,
+        )
+        original_rmtree(path)
+
+    monkeypatch.setattr(policy.shutil, "rmtree", fake_rmtree)
+    monkeypatch.setattr(
+        policy.os,
+        "chmod",
+        lambda value, mode: chmod_calls.append((value, mode)),
+    )
+    assert policy.remove_tree_readonly(tree) is True
+    assert chmod_calls == [
+        (locked, stat.S_IREAD | stat.S_IWRITE | stat.S_IEXEC)
+    ]
+    assert retry_calls == [locked]
+
+
 def test_git_environment_overrides_and_removes_config_injection():
     result = policy.git_protocol_environment({
         "PATH": "bin",
@@ -254,6 +305,35 @@ def test_install_git_source_uses_exact_transport_environment(tmp_path, monkeypat
             "timeout": 60,
         })
     ]
+
+
+def test_install_fails_if_git_metadata_cannot_be_removed(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        install,
+        "resolve_git_source_url",
+        lambda url: (_resolved_source(url), None),
+    )
+    monkeypatch.setattr(install.shutil, "which", lambda _name: "/usr/bin/git")
+
+    def run(*_args, **_kwargs):
+        target = tmp_path / "third_party" / "locked"
+        (target / ".git").mkdir(parents=True)
+        return SimpleNamespace(returncode=0)
+
+    cleanup_calls = []
+
+    def cleanup(path):
+        cleanup_calls.append(path)
+        return path.name != ".git"
+
+    monkeypatch.setattr(install.subprocess, "run", run)
+    monkeypatch.setattr(install, "remove_tree_readonly", cleanup)
+    result = install.install_skill(
+        "locked", "https://example.com/repository", skills_dir=tmp_path
+    )
+    target = tmp_path / "third_party" / "locked"
+    assert result == {"ok": False, "error": "git metadata cleanup failed"}
+    assert cleanup_calls == [target / ".git", target]
 
 
 def test_install_rejects_source_before_git_and_sanitizes_clone_failure(

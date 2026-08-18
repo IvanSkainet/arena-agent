@@ -10,7 +10,11 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from arena.skills.git_source import git_protocol_environment, resolve_git_source_url
+from arena.skills.git_source import (
+    git_protocol_environment,
+    remove_tree_readonly,
+    resolve_git_source_url,
+)
 
 
 def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
@@ -165,19 +169,21 @@ def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
                     timeout=60,
                 )
             except subprocess.TimeoutExpired:
-                shutil.rmtree(target_dir, ignore_errors=True)
+                remove_tree_readonly(target_dir)
                 return {"ok": False, "error": "git clone timed out"}
             if clone.returncode != 0:
-                shutil.rmtree(target_dir, ignore_errors=True)
+                remove_tree_readonly(target_dir)
                 return {
                     "ok": False,
                     "error": "git clone failed",
                     "exit_code": clone.returncode,
                 }
-            shutil.rmtree(target_dir / ".git", ignore_errors=True)
+            if not remove_tree_readonly(target_dir / ".git"):
+                remove_tree_readonly(target_dir)
+                return {"ok": False, "error": "git metadata cleanup failed"}
         return {"ok": True, "path": str(target_dir), "name": name}
     except Exception as e:
-        shutil.rmtree(target_dir, ignore_errors=True)
+        remove_tree_readonly(target_dir)
         return {"ok": False, "error": str(e)}
 
 

@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import os
+import shutil
+import stat
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlparse
 
 from arena.security_http import _public_addresses
@@ -75,6 +78,22 @@ def resolve_git_source_url(
         port=port,
         addresses=addresses,
     ), None
+
+
+def remove_tree_readonly(path: Path) -> bool:
+    """Remove a tree, clearing Windows read-only bits when deletion refuses."""
+    if not path.exists():
+        return True
+
+    def make_writable_then_retry(function, value, _exc_info):  # type: ignore[no-untyped-def]
+        os.chmod(value, stat.S_IREAD | stat.S_IWRITE | stat.S_IEXEC)
+        function(value)
+
+    try:
+        shutil.rmtree(path, onerror=make_writable_then_retry)
+    except OSError:
+        return False
+    return not path.exists()
 
 
 def git_protocol_environment(environ: Mapping[str, str]) -> dict[str, str]:

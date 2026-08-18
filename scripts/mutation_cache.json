@@ -254,14 +254,14 @@
    "total": 92
   },
   "arena/skills/git_source.py": {
-   "fingerprint": "d4b80bc4fdd48dae7fa07d3e4aabf85f31058146ce71c255c05c75e5ef97c0bf",
-   "reason": "T64 exact Sonar follow-up; fail-closed resolver invariant and DNS pin remain 0 survivors",
+   "fingerprint": "48af57b81e7809901483d16e3e9785ee5d02aff6869030220d103a980a40409d",
+   "reason": "T64 exact Windows metadata-cleanup follow-up; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_skill_git_source_policy.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 61
+   "total": 68
   },
   "arena/workbench/runtime_fetch.py": {
    "fingerprint": "903feb6cc9f2f3de56481c98754954be3dcf73903a7027c91d3ca5ffca24cd96",
