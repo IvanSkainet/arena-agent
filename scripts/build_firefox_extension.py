@@ -42,7 +42,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# This script is also loaded directly through importlib in compatibility tests.
+# The repository root bootstrap must therefore precede the required package
+# import; E402 is bounded to this direct-script compatibility boundary.
 from arena.governance.firefox_tree_parity import (  # noqa: E402
+    ignored_names,
+    symlink_entries,
     tree_files,
     verify_generated_tree,
 )
@@ -140,6 +145,13 @@ def main() -> int:
             print(f"  - {problem}", file=sys.stderr)
         return 1
 
+    source_links = symlink_entries(SOURCE)
+    if source_links:
+        print("Chromium source contains unsupported symlinks:", file=sys.stderr)
+        for name in sorted(source_links):
+            print(f"  - {name}", file=sys.stderr)
+        return 1
+
     if args.check:
         drift = verify_generated_tree(SOURCE, TARGET, firefox_manifest)
         if drift:
@@ -159,8 +171,7 @@ def main() -> int:
 
     if TARGET.exists():
         shutil.rmtree(TARGET)
-    shutil.copytree(SOURCE, TARGET,
-                    ignore=shutil.ignore_patterns("*.zip", "__pycache__"))
+    shutil.copytree(SOURCE, TARGET, ignore=ignored_names)
     (TARGET / "manifest.json").write_text(
         json.dumps(firefox_manifest, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8")
