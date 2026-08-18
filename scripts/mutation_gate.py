@@ -197,6 +197,9 @@ TARGETS: dict[str, tuple[str, ...]] = {
     "arena/governance/pytest_execution_guard.py": (
         "tests/test_pytest_execution_guard.py",
     ),
+    "arena/governance/security_env_inventory.py": (
+        "tests/test_security_env_inventory.py",
+    ),
     "scripts/test_import_failopen_guard.py": (
         "tests/test_import_failopen_guard.py",
     ),

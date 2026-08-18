@@ -1107,6 +1107,10 @@ jobs:
         run: |
           python scripts/catalogue_consistency_check.py --repo-root .
 
+      - name: Security environment inventory (source ↔ SECURITY.md)
+        run: |
+          python scripts/check_security_env_inventory.py --repo-root .
+
   # ----------------------------------------------------------------
   # v4.70.0: dead-dispatch guard. Cross-references every
   # catalogue tool against every string-literal tool name
