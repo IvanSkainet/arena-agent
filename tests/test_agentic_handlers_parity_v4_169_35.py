@@ -250,28 +250,26 @@ def test_reflect_happy_path_custom_params():
     ]
 
 
-def test_reflect_happy_path_defaults():
+def test_reflect_missing_goal_is_rejected():
     ctx = _MockContext()
-    ctx.reflect_result = {}  # goal missing, confidence missing
     handlers = make_agentic_handlers(ctx)
     req = _make_req("POST", "/v1/reflect", body_json={})
 
     resp = asyncio.run(handlers.reflect(req))
+    assert resp.status == 400
+    assert json.loads(resp.text) == {"ok": False, "error": "missing goal"}
+    assert ctx.reflect_calls == []
+    assert ctx.audit_events == []
+
+
+def test_reflect_result_missing_audit_fields_uses_empty_defaults():
+    ctx = _MockContext()
+    ctx.reflect_result = {}
+    handlers = make_agentic_handlers(ctx)
+    req = _make_req("POST", "/v1/reflect", body_json={"goal": "valid"})
+
+    resp = asyncio.run(handlers.reflect(req))
     assert resp.status == 200
-
-    assert ctx.reflect_calls == [
-        {
-            "goal": "",
-            "run": {},
-            "notes": "",
-            "outcome": "",
-        }
-    ]
-
-    assert ctx.audit_events == [
-        {
-            "event": "reflect_run",
-            "goal": "",
-            "confidence": "",
-        }
-    ]
+    assert ctx.audit_events == [{
+        "event": "reflect_run", "goal": "", "confidence": "",
+    }]

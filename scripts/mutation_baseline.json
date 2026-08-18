@@ -9,6 +9,7 @@
  "arena/agentctl_cli/agentctl_memory.py": 0,
  "arena/agentic/handlers.py": 0,
  "arena/autonomy/posture_identity.py": 0,
+ "arena/cognitive_input.py": 0,
  "arena/browser/cdp_client/tabs_http.py": 0,
  "arena/desktop/capability.py": 0,
  "arena/exec/client_lifecycle.py": 0,
