@@ -212,6 +212,10 @@ TARGETS: dict[str, tuple[str, ...]] = {
         "tests/test_mcp_client_output_bounds.py",
         "tests/test_mcp_client_parity_v4_169_39.py",
     ),
+    "arena/memory/recall_relevance.py": (
+        "tests/test_memory_recall_relevance.py",
+        "tests/test_memory_store.py",
+    ),
     "arena/mobile/mirror.py": (
         "tests/test_mobile_mirror_parity_v4_169_39.py",
         "tests/test_mobile_mirror_stream_params.py",
