@@ -139,12 +139,28 @@ def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
             source_error = validate_git_source_url(url)
             if source_error:
                 return {"ok": False, "error": source_error}
-            clone = subprocess.run(  # nosec B603,B607 -- fixed Git executable resolved from the operator's PATH; source URL and transport environment are validated above, argv is not interpreted by a shell
-                ["git", "clone", "--depth", "1", "--", url, str(target_dir)],
-                check=False,
-                capture_output=True,
-                env=git_protocol_environment(os.environ),
-            )
+            git_executable = shutil.which("git")
+            if not git_executable:
+                return {"ok": False, "error": "git executable not found"}
+            clone_argv = [
+                git_executable,
+                "-c", "protocol.allow=never",
+                "-c", "protocol.http.allow=always",
+                "-c", "protocol.https.allow=always",
+                "-c", "http.followRedirects=false",
+                "clone", "--depth", "1", "--", url, str(target_dir),
+            ]
+            try:
+                clone = subprocess.run(  # nosec B603 -- fixed absolute Git executable; source URL and transport environment are validated above, argv is not interpreted by a shell
+                    clone_argv,
+                    check=False,
+                    capture_output=True,
+                    env=git_protocol_environment(os.environ),
+                    timeout=60,
+                )
+            except subprocess.TimeoutExpired:
+                shutil.rmtree(target_dir, ignore_errors=True)
+                return {"ok": False, "error": "git clone timed out"}
             if clone.returncode != 0:
                 shutil.rmtree(target_dir, ignore_errors=True)
                 return {

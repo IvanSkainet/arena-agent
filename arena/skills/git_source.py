@@ -1,6 +1,7 @@
 """Fail-closed source policy for third-party skills cloned with Git."""
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from urllib.parse import urlparse
 
@@ -22,23 +23,27 @@ def validate_git_source_url(url: str) -> str | None:
         return "git source host is required"
     if parsed.username is not None or parsed.password is not None:
         return "credentials in git source URL are not allowed"
-    # urllib already rejects values above 65535 while reading ``parsed.port``;
-    # zero is the only remaining integer outside the TCP port range.
-    if port == 0:
+    authority = parsed.netloc
+    # urllib already rejects values above 65535 while reading ``parsed.port``.
+    if port == 0 or authority.endswith(":"):
         return "git source port is invalid"
     error = _validate_url(url)
     return f"git source rejected: {error}" if error else None
 
 
 def git_protocol_environment(environ: Mapping[str, str]) -> dict[str, str]:
-    """Copy the process environment while pinning Git's transport allowlist."""
+    """Copy non-Git environment values and install an isolated Git policy."""
     result = {
         key: value
         for key, value in environ.items()
-        if key != "GIT_CONFIG_COUNT"
-        and not key.startswith("GIT_CONFIG_KEY_")
-        and not key.startswith("GIT_CONFIG_VALUE_")
+        if not key.upper().startswith("GIT_")
     }
-    result["GIT_ALLOW_PROTOCOL"] = "https:http"
-    result["GIT_PROTOCOL_FROM_USER"] = "0"
+    result.update({
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_SYSTEM": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_ALLOW_PROTOCOL": "https:http",
+        "GIT_PROTOCOL_FROM_USER": "0",
+        "GIT_TERMINAL_PROMPT": "0",
+    })
     return result

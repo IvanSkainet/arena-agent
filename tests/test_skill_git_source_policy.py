@@ -55,9 +55,13 @@ def test_missing_host_invalid_port_and_ssrf_error_are_structured(monkeypatch):
     assert policy.validate_git_source_url("https:///repository") == (
         "git source host is required"
     )
-    assert policy.validate_git_source_url("https://example.com:0/repository") == (
-        "git source port is invalid"
-    )
+    for url in (
+        "https://example.com:0/repository",
+        "https://example.com:/repository",
+    ):
+        assert policy.validate_git_source_url(url) == (
+            "git source port is invalid"
+        )
     assert policy.validate_git_source_url("https://example.com:99999/repository") == (
         "invalid git source URL"
     )
@@ -99,12 +103,19 @@ def test_git_environment_overrides_and_removes_config_injection():
         "GIT_CONFIG_KEY_1": "protocol.file.allow",
         "GIT_CONFIG_VALUE_1": "always",
         "GIT_SSH_COMMAND": "ssh-custom",
+        "GIT_SSL_NO_VERIFY": "1",
+        "GIT_CONFIG_PARAMETERS": "'url.http://internal/.insteadOf=https://example.com/'",
+        "GIT_CONFIG_GLOBAL": "host-global-config",
+        "GIT_CONFIG_SYSTEM": "host-system-config",
     })
     assert result == {
         "PATH": "bin",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_SYSTEM": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_ALLOW_PROTOCOL": "https:http",
         "GIT_PROTOCOL_FROM_USER": "0",
-        "GIT_SSH_COMMAND": "ssh-custom",
+        "GIT_TERMINAL_PROMPT": "0",
     }
 
 
@@ -119,19 +130,33 @@ def test_install_git_source_uses_exact_transport_environment(tmp_path, monkeypat
 
     def run(argv, **kwargs):
         calls.append((argv, kwargs))
+        target = tmp_path / "third_party" / "demo"
+        (target / ".git").mkdir(parents=True)
         return SimpleNamespace(returncode=0)
 
+    monkeypatch.setattr(install.shutil, "which", lambda name: "/usr/bin/git")
     monkeypatch.setattr(install.subprocess, "run", run)
     result = install.install_skill(
         "demo", "https://example.com/demo", skills_dir=tmp_path
     )
     target = tmp_path / "third_party" / "demo"
     assert result == {"ok": True, "path": str(target), "name": "demo"}
+    assert target.is_dir()
+    assert not (target / ".git").exists()
     assert calls == [
-        (["git", "clone", "--depth", "1", "--", "https://example.com/demo", str(target)], {
+        ([
+            "/usr/bin/git",
+            "-c", "protocol.allow=never",
+            "-c", "protocol.http.allow=always",
+            "-c", "protocol.https.allow=always",
+            "-c", "http.followRedirects=false",
+            "clone", "--depth", "1", "--",
+            "https://example.com/demo", str(target),
+        ], {
             "check": False,
             "capture_output": True,
             "env": {"SAFE": "True"},
+            "timeout": 60,
         })
     ]
 
@@ -157,12 +182,40 @@ def test_install_rejects_source_before_git_and_sanitizes_clone_failure(
 
     source_url = "https://example.com/repository"
     monkeypatch.setattr(install, "validate_git_source_url", lambda _url: None)
-    monkeypatch.setattr(
-        install.subprocess,
-        "run",
-        lambda *_a, **_k: SimpleNamespace(returncode=128),
-    )
+    monkeypatch.setattr(install.shutil, "which", lambda name: "/usr/bin/git")
+
+    def fail_clone(*_args, **_kwargs):
+        target = tmp_path / "third_party" / "failed"
+        target.mkdir(parents=True)
+        (target / "partial").write_text("partial", encoding="utf-8")
+        return SimpleNamespace(returncode=128)
+
+    monkeypatch.setattr(install.subprocess, "run", fail_clone)
     failed = install.install_skill("failed", source_url, skills_dir=tmp_path)
     assert failed == {"ok": False, "error": "git clone failed", "exit_code": 128}
     assert source_url not in str(failed)
     assert not (tmp_path / "third_party" / "failed").exists()
+
+
+def test_install_handles_missing_git_and_clone_timeout(tmp_path, monkeypatch):
+    monkeypatch.setattr(install, "validate_git_source_url", lambda _url: None)
+    monkeypatch.setattr(install.shutil, "which", lambda _name: None)
+    missing = install.install_skill(
+        "missing", "https://example.com/repository", skills_dir=tmp_path
+    )
+    assert missing == {"ok": False, "error": "git executable not found"}
+
+    monkeypatch.setattr(install.shutil, "which", lambda _name: "/usr/bin/git")
+
+    def timeout_clone(*_args, **_kwargs):
+        target = tmp_path / "third_party" / "timeout"
+        target.mkdir(parents=True)
+        (target / "partial").write_text("partial", encoding="utf-8")
+        raise install.subprocess.TimeoutExpired(["git", "clone"], 60)
+
+    monkeypatch.setattr(install.subprocess, "run", timeout_clone)
+    timed_out = install.install_skill(
+        "timeout", "https://example.com/repository", skills_dir=tmp_path
+    )
+    assert timed_out == {"ok": False, "error": "git clone timed out"}
+    assert not (tmp_path / "third_party" / "timeout").exists()

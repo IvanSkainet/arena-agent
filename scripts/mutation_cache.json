@@ -254,14 +254,14 @@
    "total": 92
   },
   "arena/skills/git_source.py": {
-   "fingerprint": "abfad1c347cf7b23e533818945e58e0fb372226b09451cf266426e83d6381b25",
-   "reason": "T64 exact rerun after static-analysis fixture cleanup; 0 survivors",
+   "fingerprint": "74269e2a027d9719ed27b95c65e0fb3bd280bfa228e07d12220d4b0404ea2765",
+   "reason": "T64 exact reviewer-followup run; isolated Git config, empty-port guard; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_skill_git_source_policy.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 33
+   "total": 35
   },
   "arena/workbench/runtime_fetch.py": {
    "fingerprint": "903feb6cc9f2f3de56481c98754954be3dcf73903a7027c91d3ca5ffca24cd96",
