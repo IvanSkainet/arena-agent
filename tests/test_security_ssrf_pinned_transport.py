@@ -33,6 +33,8 @@ def answer(address: str, port: int = 443):
         ("http://x.internal/", "internal/metadata hostname not allowed"),
         ("http://x.local/", "internal/metadata hostname not allowed"),
         ("http://127.0.0.1/", "private/internal address not allowed"),
+        ("https://user@example.test/", "credentials in URL are not allowed"),
+        ("https://user:secret@example.test/", "credentials in URL are not allowed"),
         ("http://99999999999999/", "malformed numeric address not allowed"),
         ("http://[/", "invalid URL"),
     ],
@@ -286,6 +288,8 @@ def test_https_handler_preserves_host_port_pin_and_context(monkeypatch):
     context.minimum_version = http.ssl.TLSVersion.MINIMUM_SUPPORTED
     handler = http._PinnedHTTPSHandler(context=context)
     assert context.minimum_version == http.ssl.TLSVersion.TLSv1_2
+    assert context.verify_mode == http.ssl.CERT_REQUIRED
+    assert context.check_hostname is True
     request = urllib.request.Request("https://tls.example.test:9443/a")
     seen = []
 
@@ -300,7 +304,9 @@ def test_https_handler_preserves_host_port_pin_and_context(monkeypatch):
     monkeypatch.setattr(
         handler,
         "do_open",
-        lambda factory, _request: factory("ignored", timeout=6),
+        lambda factory, _request: factory(
+            "ignored", timeout=6, check_hostname=False
+        ),
     )
 
     connection = cast(http._PinnedHTTPSConnection, handler.https_open(request))

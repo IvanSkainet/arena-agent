@@ -30,6 +30,8 @@ def _static_error(parsed: ParseResult, host: str) -> str | None:
         return f"URL scheme '{parsed.scheme}' not allowed (only http/https)"
     if not host:
         return "missing host"
+    if parsed.username is not None or parsed.password is not None:
+        return "credentials in URL are not allowed"
     if (
         host in _BLOCKED_HOSTNAMES
         or host.endswith(".localhost")
@@ -107,6 +109,8 @@ def _secure_client_context(context: ssl.SSLContext | None) -> ssl.SSLContext:
     """Return a certificate-verifying client context with TLS 1.2 minimum."""
     result = context or ssl.create_default_context()
     result.minimum_version = ssl.TLSVersion.TLSv1_2
+    result.verify_mode = ssl.CERT_REQUIRED
+    result.check_hostname = True
     return result
 
 
@@ -150,8 +154,13 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
         timeout: Any = None,
         source_address: tuple[str, int] | None = None,
         context: ssl.SSLContext | None = None,
+        check_hostname: bool | None = None,
         blocksize: int = 8192,
     ) -> None:
+        # Python 3.10's urllib HTTPSHandler forwards ``check_hostname``;
+        # newer runtimes removed it from HTTPSConnection. Accept the legacy
+        # keyword but keep the public transport fail-closed regardless.
+        del check_hostname
         secure_context = _secure_client_context(context)
         super().__init__(
             host,
