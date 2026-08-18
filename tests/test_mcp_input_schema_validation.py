@@ -41,11 +41,10 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-try:
-    from arena.mcp.tool_registry import MCP_TOOLS
-except Exception as exc:  # pragma: no cover - import failure handled below
-    pytest.skip(f"arena.mcp.tool_registry not importable: {exc}", allow_module_level=True)
-
+# The explicit repo-root bootstrap above must precede this required product
+# import; E402 is bounded to that compatibility-path setup and import failure
+# intentionally remains a collection error.
+from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
 
 # JSON Schema Draft 7 metaschema. Verifies the schema is structurally
 # valid. We don't validate against every metaschema (Draft 4/6/2019-09

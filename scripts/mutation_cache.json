@@ -195,6 +195,16 @@
    "tool": "mutmut 2.5.1",
    "total": 150
   },
+  "arena/governance/pytest_execution_guard.py": {
+   "fingerprint": "dcf2bc3bc268a484c4de4e70eaae285fd30ed618bbbdea1d10873b2315f49e59",
+   "reason": "T65 installed-package plugin import follow-up; 0 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_pytest_execution_guard.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 20
+  },
   "arena/governance/reviewer_evidence.py": {
    "fingerprint": "545cf42272db162c65009da9c3697ecce8bebe05e698ff8d90dbc129e8eeea44",
    "reason": "T52 exact target run; 0 survivors",
@@ -305,6 +315,16 @@
    ],
    "tool": "mutmut 2.5.1",
    "total": 7
+  },
+  "scripts/test_import_failopen_guard.py": {
+   "fingerprint": "5ec8905007b3e328e14ef3e6e2de301faecec6ed2af46118eee189d3a0dc7ebd",
+   "reason": "T65 alias/dynamic/conftest reviewer follow-up; 0 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_import_failopen_guard.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 94
   },
   "scripts/update_log_timestamp.py": {
    "fingerprint": "599bdd3a0778ae1f24a8c7704d51fda178fc23c7304e1bf3871b91a084691ee9",

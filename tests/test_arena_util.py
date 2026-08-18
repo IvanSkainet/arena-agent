@@ -40,11 +40,7 @@ from unittest import mock
 
 import pytest
 
-try:
-    from arena import util
-except Exception:  # pragma: no cover
-    pytest.skip("arena.util not importable; run from repo root", allow_module_level=True)
-
+from arena import util
 
 # -------------------------------------------------------------------
 # _subprocess_kwargs

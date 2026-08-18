@@ -28,10 +28,7 @@ from typing import Any
 
 import pytest
 
-try:
-    from arena.skills.cache import SkillsCache
-except Exception:  # pragma: no cover
-    pytest.skip("arena.skills.cache not importable", allow_module_level=True)
+from arena.skills.cache import SkillsCache
 
 
 def _empty_scan() -> dict[str, Any]:

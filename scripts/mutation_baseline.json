@@ -25,6 +25,8 @@
  "arena/skills/git_source.py": 0,
  "arena/security_http.py": 0,
  "arena/workbench/runtime_fetch.py": 0,
+ "arena/governance/pytest_execution_guard.py": 0,
+ "scripts/test_import_failopen_guard.py": 0,
  "scripts/release_version_contract.py": 0,
  "scripts/update_log_timestamp.py": 0
 }

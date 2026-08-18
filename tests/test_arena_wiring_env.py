@@ -34,10 +34,7 @@ from __future__ import annotations
 
 import pytest
 
-try:
-    from arena.wiring.env import RuntimeEnv
-except Exception:  # pragma: no cover
-    pytest.skip("arena.wiring.env not importable", allow_module_level=True)
+from arena.wiring.env import RuntimeEnv
 
 
 def test_runtime_env_empty_construction() -> None:

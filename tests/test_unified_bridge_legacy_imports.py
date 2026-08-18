@@ -21,8 +21,6 @@ from __future__ import annotations
 
 import importlib
 
-import pytest
-
 # Symbols that ``unified_bridge`` re-exports today. Update this
 # list when you intentionally add a new public re-export. The
 # test fails if any of these names disappear.
@@ -34,14 +32,8 @@ EXPECTED_PUBLIC_NAMES: frozenset[str] = frozenset({
 
 
 def _load_unified_bridge():
-    """Import unified_bridge and return the module. Skip the
-    whole test if the import path is not on sys.path or the
-    module is genuinely unavailable (e.g. running outside the
-    repo)."""
-    try:
-        return importlib.import_module("unified_bridge")
-    except Exception as exc:
-        pytest.skip(f"unified_bridge not importable: {exc}", allow_module_level=True)
+    """Import the required compatibility shim; any failure is a test error."""
+    return importlib.import_module("unified_bridge")
 
 
 def test_unified_bridge_imports_without_error():
