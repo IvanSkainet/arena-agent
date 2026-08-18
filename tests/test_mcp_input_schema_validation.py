@@ -41,6 +41,9 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
+# The explicit repo-root bootstrap above must precede this required product
+# import; E402 is bounded to that compatibility-path setup and import failure
+# intentionally remains a collection error.
 from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
 
 # JSON Schema Draft 7 metaschema. Verifies the schema is structurally

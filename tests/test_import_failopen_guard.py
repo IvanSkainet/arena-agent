@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from scripts import test_import_failopen_guard as guard
 
 
@@ -56,6 +58,40 @@ def test_dynamic_product_import_module_skip_is_rejected(tmp_path: Path) -> None:
     assert guard.scan_file(path) == [4]
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "import importlib as il\nimport pytest as pt\n"
+            "try:\n"
+            "    il.import_module(name='arena.runtime')\n"
+            "except Exception:\n"
+            "    pt.skip('hidden', allow_module_level=True)\n"
+        ),
+        (
+            "from importlib import import_module as load\n"
+            "from pytest import skip as module_skip\n"
+            "try:\n"
+            "    load('unified_bridge')\n"
+            "except Exception:\n"
+            "    module_skip('hidden', allow_module_level=True)\n"
+        ),
+        (
+            "import pytest\n\n"
+            "try:\n"
+            "    __import__('arena.runtime')\n"
+            "except Exception:\n"
+            "    pytest.skip('hidden', allow_module_level=True)\n"
+        ),
+    ],
+)
+def test_aliased_and_builtin_dynamic_forms_are_rejected(
+    tmp_path: Path, source: str
+) -> None:
+    path = _sample(tmp_path, source)
+    assert guard.scan_file(path) == [3]
+
+
 def test_optional_dependency_and_non_skip_handlers_are_allowed(tmp_path: Path) -> None:
     optional = _sample(
         tmp_path,
@@ -66,6 +102,15 @@ def test_optional_dependency_and_non_skip_handlers_are_allowed(tmp_path: Path) -
         "    pytest.skip('optional', allow_module_level=True)\n",
     )
     assert guard.scan_file(optional) == []
+    similarly_named = _sample(
+        tmp_path,
+        "import pytest\n"
+        "try:\n"
+        "    import arena_tools\n"
+        "except ImportError:\n"
+        "    pytest.skip('optional', allow_module_level=True)\n",
+    )
+    assert guard.scan_file(similarly_named) == []
     required_without_skip = _sample(
         tmp_path,
         "try:\n"
@@ -100,10 +145,15 @@ def test_collect_reports_exact_repository_relative_findings(
         "    pytest.skip('hidden', allow_module_level=True)\n",
         encoding="utf-8",
     )
-    (tests / "helper.py").write_text(hidden.read_text(encoding="utf-8"))
+    source = hidden.read_text(encoding="utf-8")
+    (tests / "helper.py").write_text(source, encoding="utf-8")
+    (tests / "conftest.py").write_text(source, encoding="utf-8")
     monkeypatch.setattr(guard, "root_path", lambda: root)
     monkeypatch.setattr(guard, "tests_path", lambda: tests)
-    assert guard.collect() == ["tests/test_hidden.py:2"]
+    assert guard.collect() == [
+        "tests/conftest.py:2",
+        "tests/test_hidden.py:2",
+    ]
 
 
 def test_main_reports_failure_and_success(monkeypatch, capsys) -> None:

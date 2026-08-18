@@ -317,14 +317,14 @@
    "total": 7
   },
   "scripts/test_import_failopen_guard.py": {
-   "fingerprint": "d7280d05870566bac5117995325e636b363cfd7efcc14a9eb614b651aa4d155a",
-   "reason": "T65 exact product-import fail-open target; 0 survivors",
+   "fingerprint": "5ec8905007b3e328e14ef3e6e2de301faecec6ed2af46118eee189d3a0dc7ebd",
+   "reason": "T65 alias/dynamic/conftest reviewer follow-up; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_import_failopen_guard.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 53
+   "total": 94
   },
   "scripts/update_log_timestamp.py": {
    "fingerprint": "599bdd3a0778ae1f24a8c7704d51fda178fc23c7304e1bf3871b91a084691ee9",
