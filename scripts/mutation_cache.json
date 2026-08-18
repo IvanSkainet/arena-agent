@@ -195,9 +195,19 @@
    "tool": "mutmut 2.5.1",
    "total": 150
   },
+  "arena/governance/firefox_tree_parity.py": {
+   "fingerprint": "100f7f3e87ecec1b57e2e3c916b00dcfa1bb42e110c9dee9e73dc4b4128cb651",
+   "reason": "T66 exact generated-tree parity run; 0 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_firefox_extension_parity.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 37
+  },
   "arena/governance/pytest_execution_guard.py": {
-   "fingerprint": "dcf2bc3bc268a484c4de4e70eaae285fd30ed618bbbdea1d10873b2315f49e59",
-   "reason": "T65 installed-package plugin import follow-up; 0 survivors",
+   "fingerprint": "b06a1a5da2e4e73193ca9f6cfa83b5e392443a17d828d72c9f57a55758ffe4ac",
+   "reason": "T66 exact post-alias/generated-test collection floors; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_pytest_execution_guard.py"
