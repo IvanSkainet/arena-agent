@@ -253,6 +253,16 @@
    "tool": "mutmut 2.5.1",
    "total": 92
   },
+  "arena/skills/git_source.py": {
+   "fingerprint": "f15230d2c01a2cc1a692248e8b88e2817b0cfed75e68f07c95ce1925d147df0b",
+   "reason": "T64 exact direct-pinned Git transport run with proxy isolation; 0 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_skill_git_source_policy.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 75
+  },
   "arena/workbench/runtime_fetch.py": {
    "fingerprint": "903feb6cc9f2f3de56481c98754954be3dcf73903a7027c91d3ca5ffca24cd96",
    "reason": "fresh run",

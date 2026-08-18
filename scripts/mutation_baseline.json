@@ -20,6 +20,7 @@
  "arena/mobile/apk_paths.py": 0,
  "arena/mobile/mirror.py": 0,
  "arena/observability/live_metrics.py": 0,
+ "arena/skills/git_source.py": 0,
  "arena/security_http.py": 0,
  "arena/workbench/runtime_fetch.py": 0,
  "scripts/release_version_contract.py": 0,
