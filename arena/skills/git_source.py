@@ -2,16 +2,38 @@
 from __future__ import annotations
 
 import os
+import urllib.error
 from collections.abc import Mapping
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
-from arena.security_ssrf import _validate_url
+from arena.security_http import PublicUrlRejected, _public_addresses
+from arena.security_ssrf import _coerce_ip
 
 _ALLOWED_GIT_SCHEMES = frozenset({"http", "https"})
 
 
+@dataclass(frozen=True)
+class ResolvedGitSource:
+    """One Git URL and the exact public peers accepted for its connection."""
+
+    url: str
+    host: str
+    port: int
+    addresses: tuple[str, ...]
+
+    def curl_resolve_values(self) -> tuple[str, ...]:
+        if _coerce_ip(self.host) is not None:
+            return ()
+        return tuple(
+            f"{self.host}:{self.port}:"
+            f"{'[' + address + ']' if ':' in address else address}"
+            for address in self.addresses
+        )
+
+
 def validate_git_source_url(url: str) -> str | None:
-    """Return an error unless *url* is a credential-free public HTTP(S) URL."""
+    """Validate the static credential-free HTTP(S) Git URL contract."""
     try:
         parsed = urlparse(url)
         port = parsed.port
@@ -23,12 +45,37 @@ def validate_git_source_url(url: str) -> str | None:
         return "git source host is required"
     if parsed.username is not None or parsed.password is not None:
         return "credentials in git source URL are not allowed"
-    authority = parsed.netloc
     # urllib already rejects values above 65535 while reading ``parsed.port``.
-    if port == 0 or authority.endswith(":"):
+    if port == 0 or parsed.netloc.endswith(":"):
         return "git source port is invalid"
-    error = _validate_url(url)
-    return f"git source rejected: {error}" if error else None
+    return None
+
+
+def resolve_git_source_url(
+    url: str,
+) -> tuple[ResolvedGitSource | None, str | None]:
+    """Resolve once and return the public peers Git must connect to."""
+    static_error = validate_git_source_url(url)
+    if static_error:
+        return None, static_error
+    try:
+        parsed, host, addresses = _public_addresses(url)
+    except (PublicUrlRejected, urllib.error.URLError, OSError) as exc:
+        return None, f"git source rejected: {exc}"
+    explicit_port = parsed.port
+    port = explicit_port or (443 if parsed.scheme == "https" else 80)
+    authority = f"[{host}]" if ":" in host else host
+    if explicit_port is not None:
+        authority = f"{authority}:{explicit_port}"
+    normalized_url = parsed._replace(
+        scheme=parsed.scheme.lower(), netloc=authority
+    ).geturl()
+    return ResolvedGitSource(
+        url=normalized_url,
+        host=host,
+        port=port,
+        addresses=addresses,
+    ), None
 
 
 def git_protocol_environment(environ: Mapping[str, str]) -> dict[str, str]:

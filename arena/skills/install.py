@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from arena.skills.git_source import git_protocol_environment, validate_git_source_url
+from arena.skills.git_source import git_protocol_environment, resolve_git_source_url
 
 
 def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
@@ -136,9 +136,10 @@ def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
                     except OSError:
                         pass
         else:
-            source_error = validate_git_source_url(url)
+            source, source_error = resolve_git_source_url(url)
             if source_error:
                 return {"ok": False, "error": source_error}
+            assert source is not None
             git_executable = shutil.which("git")
             if not git_executable:
                 return {"ok": False, "error": "git executable not found"}
@@ -148,8 +149,12 @@ def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
                 "-c", "protocol.http.allow=always",
                 "-c", "protocol.https.allow=always",
                 "-c", "http.followRedirects=false",
-                "clone", "--depth", "1", "--", url, str(target_dir),
             ]
+            for value in source.curl_resolve_values():
+                clone_argv.extend(["-c", f"http.curloptResolve=+{value}"])
+            clone_argv.extend([
+                "clone", "--depth", "1", "--", source.url, str(target_dir),
+            ])
             try:
                 clone = subprocess.run(  # nosec B603 -- fixed absolute Git executable; source URL and transport environment are validated above, argv is not interpreted by a shell
                     clone_argv,

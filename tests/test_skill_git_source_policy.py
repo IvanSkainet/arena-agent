@@ -2,12 +2,22 @@
 from __future__ import annotations
 
 import os
+from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 
 import pytest
 
 import arena.skills.git_source as policy
 import arena.skills.install as install
+
+
+def _resolved_source(url: str) -> policy.ResolvedGitSource:
+    return policy.ResolvedGitSource(
+        url=url,
+        host="example.com",
+        port=443,
+        addresses=("93.184.216.34", "2001:db8::34"),
+    )
 
 
 @pytest.mark.parametrize(
@@ -21,12 +31,7 @@ import arena.skills.install as install
         "example.com/repository",
     ],
 )
-def test_non_http_git_transports_are_rejected_without_resolution(monkeypatch, url):
-    monkeypatch.setattr(
-        policy,
-        "_validate_url",
-        lambda _url: pytest.fail("rejected schemes must not resolve"),
-    )
+def test_non_http_git_transports_are_rejected_without_resolution(url):
     assert policy.validate_git_source_url(url) == (
         "git source scheme not allowed (only http/https)"
     )
@@ -40,18 +45,13 @@ def test_non_http_git_transports_are_rejected_without_resolution(monkeypatch, ur
         "http://user@example.com/repository",
     ],
 )
-def test_credentials_are_rejected_before_ssrf_check(monkeypatch, url):
-    monkeypatch.setattr(
-        policy,
-        "_validate_url",
-        lambda _url: pytest.fail("credential-bearing URLs must not resolve"),
-    )
+def test_credentials_are_rejected_before_resolution(url):
     assert policy.validate_git_source_url(url) == (
         "credentials in git source URL are not allowed"
     )
 
 
-def test_missing_host_invalid_port_and_ssrf_error_are_structured(monkeypatch):
+def test_missing_host_and_invalid_ports_are_structured():
     assert policy.validate_git_source_url("https:///repository") == (
         "git source host is required"
     )
@@ -65,31 +65,119 @@ def test_missing_host_invalid_port_and_ssrf_error_are_structured(monkeypatch):
     assert policy.validate_git_source_url("https://example.com:99999/repository") == (
         "invalid git source URL"
     )
-    monkeypatch.setattr(
-        policy,
-        "_validate_url",
-        lambda _url: "host resolves to a private/internal address",
-    )
-    assert policy.validate_git_source_url("https://internal.test/repository") == (
-        "git source rejected: host resolves to a private/internal address"
-    )
 
 
-def test_public_http_and_https_sources_are_accepted(monkeypatch):
-    seen = []
-    monkeypatch.setattr(
-        policy,
-        "_validate_url",
-        lambda url: seen.append(url) or None,
-    )
+def test_public_http_and_https_static_sources_are_accepted():
     assert policy.validate_git_source_url("https://example.com/repository") is None
     assert policy.validate_git_source_url("http://example.com:8080/repository") is None
     assert policy.validate_git_source_url("https://example.com:1/repository") is None
-    assert seen == [
-        "https://example.com/repository",
-        "http://example.com:8080/repository",
-        "https://example.com:1/repository",
-    ]
+
+
+def test_resolve_rejects_static_error_before_dns(monkeypatch):
+    monkeypatch.setattr(
+        policy,
+        "_public_addresses",
+        lambda _url: pytest.fail("static rejection reached DNS"),
+    )
+    source, error = policy.resolve_git_source_url("ext::echo bypass")
+    assert source is None
+    assert error == "git source scheme not allowed (only http/https)"
+
+
+def test_git_source_is_resolved_once_and_pinned_for_curl(monkeypatch):
+    calls = []
+
+    def resolve(url):
+        calls.append(url)
+        return (
+            policy.urlparse(url),
+            "example.com",
+            ("93.184.216.34", "2001:db8::34"),
+        )
+
+    monkeypatch.setattr(policy, "_public_addresses", resolve)
+    source, error = policy.resolve_git_source_url(
+        "https://Example.COM.:8443/repository"
+    )
+    assert error is None
+    assert source == policy.ResolvedGitSource(
+        url="https://example.com:8443/repository",
+        host="example.com",
+        port=8443,
+        addresses=("93.184.216.34", "2001:db8::34"),
+    )
+    assert source is not None
+    assert source.curl_resolve_values() == (
+        "example.com:8443:93.184.216.34",
+        "example.com:8443:[2001:db8::34]",
+    )
+    assert calls == ["https://Example.COM.:8443/repository"]
+    with pytest.raises(FrozenInstanceError):
+        source.port = 443  # type: ignore[reportAttributeAccessIssue]
+
+
+def test_default_ports_and_ipv6_authority_are_preserved(monkeypatch):
+    answers = {
+        "https://example.com/repository": (
+            "example.com", ("93.184.216.34",)
+        ),
+        "http://example.com/repository": (
+            "example.com", ("93.184.216.34",)
+        ),
+        "https://[2001:4860:4860::8888]/repository": (
+            "2001:4860:4860::8888", ("2001:4860:4860::8888",)
+        ),
+    }
+
+    def resolve(url):
+        host, addresses = answers[url]
+        return policy.urlparse(url), host, addresses
+
+    monkeypatch.setattr(policy, "_public_addresses", resolve)
+    https_source, _ = policy.resolve_git_source_url(
+        "https://example.com/repository"
+    )
+    http_source, _ = policy.resolve_git_source_url(
+        "http://example.com/repository"
+    )
+    ipv6_source, _ = policy.resolve_git_source_url(
+        "https://[2001:4860:4860::8888]/repository"
+    )
+    assert https_source is not None and https_source.port == 443
+    assert http_source is not None and http_source.port == 80
+    assert ipv6_source is not None
+    assert ipv6_source.url == "https://[2001:4860:4860::8888]/repository"
+    assert ipv6_source.port == 443
+    assert ipv6_source.curl_resolve_values() == ()
+
+
+def test_literal_source_needs_no_curl_dns_override(monkeypatch):
+    monkeypatch.setattr(
+        policy,
+        "_public_addresses",
+        lambda url: (policy.urlparse(url), "8.8.8.8", ("8.8.8.8",)),
+    )
+    source, error = policy.resolve_git_source_url(
+        "https://8.8.8.8/repository"
+    )
+    assert error is None and source is not None
+    assert source.curl_resolve_values() == ()
+
+
+def test_resolution_failure_is_structured(monkeypatch):
+    def reject(_url):
+        raise policy.PublicUrlRejected(
+            "host resolves to a private/internal address"
+        )
+
+    monkeypatch.setattr(policy, "_public_addresses", reject)
+    source, error = policy.resolve_git_source_url(
+        "https://internal.test/repository"
+    )
+    assert source is None
+    assert error == (
+        "git source rejected: host resolves to a private/internal address"
+    )
 
 
 def test_git_environment_overrides_and_removes_config_injection():
@@ -121,7 +209,11 @@ def test_git_environment_overrides_and_removes_config_injection():
 
 def test_install_git_source_uses_exact_transport_environment(tmp_path, monkeypatch):
     calls = []
-    monkeypatch.setattr(install, "validate_git_source_url", lambda _url: None)
+    monkeypatch.setattr(
+        install,
+        "resolve_git_source_url",
+        lambda url: (_resolved_source(url), None),
+    )
     monkeypatch.setattr(
         install,
         "git_protocol_environment",
@@ -150,6 +242,8 @@ def test_install_git_source_uses_exact_transport_environment(tmp_path, monkeypat
             "-c", "protocol.http.allow=always",
             "-c", "protocol.https.allow=always",
             "-c", "http.followRedirects=false",
+            "-c", "http.curloptResolve=+example.com:443:93.184.216.34",
+            "-c", "http.curloptResolve=+example.com:443:[2001:db8::34]",
             "clone", "--depth", "1", "--",
             "https://example.com/demo", str(target),
         ], {
@@ -166,8 +260,11 @@ def test_install_rejects_source_before_git_and_sanitizes_clone_failure(
 ):
     monkeypatch.setattr(
         install,
-        "validate_git_source_url",
-        lambda _url: "git source scheme not allowed (only http/https)",
+        "resolve_git_source_url",
+        lambda _url: (
+            None,
+            "git source scheme not allowed (only http/https)",
+        ),
     )
     monkeypatch.setattr(
         install.subprocess,
@@ -181,7 +278,11 @@ def test_install_rejects_source_before_git_and_sanitizes_clone_failure(
     }
 
     source_url = "https://example.com/repository"
-    monkeypatch.setattr(install, "validate_git_source_url", lambda _url: None)
+    monkeypatch.setattr(
+        install,
+        "resolve_git_source_url",
+        lambda url: (_resolved_source(url), None),
+    )
     monkeypatch.setattr(install.shutil, "which", lambda name: "/usr/bin/git")
 
     def fail_clone(*_args, **_kwargs):
@@ -198,7 +299,11 @@ def test_install_rejects_source_before_git_and_sanitizes_clone_failure(
 
 
 def test_install_handles_missing_git_and_clone_timeout(tmp_path, monkeypatch):
-    monkeypatch.setattr(install, "validate_git_source_url", lambda _url: None)
+    monkeypatch.setattr(
+        install,
+        "resolve_git_source_url",
+        lambda url: (_resolved_source(url), None),
+    )
     monkeypatch.setattr(install.shutil, "which", lambda _name: None)
     missing = install.install_skill(
         "missing", "https://example.com/repository", skills_dir=tmp_path
