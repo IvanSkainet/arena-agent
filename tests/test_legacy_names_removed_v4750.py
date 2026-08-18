@@ -34,11 +34,7 @@ def _import_guard(name: str):
     return mod
 
 
-try:
-    from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
-except Exception:  # pragma: no cover
-    pytest.skip("MCP_TOOLS not importable", allow_module_level=True)
-
+from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
 
 _V4750_REMOVED = ["ping", "echo", "exec", "snapshot"]
 _V4750_NAMESPACED = ["exec.ping", "exec.echo", "exec.exec", "exec.snapshot"]
