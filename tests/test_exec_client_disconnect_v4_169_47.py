@@ -134,7 +134,10 @@ def _context(events: list[dict]) -> ExecHandlerContext:
     )
 
 
-async def _wait_until(predicate, timeout: float = 5.0) -> None:
+async def _wait_until(predicate, timeout: float = 15.0) -> None:
+    # Hosted macOS process startup can exceed five seconds under matrix load.
+    # The invariant is eventual registration/reaping before the 30s command
+    # timeout, not a scheduler-speed assertion.
     deadline = asyncio.get_running_loop().time() + timeout
     while not predicate():
         if asyncio.get_running_loop().time() >= deadline:
