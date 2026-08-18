@@ -184,6 +184,9 @@ TARGETS: dict[str, tuple[str, ...]] = {
         "tests/test_security.py",
         "tests/test_security_ssrf_bypass_corpus.py",
     ),
+    "arena/skills/git_source.py": (
+        "tests/test_skill_git_source_policy.py",
+    ),
     "arena/admin/auto_update_fetch.py": (
         "tests/test_auto_update_digest_required.py",
         "tests/test_auto_update.py",

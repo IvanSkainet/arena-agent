@@ -10,6 +10,8 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from arena.skills.git_source import git_protocol_environment, validate_git_source_url
+
 
 def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
     if not name or not url:
@@ -134,7 +136,22 @@ def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
                     except OSError:
                         pass
         else:
-            subprocess.run(["git", "clone", "--depth", "1", "--", url, str(target_dir)], check=True, capture_output=True)
+            source_error = validate_git_source_url(url)
+            if source_error:
+                return {"ok": False, "error": source_error}
+            clone = subprocess.run(
+                ["git", "clone", "--depth", "1", "--", url, str(target_dir)],
+                check=False,
+                capture_output=True,
+                env=git_protocol_environment(os.environ),
+            )
+            if clone.returncode != 0:
+                shutil.rmtree(target_dir, ignore_errors=True)
+                return {
+                    "ok": False,
+                    "error": "git clone failed",
+                    "exit_code": clone.returncode,
+                }
             shutil.rmtree(target_dir / ".git", ignore_errors=True)
         return {"ok": True, "path": str(target_dir), "name": name}
     except Exception as e:
