@@ -113,7 +113,7 @@ def test_http_connection_uses_pinned_ip_but_preserves_host(monkeypatch):
     monkeypatch.setattr(ssrf.socket, "create_connection", create_connection)
     connection = http._PinnedHTTPConnection(
         "example.test",
-        PUBLIC,
+        (PUBLIC,),
         port=8080,
         timeout=7,
         source_address=("192.0.2.1", 0),
@@ -127,6 +127,53 @@ def test_http_connection_uses_pinned_ip_but_preserves_host(monkeypatch):
     assert connected == [((PUBLIC, 8080), 7, ("192.0.2.1", 0))]
 
 
+def test_connection_falls_back_across_validated_addresses(monkeypatch):
+    calls = []
+    sentinel = object()
+
+    def create_connection(address, timeout, source_address):
+        calls.append((address, timeout, source_address))
+        if address[0] == PUBLIC:
+            raise OSError("first peer unavailable")
+        return sentinel
+
+    monkeypatch.setattr(ssrf.socket, "create_connection", create_connection)
+    connection = http._PinnedHTTPConnection(
+        "example.test",
+        (PUBLIC, "93.184.216.35", "93.184.216.36"),
+        port=80,
+        timeout=4,
+    )
+
+    connection.connect()
+
+    assert connection.sock is sentinel
+    assert calls == [
+        ((PUBLIC, 80), 4, None),
+        (("93.184.216.35", 80), 4, None),
+    ]
+
+
+def test_connection_fails_with_last_peer_error(monkeypatch):
+    errors = iter((OSError("first"), OSError("last")))
+    monkeypatch.setattr(
+        ssrf.socket,
+        "create_connection",
+        lambda *_a, **_k: (_ for _ in ()).throw(next(errors)),
+    )
+    connection = http._PinnedHTTPConnection(
+        "example.test", (PUBLIC, "93.184.216.35"), port=80
+    )
+
+    with pytest.raises(OSError, match="last"):
+        connection.connect()
+    with pytest.raises(OSError) as caught:
+        http._connect_validated(
+            (), port=80, timeout=1, source_address=None
+        )
+    assert str(caught.value) == "no validated peer addresses"
+
+
 def test_https_connection_uses_original_host_for_sni(monkeypatch):
     connected = []
     wrapped = []
@@ -138,6 +185,8 @@ def test_https_connection_uses_original_host_for_sni(monkeypatch):
         return raw_socket
 
     class Context:
+        minimum_version = http.ssl.TLSVersion.TLSv1
+
         def wrap_socket(self, sock, *, server_hostname):
             wrapped.append((sock, server_hostname))
             return tls_socket
@@ -145,7 +194,7 @@ def test_https_connection_uses_original_host_for_sni(monkeypatch):
     monkeypatch.setattr(ssrf.socket, "create_connection", create_connection)
     connection = http._PinnedHTTPSConnection(
         "example.test",
-        PUBLIC,
+        (PUBLIC,),
         port=8443,
         timeout=9,
         source_address=("2001:db8::1", 0),
@@ -225,14 +274,16 @@ def test_http_handler_pins_custom_port_and_revalidates_next_hop(monkeypatch):
 
     assert first.host == "first.test"
     assert first.port == 8080
-    assert first._pinned_address == PUBLIC
+    assert first._pinned_addresses == (PUBLIC,)
     with pytest.raises(http.PublicUrlRejected, match="private/internal"):
         handler.http_open(urllib.request.Request("http://redirect.test:8081/b"))
 
 
 def test_https_handler_preserves_host_port_pin_and_context(monkeypatch):
     context = http.ssl.create_default_context()
+    context.minimum_version = http.ssl.TLSVersion.MINIMUM_SUPPORTED
     handler = http._PinnedHTTPSHandler(context=context)
+    assert context.minimum_version == http.ssl.TLSVersion.TLSv1_2
     request = urllib.request.Request("https://tls.example.test:9443/a")
     seen = []
 
@@ -255,13 +306,14 @@ def test_https_handler_preserves_host_port_pin_and_context(monkeypatch):
     assert seen == ["https://tls.example.test:9443/a"]
     assert connection.host == "tls.example.test"
     assert connection.port == 9443
-    assert connection._pinned_address == PUBLIC
+    assert connection._pinned_addresses == (PUBLIC,)
     assert connection._ssl_context is context
 
 
 def test_https_handler_creates_default_tls_context():
     handler = http._PinnedHTTPSHandler()
     assert isinstance(handler._context, http.ssl.SSLContext)
+    assert handler._context.minimum_version == http.ssl.TLSVersion.TLSv1_2
 
 
 def test_open_public_url_disables_proxies_and_installs_pinned_handlers(monkeypatch):

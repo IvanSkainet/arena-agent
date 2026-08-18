@@ -78,11 +78,40 @@ def _public_addresses(url: str) -> tuple[ParseResult, tuple[str, ...]]:
     return parsed, tuple(addresses)
 
 
+def _connect_validated(
+    addresses: tuple[str, ...],
+    *,
+    port: int,
+    timeout: Any,
+    source_address: tuple[str, int] | None,
+):  # type: ignore[no-untyped-def]
+    """Try each already validated peer without performing another DNS lookup."""
+    if not addresses:
+        raise OSError("no validated peer addresses")
+    for address in addresses[:-1]:
+        try:
+            return socket.create_connection(
+                (address, port), timeout, source_address
+            )
+        except OSError:
+            pass
+    return socket.create_connection(
+        (addresses[-1], port), timeout, source_address
+    )
+
+
+def _secure_client_context(context: ssl.SSLContext | None) -> ssl.SSLContext:
+    """Return a certificate-verifying client context with TLS 1.2 minimum."""
+    result = context or ssl.create_default_context()
+    result.minimum_version = ssl.TLSVersion.TLSv1_2
+    return result
+
+
 class _PinnedHTTPConnection(http.client.HTTPConnection):
     def __init__(
         self,
         host: str,
-        pinned_address: str,
+        pinned_addresses: tuple[str, ...],
         port: int | None = None,
         *,
         timeout: Any = None,
@@ -96,14 +125,15 @@ class _PinnedHTTPConnection(http.client.HTTPConnection):
             source_address=source_address,
             blocksize=blocksize,
         )
-        self._pinned_address = pinned_address
+        self._pinned_addresses = pinned_addresses
         self._source_address = source_address
 
     def connect(self) -> None:
-        self.sock = socket.create_connection(
-            (self._pinned_address, self.port),
-            self.timeout,
-            self._source_address,
+        self.sock = _connect_validated(
+            self._pinned_addresses,
+            port=self.port,
+            timeout=self.timeout,
+            source_address=self._source_address,
         )
 
 
@@ -111,7 +141,7 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
     def __init__(
         self,
         host: str,
-        pinned_address: str,
+        pinned_addresses: tuple[str, ...],
         port: int | None = None,
         *,
         timeout: Any = None,
@@ -119,23 +149,25 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
         context: ssl.SSLContext | None = None,
         blocksize: int = 8192,
     ) -> None:
+        secure_context = _secure_client_context(context)
         super().__init__(
             host,
             port=port,
             timeout=timeout,
             source_address=source_address,
-            context=context,
+            context=secure_context,
             blocksize=blocksize,
         )
-        self._pinned_address = pinned_address
+        self._pinned_addresses = pinned_addresses
         self._source_address = source_address
-        self._ssl_context = context or ssl.create_default_context()
+        self._ssl_context = secure_context
 
     def connect(self) -> None:
-        sock = socket.create_connection(
-            (self._pinned_address, self.port),
-            self.timeout,
-            self._source_address,
+        sock = _connect_validated(
+            self._pinned_addresses,
+            port=self.port,
+            timeout=self.timeout,
+            source_address=self._source_address,
         )
         self.sock = self._ssl_context.wrap_socket(sock, server_hostname=self.host)
 
@@ -147,7 +179,7 @@ class _PinnedHTTPHandler(urllib.request.HTTPHandler):
 
         def factory(_host: str, **kwargs: Any) -> http.client.HTTPConnection:
             return _PinnedHTTPConnection(
-                host, addresses[0], port=parsed.port, **kwargs
+                host, addresses, port=parsed.port, **kwargs
             )
 
         return self.do_open(factory, req)
@@ -155,8 +187,9 @@ class _PinnedHTTPHandler(urllib.request.HTTPHandler):
 
 class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
     def __init__(self, context: ssl.SSLContext | None = None) -> None:
-        super().__init__(context=context)
-        self._context = context or ssl.create_default_context()
+        secure_context = _secure_client_context(context)
+        super().__init__(context=secure_context)
+        self._context = secure_context
 
     def https_open(self, req: urllib.request.Request):  # type: ignore[no-untyped-def]
         parsed, addresses = _public_addresses(req.full_url)
@@ -165,7 +198,7 @@ class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
         def factory(_host: str, **kwargs: Any) -> http.client.HTTPConnection:
             kwargs["context"] = self._context
             return _PinnedHTTPSConnection(
-                host, addresses[0], port=parsed.port, **kwargs
+                host, addresses, port=parsed.port, **kwargs
             )
 
         return self.do_open(factory, req)
