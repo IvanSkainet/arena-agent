@@ -29,8 +29,8 @@ pytest-cov==7.1.0
 # Workflow contract tests parse GitHub Actions YAML; this must be direct so
 # importorskip cannot silently remove the security policy suite in CI.
 PyYAML==6.0.3
-hypothesis==6.165.2
-ruff==0.16.2
+hypothesis==6.165.7
+ruff==0.16.3
 # NOTE: mypy the PACKAGE is deliberately absent. It was installed by
 # every CI job and never executed once -- type checking is pyrefly's,
 # through scripts/quality_ratchet.py. Removed in v4.169.32.
@@ -42,7 +42,7 @@ ruff==0.16.2
 # Enforced by scripts/pyrefly_preset_ratchet.py.
 pathspec==1.1.1
 setuptools==84.0.0
-wheel==0.47.0
+wheel==0.48.0
 
 # Test hardening: order shuffling + hang guard.
 pytest-randomly==4.1.0
