@@ -130,6 +130,16 @@
    "tool": "mutmut 2.5.1",
    "total": 49
   },
+  "arena/desktop/capability.py": {
+   "fingerprint": "f0f5350939a7fc93a09c4207d97e7a123700961aa061f33d1af6c54baa6b73e4",
+   "reason": "fresh run",
+   "survived": 0,
+   "tests": [
+    "tests/test_windows_desktop_capability.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 24
+  },
   "arena/exec/client_lifecycle.py": {
    "fingerprint": "b947f6ff4bfbce51d040cb593a195f167effed67a7584d9fb18d2a3456f8453a",
    "reason": "T44 exact target run; 0 survivors",

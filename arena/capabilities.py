@@ -17,6 +17,7 @@ import sys
 from typing import Any, Callable
 
 from arena import hostplatform as _host_platform
+from arena.desktop.capability import windows_desktop_capability
 
 # Every mobile endpoint the bridge can serve, minus the `/v1/mobile/`
 # prefix. Kept as a module constant so the capability map cannot drift
@@ -112,14 +113,12 @@ def build_capabilities(
 
     if sys.platform == "win32":
         caps["service"] = service_info_fn()
-        caps["desktop"].update({
-            "available": False,
-            "windows": {"available": False, "backend": "pending-win32", "reason": "Windows desktop backend is not implemented yet"},
-            "active_window": {"available": False, "backend": "pending-win32", "reason": "Windows desktop backend is not implemented yet"},
-            "screenshot": {"available": False, "backend": "pending-win32", "reason": "Windows screenshot backend is not implemented yet"},
-            "input": {"available": False, "backend": "pending-win32", "reason": "Windows SendInput backend is not implemented yet"},
-        })
-        caps["warnings"].append("Windows core is supported; desktop automation backend is pending")
+        windows_capability = windows_desktop_capability(env)
+        caps["desktop"].update(windows_capability)
+        if not windows_capability["available"]:
+            caps["warnings"].append(
+                "Windows core is supported; native desktop backend was not detected"
+            )
     elif sys.platform == "linux":
         is_kde = "kde" in desktop_name.lower() or "plasma" in desktop_name.lower()
         wayland = bool(env.get("wayland"))
