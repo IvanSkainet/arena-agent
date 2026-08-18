@@ -50,9 +50,10 @@ def test_public_literal_never_uses_dns(monkeypatch):
         lambda *_a, **_k: pytest.fail("numeric public address must not resolve"),
     )
 
-    parsed, addresses = http._public_addresses("HTTP://8.8.8.8.:8080/a")
+    parsed, host, addresses = http._public_addresses("HTTP://8.8.8.8.:8080/a")
 
     assert parsed.scheme == "http"
+    assert host == "8.8.8.8"
     assert addresses == ("8.8.8.8",)
 
 
@@ -79,9 +80,10 @@ def test_public_addresses_performs_one_authoritative_lookup(monkeypatch):
 
     monkeypatch.setattr(ssrf.socket, "getaddrinfo", resolve)
 
-    parsed, addresses = http._public_addresses("https://example.test/path")
+    parsed, host, addresses = http._public_addresses("https://example.test/path")
 
     assert parsed.hostname == "example.test"
+    assert host == "example.test"
     assert addresses == (PUBLIC,)
     assert calls == [("example.test", 443, ssrf.socket.SOCK_STREAM)]
 
@@ -270,7 +272,7 @@ def test_http_handler_pins_custom_port_and_revalidates_next_hop(monkeypatch):
         lambda factory, _request: factory("ignored", timeout=5),
     )
 
-    first = cast(http._PinnedHTTPConnection, handler.http_open(urllib.request.Request("http://first.test:8080/a")))
+    first = cast(http._PinnedHTTPConnection, handler.http_open(urllib.request.Request("http://First.Test.:8080/a")))
 
     assert first.host == "first.test"
     assert first.port == 8080
@@ -292,7 +294,7 @@ def test_https_handler_preserves_host_port_pin_and_context(monkeypatch):
         "_public_addresses",
         lambda url: (
             seen.append(url)
-            or (urllib.parse.urlparse(url), (PUBLIC,))
+            or (urllib.parse.urlparse(url), "tls.example.test", (PUBLIC,))
         ),
     )
     monkeypatch.setattr(
@@ -316,6 +318,81 @@ def test_https_handler_creates_default_tls_context():
     assert handler._context.minimum_version == http.ssl.TLSVersion.TLSv1_2
 
 
+@pytest.mark.parametrize(
+    "url",
+    ["file:///etc/passwd", "ftp://example.test/file", "data:text/plain,x"],
+)
+def test_open_public_url_rejects_non_http_initial_schemes(monkeypatch, url):
+    monkeypatch.setattr(
+        urllib.request,
+        "build_opener",
+        lambda *_handlers: pytest.fail("rejected scheme built an opener"),
+    )
+    with pytest.raises(http.PublicUrlRejected) as caught:
+        http.open_public_url(url, timeout=4)
+    assert str(caught.value) == "URL scheme not allowed (only http/https)"
+
+
+def test_open_public_url_rejects_invalid_initial_url():
+    with pytest.raises(http.PublicUrlRejected) as caught:
+        http.open_public_url("http://[", timeout=4)
+    assert str(caught.value) == "invalid URL"
+
+
+def test_redirect_handler_rejects_non_http_schemes():
+    handler = http._PublicHTTPRedirectHandler()
+    request = urllib.request.Request("https://public.example/start")
+    for target in (
+        "file:///etc/passwd",
+        "ftp://internal.example/file",
+        "data:text/plain,secret",
+    ):
+        with pytest.raises(http.PublicUrlRejected) as caught:
+            handler.redirect_request(
+                request, None, 302, "Found", {}, target
+            )
+        assert str(caught.value) == (
+            "redirect scheme not allowed (only http/https)"
+        )
+    for target in (
+        "http://next.example/path",
+        "https://next.example/path",
+    ):
+        redirected = handler.redirect_request(
+            request, None, 302, "Found", {}, target
+        )
+        assert redirected is not None
+        assert redirected.full_url == target
+
+    with pytest.raises(http.PublicUrlRejected) as caught:
+        handler.redirect_request(
+            request, None, 302, "Found", {}, "http://["
+        )
+    assert str(caught.value) == "invalid redirect URL"
+
+
+def test_public_url_rejection_is_a_network_and_value_error():
+    error = http.PublicUrlRejected("private/internal address not allowed")
+    assert isinstance(error, urllib.error.URLError)
+    assert isinstance(error, ValueError)
+    assert str(error) == "private/internal address not allowed"
+
+
+def test_open_public_url_accepts_https_initial_scheme(monkeypatch):
+    expected = object()
+
+    class Opener:
+        def open(self, request, *, timeout):
+            assert request == "https://example.test/"
+            assert timeout == 4
+            return expected
+
+    monkeypatch.setattr(
+        urllib.request, "build_opener", lambda *_handlers: Opener()
+    )
+    assert http.open_public_url("https://example.test/", timeout=4) is expected
+
+
 def test_open_public_url_disables_proxies_and_installs_pinned_handlers(monkeypatch):
     captured = []
     expected = object()
@@ -330,14 +407,15 @@ def test_open_public_url_disables_proxies_and_installs_pinned_handlers(monkeypat
         return Opener()
 
     monkeypatch.setattr(urllib.request, "build_opener", build_opener)
-    request = urllib.request.Request("https://example.test/")
+    request = urllib.request.Request("http://example.test/")
 
     assert http.open_public_url(request, timeout=4) is expected
     assert isinstance(captured[0], urllib.request.ProxyHandler)
     assert getattr(captured[0], "proxies") == {}
     assert isinstance(captured[1], http._PinnedHTTPHandler)
     assert isinstance(captured[2], http._PinnedHTTPSHandler)
-    assert captured[3] == (request, 4)
+    assert isinstance(captured[3], http._PublicHTTPRedirectHandler)
+    assert captured[4] == (request, 4)
 
 
 class _Response:
@@ -409,6 +487,26 @@ def test_mcp_net_http_uses_pinned_transport(monkeypatch):
     assert result["ok"] is True
     assert opened[0][0].full_url == "https://example.test/api"
     assert opened[0][1] == 3
+
+
+def test_mcp_net_returns_structured_error_for_connection_time_rejection(monkeypatch):
+    monkeypatch.setattr(tool_net, "_validate_url", lambda _url: None)
+
+    def reject(*_args, **_kwargs):
+        raise http.PublicUrlRejected(
+            "host resolves to a private/internal address"
+        )
+
+    monkeypatch.setattr(tool_net, "open_public_url", reject)
+    result = tool_net._handle_net_http({"url": "https://rebind.test/api"})
+    assert result == {
+        "ok": False,
+        "error": (
+            "network error: host resolves to a private/internal address"
+        ),
+        "url": "https://rebind.test/api",
+        "method": "GET",
+    }
 
 
 def test_strict_webhook_uses_pinned_transport(monkeypatch):

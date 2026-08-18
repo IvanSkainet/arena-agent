@@ -242,8 +242,8 @@
    "total": 150
   },
   "arena/security_http.py": {
-   "fingerprint": "0d8a57ba0e83614ca5a1ae1a70badb23942fed624fd4058e5c6bb08b19c327b7",
-   "reason": "T62 exact target run after TLS floor and validated-peer fallback; 0 survivors",
+   "fingerprint": "8463b101fd69463146c4aba71a5935e242adb67f0eb0a754279cb6a8d45a2871",
+   "reason": "T62 exact reviewer-followup run; TLS floor, peer fallback, normalized host, redirect scheme guard; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_security.py",
@@ -251,7 +251,7 @@
     "tests/test_security_ssrf_pinned_transport.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 74
+   "total": 85
   },
   "arena/workbench/runtime_fetch.py": {
    "fingerprint": "903feb6cc9f2f3de56481c98754954be3dcf73903a7027c91d3ca5ffca24cd96",

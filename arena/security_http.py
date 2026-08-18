@@ -7,7 +7,7 @@ import socket
 import ssl
 import urllib.error
 import urllib.request
-from typing import Any, cast
+from typing import Any
 from urllib.parse import ParseResult, urlparse
 
 from arena.security_ssrf import (
@@ -18,8 +18,11 @@ from arena.security_ssrf import (
 )
 
 
-class PublicUrlRejected(ValueError):
+class PublicUrlRejected(urllib.error.URLError, ValueError):
     """The outbound URL did not satisfy the public-network contract."""
+
+    def __str__(self) -> str:
+        return str(self.reason)
 
 
 def _static_error(parsed: ParseResult, host: str) -> str | None:
@@ -43,7 +46,7 @@ def _static_error(parsed: ParseResult, host: str) -> str | None:
     return None
 
 
-def _public_addresses(url: str) -> tuple[ParseResult, tuple[str, ...]]:
+def _public_addresses(url: str) -> tuple[ParseResult, str, tuple[str, ...]]:
     """Validate and resolve once, returning only proven-public addresses."""
     try:
         parsed = urlparse(url)
@@ -57,7 +60,7 @@ def _public_addresses(url: str) -> tuple[ParseResult, tuple[str, ...]]:
 
     literal = _coerce_ip(host)
     if literal is not None:
-        return parsed, (str(literal),)
+        return parsed, host, (str(literal),)
 
     try:
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
@@ -75,7 +78,7 @@ def _public_addresses(url: str) -> tuple[ParseResult, tuple[str, ...]]:
             addresses.append(rendered)
     if not addresses:
         raise urllib.error.URLError(f"cannot resolve public host {host!r}")
-    return parsed, tuple(addresses)
+    return parsed, host, tuple(addresses)
 
 
 def _connect_validated(
@@ -174,9 +177,7 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
 
 class _PinnedHTTPHandler(urllib.request.HTTPHandler):
     def http_open(self, req: urllib.request.Request):  # type: ignore[no-untyped-def]
-        parsed, addresses = _public_addresses(req.full_url)
-        host = cast(str, parsed.hostname)
-
+        parsed, host, addresses = _public_addresses(req.full_url)
         def factory(_host: str, **kwargs: Any) -> http.client.HTTPConnection:
             return _PinnedHTTPConnection(
                 host, addresses, port=parsed.port, **kwargs
@@ -192,9 +193,7 @@ class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
         self._context = secure_context
 
     def https_open(self, req: urllib.request.Request):  # type: ignore[no-untyped-def]
-        parsed, addresses = _public_addresses(req.full_url)
-        host = cast(str, parsed.hostname)
-
+        parsed, host, addresses = _public_addresses(req.full_url)
         def factory(_host: str, **kwargs: Any) -> http.client.HTTPConnection:
             kwargs["context"] = self._context
             return _PinnedHTTPSConnection(
@@ -204,6 +203,25 @@ class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
         return self.do_open(factory, req)
 
 
+class _PublicHTTPRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        try:
+            scheme = urlparse(newurl).scheme.lower()
+        except (TypeError, ValueError) as exc:
+            raise PublicUrlRejected("invalid redirect URL") from exc
+        if scheme not in ("http", "https"):
+            raise PublicUrlRejected("redirect scheme not allowed (only http/https)")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def open_public_url(
     url: str | urllib.request.Request,
     *,
@@ -211,9 +229,17 @@ def open_public_url(
     context: ssl.SSLContext | None = None,
 ):  # type: ignore[no-untyped-def]
     """Open a public URL, pinning the validated IP for every redirect hop."""
+    initial_url = url.full_url if isinstance(url, urllib.request.Request) else url
+    try:
+        initial_scheme = urlparse(initial_url).scheme.lower()
+    except (TypeError, ValueError) as exc:
+        raise PublicUrlRejected("invalid URL") from exc
+    if initial_scheme not in ("http", "https"):
+        raise PublicUrlRejected("URL scheme not allowed (only http/https)")
     opener = urllib.request.build_opener(
         urllib.request.ProxyHandler({}),
         _PinnedHTTPHandler(),
         _PinnedHTTPSHandler(context=context),
+        _PublicHTTPRedirectHandler(),
     )
     return opener.open(url, timeout=timeout)
