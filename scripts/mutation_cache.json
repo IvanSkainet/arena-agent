@@ -195,6 +195,16 @@
    "tool": "mutmut 2.5.1",
    "total": 150
   },
+  "arena/governance/pytest_execution_guard.py": {
+   "fingerprint": "dcf2bc3bc268a484c4de4e70eaae285fd30ed618bbbdea1d10873b2315f49e59",
+   "reason": "T65 installed-package plugin import follow-up; 0 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_pytest_execution_guard.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 20
+  },
   "arena/governance/reviewer_evidence.py": {
    "fingerprint": "545cf42272db162c65009da9c3697ecce8bebe05e698ff8d90dbc129e8eeea44",
    "reason": "T52 exact target run; 0 survivors",
@@ -295,16 +305,6 @@
    ],
    "tool": "mutmut 2.5.1",
    "total": 150
-  },
-  "scripts/pytest_execution_guard.py": {
-   "fingerprint": "75ced110fdf70865e6aa9334c2ab433fb3c0858e40bd109a595455695cca15c2",
-   "reason": "T65 exact Linux/Windows measured post-T63 floors; 0 survivors",
-   "survived": 0,
-   "tests": [
-    "tests/test_pytest_execution_guard.py"
-   ],
-   "tool": "mutmut 2.5.1",
-   "total": 20
   },
   "scripts/release_version_contract.py": {
    "fingerprint": "6e712e252102bee9a7a87cb5f3960ff3501cceebc03a1aacab7d6518e4c91560",

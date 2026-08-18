@@ -210,7 +210,7 @@ jobs:
             THRESHOLD=51
           fi
           ARENA_TEST_EXECUTION_GUARD=1 pytest -q \
-          -p scripts.pytest_execution_guard \
+          -p arena.governance.pytest_execution_guard \
           --cov-fail-under=$THRESHOLD \
           --strict-markers -ra \
           --junitxml=test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml

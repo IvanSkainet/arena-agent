@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts import pytest_execution_guard as guard
+from arena.governance import pytest_execution_guard as guard
 
 
 def test_measured_collection_floors_are_exact() -> None:
