@@ -200,6 +200,9 @@ TARGETS: dict[str, tuple[str, ...]] = {
     "scripts/test_import_failopen_guard.py": (
         "tests/test_import_failopen_guard.py",
     ),
+    "arena/async_lifecycle.py": (
+        "tests/test_async_lifecycle.py",
+    ),
     "arena/admin/auto_update_fetch.py": (
         "tests/test_auto_update_digest_required.py",
         "tests/test_auto_update.py",

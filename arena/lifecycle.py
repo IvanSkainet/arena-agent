@@ -14,6 +14,7 @@ from typing import Any
 from aiohttp import web
 
 from arena.app_keys import APP_CFG, APP_FILE_WATCH_LOOP, APP_LOG_CLEANUP, APP_MISSION_SCHEDULE_LOOP, APP_TASK_RUNNER
+from arena.async_lifecycle import cancel_background_tasks, spawn_background
 
 
 @dataclass(frozen=True)
@@ -99,7 +100,12 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
                         (ctx.log_warning or ctx.log_info)("[PostUpdateSmoke] FAILED -- %s", outcome.get("error") or (outcome.get("smoke") or {}).get("mode"))
             except Exception as e:
                 (ctx.log_warning or ctx.log_info)("[PostUpdateSmoke] hook error: %s", e)
-        asyncio.ensure_future(_post_update_smoke_bg())
+        spawn_background(
+            _post_update_smoke_bg(),
+            on_error=lambda exc: (ctx.log_warning or ctx.log_info)(
+                "[PostUpdateSmoke] detached task failed: %s", exc
+            ),
+        )
 
         # v4.22.1 + v4.38.0: fire autostart hooks in the background
         # for every wired transport. Each hook is a no-op when its
@@ -156,7 +162,12 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
                         "[%s] Autostart raised %s: %s",
                         _label, type(e).__name__, e,
                     )
-            asyncio.ensure_future(_autostart_bg())
+            spawn_background(
+                _autostart_bg(),
+                on_error=lambda exc, transport=label: (
+                    ctx.log_warning or ctx.log_info
+                )("[%s] detached autostart task failed: %s", transport, exc),
+            )
 
     async def on_cleanup(app: web.Application):
         """Stop background task runner and clean up resources."""
@@ -207,6 +218,10 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
                 await asyncio.wait_for(ctx.cdp_state["manager"].close(), timeout=10)
         except Exception:
             pass
+
+        # Detached event, smoke and autostart work must finish cancellation
+        # before this loop and its executors are shut down.
+        await cancel_background_tasks()
 
         # v4.164.0 (bug #60): screen-mirror sessions were never stopped on
         # shutdown. `mirror.stop_all()` exists and is even re-exported as

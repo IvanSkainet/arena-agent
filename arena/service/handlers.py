@@ -52,12 +52,11 @@ def make_service_handlers(ctx: ServiceHandlerContext) -> ServiceHandlers:
         # Spawn the respawn helper BEFORE we die.
         spawned, method = ctx.spawn_respawn_helper(port)
 
-        # Schedule shutdown after the response is sent.
-        async def _exit_soon():
-            await asyncio.sleep(1.5)
-            os._exit(0)
-
-        asyncio.create_task(_exit_soon())
+        # A loop-owned timer cannot be garbage-collected while the response is
+        # in flight. A discarded create_task could disappear before its sleep
+        # completed, leaving the old process alive beside its respawn helper.
+        loop = asyncio.get_running_loop()
+        loop.call_later(1.5, os._exit, 0)
 
         return ctx.cors_json_response({
             "ok": True,

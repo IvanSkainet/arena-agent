@@ -82,7 +82,7 @@ extend-exclude = ["cloudflared", "backups", "logs", "reports"]
 
 [tool.ruff.lint]
 # Conservative starter rule set — expand over time as the code is cleaned up.
-select = ["E", "F", "W", "I"]
+select = ["E", "F", "W", "I", "RUF006"]
 ignore = [
     "E501",  # line length handled by formatter, not enforced yet
     "E722",  # bare except — to be cleaned up incrementally
