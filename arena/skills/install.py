@@ -139,7 +139,8 @@ def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
             source, source_error = resolve_git_source_url(url)
             if source_error:
                 return {"ok": False, "error": source_error}
-            assert source is not None
+            if source is None:
+                return {"ok": False, "error": "git source resolution failed closed"}
             git_executable = shutil.which("git")
             if not git_executable:
                 return {"ok": False, "error": "git executable not found"}

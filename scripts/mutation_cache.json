@@ -254,8 +254,8 @@
    "total": 92
   },
   "arena/skills/git_source.py": {
-   "fingerprint": "9344dce9c1846a284e5ec868989eff78fa77db0ab7ff7b5012029e8128939f3c",
-   "reason": "T64 exact DNS-pinning reviewer follow-up; 0 survivors",
+   "fingerprint": "d4b80bc4fdd48dae7fa07d3e4aabf85f31058146ce71c255c05c75e5ef97c0bf",
+   "reason": "T64 exact Sonar follow-up; fail-closed resolver invariant and DNS pin remain 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_skill_git_source_policy.py"

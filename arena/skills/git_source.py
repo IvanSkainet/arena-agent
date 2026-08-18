@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import os
-import urllib.error
 from collections.abc import Mapping
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-from arena.security_http import PublicUrlRejected, _public_addresses
+from arena.security_http import _public_addresses
 from arena.security_ssrf import _coerce_ip
 
 _ALLOWED_GIT_SCHEMES = frozenset({"http", "https"})
@@ -60,7 +59,7 @@ def resolve_git_source_url(
         return None, static_error
     try:
         parsed, host, addresses = _public_addresses(url)
-    except (PublicUrlRejected, urllib.error.URLError, OSError) as exc:
+    except OSError as exc:
         return None, f"git source rejected: {exc}"
     explicit_port = parsed.port
     port = explicit_port or (443 if parsed.scheme == "https" else 80)

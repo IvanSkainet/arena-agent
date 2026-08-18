@@ -143,8 +143,10 @@ def test_default_ports_and_ipv6_authority_are_preserved(monkeypatch):
     ipv6_source, _ = policy.resolve_git_source_url(
         "https://[2001:4860:4860::8888]/repository"
     )
-    assert https_source is not None and https_source.port == 443
-    assert http_source is not None and http_source.port == 80
+    assert https_source is not None
+    assert https_source.port == 443
+    assert http_source is not None
+    assert http_source.port == 80
     assert ipv6_source is not None
     assert ipv6_source.url == "https://[2001:4860:4860::8888]/repository"
     assert ipv6_source.port == 443
@@ -160,15 +162,14 @@ def test_literal_source_needs_no_curl_dns_override(monkeypatch):
     source, error = policy.resolve_git_source_url(
         "https://8.8.8.8/repository"
     )
-    assert error is None and source is not None
+    assert error is None
+    assert source is not None
     assert source.curl_resolve_values() == ()
 
 
 def test_resolution_failure_is_structured(monkeypatch):
     def reject(_url):
-        raise policy.PublicUrlRejected(
-            "host resolves to a private/internal address"
-        )
+        raise OSError("host resolves to a private/internal address")
 
     monkeypatch.setattr(policy, "_public_addresses", reject)
     source, error = policy.resolve_git_source_url(
@@ -296,6 +297,24 @@ def test_install_rejects_source_before_git_and_sanitizes_clone_failure(
     assert failed == {"ok": False, "error": "git clone failed", "exit_code": 128}
     assert source_url not in str(failed)
     assert not (tmp_path / "third_party" / "failed").exists()
+
+
+def test_install_fails_closed_on_inconsistent_resolution(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        install, "resolve_git_source_url", lambda _url: (None, None)
+    )
+    monkeypatch.setattr(
+        install.subprocess,
+        "run",
+        lambda *_a, **_k: pytest.fail("inconsistent resolution reached git"),
+    )
+    result = install.install_skill(
+        "inconsistent", "https://example.com/repository", skills_dir=tmp_path
+    )
+    assert result == {
+        "ok": False,
+        "error": "git source resolution failed closed",
+    }
 
 
 def test_install_handles_missing_git_and_clone_timeout(tmp_path, monkeypatch):
