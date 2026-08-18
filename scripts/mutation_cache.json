@@ -242,8 +242,8 @@
    "total": 150
   },
   "arena/security_http.py": {
-   "fingerprint": "cfa9b851e587622cf8a4f1fa2720965e1c48d1ec1c3266accca0b011891e74c2",
-   "reason": "T62 exact target run; 0 survivors",
+   "fingerprint": "5e8f71f7e1c83e6b1a80b2734f72500c3ad3bb830e902f35e31f4e8897ee35e8",
+   "reason": "T62 exact target rerun after TEST-NET fixture cleanup; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_security.py",

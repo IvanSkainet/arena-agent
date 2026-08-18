@@ -116,7 +116,7 @@ def test_http_connection_uses_pinned_ip_but_preserves_host(monkeypatch):
         PUBLIC,
         port=8080,
         timeout=7,
-        source_address=("0.0.0.0", 0),
+        source_address=("192.0.2.1", 0),
     )
 
     connection.connect()
@@ -124,7 +124,7 @@ def test_http_connection_uses_pinned_ip_but_preserves_host(monkeypatch):
     assert connection.host == "example.test"
     assert connection.sock is sentinel
     assert connection.blocksize == 8192
-    assert connected == [((PUBLIC, 8080), 7, ("0.0.0.0", 0))]
+    assert connected == [((PUBLIC, 8080), 7, ("192.0.2.1", 0))]
 
 
 def test_https_connection_uses_original_host_for_sni(monkeypatch):
@@ -148,7 +148,7 @@ def test_https_connection_uses_original_host_for_sni(monkeypatch):
         PUBLIC,
         port=8443,
         timeout=9,
-        source_address=("::", 0),
+        source_address=("2001:db8::1", 0),
         context=cast(http.ssl.SSLContext, Context()),
     )
 
@@ -156,7 +156,7 @@ def test_https_connection_uses_original_host_for_sni(monkeypatch):
 
     assert connection.sock is tls_socket
     assert connection.blocksize == 8192
-    assert connected == [((PUBLIC, 8443), 9, ("::", 0))]
+    assert connected == [((PUBLIC, 8443), 9, ("2001:db8::1", 0))]
     assert wrapped == [(raw_socket, "example.test")]
 
 
