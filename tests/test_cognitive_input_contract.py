@@ -32,11 +32,14 @@ def test_pure_field_contracts_cover_valid_defaults_and_copies() -> None:
     assert optional_text(data, "context") == ""
     assert optional_text({}, "context") == ""
     constraints = optional_string_list(data, "constraints")
-    assert constraints == ["safe"] and constraints is not data["constraints"]
+    assert constraints == ["safe"]
+    assert constraints is not data["constraints"]
     run = optional_object(data, "run")
-    assert run == {"ok": True} and run is not data["run"]
+    assert run == {"ok": True}
+    assert run is not data["run"]
     assert positive_int(data, "max_steps", 8) == 3
     assert positive_int({"max_steps": 1}, "max_steps", 8) == 1
+    assert positive_int({"max_steps": None}, "max_steps", 8) == 8
     assert positive_int({}, "max_steps", 8) == 8
     reject_unknown({"goal": "x"}, frozenset({"goal"}))
 
@@ -133,11 +136,29 @@ class Context:
 def request(path: str, body: Any):
     req = make_mocked_request("POST", path, headers={"Authorization": "Bearer t"})
 
-    async def payload():
+    async def payload(*, loads=json.loads):
+        del loads
         return body
 
     req.json = payload
     return req
+
+
+def test_handlers_treat_explicit_null_optional_integers_as_defaults() -> None:
+    ctx: Any = Context()
+    planner = make_planner_handlers(ctx).plan
+    agentic = make_agentic_handlers(ctx).react
+
+    plan_response = asyncio.run(
+        planner(request("/v1/plan", {"goal": "x", "max_steps": None}))
+    )
+    react_response = asyncio.run(
+        agentic(request("/v1/react", {"goal": "x", "max_iterations": None}))
+    )
+    assert plan_response.status == 200
+    assert react_response.status == 200
+    assert ctx.plan_calls[0]["max_steps"] == 8
+    assert ctx.react_calls[0]["max_iterations"] == 4
 
 
 @pytest.mark.parametrize("endpoint,body,error", [
@@ -155,7 +176,7 @@ def request(path: str, body: Any):
      "unexpected field(s): observations"),
 ])
 def test_handlers_return_400_without_calling_runtime(endpoint, body, error) -> None:
-    ctx = Context()
+    ctx: Any = Context()
     handlers = {
         "plan": make_planner_handlers(ctx).plan,
         "react": make_agentic_handlers(ctx).react,

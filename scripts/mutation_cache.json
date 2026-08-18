@@ -99,8 +99,8 @@
    "total": 150
   },
   "arena/agentic/handlers.py": {
-   "fingerprint": "c275394a68375352d01c1dea2e9eca11b70400e86c525bbd8b1cf230a9797361",
-   "reason": "fresh run",
+   "fingerprint": "363aaa14c0bf3d656dd380326d88a8fdc445ac02da84b841ebbee6737a23f91a",
+   "reason": "T61 exact handler guard rerun after test-contract changes; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_agentic.py",
@@ -132,14 +132,14 @@
    "total": 49
   },
   "arena/cognitive_input.py": {
-   "fingerprint": "da491c88c2fbb3bb85b23d81b585940348f1f6f2628bab39fe2103e7f599c5eb",
-   "reason": "fresh run",
+   "fingerprint": "5a21b3b10df7eea6f3371c87d167611f4be68a7bdba86e9403b8d8dea7b94190",
+   "reason": "T61 exact Codacy consistency follow-up; explicit null defaults; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_cognitive_input_contract.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 37
+   "total": 38
   },
   "arena/desktop/capability.py": {
    "fingerprint": "f0f5350939a7fc93a09c4207d97e7a123700961aa061f33d1af6c54baa6b73e4",

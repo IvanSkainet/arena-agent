@@ -58,6 +58,8 @@ def optional_object(data: dict[str, Any], field: str) -> dict[str, Any]:
 
 def positive_int(data: dict[str, Any], field: str, default: int) -> int:
     value = data.get(field, default)
+    if value is None:
+        return default
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise CognitiveInputError(f"{field} must be a positive integer")
     return value
