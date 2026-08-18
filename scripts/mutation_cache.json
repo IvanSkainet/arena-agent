@@ -254,8 +254,8 @@
    "total": 92
   },
   "arena/skills/git_source.py": {
-   "fingerprint": "aea5883030ba07b8a4945b6a5e328537ce157ada78515e1131e9e096ea4f49b5",
-   "reason": "T64 exact target run; 0 survivors",
+   "fingerprint": "abfad1c347cf7b23e533818945e58e0fb372226b09451cf266426e83d6381b25",
+   "reason": "T64 exact rerun after static-analysis fixture cleanup; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_skill_git_source_policy.py"

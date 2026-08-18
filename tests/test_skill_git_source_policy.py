@@ -155,14 +155,14 @@ def test_install_rejects_source_before_git_and_sanitizes_clone_failure(
         "error": "git source scheme not allowed (only http/https)",
     }
 
-    secret_url = "https://example.com/repository"
+    source_url = "https://example.com/repository"
     monkeypatch.setattr(install, "validate_git_source_url", lambda _url: None)
     monkeypatch.setattr(
         install.subprocess,
         "run",
         lambda *_a, **_k: SimpleNamespace(returncode=128),
     )
-    failed = install.install_skill("failed", secret_url, skills_dir=tmp_path)
+    failed = install.install_skill("failed", source_url, skills_dir=tmp_path)
     assert failed == {"ok": False, "error": "git clone failed", "exit_code": 128}
-    assert secret_url not in str(failed)
+    assert source_url not in str(failed)
     assert not (tmp_path / "third_party" / "failed").exists()

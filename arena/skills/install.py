@@ -139,7 +139,7 @@ def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
             source_error = validate_git_source_url(url)
             if source_error:
                 return {"ok": False, "error": source_error}
-            clone = subprocess.run(
+            clone = subprocess.run(  # nosec B603,B607 -- fixed Git executable resolved from the operator's PATH; source URL and transport environment are validated above, argv is not interpreted by a shell
                 ["git", "clone", "--depth", "1", "--", url, str(target_dir)],
                 check=False,
                 capture_output=True,
