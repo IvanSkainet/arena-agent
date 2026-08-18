@@ -13,6 +13,9 @@ from arena.security_http import _public_addresses
 from arena.security_ssrf import _coerce_ip
 
 _ALLOWED_GIT_SCHEMES = frozenset({"http", "https"})
+_PROXY_ENV_NAMES = frozenset({
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+})
 
 
 @dataclass(frozen=True)
@@ -102,6 +105,7 @@ def git_protocol_environment(environ: Mapping[str, str]) -> dict[str, str]:
         key: value
         for key, value in environ.items()
         if not key.upper().startswith("GIT_")
+        and key.upper() not in _PROXY_ENV_NAMES
     }
     result.update({
         "GIT_CONFIG_GLOBAL": os.devnull,

@@ -247,6 +247,10 @@ def test_git_environment_overrides_and_removes_config_injection():
         "GIT_CONFIG_PARAMETERS": "'url.http://internal/.insteadOf=https://example.com/'",
         "GIT_CONFIG_GLOBAL": "host-global-config",
         "GIT_CONFIG_SYSTEM": "host-system-config",
+        "HTTPS_PROXY": "http://proxy.example:8080",
+        "http_proxy": "http://proxy.example:8080",
+        "ALL_PROXY": "socks5://proxy.example:1080",
+        "NO_PROXY": "*",
     })
     assert result == {
         "PATH": "bin",
