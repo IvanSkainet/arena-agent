@@ -336,10 +336,85 @@ to a redirect handler; `Page.navigate` gives no equivalent hook. Closing this
 requires a `Fetch`/`Network` interception domain enabled for the lifetime of
 every tab and a policy check on each `requestWillBeSent` — a change to the
 CDP client's connection model rather than to the navigation entry points,
-tracked in issue #129. Until then the same mitigations apply as for rebinding:
+tracked in issue #122. Until then the same mitigations apply as for rebinding:
 an egress filter or `--host-resolver-rules` on the browser process. The
 policy's guarantee is therefore precise: an agent cannot *name* a private
 target, but a public target that the agent names can still redirect to one.
+
+### Audit-log credential redaction
+
+The audit log is a review surface: `audit.export` and the `audit.jsonl` file
+are readable by any authenticated caller. Anything written there is therefore
+disclosed at the bridge's own trust level, not the operator's.
+
+`arena/observability/redact.py` scrubs two independent classes before a record
+reaches disk.
+
+**By shape.** Credentials with recognisable structure — `Authorization: Bearer`
+and `Basic`, AWS access keys, GitHub `ghp_`/`gho_`, OpenAI-style `sk-`, Slack
+`xox*`, Google `AIza`, JWTs, `scheme://user:pass@host` URIs, PEM private keys —
+match a pattern and are replaced with `<redacted:{kind}>`. The marker names the
+kind so an operator can tell which credential leaked, and through which
+channel, without seeing the value. Patterns are ordered specific-first: a
+`token=ghp_...` is reported as `github`, not as a generic assignment.
+
+Four shapes were added in v4.170.0 (#132): the `X-Arena-Token` header, a
+`--token`/`--api-key`/`--password` command-line option, a shell/env assignment
+of a `*TOKEN`/`*SECRET`/`*PASSWORD`/`*API_KEY` variable, and a
+`?token=`/`&access_token=` query parameter. All four appear routinely in
+recorded `exec` command lines. Because they match by *context* rather than by
+the value's own shape, they also cover a credential this process has never
+registered — a peer bridge's token, passed on a command line the local bridge
+merely executed.
+
+The query and assignment classes accept percent-escapes in the value. The query
+auth path decodes before comparing, so `?token=correct%20horse%20battery%20staple`
+authenticates as the decoded string; literal substitution searches for the
+decoded secret and cannot see the encoded spelling, so only the pattern can.
+
+**By value.** The bridge's own bearer has no shape at all — 43 characters of
+unstructured base62, no prefix, no separator, no checksum. No pattern can
+recognise it, and a pattern broad enough to try would also redact commit SHAs,
+file hashes and base64 payloads throughout the log. The process knows the value,
+so it registers it: `register_literal_secret()` records an exact string that is
+substituted before the pattern battery runs. Registration happens where the
+token first becomes known (`arena/cli.py`, at `resolve_token`) and is kept in
+step on rotation (`/v1/admin/token/regenerate` registers the new value before
+retiring the old one, so there is no window in which the fresh token is
+unprotected — and the old literal is kept when the new value cannot be
+registered, so a rotation never ends with neither protected).
+
+Reads take an immutable snapshot rather than iterating the registry. The audit
+hot path runs on executor threads while rotation runs on the main one;
+iterating the dict directly raised `RuntimeError: dictionary changed size
+during iteration`, losing exactly the record that documents a rotation. The
+lock now serialises writers only. Registered literals are matched longest-first
+so a token containing a shorter registered literal is reported as itself rather
+than left half-masked.
+
+Registration refuses values shorter than 12 characters: registering `""` would
+redact every string, and registering `"1"` would corrupt the log. The refusal is
+reported to the caller rather than silent, so a missing config key cannot be
+mistaken for protection — and `serve()` now **refuses to start** when the
+configured master token is rejected. Previously `--token` and
+`ARENA_LOCAL_BRIDGE_TOKEN` had no minimum length (only the token *file* path
+enforced 16), so a shorter value authenticated requests while being too short to
+register: it reached the audit log in the clear. A bridge that cannot scrub its
+own bearer must not serve. `registered_literal_count()` exposes the number of
+registered literals and deliberately not their values — a diagnostic that
+dumped the registry would recreate the leak it closes.
+
+The module is in `scripts/mutation_gate.py` at 0 surviving mutants (95/95
+killed): a mutant here is a secret shape that stopped being scrubbed. Test
+fixtures are assembled from fragments rather than written as complete literals
+— a credential-shaped string in a test is what secret scanners match on, and
+gitleaks duly rejected the first revision of this very change.
+
+**Rotate after an exposure.** Redaction applies at write time. Audit files
+written before v4.170.0 retain any token that ever appeared in a command, so an
+operator who ran `exec` with the bearer on the command line should rotate it
+(`POST /v1/admin/token/regenerate`) and treat the historical audit as
+compromised. Rotation takes effect on the next request; no restart is required.
 
 ### Recommended production preset
 

@@ -11,6 +11,8 @@ from typing import Any
 
 from aiohttp import web
 
+from arena.observability.redact import LITERAL_MIN_LENGTH, register_literal_secret
+
 
 @dataclass(frozen=True)
 class CliContext:
@@ -71,6 +73,30 @@ def serve(args: argparse.Namespace, ctx: CliContext) -> None:
         os.environ["ARENA_TOKEN_FILE"] = tf
 
     token, token_file_used = ctx.resolve_token(args.token)
+
+    # v4.170.0 (#132): teach the redactor this bridge's own bearer the
+    # moment the process learns it. The token is unstructured base62, so
+    # no credential-shape pattern can recognise it -- an operator running
+    # `exec` with the token on the command line (during install or
+    # debugging) wrote it to audit.jsonl in the clear, where audit.export
+    # hands it to any authenticated caller. Registering the literal is the
+    # only reliable discriminator; see arena/observability/redact.py.
+    #
+    # Refusing to start on a rejected registration is deliberate. The
+    # token file path already enforces >= 16 characters, but --token and
+    # ARENA_LOCAL_BRIDGE_TOKEN did not: a shorter value was accepted as
+    # the live master credential while being too short to register, so it
+    # authenticated requests AND reached the audit log in the clear. A
+    # bridge that cannot protect its own bearer must not serve; the
+    # operator gets a specific, actionable message instead.
+    if not register_literal_secret(token, kind="bridge-token"):
+        raise SystemExit(
+            "[ArenaBridge] refusing to start: the configured master token is "
+            f"shorter than {LITERAL_MIN_LENGTH} characters, so it cannot be "
+            "redacted from the audit log (it would be written there in the "
+            "clear). Supply a longer --token / ARENA_LOCAL_BRIDGE_TOKEN, or "
+            "omit both and let the bridge generate one."
+        )
 
     root = Path(args.root).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)

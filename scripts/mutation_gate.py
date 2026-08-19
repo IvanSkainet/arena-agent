@@ -194,6 +194,14 @@ TARGETS: dict[str, tuple[str, ...]] = {
     "arena/browser/navigation_policy.py": (
         "tests/test_cdp_navigation_policy.py",
     ),
+    # T71 (#132): the last line of defence before a credential reaches disk.
+    # A surviving mutant here is a secret shape that stopped being scrubbed,
+    # and the audit log is read by every authenticated caller.
+    "arena/observability/redact.py": (
+        "tests/test_audit_master_token_redaction.py",
+        "tests/test_observability_redact.py",
+        "tests/test_audit_value_redaction.py",
+    ),
     "arena/security_http.py": (
         "tests/test_security_ssrf_pinned_transport.py",
         "tests/test_security.py",
