@@ -19,6 +19,7 @@ import json
 from pathlib import Path
 
 from arena.admin import autostart
+from arena.admin.tunnel_exposure_policy import PUBLIC_TUNNEL_ACK
 
 ENV_NG = "ARENA_NGROK_AUTOSTART"
 
@@ -132,7 +133,7 @@ def test_post_enable_creates_marker(tmp_path, monkeypatch):
     from arena.admin.handlers import make_admin_handlers
     handlers = make_admin_handlers(_make_ctx(tmp_path))
     req = _make_request("POST", "/v1/autostart/ngrok",
-                        body={"enabled": True},
+                        body={"enabled": True, "ack": PUBLIC_TUNNEL_ACK},
                         match_info={"transport": "ngrok"})
     resp = asyncio.run(handlers.autostart_set(req))
     payload = json.loads(resp.body.decode("utf-8"))

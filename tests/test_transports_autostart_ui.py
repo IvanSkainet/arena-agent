@@ -117,7 +117,10 @@ def test_js_toggle_posts_json_with_enabled(js_text: str):
     assert m
     body = m.group(0)
     assert 'method: "POST"' in body
-    assert 'JSON.stringify({enabled: !!enabled})' in body
+    assert "payload.ack" in body
+    assert "I_ACCEPT_PUBLIC_BRIDGE_EXPOSURE" in body
+    assert "JSON.stringify(payload)" in body
+    assert "window.confirm(" in body
 
 
 def test_js_render_reads_env_override_and_marker(js_text: str):

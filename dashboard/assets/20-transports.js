@@ -197,10 +197,25 @@
   async function transportAutostartToggle(name, enabled) {
     var box = _q("tr-autostart-" + name);
     var hintEl = _q("tr-hint-" + name);
+    if (enabled && !window.confirm(
+      "Enable autostart for " + name + "? After the next Bridge restart this " +
+      "publishes authenticated endpoints to the public internet, protected " +
+      "only by the bearer token."
+    )) {
+      if (box) box.checked = false;
+      return;
+    }
     try {
+      var payload = {enabled: !!enabled};
+      var headers = {};
+      if (enabled) {
+        payload.ack = "I_ACCEPT_PUBLIC_BRIDGE_EXPOSURE";
+        headers["X-Arena-Public-Exposure-Ack"] = "I_ACCEPT_PUBLIC_BRIDGE_EXPOSURE";
+      }
       var d = await window.api("/v1/autostart/" + name, {
         method: "POST",
-        body: JSON.stringify({enabled: !!enabled}),
+        headers: headers,
+        body: JSON.stringify(payload),
       });
       if (d && d.ok) {
         // Re-render from the fresh state -- picks up env-override
@@ -361,7 +376,7 @@
     // ZT deliberately absent -- no start/stop verb.
   };
 
-  async function transportStart(name) {
+  async function transportStart(name, opts) {
     var route = _ROUTE[name];
     if (!route) {
       alert(name + " has no start endpoint. Use the ZeroTier tab to " +
@@ -376,11 +391,23 @@
       hintEl.className = "tr-hint";
       hintEl.style.display = "";
     }
+    if (!(opts && opts.alreadyConfirmed) && !window.confirm(
+      "Start " + name + "? This publishes the Bridge to the public internet. " +
+      "Authenticated endpoints will be reachable from outside this machine, " +
+      "protected only by the bearer token."
+    )) {
+      if (hintEl) hintEl.style.display = "none";
+      return;
+    }
     try {
       // Longer timeout for ngrok / cloudflared because they need
       // to negotiate an edge URL. The api() helper uses fetch's
       // default (no timeout).
-      var d = await window.api(route + "start", {method: "POST"});
+      var d = await window.api(route + "start", {
+        method: "POST",
+        headers: {"X-Arena-Public-Exposure-Ack": "I_ACCEPT_PUBLIC_BRIDGE_EXPOSURE"},
+        body: JSON.stringify({ack: "I_ACCEPT_PUBLIC_BRIDGE_EXPOSURE"}),
+      });
       if (d && d.ok) {
         // Immediate reload so the badge flips to "up" without the
         // operator having to hit Reload manually.

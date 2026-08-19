@@ -33,6 +33,11 @@ from typing import Any
 
 from aiohttp import web
 
+from arena.admin.tunnel_exposure_policy import (
+    PUBLIC_TUNNEL_ACK_HEADER,
+    PUBLIC_TUNNEL_PROVIDERS,
+    public_start_denial,
+)
 from arena.app_keys import APP_CFG
 from arena.handler_helpers import authed
 
@@ -164,6 +169,20 @@ def make_autostart_handlers(ctx: Any) -> dict:
         except Exception:
             body = {}
         enabled = bool(body.get("enabled", False))
+        ack = request.headers.get(PUBLIC_TUNNEL_ACK_HEADER) or body.get("ack")
+        denial = public_start_denial(
+            provider=transport,
+            action="start" if enabled else "stop",
+            ack=ack,
+        )
+        if denial is not None:
+            ctx.record_request(is_error=True, count_request=False)
+            ctx.audit({
+                "type": "tunnel_public_ack_denied",
+                "provider": transport,
+                "action": "autostart_enable",
+            })
+            return ctx.cors_json_response(denial, status=403)
 
         cfg = request.app[APP_CFG]
         port = cfg.get("port", 8765)
@@ -204,6 +223,12 @@ def make_autostart_handlers(ctx: Any) -> dict:
                 "environment and will override the marker. Unset it "
                 "in the service unit to fully disable autostart."
             )
+        if enabled and transport in PUBLIC_TUNNEL_PROVIDERS:
+            ctx.audit({
+                "type": "tunnel_public_autostart_authorized",
+                "provider": transport,
+                "changed": changed,
+            })
         ctx.audit({"type": "autostart_set",
                    "transport": transport,
                    "enabled": enabled,
