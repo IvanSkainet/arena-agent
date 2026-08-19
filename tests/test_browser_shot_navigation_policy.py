@@ -1,4 +1,5 @@
-"""`browser.shot` is a navigation too (#103 follow-up).
+"""
+`browser.shot` is a navigation too (#103 follow-up).
 
 Both MCP screenshot tools hand the agent's URL to a headless Chromium on its
 command line. That reaches loopback, link-local metadata and `file://`
@@ -6,6 +7,7 @@ exactly like `Page.navigate` does -- it simply never travels over CDP, so the
 CDP-shaped guard did not see it. These tests drive the real handlers and
 assert on the strongest available signal: no browser process was launched.
 """
+
 from __future__ import annotations
 
 import json
@@ -91,7 +93,9 @@ def test_browser_shot_still_takes_a_screenshot_of_a_public_url(tmp_path):
     assert body["ok"] is True
     assert body["url"] == "https://example.com/"
     assert len(spy.commands) == 1
-    assert "https://example.com/" in spy.commands[0]
+    # The URL is the last argv element, not "somewhere in the command line":
+    # a substring check would also pass if it were embedded in a flag value.
+    assert spy.commands[0][-1] == "https://example.com/"
 
 
 def test_browser_shot_screenshots_the_validated_url_not_the_raw_input(tmp_path):
@@ -105,8 +109,7 @@ def test_browser_shot_screenshots_the_validated_url_not_the_raw_input(tmp_path):
         "browser.shot", {"url": "  https://example.com/x  "},
         ctx=_ctx(tmp_path), run_local=_Spy(), run_sd=spy,
     )
-    assert "https://example.com/x" in spy.commands[0]
-    assert "  https://example.com/x  " not in spy.commands[0]
+    assert spy.commands[0][-1] == "https://example.com/x"
 
 
 def test_browser_shot_requires_a_url(tmp_path):
@@ -117,3 +120,41 @@ def test_browser_shot_requires_a_url(tmp_path):
     assert body["ok"] is False
     assert "url" in body["error"]
     assert spy.commands == []
+
+
+# `standalone_tools` is a second, independent dispatcher with its own copy of
+# the screenshot code. Patching it without driving it would leave the gate
+# asserted only by an import, so these run the real `call_tool`.
+
+
+@pytest.mark.parametrize("url", HOSTILE_URLS)
+def test_standalone_browser_shot_refuses_without_launching(url, monkeypatch):
+    from arena.mcp import standalone_tools
+
+    launched = []
+    monkeypatch.setattr(
+        standalone_tools, "run_sd",
+        lambda cmd, timeout=None: (launched.append(cmd), (0, "", ""))[1],
+    )
+
+    body = _payload(standalone_tools.call_tool("browser.shot", {"url": url}))
+    assert body["ok"] is False, f"{url} was not refused"
+    assert body["error"]
+    assert launched == [], f"a browser was launched for {url}: {launched}"
+
+
+def test_standalone_browser_shot_still_works_for_a_public_url(monkeypatch):
+    from arena.mcp import standalone_tools
+
+    launched = []
+    monkeypatch.setattr(
+        standalone_tools, "run_sd",
+        lambda cmd, timeout=None: (launched.append(cmd), (0, "", ""))[1],
+    )
+
+    body = _payload(standalone_tools.call_tool(
+        "browser.shot", {"url": "https://example.com/"}))
+    assert body["ok"] is True
+    assert body["url"] == "https://example.com/"
+    assert len(launched) == 1
+    assert launched[0][-1] == "https://example.com/"

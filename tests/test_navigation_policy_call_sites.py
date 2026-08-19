@@ -58,9 +58,14 @@ NAVIGATION_WITHOUT_POLICY: dict[str, str] = {
         "policy before dispatching to run_cdp_extract/run_cdp_shot"
     ),
     "arena/agentctl_cli/agentctl_browser.py": (
-        "operator-side CLI: it does not navigate, it calls the bridge over "
-        "HTTP, and the bridge handler applies the policy. Validating in the "
-        "client too would let a caller skip it by not using the client."
+        "operator-side CLI, not an agent-facing surface. Most subcommands "
+        "call the bridge over HTTP and are validated there, but `shot()` does "
+        "launch a headless browser locally with its argument. That URL comes "
+        "from the operator's own shell -- someone who can run this already "
+        "runs commands on the host -- and pointing it at a local dashboard is "
+        "a normal use of the CLI, so the policy would block the intended "
+        "case. The trust boundary is the bridge's HTTP surface, which the "
+        "policy guards; the exemption is the boundary, not an inert module."
     ),
     "arena/browser/cdp/session_diagnostics.py": (
         "the browser flags appear inside a human-readable hint string that is "
