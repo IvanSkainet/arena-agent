@@ -11,6 +11,11 @@ from aiohttp import web
 
 import arena.admin.handlers as admin_handlers
 from arena.admin.handlers import make_admin_handlers
+from arena.admin.handlers_tunnel_exposure import (
+    apply_funnel_status_url,
+    audit_unified_public_stop,
+    normalize_tunnel_action,
+)
 from arena.admin.tunnel_exposure_policy import (
     PUBLIC_TUNNEL_ACK,
     PUBLIC_TUNNEL_ACK_HEADER,
@@ -266,3 +271,228 @@ def test_public_autostart_enable_requires_ack_and_records_authorization(
         "provider": "ngrok",
         "changed": True,
     } in audits
+
+
+@pytest.mark.parametrize(
+    "ack",
+    ["", "short", "I_ACCEPT_PUBLIC_BRIDGE_EXPOSUREx", "x" * 38],
+)
+def test_mismatched_ack_length_is_denial_not_valueerror(ack: str) -> None:
+    """hmac.compare_digest raises ValueError on length mismatch.
+
+    Without the length guard that becomes HTTP 500 instead of 403.
+    """
+    try:
+        denial = public_start_denial(
+            provider="tailscale", action="start", ack=ack
+        )
+    except ValueError as exc:
+        raise AssertionError(
+            f"ack length {len(ack)} raised ValueError: {exc}"
+        ) from exc
+    assert denial is not None
+    assert denial["error"] == "tunnel_public_ack_required"
+
+
+def test_same_length_wrong_ack_is_denial() -> None:
+    wrong = "X" * len(PUBLIC_TUNNEL_ACK)
+    assert len(wrong) == len(PUBLIC_TUNNEL_ACK)
+    assert public_start_denial(
+        provider="ngrok", action="start", ack=wrong
+    ) is not None
+
+
+@pytest.mark.parametrize(
+    "ack",
+    [
+        None,
+        0,
+        1,
+        b"I_ACCEPT_PUBLIC_BRIDGE_EXPOSURE",
+        ["I_ACCEPT_PUBLIC_BRIDGE_EXPOSURE"],
+        {"ack": "I_ACCEPT_PUBLIC_BRIDGE_EXPOSURE"},
+    ],
+)
+def test_non_string_ack_is_denial(ack: Any) -> None:
+    assert public_start_denial(
+        provider="bore", action="start", ack=ack
+    ) is not None
+
+
+def test_action_and_provider_are_normalized_before_gate() -> None:
+    assert normalize_tunnel_action("START") == "start"
+    assert normalize_tunnel_action(" Start ") == "start"
+    assert normalize_tunnel_action(None) == "status"
+    assert public_start_denial(
+        provider="Tailscale", action="START", ack=None
+    ) is not None
+    assert public_start_denial(
+        provider="Tailscale", action="START", ack=PUBLIC_TUNNEL_ACK
+    ) is None
+
+
+def test_nonempty_wrong_header_is_not_overridden_by_body(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        admin_handlers,
+        "tailscale_funnel_action",
+        lambda _action, _port: {"ok": True},
+    )
+    context, audits, _records = _context(tmp_path)
+    handlers = make_admin_handlers(context)
+    response = asyncio.run(
+        handlers.tailscale_funnel(
+            _Request(body={"ack": PUBLIC_TUNNEL_ACK}, ack_header="nope")
+        )
+    )
+    assert response.status == 403
+    assert _payload(response)["error"] == "tunnel_public_ack_required"
+    assert audits[-1]["type"] == "tunnel_public_ack_denied"
+
+
+def test_query_string_ack_is_ignored(tmp_path: Path) -> None:
+    context, _audits, _records = _context(tmp_path)
+    handlers = make_admin_handlers(context)
+    request = _Request()
+    request.query = {"ack": PUBLIC_TUNNEL_ACK}
+    response = asyncio.run(handlers.tailscale_funnel(request))
+    assert response.status == 403
+
+
+def test_get_start_accepts_header_and_copies_funnel_url(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        admin_handlers,
+        "tailscale_funnel_action",
+        lambda _action, _port: {"ok": True},
+    )
+    context, audits, _records = _context(tmp_path)
+    handlers = make_admin_handlers(context)
+    response = asyncio.run(
+        handlers.tailscale_funnel(
+            _Request(method="GET", ack_header=PUBLIC_TUNNEL_ACK)
+        )
+    )
+    assert response.status == 200
+    payload = _payload(response)
+    assert payload["public_url"] == "https://bridge.example.ts.net"
+    assert {
+        "type": "tunnel_public_opened",
+        "provider": "tailscale",
+        "public_url": "https://bridge.example.ts.net",
+    } in audits
+    assert tmp_path.joinpath(".tailscale_autostart").exists()
+
+
+def test_uppercase_start_audits_opened(tmp_path: Path, monkeypatch) -> None:
+    seen: list[str] = []
+
+    def action(verb: str, port: int) -> dict[str, Any]:
+        seen.append(verb)
+        return {"ok": True}
+
+    monkeypatch.setattr(admin_handlers, "tailscale_funnel_action", action)
+    context, audits, _records = _context(tmp_path)
+    handlers = make_admin_handlers(context)
+    response = asyncio.run(
+        handlers.tailscale_funnel(
+            _Request(action="START", ack_header=PUBLIC_TUNNEL_ACK)
+        )
+    )
+    assert response.status == 200
+    assert seen == ["start"]
+    assert any(event.get("type") == "tunnel_public_opened" for event in audits)
+
+
+def test_existing_result_url_is_not_overwritten(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        admin_handlers,
+        "tailscale_funnel_action",
+        lambda _action, _port: {"ok": True, "url": "https://already.example"},
+    )
+    context, audits, _records = _context(tmp_path)
+    handlers = make_admin_handlers(context)
+    response = asyncio.run(
+        handlers.tailscale_funnel(_Request(ack_header=PUBLIC_TUNNEL_ACK))
+    )
+    assert response.status == 200
+    assert _payload(response)["url"] == "https://already.example"
+    assert {
+        "type": "tunnel_public_opened",
+        "provider": "tailscale",
+        "public_url": "https://already.example",
+    } in audits
+
+
+def test_apply_funnel_status_url_is_best_effort() -> None:
+    keep = {"ok": True, "url": "https://keep.example"}
+    apply_funnel_status_url(keep, {"funnel": {"url": "https://other.example"}})
+    assert keep["url"] == "https://keep.example"
+
+    empty: dict[str, Any] = {"ok": True}
+    apply_funnel_status_url(empty, None)
+    apply_funnel_status_url(empty, "nope")
+    apply_funnel_status_url(empty, {"funnel": "nope"})
+    apply_funnel_status_url(empty, {"funnel": {"url": "   "}})
+    assert "url" not in empty
+    apply_funnel_status_url(
+        empty, {"funnel": {"url": "https://from-status.example.ts.net"}}
+    )
+    assert empty["url"] == "https://from-status.example.ts.net"
+    assert empty["public_url"] == "https://from-status.example.ts.net"
+
+
+def test_unified_stop_does_not_claim_undriven_providers() -> None:
+    events: list[dict] = []
+
+    class _Ctx:
+        def audit(self, event: dict) -> None:
+            events.append(event)
+
+    audit_unified_public_stop(
+        _Ctx(),
+        {
+            "log": [
+                {
+                    "provider": "tailscale",
+                    "action": "stop",
+                    "result": {"ok": True},
+                },
+                {
+                    "provider": "ngrok",
+                    "action": "status",
+                    "result": {"ok": True},
+                },
+            ]
+        },
+    )
+    assert events == [
+        {"type": "tunnel_public_closed", "provider": "tailscale"}
+    ]
+
+
+def test_security_md_documents_403_contract() -> None:
+    text = (
+        Path(__file__).resolve().parents[1] / "SECURITY.md"
+    ).read_text(encoding="utf-8")
+    assert "HTTP **403**" in text
+    assert "tunnel_public_ack_required" in text
+    assert "X-Arena-Public-Exposure-Ack" in text
+
+
+def test_dashboard_sends_canonical_ack_after_confirm() -> None:
+    js = (
+        Path(__file__).resolve().parents[1]
+        / "dashboard"
+        / "assets"
+        / "20-transports.js"
+    ).read_text(encoding="utf-8")
+    assert "I_ACCEPT_PUBLIC_BRIDGE_EXPOSURE" in js
+    assert "I_ACCEPT_PUBLIC_EXPOSURE" not in js
+    assert "window.confirm(" in js
+    assert 'JSON.stringify({ack: "I_ACCEPT_PUBLIC_BRIDGE_EXPOSURE"})' in js
+    assert "alreadyConfirmed" in js

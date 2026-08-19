@@ -77,14 +77,14 @@
    "total": 224
   },
   "arena/admin/tunnel_exposure_policy.py": {
-   "fingerprint": "e9d696e39af98b01afb4327f44e1c647e592ec5e21aa373af1a93f23342d49b8",
-   "reason": "T69 exact API/persisted public exposure acknowledgement run; 0 survivors",
+   "fingerprint": "c64d1ad432bfde7379acef2ad9e4db12893ceedc8faf112529ef80a461254c5a",
+   "reason": "T69 follow-up: length-guarded compare_digest; 0/36 survivors",
    "survived": 0,
    "tests": [
     "tests/test_tunnel_exposure_policy.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 35
+   "total": 36
   },
   "arena/agent_helpers/files.py": {
    "fingerprint": "7a329e05007e2a291563e3d54e0fa0037f5fda73aa05f857b82355774aefef48",
@@ -226,8 +226,8 @@
    "total": 57
   },
   "arena/governance/pytest_execution_guard.py": {
-   "fingerprint": "60433c9b8027d1ef971ac6dea476d7996b37bea2c0abb69f38c8b0d4080c3cba",
-   "reason": "fresh run",
+   "fingerprint": "33ef7f1ed4288f0e017d2f2cf75d750b2e50352965277261e056a554f416d160",
+   "reason": "T69 follow-up collection floors 8776/8781; 0/20 survivors",
    "survived": 0,
    "tests": [
     "tests/test_pytest_execution_guard.py"

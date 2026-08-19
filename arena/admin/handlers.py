@@ -15,6 +15,14 @@ from typing import Any
 
 from aiohttp import web
 
+from arena.admin.handlers_tunnel_exposure import (
+    apply_funnel_status_url,
+    audit_public_transition,
+    audit_unified_public_start,
+    audit_unified_public_stop,
+    normalize_tunnel_action,
+    reject_unacknowledged_public_start,
+)
 from arena.admin.runtime import (
     cloudflared_funnel_action,
     sys_funnel_status,
@@ -23,11 +31,6 @@ from arena.admin.runtime import (
     zerotier_network_action,
     zerotier_peers,
     zerotier_status,
-)
-from arena.admin.tunnel_exposure_policy import (
-    PUBLIC_TUNNEL_ACK_HEADER,
-    PUBLIC_TUNNEL_PROVIDERS,
-    public_start_denial,
 )
 from arena.admin.tunnels import (
     tunnels_active,
@@ -144,58 +147,14 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
             result=result,
         )
 
-    async def _public_exposure_ack(request: web.Request) -> str | None:
-        header = request.headers.get(PUBLIC_TUNNEL_ACK_HEADER)
-        if isinstance(header, str) and header:
-            return header
-        if request.method != "POST":
-            return None
-        try:
-            body = await request.json()
-        except Exception:
-            return None
-        if not isinstance(body, dict):
-            return None
-        ack = body.get("ack")
-        return ack if isinstance(ack, str) else None
-
-    async def _reject_unacknowledged_public_start(
-        request: web.Request, *, provider: str, action: str
-    ) -> web.Response | None:
-        denial = public_start_denial(
-            provider=provider,
-            action=action,
-            ack=await _public_exposure_ack(request),
-        )
-        if denial is None:
-            return None
-        ctx.record_request(is_error=True, count_request=False)
-        ctx.audit({
-            "type": "tunnel_public_ack_denied",
-            "provider": provider,
-            "action": action,
-        })
-        return ctx.cors_json_response(denial, status=403)
-
-    def _audit_public_transition(
-        *, provider: str, action: str, result: dict[str, Any]
-    ) -> None:
-        if provider not in PUBLIC_TUNNEL_PROVIDERS or not result.get("ok"):
-            return
-        if action == "start":
-            ctx.audit({
-                "type": "tunnel_public_opened",
-                "provider": provider,
-                "public_url": result.get("url") or result.get("public_url"),
-            })
-        elif action == "stop":
-            ctx.audit({"type": "tunnel_public_closed", "provider": provider})
+    # T69: ack/audit helpers live in handlers_tunnel_exposure so
+    # this dispatcher does not keep growing with policy branches.
 
     @authed(ctx)
     async def handle_v1_tailscale_funnel(request: web.Request) -> web.Response:
-        action = request.match_info.get("action", "status")
-        denial = await _reject_unacknowledged_public_start(
-            request, provider="tailscale", action=action
+        action = normalize_tunnel_action(request.match_info.get("action", "status"))
+        denial = await reject_unacknowledged_public_start(
+            ctx, request, provider="tailscale", action=action
         )
         if denial is not None:
             return denial
@@ -203,21 +162,33 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         port = cfg.get("port", 8765)
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, tailscale_funnel_action, action, port)
+        # tailscale_funnel_action("start") does not parse the public
+        # URL; copy it from funnel status before persist/audit.
+        if (
+            action == "start"
+            and result.get("ok")
+            and ctx.sys_funnel_status_sync is not None
+            and not (result.get("url") or result.get("public_url"))
+        ):
+            status = await loop.run_in_executor(
+                ctx.executor, ctx.sys_funnel_status_sync
+            )
+            apply_funnel_status_url(result, status)
         # v4.38.0: persist autostart intent for tailscale (same
         # pattern the cloudflared handler picked up in v4.22.1).
         # Marker is best-effort -- never blocks a successful start
         # on a filesystem hiccup. See persist_after_action docstring
         # for the full contract.
         _autostart_persist("tailscale", action, bool(result.get("ok")), port, result)
-        _audit_public_transition(provider="tailscale", action=action, result=result)
+        audit_public_transition(ctx, provider="tailscale", action=action, result=result)
         ctx.audit({"type": "tailscale_funnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)
 
     @authed(ctx)
     async def handle_v1_cloudflared_tunnel(request: web.Request) -> web.Response:
-        action = request.match_info.get("action", "status")
-        denial = await _reject_unacknowledged_public_start(
-            request, provider="cloudflared", action=action
+        action = normalize_tunnel_action(request.match_info.get("action", "status"))
+        denial = await reject_unacknowledged_public_start(
+            ctx, request, provider="cloudflared", action=action
         )
         if denial is not None:
             return denial
@@ -240,7 +211,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         # v4.38.0 this delegates to the shared helper in
         # handlers_autostart.persist_after_action.
         _autostart_persist("cloudflared", action, bool(result.get("ok")), port, result)
-        _audit_public_transition(provider="cloudflared", action=action, result=result)
+        audit_public_transition(ctx, provider="cloudflared", action=action, result=result)
         ctx.audit({"type": "cloudflared_tunnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)
 
@@ -255,9 +226,9 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         ``ROOT_AGENT/.ngrok_autostart`` created on successful
         start, removed on successful stop.
         """
-        action = request.match_info.get("action", "status")
-        denial = await _reject_unacknowledged_public_start(
-            request, provider="ngrok", action=action
+        action = normalize_tunnel_action(request.match_info.get("action", "status"))
+        denial = await reject_unacknowledged_public_start(
+            ctx, request, provider="ngrok", action=action
         )
         if denial is not None:
             return denial
@@ -281,7 +252,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         # persist_after_action docstring for the "no-op on
         # ok=False, swallow FS errors" contract.
         _autostart_persist("ngrok", action, bool(result.get("ok")), port, result)
-        _audit_public_transition(provider="ngrok", action=action, result=result)
+        audit_public_transition(ctx, provider="ngrok", action=action, result=result)
         ctx.audit({"type": "ngrok_tunnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)
 
@@ -305,9 +276,9 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         ``ROOT_AGENT/.bore_autostart`` created on successful start,
         removed on successful stop.
         """
-        action = request.match_info.get("action", "status")
-        denial = await _reject_unacknowledged_public_start(
-            request, provider="bore", action=action
+        action = normalize_tunnel_action(request.match_info.get("action", "status"))
+        denial = await reject_unacknowledged_public_start(
+            ctx, request, provider="bore", action=action
         )
         if denial is not None:
             return denial
@@ -325,7 +296,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
             ),
         )
         _autostart_persist("bore", action, bool(result.get("ok")), port, result)
-        _audit_public_transition(provider="bore", action=action, result=result)
+        audit_public_transition(ctx, provider="bore", action=action, result=result)
         ctx.audit({"type": "bore_tunnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)
 
@@ -456,8 +427,8 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
 
     @authed(ctx)
     async def handle_v1_tunnels_start(request: web.Request) -> web.Response:
-        denial = await _reject_unacknowledged_public_start(
-            request, provider="auto", action="start"
+        denial = await reject_unacknowledged_public_start(
+            ctx, request, provider="auto", action="start"
         )
         if denial is not None:
             return denial
@@ -476,15 +447,11 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 zerotier_status_sync=ctx.zerotier_status_sync,
             ),
         )
-        active = result.get("active") or {}
-        active_provider = active.get("provider")
-        if result.get("ok") and active_provider in PUBLIC_TUNNEL_PROVIDERS:
-            ctx.audit({
-                "type": "tunnel_public_opened",
-                "provider": active_provider,
-                "public_url": active.get("public_url"),
-            })
-        ctx.audit({"type": "tunnels_start", "active": active_provider})
+        audit_unified_public_start(ctx, result)
+        ctx.audit({
+            "type": "tunnels_start",
+            "active": (result.get("active") or {}).get("provider"),
+        })
         return ctx.cors_json_response(result)
 
     @authed(ctx)
@@ -501,15 +468,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 cloudflared_funnel_action_sync=ctx.cloudflared_funnel_action_sync,
             ),
         )
-        for entry in result.get("log", []):
-            provider = entry.get("provider")
-            provider_result = entry.get("result") or {}
-            if (
-                provider in PUBLIC_TUNNEL_PROVIDERS
-                and entry.get("action") == "stop"
-                and provider_result.get("ok")
-            ):
-                ctx.audit({"type": "tunnel_public_closed", "provider": provider})
+        audit_unified_public_stop(ctx, result)
         ctx.audit({"type": "tunnels_stop"})
         return ctx.cors_json_response(result)
 

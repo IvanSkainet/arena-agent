@@ -33,6 +33,7 @@ def public_start_denial(
         return None
     if (
         isinstance(ack, str)
+        and len(ack) == len(PUBLIC_TUNNEL_ACK)
         and hmac.compare_digest(ack, PUBLIC_TUNNEL_ACK)
     ):
         return None

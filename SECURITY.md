@@ -259,6 +259,18 @@ Bridge endpoint becomes internet-reachable and remains protected by the bearer
 token rather than by network locality. Query-string acknowledgement is not
 accepted because URLs are routinely logged.
 
+A missing or inexact acknowledgement is rejected with HTTP **403** and
+`error=tunnel_public_ack_required`. The JSON body also names `required_ack`
+and `ack_header`. A present but wrong header is fail-closed: it is not
+overridden by a valid JSON `ack`. GET requests cannot carry a body and must
+use the header. Query-string acknowledgement is never accepted.
+
+Audit events are `tunnel_public_opened`, `tunnel_public_closed`, and
+`tunnel_public_ack_denied`. `tunnel_public_closed` means the stop verb
+returned `ok` (the provider is not publicly exposed), including an
+already-down no-op. Unified `POST /v1/tunnels/stop` only drives Tailscale
+and cloudflared; ngrok and bore are not claimed closed there.
+
 ZeroTier membership is a private overlay and does not use this public-exposure
 acknowledgement. Persisted autostart that was explicitly enabled with the same
 acknowledgement remains authorized across restarts; startup restoration does
