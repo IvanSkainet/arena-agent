@@ -29,6 +29,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from arena.browser.navigation_policy import navigation_error
 from arena.jsonshape import loads_object
 from arena.mcp.tool_utils import text_content
 
@@ -112,6 +113,15 @@ def _prune_dead_sessions() -> dict[str, Any]:
 
 def _launch(args: dict[str, Any]) -> dict[str, Any]:
     url = str(args.get("url", "") or "about:blank").strip()
+    # A headed window is still the host fetching a URL; `about:blank` stays
+    # allowed because it is this tool's documented default.
+    # `_err` builds an MCP content envelope, but `_launch` returns a plain
+    # dict that its caller serialises -- returning one from here would nest an
+    # envelope inside a JSON string. Match the shape the other failure paths
+    # in this function use.
+    nav_error = navigation_error(url)
+    if nav_error:
+        return {"ok": False, "error": nav_error}
     session = str(args.get("session", "") or "default").strip() or "default"
     width = int(args.get("width", 1366) or 1366)
     height = int(args.get("height", 768) or 768)

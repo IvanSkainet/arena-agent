@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import time
 
+from arena.browser.navigation_policy import navigation_error
 from arena.handler_context import CdpPageHandlerContext
 from arena.handler_helpers import authed
 
@@ -33,6 +34,21 @@ def make_cdp_navigate_handler(ctx: CdpPageHandlerContext):
         if not url:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing 'url' parameter"}, status=400)
+
+        # `CDPBrowserPageMixin.navigate` enforces this too, and that is the
+        # guarantee. Checking here as well buys the caller a 400 with the
+        # reason instead of the generic 500 the exception handler below would
+        # produce, and refuses before a tab is claimed and the navigation
+        # clock is stamped.
+        nav_error = navigation_error(url)
+        if nav_error:
+            ctx.record_request(is_error=True, count_request=False)
+            # `CdpPageHandlerContext` carries no `audit` callable, so the
+            # refusal is logged rather than audited. Widening the context to
+            # add one belongs with the other CDP handlers, not smuggled in
+            # here.
+            ctx.log_warning("[CDP] navigation refused (%s): %.200s", nav_error, url)
+            return ctx.cors_json_response({"ok": False, "error": nav_error}, status=400)
 
         tab_id = body.get("tab_id")
         wait = body.get("wait", True)

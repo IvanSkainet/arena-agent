@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 
 from arena.browser.cdp.advanced_common import get_active_browser
+from arena.browser.navigation_policy import navigation_error
 from arena.handler_context import CdpAdvancedHandlerContext
 from arena.handler_helpers import authed
 
@@ -39,6 +40,11 @@ def make_cdp_stealth_shot_handler(ctx: CdpAdvancedHandlerContext):
         if not url:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing 'url'"}, status=400)
+
+        nav_error = navigation_error(url)
+        if nav_error:
+            ctx.record_request(is_error=True, count_request=False)
+            return ctx.cors_json_response({"ok": False, "error": nav_error}, status=400)
 
         full_page = body.get("full_page", False)
         img_format = body.get("format", "png")

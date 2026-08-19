@@ -184,6 +184,7 @@ Area Network (LAN) webhooks are stated explicitly.
 | `ARENA_BORE_SERVER` | security | exact | Selects the bore relay server. |
 | `ARENA_BORE_URL_WAIT_SECONDS` | operational | exact | Controls bore URL-discovery timeout. |
 | `ARENA_BREAKER_COOLDOWN` | security | exact | Changes tunnel circuit-breaker recovery delay. |
+| `ARENA_BROWSER_ALLOW_LOCAL_NAVIGATION` | security | exact | Permits browser navigation to private/loopback addresses; disabled by default. Never re-enables `file:`/`data:`/`javascript:` schemes. |
 | `ARENA_BREAKER_DISABLE` | security | exact | Disables the tunnel circuit breaker. |
 | `ARENA_BREAKER_THRESHOLD` | security | exact | Changes the tunnel circuit-breaker failure threshold. |
 | `ARENA_BRIDGE_PIN_KIND` | security | exact | Chooses SPKI or whole-certificate pinning. |
@@ -275,6 +276,50 @@ ZeroTier membership is a private overlay and does not use this public-exposure
 acknowledgement. Persisted autostart that was explicitly enabled with the same
 acknowledgement remains authorized across restarts; startup restoration does
 not require an interactive API call.
+
+### Browser navigation targets
+
+Every agent-facing way to make the host load a URL applies one policy
+(`arena/browser/navigation_policy.py`). Previously only `browser.read` did:
+`GET /v1/browser/read` refused private addresses while
+`POST /v1/browser/cdp/navigate` handed anything, including `file:///etc/passwd`
+and `http://169.254.169.254/`, straight to `Page.navigate`.
+
+The rule is applied at `CDPBrowserPageMixin.navigate()` — the single method all
+CDP navigation funnels through — and again in each handler, so a rejected
+request answers HTTP **400** with the reason instead of a generic 500. Covered
+entry points: `/v1/browser/cdp/navigate`, `/v1/browser/cdp/tabs/new`,
+`/v1/browser/browse` (`extract`/`shot`, both the CDP and the stealth backend),
+the CDP stealth extract/shot endpoints, and the MCP tools `browser.shot` and
+`browser.launch`.
+
+Refused: non-`http(s)` schemes (`file:`, `data:`, `javascript:`, `chrome:`,
+`devtools:`, `view-source:`, ...), loopback, private, link-local, reserved and
+multicast addresses, `localhost` and `*.local`/`*.internal`/`*.localdomain`
+names, obfuscated address spellings (`2130706433`, `0x7f.1`, `127.1`), and
+hostnames that currently resolve to a private address. `about:blank` is
+allowed, because that is how a tab is opened.
+
+URLs containing a backslash or raw whitespace/control characters are refused
+outright as parser differentials: Chromium follows the WHATWG URL Standard and
+reads `http://127.0.0.1\@evil.com/` as host `127.0.0.1`, while Python's
+`urlparse` reads it as `evil.com`. Validating one host and navigating to
+another is precisely the failure this policy exists to prevent.
+
+**What this does not guarantee.** The DNS check is best-effort. Chromium
+resolves the hostname itself when it navigates, and nothing pins the address
+this policy approved, so a DNS record that changes between the two lookups is
+navigated to unchecked. The equivalent hole for `urllib` was closed in T62 by
+pinning the validated IP into the connection
+(`arena.security_http.open_public_url`); that technique is unavailable through
+CDP because the socket belongs to the browser. Treat the guarantee as "refuses
+statically private targets and non-web schemes", not as "cannot reach the
+loopback interface".
+
+Setting `ARENA_BROWSER_ALLOW_LOCAL_NAVIGATION=1` restores navigation to
+private and loopback destinations, for driving a browser against a local
+development server. It does **not** re-enable non-web schemes: reading local
+files is not local development.
 
 ### Recommended production preset
 

@@ -14,6 +14,7 @@ from arena.browser.cdp_client.common import (
     logger,
 )
 from arena.browser.cdp_client.tabs_http import get_new_tab_url
+from arena.browser.navigation_policy import NavigationRejected, navigation_error
 
 
 class CDPBrowserPageMixin(CDPBrowserInputMixin):
@@ -38,7 +39,22 @@ class CDPBrowserPageMixin(CDPBrowserInputMixin):
 
         Returns:
             The Page.navigate response
+
+        Raises:
+            NavigationRejected: the URL is not a permitted navigation target.
+
+        The check lives here rather than in the request handlers because
+        fifteen call sites reach this method and only one of them was a
+        handler that could have carried it. Validating per caller is one
+        forgotten caller away from regressing -- the argument
+        `arena/mobile/adb.py` makes for quoting inside `run()` instead of at
+        its 33 call sites. `about:blank` is permitted: it is how a tab is
+        opened, not a destination.
         """
+        error = navigation_error(url)
+        if error:
+            raise NavigationRejected(error)
+
         effective_timeout = timeout or self.timeout
 
         if wait:

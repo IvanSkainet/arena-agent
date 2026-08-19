@@ -9,6 +9,7 @@ from aiohttp import web
 
 from arena.browser.browse_browseract import run_browseract_browse
 from arena.browser.browse_cdp import run_cdp_browse
+from arena.browser.navigation_policy import navigation_error
 from arena.handler_context import BrowserBrowseHandlerContext
 from arena.handler_helpers import authed
 
@@ -35,6 +36,21 @@ def make_browser_browse_handlers(ctx: BrowserBrowseHandlerContext) -> BrowserBro
             return ctx.cors_json_response({"ok": False, "error": "missing 'url'"}, status=400)
 
         action = body.get("action", "extract")
+
+        # `click` and `type` act on the tab that is already open and ignore
+        # `url` entirely, so validating it for them would refuse requests on
+        # the strength of a field that has no effect. The two actions that do
+        # navigate are checked, both here and again inside `navigate()`.
+        #
+        # This also covers the stealth backend, which shells out to
+        # browseract instead of going through CDP and so never reaches the
+        # mixin-level guard.
+        if action in ("extract", "shot"):
+            nav_error = navigation_error(url)
+            if nav_error:
+                ctx.record_request(is_error=True, count_request=False)
+                return ctx.cors_json_response({"ok": False, "error": nav_error}, status=400)
+
         stealth = body.get("stealth", False)
         captcha = body.get("captcha", False)
         wait_for = body.get("wait_for")

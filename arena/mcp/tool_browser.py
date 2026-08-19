@@ -10,6 +10,7 @@ import tempfile
 import time
 from typing import Any
 
+from arena.browser.navigation_policy import navigation_error
 from arena.mcp.tool_utils import text_content
 
 
@@ -24,6 +25,14 @@ def handle_browser_tool(name: str, args: dict[str, Any], *, ctx, run_local, run_
         return text_content(out or err)
     if name != "browser.shot":
         return None
+
+    # `browser.read` is validated inside py_browser.py; this one hands the URL
+    # to Chromium on the command line, so it has to ask the same question
+    # itself. Blank is not meaningful for a screenshot, so it is not allowed.
+    shot_url = args.get("url", "")
+    nav_error = navigation_error(shot_url, allow_blank=False)
+    if nav_error:
+        return text_content(json.dumps({"ok": False, "error": nav_error}))
 
     shots = str(ctx.reports_dir / "shots")
     os.makedirs(shots, exist_ok=True)
@@ -45,5 +54,5 @@ def handle_browser_tool(name: str, args: dict[str, Any], *, ctx, run_local, run_
     ) or "chrome.exe"
     rc, out, err = run_sd([chrome_exe, "--headless=new", "--no-sandbox", "--disable-gpu",
                            f"--user-data-dir={ud}", "--window-size=1366,768",
-                           f"--screenshot={png}", args.get("url", "")], timeout=45)
-    return text_content(json.dumps({"ok": rc == 0, "screenshot": png, "url": args.get("url", "")}))
+                           f"--screenshot={png}", shot_url], timeout=45)
+    return text_content(json.dumps({"ok": rc == 0, "screenshot": png, "url": shot_url}))
