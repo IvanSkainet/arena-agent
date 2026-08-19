@@ -9,7 +9,7 @@ import pytest
 
 def collection_floors() -> dict[str, int]:
     """Measured after the navigation policy (T70) on Linux; Windows keeps +5."""
-    return {"Linux": 8937, "macOS": 8937, "Windows": 8942}
+    return {"Linux": 8953, "macOS": 8953, "Windows": 8958}
 
 
 def collection_error(*, collected: int, runner_os: str) -> str | None:
