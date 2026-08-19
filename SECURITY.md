@@ -281,7 +281,8 @@ not require an interactive API call.
 
 `browser_read` has always taken an SSRF validator as a required argument, so
 a host-initiated fetch through urllib cannot skip validation. Navigation over
-CDP had no equivalent check: `POST /v1/browser/cdp/navigate` verified only
+the Chrome DevTools Protocol (CDP) had no equivalent check:
+`POST /v1/browser/cdp/navigate` verified only
 that `url` was non-empty before handing it to `Page.navigate`. A browser
 driven over CDP is a fully capable HTTP client on the host, so that path
 reached loopback services (including the Bridge's own API and the debugging
@@ -325,6 +326,20 @@ attacker who controls a DNS zone with a very short TTL. Operators who need
 that guarantee should run the browser with an egress filter or
 `--host-resolver-rules`, which enforce the decision where the resolution
 actually happens.
+
+**Known limit — HTTP redirects.** The policy validates the URL the agent
+supplies. If that public URL answers with a `3xx` to a private destination,
+Chromium follows the hop inside its own network stack, and no CDP command is
+issued for it, so nothing on the host sees the second URL before the request
+leaves. `open_public_url` re-validates every hop because urllib surfaces them
+to a redirect handler; `Page.navigate` gives no equivalent hook. Closing this
+requires a `Fetch`/`Network` interception domain enabled for the lifetime of
+every tab and a policy check on each `requestWillBeSent` — a change to the
+CDP client's connection model rather than to the navigation entry points,
+tracked separately. Until then the same mitigations apply as for rebinding:
+an egress filter or `--host-resolver-rules` on the browser process. The
+policy's guarantee is therefore precise: an agent cannot *name* a private
+target, but a public target that the agent names can still redirect to one.
 
 ### Recommended production preset
 

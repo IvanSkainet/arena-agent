@@ -103,7 +103,7 @@ ALLOWLIST: dict[str, str] = {
         "the ack token, DISABLING never does. Failing closed on the disable "
         "path would strand an operator with auto-approve stuck on."
     ),
-    "arena/browser/navigation_policy.py:160:gated-refusal": (
+    "arena/browser/navigation_policy.py:169:gated-refusal": (
         "Shape-only match: the scanner keys on 'reject' inside "
         "NavigationRejected. `if has_credentials:` ADDS a refusal on top of "
         "the checks around it -- an absent userinfo means the URL carries no "

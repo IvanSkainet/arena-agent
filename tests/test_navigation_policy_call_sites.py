@@ -164,3 +164,50 @@ def test_the_known_agent_facing_handlers_are_guarded():
         if rel in NAVIGATION_WITHOUT_POLICY:
             missing.append(f"{rel} (must not be exempted)")
     assert not missing, f"agent-facing navigation surfaces lost the policy: {missing}"
+
+
+# The tests above run the gate against the repository, which is compliant by
+# construction: they prove today's tree is clean, not that the detector still
+# detects. These drive the two predicates with synthetic source, so a
+# regression that makes `_module_navigates` blind (or `_imports_policy`
+# credulous) fails here instead of silently exempting the whole codebase.
+
+_UNGUARDED_ATTRIBUTE_CALL = "async def go(tab, url):\n    return await tab.navigate(url)\n"
+_UNGUARDED_RAW_CDP = (
+    "async def go(conn, url):\n"
+    "    return await conn.send('Page.navigate', {'url': url})\n"
+)
+_GUARDED = (
+    "from arena.browser.navigation_policy import check_navigation\n"
+    "async def go(tab, url):\n"
+    "    return await tab.navigate(check_navigation(url))\n"
+)
+_INERT = "def render(template, data):\n    return template.format(**data)\n"
+
+
+@pytest.mark.parametrize("source", [_UNGUARDED_ATTRIBUTE_CALL, _UNGUARDED_RAW_CDP])
+def test_the_detector_sees_a_navigating_module(source):
+    assert _module_navigates(ast.parse(source))
+
+
+def test_the_detector_ignores_a_module_that_does_not_navigate():
+    """Positive control: without this, a detector stuck on True would pass."""
+    assert not _module_navigates(ast.parse(_INERT))
+
+
+def test_an_unguarded_navigating_module_would_be_reported():
+    tree = ast.parse(_UNGUARDED_ATTRIBUTE_CALL)
+    assert _module_navigates(tree)
+    assert not _imports_policy(tree)
+
+
+def test_a_guarded_navigating_module_would_be_accepted():
+    tree = ast.parse(_GUARDED)
+    assert _module_navigates(tree)
+    assert _imports_policy(tree)
+
+
+def test_the_policy_import_check_is_not_satisfied_by_a_lookalike():
+    """`import arena.browser.navigation` must not pass for the policy."""
+    tree = ast.parse("from arena.browser import fetch\nimport arena.browser.cdp\n")
+    assert not _imports_policy(tree)

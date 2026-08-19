@@ -102,12 +102,21 @@ _OPT_IN_LIFTS = frozenset({
 })
 
 
-def _private_target_error(url: str) -> str | None:
-    """Reuse the audited SSRF validator, then explain a private verdict."""
+def _target_error(url: str, *, local_allowed: bool) -> str | None:
+    """Reuse the audited SSRF validator, then apply the bounded exception.
+
+    The validator always runs. ``local_allowed`` only suppresses the private
+    verdicts listed in `_OPT_IN_LIFTS`; every other verdict -- a malformed
+    numeric host, a missing host, an unparseable target -- stays refused. The
+    opt-in exists to reach a *known local service*, not to hand Chromium an
+    address that this process and the browser may resolve differently.
+    """
     error = _validate_url(url)
     if error is None:
         return None
     if error in _OPT_IN_LIFTS:
+        if local_allowed:
+            return None
         return f"{error}; navigation to private addresses requires {LOCAL_NAV_ENV}=1"
     return error
 
@@ -160,10 +169,7 @@ def check_navigation(url: object, *, env: dict[str, str] | None = None) -> str:
     if has_credentials:
         raise NavigationRejected("credentials in URL are not allowed")
 
-    if local_navigation_allowed(env):
-        return target
-
-    error = _private_target_error(target)
+    error = _target_error(target, local_allowed=local_navigation_allowed(env))
     if error:
         raise NavigationRejected(error)
     return target

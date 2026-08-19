@@ -10,11 +10,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 import sys
 from pathlib import Path
 
 import pytest
 
+# The suite has no conftest that puts the repository root on the path, so
+# every test module that imports `arena.*` inserts it first and marks the
+# imports below E402. The suppressions are bounded to those imports; see the
+# same pattern in tests/test_admin_handlers.py and its neighbours.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from arena.browser.cdp.advanced import make_cdp_advanced_handlers  # noqa: E402
@@ -26,6 +31,24 @@ from arena.browser.navigation_policy import (  # noqa: E402
     check_navigation,
     local_navigation_allowed,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_real_dns(monkeypatch):
+    """Answer every name lookup with a fixed public address.
+
+    The policy resolves hostnames to catch names that point at private space,
+    so an unstubbed test would send real DNS traffic from CI and change its
+    verdict with the resolver's mood. Tests that care about the DNS branch
+    override this with their own stub; everything else gets a deterministic
+    public answer. Literal IPs never reach the resolver, so the loopback and
+    obfuscation cases are unaffected.
+    """
+    def fake_getaddrinfo(host, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+
 
 # Targets that must never be reachable without the operator opt-in.
 HOSTILE_URLS = [
@@ -203,6 +226,32 @@ def test_malformed_numeric_host_is_refused():
     assert LOCAL_NAV_ENV not in str(excinfo.value)
 
 
+@pytest.mark.parametrize("url,expected", [
+    # A host this process cannot parse is a host Chromium may parse
+    # differently, so the opt-in must not wave it through: the operator asked
+    # to reach a known local service, not to gamble on resolver parity.
+    ("http://99999999999999/", "malformed numeric address"),
+    ("http://999.999.999.999/", "malformed numeric address"),
+    ("http://", "missing host"),
+    ("http:///path", "missing host"),
+])
+def test_the_opt_in_lifts_only_the_private_address_verdicts(url, expected):
+    with pytest.raises(NavigationRejected) as excinfo:
+        check_navigation(url, env={LOCAL_NAV_ENV: "1"})
+    assert expected in str(excinfo.value)
+
+
+@pytest.mark.parametrize("url", [
+    "http://127.0.0.1:8765/v1/status",
+    "http://[::1]/",
+    "http://0x7f.1/",
+])
+def test_the_opt_in_does_lift_the_private_address_verdicts(url):
+    # Positive control for the test above: if the opt-in stopped working the
+    # pair would still pass on refusals alone, hiding a dead flag.
+    assert check_navigation(url, env={LOCAL_NAV_ENV: "1"}) == url
+
+
 def test_the_opt_in_env_var_name_is_the_documented_one():
     # SECURITY.md and the operator runbook name this variable; renaming the
     # constant without updating them would leave the documented flag inert.
@@ -275,8 +324,6 @@ def test_a_public_name_resolving_to_loopback_is_refused(monkeypatch):
     Resolution is stubbed so the test states the contract instead of
     depending on a third-party wildcard domain still pointing at loopback.
     """
-    import socket
-
     def fake_getaddrinfo(host, *args, **kwargs):
         assert host == "dev.example.com"
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))]
@@ -291,8 +338,6 @@ def test_a_public_name_resolving_to_loopback_is_refused(monkeypatch):
 
 
 def test_a_public_name_resolving_publicly_is_allowed(monkeypatch):
-    import socket
-
     def fake_getaddrinfo(host, *args, **kwargs):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
 
@@ -519,6 +564,7 @@ def test_cdp_navigate_honours_the_operator_opt_in(monkeypatch):
     response = _call(handler, {"url": "http://127.0.0.1:8765/gui", "wait": False})
 
     assert response.status == 200
+    assert tab.navigated is not None, "the opt-in did not reach the browser"
     assert tab.navigated[0] == "http://127.0.0.1:8765/gui"
 
 
