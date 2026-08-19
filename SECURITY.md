@@ -249,6 +249,21 @@ Area Network (LAN) webhooks are stated explicitly.
 
 `SSL_CERT_FILE` remains the standard-library CA-bundle override; it is not an `ARENA_*` variable and is therefore outside the guarded inventory. Point it at a private CA bundle instead of disabling TLS verification.
 
+### Public tunnel acknowledgement
+
+Agent/API requests that start Tailscale Funnel, Cloudflare, ngrok, bore, or
+the unified public failover path must provide the exact acknowledgement
+`I_ACCEPT_PUBLIC_BRIDGE_EXPOSURE` in the JSON `ack` field or the
+`X-Arena-Public-Exposure-Ack` header. The phrase acknowledges that every
+Bridge endpoint becomes internet-reachable and remains protected by the bearer
+token rather than by network locality. Query-string acknowledgement is not
+accepted because URLs are routinely logged.
+
+ZeroTier membership is a private overlay and does not use this public-exposure
+acknowledgement. Persisted autostart that was explicitly enabled with the same
+acknowledgement remains authorized across restarts; startup restoration does
+not require an interactive API call.
+
 ### Recommended production preset
 
 ```bash

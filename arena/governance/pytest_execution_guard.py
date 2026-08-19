@@ -9,7 +9,7 @@ import pytest
 
 def collection_floors() -> dict[str, int]:
     """Measured PR #106 baseline plus exact T64/T61/T65 additions."""
-    return {"Linux": 8737, "macOS": 8737, "Windows": 8742}
+    return {"Linux": 8754, "macOS": 8754, "Windows": 8759}
 
 
 def collection_error(*, collected: int, runner_os: str) -> str | None:

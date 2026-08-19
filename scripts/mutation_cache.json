@@ -76,6 +76,16 @@
    "tool": "mutmut 2.5.1",
    "total": 224
   },
+  "arena/admin/tunnel_exposure_policy.py": {
+   "fingerprint": "e9d696e39af98b01afb4327f44e1c647e592ec5e21aa373af1a93f23342d49b8",
+   "reason": "T69 exact API/persisted public exposure acknowledgement run; 0 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_tunnel_exposure_policy.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 35
+  },
   "arena/agent_helpers/files.py": {
    "fingerprint": "7a329e05007e2a291563e3d54e0fa0037f5fda73aa05f857b82355774aefef48",
    "reason": "fresh run",
@@ -216,8 +226,8 @@
    "total": 57
   },
   "arena/governance/pytest_execution_guard.py": {
-   "fingerprint": "d3686c69bb30a56f37704e1501bd41a4a9f9a1faa1e51c1a577d8020ab7c6e28",
-   "reason": "T68 Qodo follow-up collection floors; 0 survivors",
+   "fingerprint": "60433c9b8027d1ef971ac6dea476d7996b37bea2c0abb69f38c8b0d4080c3cba",
+   "reason": "fresh run",
    "survived": 0,
    "tests": [
     "tests/test_pytest_execution_guard.py"

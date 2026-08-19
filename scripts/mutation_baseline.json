@@ -5,6 +5,7 @@
  "arena/admin/deployment_provenance.py": 0,
  "arena/admin/deployment_tombstones.py": 0,
  "arena/admin/handlers_update.py": 0,
+ "arena/admin/tunnel_exposure_policy.py": 0,
  "arena/agent_helpers/files.py": 0,
  "arena/agentctl_cli/agentctl_memory.py": 0,
  "arena/agentic/handlers.py": 0,

@@ -186,6 +186,9 @@ TARGETS: dict[str, tuple[str, ...]] = {
     "arena/admin/deployment_tombstones.py": (
         "tests/test_update_release_tombstones.py",
     ),
+    "arena/admin/tunnel_exposure_policy.py": (
+        "tests/test_tunnel_exposure_policy.py",
+    ),
     "arena/security_http.py": (
         "tests/test_security_ssrf_pinned_transport.py",
         "tests/test_security.py",
