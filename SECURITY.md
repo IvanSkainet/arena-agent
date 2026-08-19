@@ -336,7 +336,7 @@ to a redirect handler; `Page.navigate` gives no equivalent hook. Closing this
 requires a `Fetch`/`Network` interception domain enabled for the lifetime of
 every tab and a policy check on each `requestWillBeSent` — a change to the
 CDP client's connection model rather than to the navigation entry points,
-tracked separately. Until then the same mitigations apply as for rebinding:
+tracked in issue #129. Until then the same mitigations apply as for rebinding:
 an egress filter or `--host-resolver-rules` on the browser process. The
 policy's guarantee is therefore precise: an agent cannot *name* a private
 target, but a public target that the agent names can still redirect to one.
