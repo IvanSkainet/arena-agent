@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -95,19 +96,91 @@ def list_agents(agents_dir: Path) -> dict[str, Any]:
     return {"ok": True, "count": len(agents), "agents": agents}
 
 
+SUBAGENT_FILE_SUFFIXES = (".json", ".yaml", ".yml", ".toml", ".md")
+
+
+def _read_json_dict(path: Path) -> dict[str, Any] | None:
+    """Return the JSON object at *path*, or None when unreadable/not an object."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _dir_entry_count(directory: Path) -> int:
+    try:
+        return sum(1 for _ in directory.iterdir())
+    except OSError:
+        return 0
+
+
+def _mtime_iso(path: Path, stat_result: os.stat_result | None = None) -> str:
+    if stat_result is None:
+        try:
+            stat_result = path.stat()
+        except OSError:
+            return ""
+    return datetime.fromtimestamp(stat_result.st_mtime, tz=timezone.utc).isoformat()
+
+
+def _subagent_meta(directory: Path) -> dict[str, Any]:
+    """Describe a spawned subagent run directory (``<id>/meta.json``)."""
+    info: dict[str, Any] = {
+        "name": directory.name,
+        "file": f"{directory.name}/",
+        "ext": "[dir]",
+        "size": _dir_entry_count(directory),
+        "modified": _mtime_iso(directory),
+    }
+    for candidate in ("meta.json", "summary.json"):
+        data = _read_json_dict(directory / candidate)
+        if data is None:
+            continue
+        info["id"] = str(data.get("id") or directory.name)
+        info["name"] = str(data.get("name") or directory.name)
+        info["status"] = str(data.get("status") or "")
+        info["cmd"] = str(data.get("cmd") or "")[:200]
+        if data.get("created"):
+            info["created"] = str(data["created"])
+        if data.get("exit") is not None:
+            info["exit"] = data["exit"]
+        break
+    return info
+
+
 def list_subagents(subagents_dir: Path) -> dict[str, Any]:
+    """List subagents.
+
+    Two on-disk shapes are supported:
+    * run directories written by ``bin/subagent.py`` (``<id>/meta.json``);
+    * flat descriptor files, matching the allowlist used by list_agents/list_hooks.
+
+    Placeholders such as ``.gitkeep`` and other dotfiles are never inventory.
+    """
     subagents: list[dict[str, Any]] = []
     if not subagents_dir.exists():
         return {"ok": True, "count": 0, "subagents": []}
     for path in sorted(subagents_dir.iterdir()):
-        if path.is_file():
-            info: dict[str, Any] = {"name": path.stem, "file": path.name, "ext": path.suffix, "size": path.stat().st_size, "modified": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()}
-            if path.suffix == ".json":
-                try:
-                    data = json.loads(path.read_text(encoding="utf-8"))
-                    info["status"] = data.get("status", "")
-                    info["cmd"] = data.get("cmd", "")[:200]
-                except Exception:
-                    pass
-            subagents.append(info)
+        if path.name.startswith("."):
+            continue
+        if path.is_dir():
+            subagents.append(_subagent_meta(path))
+            continue
+        if not path.is_file() or path.suffix not in SUBAGENT_FILE_SUFFIXES:
+            continue
+        stat_result = path.stat()
+        info: dict[str, Any] = {
+            "name": path.stem,
+            "file": path.name,
+            "ext": path.suffix,
+            "size": stat_result.st_size,
+            "modified": _mtime_iso(path, stat_result),
+        }
+        if path.suffix == ".json":
+            data = _read_json_dict(path)
+            if data is not None:
+                info["status"] = str(data.get("status") or "")
+                info["cmd"] = str(data.get("cmd") or "")[:200]
+        subagents.append(info)
     return {"ok": True, "count": len(subagents), "subagents": subagents}
