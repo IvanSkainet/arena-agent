@@ -47,8 +47,8 @@ import asyncio
 import ipaddress
 import os
 import socket
-from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
 from arena.security_ssrf import (
