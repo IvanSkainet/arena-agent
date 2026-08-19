@@ -101,6 +101,8 @@ def list_subagents(subagents_dir: Path) -> dict[str, Any]:
         return {"ok": True, "count": 0, "subagents": []}
     for path in sorted(subagents_dir.iterdir()):
         if path.is_file():
+            if path.name.startswith(".") or path.stat().st_size == 0:
+                continue
             info: dict[str, Any] = {"name": path.stem, "file": path.name, "ext": path.suffix, "size": path.stat().st_size, "modified": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()}
             if path.suffix == ".json":
                 try:

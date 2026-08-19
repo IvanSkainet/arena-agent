@@ -54,6 +54,22 @@ def test_list_hooks_agents_subagents(tmp_path):
     assert list_subagents(subs)["subagents"][0]["status"] == "ok"
 
 
+def test_list_subagents_filters_dotfiles_and_gitkeep(tmp_path):
+    subs = tmp_path / "subagents"
+    subs.mkdir()
+    (subs / ".gitkeep").write_text("", encoding="utf-8")
+    (subs / ".DS_Store").write_text("junk", encoding="utf-8")
+    (subs / "empty_agent.json").write_text("", encoding="utf-8")
+    (subs / "valid_worker.json").write_text(json.dumps({"status": "idle", "cmd": "eval"}), encoding="utf-8")
+    
+    result = list_subagents(subs)
+    assert result["ok"] is True
+    assert result["count"] == 1
+    assert len(result["subagents"]) == 1
+    assert result["subagents"][0]["name"] == "valid_worker"
+    assert result["subagents"][0]["status"] == "idle"
+
+
 def test_unified_bridge_resource_wrappers():
     assert isinstance(ub._list_reports_sync(), list)
     assert ub._hooks_list_sync()["ok"] is True
