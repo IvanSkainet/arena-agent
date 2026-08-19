@@ -370,6 +370,37 @@ def test_mtime_iso_returns_utc_isoformat(tmp_path):
     assert datetime.fromisoformat(stamp).tzinfo is not None
 
 
+def test_list_subagents_json_nulls_do_not_become_the_string_none(tmp_path):
+    """An explicit `null` must degrade to "", never to the literal 'None'."""
+    subs = tmp_path / "subagents"
+    run = subs / "run"
+    run.mkdir(parents=True)
+    (run / "meta.json").write_text(
+        json.dumps({"id": None, "name": None, "status": None, "cmd": None}), encoding="utf-8"
+    )
+    (subs / "flat.json").write_text(json.dumps({"status": None, "cmd": None}), encoding="utf-8")
+
+    by_file = {s["file"]: s for s in list_subagents(subs)["subagents"]}
+
+    run_entry = by_file["run/"]
+    assert run_entry["id"] == "run"
+    assert run_entry["name"] == "run"
+    assert run_entry["status"] == ""
+    assert run_entry["cmd"] == ""
+
+    flat_entry = by_file["flat.json"]
+    assert flat_entry["status"] == ""
+    assert flat_entry["cmd"] == ""
+
+
+def test_mtime_iso_reuses_supplied_stat_result(tmp_path):
+    target = tmp_path / "f.txt"
+    target.write_text("x", encoding="utf-8")
+    stat_result = target.stat()
+
+    assert _mtime_iso(target, stat_result) == _mtime_iso(target)
+
+
 def test_read_json_dict_rejects_non_objects(tmp_path):
     arr = tmp_path / "arr.json"
     arr.write_text("[1, 2]", encoding="utf-8")

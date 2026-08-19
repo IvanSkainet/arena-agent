@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -114,12 +115,13 @@ def _dir_entry_count(directory: Path) -> int:
         return 0
 
 
-def _mtime_iso(path: Path) -> str:
-    try:
-        stamp = path.stat().st_mtime
-    except OSError:
-        return ""
-    return datetime.fromtimestamp(stamp, tz=timezone.utc).isoformat()
+def _mtime_iso(path: Path, stat_result: os.stat_result | None = None) -> str:
+    if stat_result is None:
+        try:
+            stat_result = path.stat()
+        except OSError:
+            return ""
+    return datetime.fromtimestamp(stat_result.st_mtime, tz=timezone.utc).isoformat()
 
 
 def _subagent_meta(directory: Path) -> dict[str, Any]:
@@ -135,10 +137,10 @@ def _subagent_meta(directory: Path) -> dict[str, Any]:
         data = _read_json_dict(directory / candidate)
         if data is None:
             continue
-        info["id"] = str(data.get("id", directory.name))
-        info["name"] = str(data.get("name", directory.name))
-        info["status"] = str(data.get("status", ""))
-        info["cmd"] = str(data.get("cmd", ""))[:200]
+        info["id"] = str(data.get("id") or directory.name)
+        info["name"] = str(data.get("name") or directory.name)
+        info["status"] = str(data.get("status") or "")
+        info["cmd"] = str(data.get("cmd") or "")[:200]
         if data.get("created"):
             info["created"] = str(data["created"])
         if data.get("exit") is not None:
@@ -167,11 +169,18 @@ def list_subagents(subagents_dir: Path) -> dict[str, Any]:
             continue
         if not path.is_file() or path.suffix not in SUBAGENT_FILE_SUFFIXES:
             continue
-        info: dict[str, Any] = {"name": path.stem, "file": path.name, "ext": path.suffix, "size": path.stat().st_size, "modified": _mtime_iso(path)}
+        stat_result = path.stat()
+        info: dict[str, Any] = {
+            "name": path.stem,
+            "file": path.name,
+            "ext": path.suffix,
+            "size": stat_result.st_size,
+            "modified": _mtime_iso(path, stat_result),
+        }
         if path.suffix == ".json":
             data = _read_json_dict(path)
             if data is not None:
-                info["status"] = str(data.get("status", ""))
-                info["cmd"] = str(data.get("cmd", ""))[:200]
+                info["status"] = str(data.get("status") or "")
+                info["cmd"] = str(data.get("cmd") or "")[:200]
         subagents.append(info)
     return {"ok": True, "count": len(subagents), "subagents": subagents}
