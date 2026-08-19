@@ -575,7 +575,13 @@ def test_tabs_new_endpoint_still_opens_blank_tabs():
     assert opened == [BLANK_URL]
 
 
-def _browse_handler(recorder, calls):
+def _browse_handler(recorder, calls, monkeypatch):
+    """Patch the two backends through monkeypatch so they are undone.
+
+    Assigning to the module attributes directly leaks into every later test
+    in the session -- `test_browser_browse_handlers.py` runs after this file
+    alphabetically and inherited the stubs, which is how CI caught it.
+    """
     from arena.browser import browse_handlers as module
 
     async def _fake_cdp(_ctx, **kwargs):
@@ -586,49 +592,49 @@ def _browse_handler(recorder, calls):
         calls.append(("stealth", kwargs["action"], kwargs["url"]))
         return {"payload": {"ok": True}, "status": 200}
 
-    module.run_cdp_browse = _fake_cdp
-    module.run_browseract_browse = _fake_stealth
+    monkeypatch.setattr(module, "run_cdp_browse", _fake_cdp)
+    monkeypatch.setattr(module, "run_browseract_browse", _fake_stealth)
     handlers = module.make_browser_browse_handlers(recorder)
     return getattr(handlers.browse, "__wrapped__", handlers.browse)
 
 
 @pytest.mark.parametrize("url", BLOCKED_URLS)
 @pytest.mark.parametrize("action", ["extract", "shot"])
-def test_browse_endpoint_refuses_navigating_actions(url, action):
+def test_browse_endpoint_refuses_navigating_actions(url, action, monkeypatch):
     rec = _Recorder()
     calls = []
-    handler = _browse_handler(rec, calls)
+    handler = _browse_handler(rec, calls, monkeypatch)
     result = asyncio.run(handler(_Request({"url": url, "action": action})))
     assert result["status"] == 400
     assert calls == []
 
 
 @pytest.mark.parametrize("url", BLOCKED_URLS)
-def test_browse_endpoint_refuses_stealth_backend_too(url):
+def test_browse_endpoint_refuses_stealth_backend_too(url, monkeypatch):
     """The stealth path shells out to browseract, bypassing the CDP guard."""
     rec = _Recorder()
     calls = []
-    handler = _browse_handler(rec, calls)
+    handler = _browse_handler(rec, calls, monkeypatch)
     result = asyncio.run(handler(_Request({"url": url, "action": "extract", "stealth": True})))
     assert result["status"] == 400
     assert calls == []
 
 
 @pytest.mark.parametrize("action", ["click", "type"])
-def test_browse_endpoint_ignores_url_for_non_navigating_actions(action):
+def test_browse_endpoint_ignores_url_for_non_navigating_actions(action, monkeypatch):
     """`click`/`type` act on the open tab; refusing on `url` would be wrong."""
     rec = _Recorder()
     calls = []
-    handler = _browse_handler(rec, calls)
+    handler = _browse_handler(rec, calls, monkeypatch)
     result = asyncio.run(handler(_Request({"url": "file:///etc/passwd", "action": action})))
     assert result["status"] == 200
     assert calls == [("cdp", action, "file:///etc/passwd")]
 
 
-def test_browse_endpoint_allows_public_url():
+def test_browse_endpoint_allows_public_url(monkeypatch):
     rec = _Recorder()
     calls = []
-    handler = _browse_handler(rec, calls)
+    handler = _browse_handler(rec, calls, monkeypatch)
     result = asyncio.run(handler(_Request({"url": "https://example.com/"})))
     assert result["status"] == 200
     assert calls == [("cdp", "extract", "https://example.com/")]
