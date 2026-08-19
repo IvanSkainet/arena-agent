@@ -11,18 +11,28 @@ Two layers are covered:
 from __future__ import annotations
 
 import asyncio
+import asyncio
 import json
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+# `sys.path` is extended above so the suite runs from a bare checkout, the
+# same preamble 249 other test modules use. Ruff's E402 is suppressed for
+# exactly this import block, which cannot precede the path setup it depends
+# on -- a bounded exception with its reason written down, per AGENTS.md.
 from arena.browser.navigation_policy import (  # noqa: E402
+    _DNS_EXECUTOR,
     ALLOWED_SCHEMES,
     BLANK_URL,
+    DNS_TIMEOUT_SECONDS,
+    ERROR_CREDENTIALS,
     ERROR_EMPTY,
+    ERROR_ENCODED_HOST,
     ERROR_INTERNAL_HOST,
     ERROR_INVALID,
     ERROR_MALFORMED_NUMERIC,
@@ -33,6 +43,7 @@ from arena.browser.navigation_policy import (  # noqa: E402
     NavigationRejected,
     local_navigation_allowed,
     navigation_error,
+    navigation_error_async,
 )
 
 # Targets the issue names explicitly, plus the obfuscated loopback spellings
@@ -728,6 +739,11 @@ def test_every_navigating_entry_point_imports_the_policy():
         "arena/browser/cdp_client/browser_page.py",
         "arena/mcp/tool_browser.py",
         "arena/mcp/tool_browser_headed.py",
+        # The standalone MCP server carries its own `browser.shot`; the guard
+        # in tool_browser.py covers the in-process dispatcher only. Review of
+        # this PR caught it, which is the argument for listing files here
+        # rather than trusting an enumeration done once by hand.
+        "arena/mcp/standalone_tools.py",
     ]
     missing = [
         path for path in required
@@ -756,3 +772,303 @@ def test_no_new_navigate_call_sites_bypass_the_mixin():
             if '"Page.navigate"' in line or "'Page.navigate'" in line:
                 offenders.append(f"{rel}: {line.strip()}")
     assert offenders == [], f"Page.navigate issued outside the guard: {offenders}"
+
+
+# --------------------------------------------------------------------------
+# Parser differentials found in review of this change
+# --------------------------------------------------------------------------
+
+ENCODED_HOST_URLS = [
+    "http://localho%73t/",                  # -> localhost
+    "http://%31%32%37%2e%30%2e%30%2e%31/",  # -> 127.0.0.1
+    "http://%6cocalhost/",
+    "https://%31%36%39.254.169.254/",
+    "http://127.0.0.%31/",
+]
+
+
+@pytest.mark.parametrize("url", ENCODED_HOST_URLS)
+def test_policy_rejects_percent_encoded_hosts(url):
+    """Chromium decodes the host before parsing it; `urlparse` does not.
+
+    `http://localho%73t/` is a name resolving nowhere to Python and plain
+    `localhost` to the browser, so approving Python's reading approves a
+    loopback navigation. Refused rather than decoded: decoding correctly means
+    reimplementing Chromium's host canonicalisation and staying bug-compatible
+    with it. Legitimate http(s) hosts are punycode, never percent-escaped.
+    """
+    assert navigation_error(url) == ERROR_ENCODED_HOST
+
+
+@pytest.mark.parametrize("url", ENCODED_HOST_URLS)
+def test_encoded_hosts_are_refused_even_with_the_optin(url):
+    """The opt-in permits private *targets*, not URLs two parsers disagree on."""
+    env = {LOCAL_NAVIGATION_ENV: "1"}
+    assert navigation_error(url, env=env) == ERROR_ENCODED_HOST
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/a%20b",
+        "https://example.com/?q=1%2B2",
+        "https://example.com/#%41",
+        "https://example.com/p%2Fq?r=%25",
+    ],
+)
+def test_percent_encoding_outside_the_host_is_untouched(url):
+    """Only the host is affected -- escaped paths and queries are normal."""
+    assert navigation_error(url) is None
+
+
+CREDENTIAL_URLS = [
+    "https://user:password@example.com/",
+    "https://user@example.com/",
+    "http://127.0.0.1@example.com/",
+    "https://example.com@evil.test/",
+    "https://:@example.com/",
+]
+
+
+@pytest.mark.parametrize("url", CREDENTIAL_URLS)
+def test_policy_rejects_embedded_credentials(url):
+    """Parity with `security_http.open_public_url`, which already refuses these.
+
+    A URL the bridge will not *fetch* should not be one it will *navigate* to,
+    and `https://example.com@evil.test/` is the classic way to make an
+    authority unreadable at a glance.
+    """
+    assert navigation_error(url) == ERROR_CREDENTIALS
+
+
+@pytest.mark.parametrize("url", CREDENTIAL_URLS)
+def test_credentials_are_refused_even_with_the_optin(url):
+    env = {LOCAL_NAVIGATION_ENV: "1"}
+    assert navigation_error(url, env=env) == ERROR_CREDENTIALS
+
+
+def test_credential_and_encoding_errors_are_distinct_literals():
+    """Distinct wording, asserted against literals so a mutant to None dies."""
+    assert ERROR_ENCODED_HOST == "percent-encoded host not allowed for navigation"
+    assert ERROR_CREDENTIALS == "embedded credentials not allowed for navigation"
+    assert ERROR_ENCODED_HOST != ERROR_CREDENTIALS
+
+
+# --------------------------------------------------------------------------
+# The async entry point
+# --------------------------------------------------------------------------
+
+ASYNC_PARITY_URLS = BLOCKED_URLS + ALLOWED_URLS + ENCODED_HOST_URLS + CREDENTIAL_URLS
+
+
+@pytest.mark.parametrize("url", ASYNC_PARITY_URLS)
+def test_async_policy_agrees_with_the_sync_one(url, monkeypatch):
+    """One policy means one verdict, whichever entry point asks for it.
+
+    Both variants share `_static_navigation_error`; this asserts the sharing
+    actually holds rather than trusting that two code paths stayed aligned.
+    """
+    monkeypatch.setattr(
+        "arena.browser.navigation_policy.socket.getaddrinfo",
+        lambda *_a, **_k: [(2, 1, 6, "", ("93.184.216.34", 0))],
+    )
+    assert asyncio.run(navigation_error_async(url)) == navigation_error(url)
+
+
+def test_async_policy_does_not_block_the_loop_on_a_slow_resolver(monkeypatch):
+    """A slow DNS answer must not stall the shared aiohttp loop.
+
+    `socket.getaddrinfo` is synchronous and has no application timeout, so an
+    attacker-chosen hostname behind a deliberately slow resolver would freeze
+    every other service multiplexed onto the bridge's single event loop --
+    gateway, SSE, dashboard, task runner. The lookup runs in a thread under
+    `asyncio.wait_for`, so the loop stays responsive.
+    """
+    def slow_getaddrinfo(*_args, **_kwargs):
+        time.sleep(5)
+        raise AssertionError("should not be waited on")
+
+    monkeypatch.setattr(
+        "arena.browser.navigation_policy.socket.getaddrinfo", slow_getaddrinfo
+    )
+
+    async def scenario():
+        ticks = 0
+
+        async def heartbeat():
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.01)
+                ticks += 1
+
+        beat = asyncio.ensure_future(heartbeat())
+        try:
+            started = time.monotonic()
+            verdict = await navigation_error_async(
+                "https://slow.example.com/", dns_timeout=0.1
+            )
+            return verdict, time.monotonic() - started, ticks
+        finally:
+            beat.cancel()
+
+    verdict, elapsed, ticks = asyncio.run(scenario())
+    assert verdict is None       # a timeout is not proof of a private target
+    assert elapsed < 2.0         # did not wait out the 5s resolver
+    assert ticks > 0             # other loop work kept running meanwhile
+
+
+def test_async_policy_timeout_does_not_reject_the_url(monkeypatch):
+    """A resolver too slow to answer is treated exactly like one that fails.
+
+    Rejecting on timeout would hand anyone who can slow the resolver an
+    outage, and would also overstate a check documented as best-effort.
+    """
+    def hang(*_args, **_kwargs):
+        time.sleep(3)
+        return []
+
+    monkeypatch.setattr("arena.browser.navigation_policy.socket.getaddrinfo", hang)
+    assert asyncio.run(
+        navigation_error_async("https://public.example.com/", dns_timeout=0.05)
+    ) is None
+
+
+def test_async_policy_still_catches_a_host_resolving_to_loopback(monkeypatch):
+    """The offloading must not lose the check it offloads."""
+    monkeypatch.setattr(
+        "arena.browser.navigation_policy.socket.getaddrinfo",
+        lambda *_a, **_k: [(2, 1, 6, "", ("127.0.0.1", 0))],
+    )
+    assert asyncio.run(
+        navigation_error_async("https://localtest.me/")
+    ) == ERROR_RESOLVED_PRIVATE
+
+
+def test_async_policy_skips_dns_for_literal_addresses(monkeypatch):
+    """A literal address is already decided; no thread, no lookup."""
+    def boom(*_args, **_kwargs):
+        raise AssertionError("must not resolve a literal address")
+
+    monkeypatch.setattr("arena.browser.navigation_policy.socket.getaddrinfo", boom)
+    assert asyncio.run(navigation_error_async("https://93.184.216.34/")) is None
+    assert asyncio.run(
+        navigation_error_async("http://127.0.0.1/")
+    ) == ERROR_PRIVATE
+
+
+# --------------------------------------------------------------------------
+# The standalone MCP server's own copy of browser.shot
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("url", BLOCKED_URLS)
+def test_standalone_mcp_shot_refuses_blocked_urls(url, monkeypatch):
+    """The other MCP dispatcher; missing it left the whole policy bypassable.
+
+    `standalone_rpc.handle_rpc` routes `tools/call` here, and this branch used
+    to hand `args["url"]` straight to a Chromium command line.
+    """
+    from arena.mcp import standalone_tools
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("must refuse before launching a browser")
+
+    monkeypatch.setattr(standalone_tools, "run_sd", boom)
+    result = standalone_tools.call_tool("browser.shot", {"url": url})
+    payload = json.loads(result["content"][0]["text"])
+    assert payload["ok"] is False
+    assert payload["error"]
+
+
+def test_standalone_mcp_shot_error_matches_the_shared_policy():
+    """Same call, same strings -- not a second policy that can drift."""
+    from arena.mcp import standalone_tools
+
+    result = standalone_tools.call_tool("browser.shot", {"url": "file:///etc/passwd"})
+    payload = json.loads(result["content"][0]["text"])
+    assert payload["error"] == navigation_error("file:///etc/passwd", allow_blank=False)
+
+
+def test_standalone_mcp_shot_refuses_a_missing_url(monkeypatch):
+    """`about:blank` is not a screenshot target, so blanks are refused here."""
+    from arena.mcp import standalone_tools
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("must refuse before launching a browser")
+
+    monkeypatch.setattr(standalone_tools, "run_sd", boom)
+    for args in ({}, {"url": ""}, {"url": "about:blank"}):
+        payload = json.loads(
+            standalone_tools.call_tool("browser.shot", args)["content"][0]["text"]
+        )
+        assert payload["ok"] is False
+
+
+def test_dns_timeout_default_is_bounded_and_short():
+    """The default must be a real bound, not None (which waits forever).
+
+    Mutation testing caught this: `DNS_TIMEOUT_SECONDS = None` and `= 3.0`
+    both survived, because every test passed `dns_timeout` explicitly and
+    nothing pinned the value the handlers actually get. `None` means
+    `asyncio.wait_for` never fires and the offloading buys nothing back.
+    """
+    assert isinstance(DNS_TIMEOUT_SECONDS, float)
+    assert 0 < DNS_TIMEOUT_SECONDS <= 2.0
+
+
+def test_async_policy_applies_the_default_timeout(monkeypatch):
+    """A caller that passes no timeout still gets one."""
+    def slow_getaddrinfo(*_args, **_kwargs):
+        time.sleep(30)
+        raise AssertionError("should not be waited on")
+
+    monkeypatch.setattr(
+        "arena.browser.navigation_policy.socket.getaddrinfo", slow_getaddrinfo
+    )
+    started = time.monotonic()
+    verdict = asyncio.run(navigation_error_async("https://slow.example.com/"))
+    elapsed = time.monotonic() - started
+    assert verdict is None
+    assert elapsed < 2.0 + 1.0, f"default timeout not applied (waited {elapsed:.1f}s)"
+
+
+def test_dns_runs_on_a_dedicated_pool_not_the_default_executor(monkeypatch):
+    """Abandoned lookups must not accumulate in the shared default executor.
+
+    `getaddrinfo` is not interruptible, so a lookup dropped at the timeout
+    keeps its thread until the resolver answers. On the loop's default
+    executor those threads pile up against the pool every other
+    `run_in_executor` caller in the bridge shares, and they block
+    `loop.shutdown_default_executor()`. Writing this test is what exposed it:
+    the timeout test left 30-second threads behind and the suite itself hung
+    on exit for 36 seconds.
+    """
+    used = []
+
+    def slow_getaddrinfo(*_args, **_kwargs):
+        time.sleep(10)
+        return []
+
+    monkeypatch.setattr(
+        "arena.browser.navigation_policy.socket.getaddrinfo", slow_getaddrinfo
+    )
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        original = loop.run_in_executor
+
+        def spy(executor, func, *args):
+            used.append(executor)
+            return original(executor, func, *args)
+
+        loop.run_in_executor = spy  # type: ignore[method-assign]
+        try:
+            return await navigation_error_async(
+                "https://slow.example.com/", dns_timeout=0.05
+            )
+        finally:
+            loop.run_in_executor = original  # type: ignore[method-assign]
+
+    assert asyncio.run(scenario()) is None
+    assert used, "the lookup never reached an executor"
+    assert used[0] is _DNS_EXECUTOR, "DNS must not use the shared default executor"
+    assert used[0] is not None

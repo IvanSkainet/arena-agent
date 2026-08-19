@@ -291,7 +291,9 @@ request answers HTTP **400** with the reason instead of a generic 500. Covered
 entry points: `/v1/browser/cdp/navigate`, `/v1/browser/cdp/tabs/new`,
 `/v1/browser/browse` (`extract`/`shot`, both the CDP and the stealth backend),
 the CDP stealth extract/shot endpoints, and the MCP tools `browser.shot` and
-`browser.launch`.
+`browser.launch` — including the standalone MCP server's separate `browser.shot`
+implementation, which has its own dispatcher and would otherwise be an
+unguarded second door to the same Chromium command line.
 
 Refused: non-`http(s)` schemes (`file:`, `data:`, `javascript:`, `chrome:`,
 `devtools:`, `view-source:`, ...), loopback, private, link-local, reserved and
@@ -305,6 +307,29 @@ outright as parser differentials: Chromium follows the WHATWG URL Standard and
 reads `http://127.0.0.1\@evil.com/` as host `127.0.0.1`, while Python's
 `urlparse` reads it as `evil.com`. Validating one host and navigating to
 another is precisely the failure this policy exists to prevent.
+
+Percent-escapes in the **host** are refused for the same reason: Chromium
+decodes the host before parsing it, so `http://localho%73t/` is `localhost` to
+the browser and an unresolvable name to `urlparse`, and
+`http://%31%32%37%2e%30%2e%30%2e%31/` is `127.0.0.1`. Decoding it correctly
+here would mean reimplementing Chromium's host canonicalisation and staying
+bug-compatible with it, so the escape itself is rejected — legitimate hostnames
+travel as IDNA punycode, never percent-escaped. Escapes in the path, query and
+fragment are unaffected.
+
+Embedded credentials (`https://user:pass@example.com/`) are refused, matching
+`arena.security_http.open_public_url`: a URL the bridge will not fetch is not
+one it will navigate to, and `https://trusted.example.com@evil.test/` is the
+standard way to make an authority unreadable at a glance.
+
+Inside the async handlers the DNS lookup runs in a worker thread under a
+2-second timeout (`navigation_error_async`). `socket.getaddrinfo` is
+synchronous with no application timeout, and the bridge multiplexes every
+service onto one event loop, so resolving inline would let a hostname served
+by a deliberately slow resolver stall unrelated gateway, SSE, dashboard and
+task-runner traffic. A lookup that times out is treated exactly like one that
+fails — "not proven private", not "rejected" — because the alternative hands
+anyone who can slow a resolver an outage.
 
 **What this does not guarantee.** The DNS check is best-effort. Chromium
 resolves the hostname itself when it navigates, and nothing pins the address

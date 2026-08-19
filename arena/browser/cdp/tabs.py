@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from arena.browser.navigation_policy import navigation_error
+from arena.browser.navigation_policy import navigation_error_async
 from arena.handler_context import CdpTabsHandlerContext
 from arena.handler_helpers import authed
 
@@ -76,7 +76,7 @@ def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:
         # other target is a navigation and is treated as one. Without this,
         # opening a tab was a way to reach exactly what
         # /v1/browser/cdp/navigate refuses.
-        nav_error = navigation_error(url)
+        nav_error = await navigation_error_async(url)
         if nav_error:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": nav_error}, status=400)

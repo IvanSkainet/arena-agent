@@ -43,9 +43,11 @@ opt-in is not a way to ask for it.
 """
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import os
 import socket
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Mapping
 from urllib.parse import urlparse
 
@@ -66,6 +68,26 @@ _TRUTHY = frozenset({"1", "true", "yes"})
 #: `urlparse` keeps them, so a URL containing one means different things to
 #: the validator and to the browser.
 _C0_CONTROLS = frozenset(chr(code) for code in range(0x20))
+
+#: DNS runs on its own small pool rather than the loop's default executor.
+#: `getaddrinfo` cannot be interrupted, so a lookup abandoned at the timeout
+#: keeps its thread until the resolver finally answers. On the default
+#: executor those abandoned threads accumulate against the same pool every
+#: other `run_in_executor` caller shares -- admin handlers, funnel status,
+#: browser fetch -- and a stream of slow hostnames would starve them. They
+#: also block `loop.shutdown_default_executor()`, so a clean shutdown would
+#: wait on a resolver nobody is listening to any more. Bounded here instead:
+#: the damage of a hostile resolver stops at this pool, and a caller that
+#: cannot get a worker times out and is treated as unresolved, which is the
+#: existing failure mode rather than a new one.
+_DNS_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="nav-dns")
+
+#: Seconds an async caller waits for the policy's DNS lookup before giving up
+#: on it. Deliberately short: the lookup is a best-effort extra check, not the
+#: load-bearing one, and a navigation request should not sit behind a slow
+#: resolver. Exceeding it is treated as "not proven private", the same as a
+#: resolver failure.
+DNS_TIMEOUT_SECONDS = 2.0
 
 #: Schemes a navigation may use. `Page.navigate` accepts far more than this --
 #: `file:`, `data:`, `javascript:`, `chrome:`, `devtools:`, `view-source:` --
@@ -89,6 +111,8 @@ ERROR_SCHEME = (
     "URL scheme {scheme!r} not allowed for navigation (only http/https)"
 )
 ERROR_NO_HOST = "missing host"
+ERROR_ENCODED_HOST = "percent-encoded host not allowed for navigation"
+ERROR_CREDENTIALS = "embedded credentials not allowed for navigation"
 ERROR_INTERNAL_HOST = "internal/metadata hostname not allowed"
 ERROR_PRIVATE = (
     "private/internal address not allowed for navigation "
@@ -145,23 +169,27 @@ def _resolves_to_blocked(host: str) -> bool:
     return False
 
 
-def navigation_error(
+def _static_navigation_error(
     url: object,
     *,
     env: Mapping[str, str] | None = None,
     allow_blank: bool = True,
-) -> str | None:
-    """Return why *url* may not be navigated to, or None when it is allowed.
+) -> tuple[str | None, str | None]:
+    """Every check that needs no resolver, plus the host still to be resolved.
 
-    `allow_blank` covers the tab-opening path, where ``about:blank`` is the
-    default value rather than a destination anyone asked for.
+    Split out of `navigation_error` so the two callers can share it: the
+    synchronous entry points resolve inline, the async ones hand the host to a
+    thread. Both therefore apply an identical set of string-level rules --
+    which is the point of having one policy module -- and only the DNS step
+    differs. Returns `(error, host_to_resolve)`; `host_to_resolve` is None when
+    the verdict is already settled and no lookup is needed.
     """
     if not isinstance(url, str) or not url.strip():
-        return ERROR_EMPTY
+        return ERROR_EMPTY, None
 
     candidate = url.strip()
     if allow_blank and candidate.lower() == BLANK_URL:
-        return None
+        return None, None
 
     # Chromium follows the WHATWG URL Standard, which treats a backslash in
     # the authority as a path separator; Python's `urlparse` follows RFC 3986,
@@ -177,7 +205,7 @@ def navigation_error(
     # as `security_ssrf._components_fit_ipv4`, which refuses libc-dependent
     # numeric spellings instead of guessing which library wins.
     if "\\" in candidate:
-        return ERROR_INVALID
+        return ERROR_INVALID, None
 
     # Raw whitespace and control characters are stripped by Chromium before
     # parsing and preserved by `urlparse`, producing the same disagreement:
@@ -187,27 +215,57 @@ def navigation_error(
     # the second clause catches the remaining C0 controls (NUL, BEL, ESC...),
     # which are not "space" but are stripped by Chromium just the same.
     if any(character.isspace() or character in _C0_CONTROLS for character in candidate):
-        return ERROR_INVALID
+        return ERROR_INVALID, None
 
     try:
         parsed = urlparse(candidate)
     except ValueError:
-        return ERROR_INVALID
+        return ERROR_INVALID, None
 
     scheme = parsed.scheme.lower()
     if scheme not in ALLOWED_SCHEMES:
-        return ERROR_SCHEME.format(scheme=parsed.scheme)
+        return ERROR_SCHEME.format(scheme=parsed.scheme), None
 
     try:
         host = (parsed.hostname or "").strip().rstrip(".").lower()
     except ValueError:
         # urlparse defers IPv6 bracket errors to `.hostname`.
-        return ERROR_INVALID
+        return ERROR_INVALID, None
     if not host:
-        return ERROR_NO_HOST
+        return ERROR_NO_HOST, None
 
+    # A third parser differential, and the one the backslash fix missed.
+    # Chromium percent-decodes the host of a special (http/https) URL before
+    # it parses it; `urlparse` hands back the escaped bytes verbatim:
+    #
+    #   http://localho%73t/                 -> urlparse "localho%73t"  (a name
+    #     that resolves nowhere, so allowed) / Chromium "localhost"
+    #   http://%31%32%37%2e%30%2e%30%2e%31/ -> urlparse "%31%32..."     (not
+    #     numeric to us, so no IP check) / Chromium 127.0.0.1
+    #
+    # Decoding it here and re-checking would mean reimplementing Chromium's
+    # host canonicalisation and staying bug-compatible with it forever. A
+    # legitimate http(s) host has no reason to be escaped -- non-ASCII names
+    # travel as IDNA punycode, not percent-escapes -- so the escape itself is
+    # refused. Only the host is affected; path and query keep their encoding.
+    if "%" in host:
+        return ERROR_ENCODED_HOST, None
+
+    # `security_http.open_public_url` already refuses these for the urllib
+    # transport; a URL the bridge will not fetch should not be one it will
+    # navigate to. Credentials in a navigation target are also the classic way
+    # to make the authority hard to read at a glance
+    # (`https://trusted.example.com@evil.test/`), and Chromium hands them to
+    # the origin as a Basic auth header.
+    if parsed.username is not None or parsed.password is not None:
+        return ERROR_CREDENTIALS, None
+
+    # Checked *after* the parser-differential and credential rejections and
+    # before the address checks: the opt-in exists to permit private
+    # destinations, not to switch the policy off. A URL two parsers read
+    # differently is not a "local target", it is a malformed one.
     if local_navigation_allowed(env):
-        return None
+        return None, None
 
     if (
         host in _BLOCKED_HOSTNAMES
@@ -216,19 +274,91 @@ def navigation_error(
         or host.endswith(".internal")
         or host.endswith(".local")
     ):
-        return ERROR_INTERNAL_HOST
+        return ERROR_INTERNAL_HOST, None
 
     address = _coerce_ip(host)
     if address is not None and _ip_is_blocked(address):
-        return ERROR_PRIVATE
+        return ERROR_PRIVATE, None
     if address is None and _looks_numeric_host(host):
         # An all-numeric host the coercer refused is an out-of-range address
         # spelling, not a name. Letting it through would defer the verdict to
         # whatever libc Chromium is linked against -- the parser differential
         # `security_ssrf` documents at length.
-        return ERROR_MALFORMED_NUMERIC
+        return ERROR_MALFORMED_NUMERIC, None
 
-    if address is None and _resolves_to_blocked(host):
+    if address is not None:
+        # A literal address was checked above and found acceptable; there is
+        # nothing left for a resolver to say about it.
+        return None, None
+
+    return None, host
+
+
+def navigation_error(
+    url: object,
+    *,
+    env: Mapping[str, str] | None = None,
+    allow_blank: bool = True,
+) -> str | None:
+    """Return why *url* may not be navigated to, or None when it is allowed.
+
+    `allow_blank` covers the tab-opening path, where ``about:blank`` is the
+    default value rather than a destination anyone asked for.
+
+    Synchronous, and therefore for synchronous callers -- the MCP dispatchers,
+    which are plain functions. Inside a coroutine use `navigation_error_async`:
+    the lookup this may perform is a blocking `getaddrinfo`, and the bridge
+    multiplexes every service through one event loop.
+    """
+    error, host = _static_navigation_error(url, env=env, allow_blank=allow_blank)
+    if error is not None or host is None:
+        return error
+    if _resolves_to_blocked(host):
         return ERROR_RESOLVED_PRIVATE
-
     return None
+
+
+async def navigation_error_async(
+    url: object,
+    *,
+    env: Mapping[str, str] | None = None,
+    allow_blank: bool = True,
+    dns_timeout: float = DNS_TIMEOUT_SECONDS,
+) -> str | None:
+    """`navigation_error` for coroutines: the DNS lookup cannot stall the loop.
+
+    Every string-level rule is decided inline -- they are pure string work and
+    moving them to a thread would only add latency. Only the resolver call is
+    offloaded, and it is bounded:
+
+    * `socket.getaddrinfo` is synchronous with no application-level timeout,
+      so calling it from a handler lets an attacker-chosen hostname served by
+      a deliberately slow resolver stall the shared aiohttp loop, and with it
+      the gateway, SSE, WebSocket, dashboard and task-runner traffic that has
+      nothing to do with browsing.
+    * A lookup that outruns `dns_timeout` is treated the way a resolver
+      failure already is -- "not proven private", not "rejected". A timeout
+      that blocked navigation would hand anyone able to slow the resolver an
+      outage; consistency with the existing failure mode is also what keeps
+      this check honestly labelled best-effort.
+
+    The thread keeps running after a timeout -- `getaddrinfo` is not
+    interruptible -- but it belongs to this module's own small pool
+    (`_DNS_EXECUTOR`), so an abandoned lookup cannot starve the executor the
+    rest of the process shares, nor delay its shutdown.
+    """
+    error, host = _static_navigation_error(url, env=env, allow_blank=allow_blank)
+    if error is not None or host is None:
+        return error
+
+    loop = asyncio.get_running_loop()
+    try:
+        blocked = await asyncio.wait_for(
+            loop.run_in_executor(_DNS_EXECUTOR, _resolves_to_blocked, host),
+            timeout=dns_timeout,
+        )
+    except (asyncio.TimeoutError, RuntimeError):
+        # RuntimeError: the pool is shutting down, which is not a verdict
+        # about the URL either.
+        return None
+    return ERROR_RESOLVED_PRIVATE if blocked else None

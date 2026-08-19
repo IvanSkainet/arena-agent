@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import time
 
-from arena.browser.navigation_policy import navigation_error
+from arena.browser.navigation_policy import navigation_error_async
 from arena.handler_context import CdpPageHandlerContext
 from arena.handler_helpers import authed
 
@@ -40,7 +40,7 @@ def make_cdp_navigate_handler(ctx: CdpPageHandlerContext):
         # reason instead of the generic 500 the exception handler below would
         # produce, and refuses before a tab is claimed and the navigation
         # clock is stamped.
-        nav_error = navigation_error(url)
+        nav_error = await navigation_error_async(url)
         if nav_error:
             ctx.record_request(is_error=True, count_request=False)
             # `CdpPageHandlerContext` carries no `audit` callable, so the

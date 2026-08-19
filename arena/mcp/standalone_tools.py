@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path as _Path
 
+from arena.browser.navigation_policy import navigation_error
 from arena.files.sandbox import SENSITIVE_FILE_BASENAMES as _BLOCKED_BASENAMES
 from arena.mcp.standalone_common import (
     BIN,
@@ -116,6 +117,17 @@ def call_tool(name: str, args: dict) -> dict:
         if name == "browser.shot":
             import platform
             import tempfile
+
+            # The standalone HTTP/WebSocket MCP server has its own copy of
+            # this tool; the guard in `arena/mcp/tool_browser.py` covers the
+            # in-process dispatcher only. Without this line an agent talking
+            # to the standalone server hands `file:///etc/passwd` straight to
+            # a Chromium command line and gets the screenshot back -- exactly
+            # the entry point the policy exists to close, reached by the other
+            # door. Same call, same error strings, no second policy.
+            shot_error = navigation_error(args.get("url"), allow_blank=False)
+            if shot_error:
+                return text_content(json.dumps({"ok": False, "error": shot_error}))
             shots = os.path.join(HOME, "arena-bridge", "reports", "shots")
             os.makedirs(shots, exist_ok=True)
             png = os.path.join(shots, f"mcp-{int(time.time())}.png")

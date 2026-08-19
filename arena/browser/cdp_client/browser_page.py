@@ -14,7 +14,7 @@ from arena.browser.cdp_client.common import (
     logger,
 )
 from arena.browser.cdp_client.tabs_http import get_new_tab_url
-from arena.browser.navigation_policy import NavigationRejected, navigation_error
+from arena.browser.navigation_policy import NavigationRejected, navigation_error_async
 
 
 class CDPBrowserPageMixin(CDPBrowserInputMixin):
@@ -51,7 +51,7 @@ class CDPBrowserPageMixin(CDPBrowserInputMixin):
         its 33 call sites. `about:blank` is permitted: it is how a tab is
         opened, not a destination.
         """
-        error = navigation_error(url)
+        error = await navigation_error_async(url)
         if error:
             raise NavigationRejected(error)
 
