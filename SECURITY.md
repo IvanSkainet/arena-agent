@@ -160,32 +160,94 @@ The threats we defend against, in decreasing severity order.
 
 ## Environment variables
 
-Complete reference of security-relevant env vars. All are
-optional; defaults are the safe posture.
+Complete classified reference of every exact `ARENA_*` source reference.
+`security` entries can alter credentials, trust, exposure, update routing or
+privacy; `operational` entries change paths, limits or integrations; `internal`
+entries are process/CI markers. `Reference` distinguishes complete names from
+prefixes used to construct platform-specific names. All variables are optional;
+runtime defaults are unchanged, and compatibility exceptions such as Local
+Area Network (LAN) webhooks are stated explicitly.
 
-| Variable | Default | Effect |
-|---|---|---|
-| `ARENA_BRIDGE_TOKEN` | (unset) | Bearer token for CLI; wins over `~/arena-bridge/token.txt` since v4.41.0 |
-| `ARENA_TOKEN_FILE` | (unset) | Absolute path to a file containing the bearer token; highest priority |
-| `ARENA_BRIDGE_URL` | `http://127.0.0.1:8765` | Bootstrap URL used by agentctl |
-| `ARENA_INSECURE_TLS` | (unset) | `1`/`true`/`yes`/`on` disables TLS strict-verify; warn-once on stderr. **Only for self-signed bridges** — public transports (Tailscale/CF/Ngrok) always work with default strict-verify |
-| `ARENA_BRIDGE_PIN_SHA256` | (unset) | Comma-separated SHA-256 fingerprints; colon-separated `openssl` format accepted. Enables cert pinning |
-| `ARENA_BRIDGE_PIN_KIND` | `spki` | `spki` (default, survives cert rotation when key reused) or `cert` (pins whole cert). Both hashes checked on every handshake regardless |
-| `ARENA_BRIDGE_URL_CACHE` | enabled | `0`/`false`/`no`/`off` disables the persistent fallback URL cache entirely |
-| `ARENA_URL_CACHE_PATH` | `~/.arena/last_urls.json` | Override cache location (e.g. for a shared homeless system) |
-| `ARENA_AGENTCTL_LOG_FULL_URLS` | (unset) | `1`/`true`/`yes`/`on` disables the non-TTY URL truncation in stderr diagnostics |
-| `ARENA_LOG_PEER` | `full` | `full` records full peer IP in `requests.jsonl`; `mask` hashes with per-install salt; `off` omits the field |
-| `ARENA_LOG_PEER_SALT` | fixed derivation | Custom salt for `mask` mode; change to invalidate historical logs |
-| `ARENA_WEBHOOK_STRICT` | (unset) | `1`/`true`/`yes`/`on` routes outbound webhook URLs through the full SSRF guard (rejects RFC1918, metadata, etc). Off by default to preserve LAN-webhook use cases |
-| `ARENA_APK_STAGING` | `~/.arena/apk-staging` | Override APK upload staging directory (e.g. to point at a larger volume) |
-| `ARENA_AGENT_HOME` | `~/arena-bridge` | Bridge installation root; token / audit / logs live here |
-| `ARENA_BORE_SERVER` *(v4.47.0)* | `bore.pub` | bore relay host; override to point at a self-hosted `bore server` |
-| `ARENA_BORE_SECRET` *(v4.47.0)* | (unset) | Shared secret for self-hosted bore servers; passed as `--secret <value>` only when set, never logged |
-| `ARENA_BORE_LOCAL_HOST` *(v4.47.0)* | `localhost` | Loopback host bore should forward to |
-| `ARENA_BORE_REMOTE_PORT` *(v4.47.0)* | `0` | Preferred remote port; 0 lets the server pick. Out-of-range / non-numeric values fall back to 0 |
-| `ARENA_BORE_URL_WAIT_SECONDS` *(v4.47.0)* | `30` | URL-negotiation wait, clamped 1..300 (same shape as ngrok / cloudflared) |
-| `ARENA_BORE_AUTOSTART` *(v4.47.0)* | (unset) | Truthy value autostarts bore on bridge boot (same shape as `ARENA_NGROK_AUTHTOKEN` counterparts) |
-| `SSL_CERT_FILE` | (OS default) | Standard stdlib env; point at private CA bundle instead of using `ARENA_INSECURE_TLS` |
+<!-- security-env-inventory:start -->
+| Variable | Classification | Reference | Effect |
+|---|---|---|---|
+| `ARENA_AGENTCTL_LOG_FULL_URLS` | security | exact | Disables URL truncation in non-TTY diagnostics; may expose path/query data. |
+| `ARENA_AGENT_HOME` | security | exact | Relocates installation state, including token, audit and log files. |
+| `ARENA_AGENT_SESSION_FILE` | operational | exact | Overrides the agent-session state file. |
+| `ARENA_ARGS_JSON` | internal | exact | Carries serialized hook arguments into a child hooks-runner process. |
+| `ARENA_APK_STAGING` | operational | exact | Overrides APK upload staging directory. |
+| `ARENA_ASSUME_SYSTEMD_FENCE` | security | exact | `1` trusts a target-host systemd fence without probing it; build-host escape hatch. |
+| `ARENA_AUTO_BIND` | security | exact | Allows automatic non-loopback binding when enabled. |
+| `ARENA_BORE_LOCAL_HOST` | security | exact | Selects the local host exposed through bore. |
+| `ARENA_BORE_REMOTE_PORT` | security | exact | Requests a public bore relay port. |
+| `ARENA_BORE_SECRET` | security | exact | Credential for a self-hosted bore relay; passed only as an argument. |
+| `ARENA_BORE_SERVER` | security | exact | Selects the bore relay server. |
+| `ARENA_BORE_URL_WAIT_SECONDS` | operational | exact | Controls bore URL-discovery timeout. |
+| `ARENA_BREAKER_COOLDOWN` | security | exact | Changes tunnel circuit-breaker recovery delay. |
+| `ARENA_BREAKER_DISABLE` | security | exact | Disables the tunnel circuit breaker. |
+| `ARENA_BREAKER_THRESHOLD` | security | exact | Changes the tunnel circuit-breaker failure threshold. |
+| `ARENA_BRIDGE_PIN_KIND` | security | exact | Chooses SPKI or whole-certificate pinning. |
+| `ARENA_BRIDGE_PIN_SHA256` | security | exact | Enables TLS certificate/public-key pinning. |
+| `ARENA_BRIDGE_TOKEN` | security | exact | Supplies the agentctl bearer token through inherited process environment. |
+| `ARENA_BRIDGE_URL` | security | exact | Overrides the agentctl/bootstrap bridge URL. |
+| `ARENA_BRIDGE_URL_CACHE` | security | exact | Can disable the persistent fallback bridge-URL cache. |
+| `ARENA_BROWSER_HEADED_DIR` | operational | exact | Overrides headed-browser profile/storage directory. |
+| `ARENA_CANDIDATE_RUN_ID` | internal | exact | Records the source-bound release-candidate workflow run in packaged provenance. |
+| `ARENA_CLOUDFLARED_AUTOSTART` | security | exact | Authorizes persisted cloudflared tunnel autostart. |
+| `ARENA_CLOUDFLARED_URL_WAIT_SECONDS` | operational | exact | Controls cloudflared URL-discovery timeout. |
+| `ARENA_CODE_SESSION_MAX` | operational | exact | Limits concurrent workbench code sessions. |
+| `ARENA_CURRENT_PROJECT` | operational | exact | Selects the current project for project CLI operations. |
+| `ARENA_EMULATOR_PROVIDERS` | operational | exact | Overrides enabled emulator providers. |
+| `ARENA_EVENT` | internal | exact | Carries the hook event name into a child hooks-runner process. |
+| `ARENA_EXIT` | internal | exact | Carries the triggering command exit status into a hooks-runner process. |
+| `ARENA_GITHUB_TOKEN` | security | exact | Supplies a GitHub API credential to release-check scripts through inherited environment. |
+| `ARENA_IMAGE_DIR` | operational | exact | Overrides image preprocessing storage. |
+| `ARENA_INPUT_HELPER_PORT` | security | exact | Selects the authenticated input-helper port. |
+| `ARENA_INPUT_HELPER_TOKEN` | security | exact | Supplies the input-helper bearer credential through inherited environment. |
+| `ARENA_INSECURE_TLS` | security | exact | Disables strict TLS verification for agentctl; public transports should not use it. |
+| `ARENA_KWIN_ACTION_` | operational | prefix | Prefix for per-action KWin helper command overrides. |
+| `ARENA_KWIN_FOCUS_` | operational | prefix | Prefix for KWin focus helper overrides. |
+| `ARENA_KWIN_WINDOWS_` | operational | prefix | Prefix for KWin window-list helper overrides. |
+| `ARENA_LOCAL_BRIDGE_TOKEN` | security | exact | Supplies the local Bridge bearer credential through inherited environment. |
+| `ARENA_LOG_PEER` | security | exact | Controls full, hashed or omitted peer-address logging. |
+| `ARENA_LOG_PEER_SALT` | security | exact | Overrides the salt used to hash peer addresses. |
+| `ARENA_MCP_CHILD` | internal | exact | Internal marker placed in child MCP server environments. |
+| `ARENA_MCP_STREAM_URL` | security | exact | Overrides the MCP stream endpoint used by management scripts. |
+| `ARENA_MOBILE_PULLS_DIR` | operational | exact | Overrides mobile pull destination. |
+| `ARENA_MUMU_CLI` | operational | exact | Overrides the MuMu emulator CLI executable path. |
+| `ARENA_NGROK_AUTHTOKEN` | security | exact | Supplies ngrok credential and enables its authenticated transport path. |
+| `ARENA_NGROK_REGION` | security | exact | Selects the ngrok relay region. |
+| `ARENA_NGROK_URL_WAIT_SECONDS` | operational | exact | Controls ngrok URL-discovery timeout. |
+| `ARENA_PORT` | operational | exact | Overrides the local Bridge/listener/relauncher port. |
+| `ARENA_PROFILE` | security | exact | Selects the execution profile, including owner-shell behavior. |
+| `ARENA_PYTHON` | operational | exact | Overrides the Python executable written into service/autostart configuration. |
+| `ARENA_REC` | operational | exact | Enables mission CLI recording mode. |
+| `ARENA_RELEASE_DIR` | operational | exact | Overrides the directory used to stage release archives. |
+| `ARENA_RELEASE_REPO` | security | exact | Redirects the GitHub repository inspected by release/security scripts. |
+| `ARENA_SANDBOX` | security | exact | Selects the autonomy/sandbox runtime posture. |
+| `ARENA_SCENARIOS_ALLOW_YAML` | security | exact | Enables the broader YAML scenario parser; disabled by default. |
+| `ARENA_SECRETS_PATH` | security | exact | Relocates the secrets store outside its default path. |
+| `ARENA_SERVICE_NAME` | operational | exact | Overrides the Windows service name. |
+| `ARENA_SMOKE_SERIAL` | operational | exact | Selects the Android device serial used by release smoke scripts. |
+| `ARENA_SOURCE_COMMIT` | internal | exact | Records the exact source commit in packaged release provenance. |
+| `ARENA_SUBAGENT_ID` | internal | exact | Supplies the child subagent identity to the subagent launcher. |
+| `ARENA_SUBAGENT_NAME` | internal | exact | Supplies the child subagent display name to the subagent launcher. |
+| `ARENA_TARGET` | internal | exact | Carries the hook target into a child hooks-runner process. |
+| `ARENA_TASK_NAME` | operational | exact | Overrides the Windows scheduled-task name. |
+| `ARENA_TEST_EXECUTION_GUARD` | internal | exact | Internal CI opt-in for the pytest collection guard. |
+| `ARENA_TOKEN` | security | exact | Bearer credential propagated to sandbox/skill child processes. |
+| `ARENA_TOKEN_FILE` | security | exact | Overrides the bearer-token file path and has highest token-source priority. |
+| `ARENA_TUNNEL_PRIORITY` | security | exact | Changes transport selection/order for public tunnel exposure. |
+| `ARENA_UPDATE_REPO` | security | exact | Redirects the repository used for self-update metadata and artifacts. |
+| `ARENA_UPDATE_ROOT` | security | exact | Redirects the update installation root. |
+| `ARENA_URL_CACHE_PATH` | operational | exact | Relocates the persistent bridge-URL cache. |
+| `ARENA_VOICE_DIR` | operational | exact | Overrides captured voice/audio storage. |
+| `ARENA_WEBHOOK_STRICT` | security | exact | Enables full public-only SSRF policy for webhooks; off preserves LAN webhook compatibility. |
+| `ARENA_WHISPER_MODEL` | operational | exact | Overrides the local Whisper model file/directory. |
+| `ARENA_ZEROTIER_NETWORK` | security | exact | Selects the ZeroTier network joined/exposed by CLI setup. |
+<!-- security-env-inventory:end -->
+
+`SSL_CERT_FILE` remains the standard-library CA-bundle override; it is not an `ARENA_*` variable and is therefore outside the guarded inventory. Point it at a private CA bundle instead of disabling TLS verification.
 
 ### Recommended production preset
 

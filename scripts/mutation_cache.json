@@ -216,8 +216,8 @@
    "total": 57
   },
   "arena/governance/pytest_execution_guard.py": {
-   "fingerprint": "c0e7192bcaa07346ac0475badbd4540e8f8afaf7cf0f22e1ff8398a72938b457",
-   "reason": "T67 reviewer follow-up collection floors; 0 survivors",
+   "fingerprint": "d3686c69bb30a56f37704e1501bd41a4a9f9a1faa1e51c1a577d8020ab7c6e28",
+   "reason": "T68 Qodo follow-up collection floors; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_pytest_execution_guard.py"
@@ -234,6 +234,16 @@
    ],
    "tool": "mutmut 2.5.1",
    "total": 217
+  },
+  "arena/governance/security_env_inventory.py": {
+   "fingerprint": "4d704a0ccd6c0a4eb2ca5709edf556f7afa5f2e0d9242464be9eaef3d3ca3a14",
+   "reason": "T68 Qodo follow-up: four-root scan and real nested/root symlink sabotage; 0 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_security_env_inventory.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 90
   },
   "arena/mcp_client/client.py": {
    "fingerprint": "dbde9f8c802a58cd7a8ec7a146cb63a868e851f3cb3d0ac12fff691776b2a047",
