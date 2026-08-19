@@ -10,6 +10,7 @@ import tempfile
 import time
 from typing import Any
 
+from arena.browser.navigation_policy import NavigationRejected, check_navigation
 from arena.mcp.tool_utils import text_content
 
 
@@ -24,6 +25,14 @@ def handle_browser_tool(name: str, args: dict[str, Any], *, ctx, run_local, run_
         return text_content(out or err)
     if name != "browser.shot":
         return None
+
+    # A headless Chromium launched with a URL on its command line navigates to
+    # it exactly like Page.navigate does, so this path needs the same policy;
+    # it simply does not go through CDP to get there.
+    try:
+        url = check_navigation(args.get("url"))
+    except NavigationRejected as exc:
+        return text_content(json.dumps({"ok": False, "error": str(exc)}))
 
     shots = str(ctx.reports_dir / "shots")
     os.makedirs(shots, exist_ok=True)
@@ -45,5 +54,5 @@ def handle_browser_tool(name: str, args: dict[str, Any], *, ctx, run_local, run_
     ) or "chrome.exe"
     rc, out, err = run_sd([chrome_exe, "--headless=new", "--no-sandbox", "--disable-gpu",
                            f"--user-data-dir={ud}", "--window-size=1366,768",
-                           f"--screenshot={png}", args.get("url", "")], timeout=45)
-    return text_content(json.dumps({"ok": rc == 0, "screenshot": png, "url": args.get("url", "")}))
+                           f"--screenshot={png}", url], timeout=45)
+    return text_content(json.dumps({"ok": rc == 0, "screenshot": png, "url": url}))

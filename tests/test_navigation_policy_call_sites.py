@@ -57,10 +57,39 @@ NAVIGATION_WITHOUT_POLICY: dict[str, str] = {
         "executes an already-validated URL: browse_handlers.py applies the "
         "policy before dispatching to run_cdp_extract/run_cdp_shot"
     ),
+    "arena/agentctl_cli/agentctl_browser.py": (
+        "operator-side CLI, not an agent-facing surface. Most subcommands "
+        "call the bridge over HTTP and are validated there, but `shot()` does "
+        "launch a headless browser locally with its argument. That URL comes "
+        "from the operator's own shell -- someone who can run this already "
+        "runs commands on the host -- and pointing it at a local dashboard is "
+        "a normal use of the CLI, so the policy would block the intended "
+        "case. The trust boundary is the bridge's HTTP surface, which the "
+        "policy guards; the exemption is the boundary, not an inert module."
+    ),
+    "arena/browser/cdp/session_diagnostics.py": (
+        "the browser flags appear inside a human-readable hint string that is "
+        "printed to the operator; the module starts nothing and takes no URL"
+    ),
+    "arena/browser/cdp/test_launch_common.py": (
+        "enumerates headless flag combinations to probe which one this "
+        "Chromium build accepts; the probe loads no URL"
+    ),
+    "arena/browser/cdp_client/process_discovery.py": (
+        "builds the launch command line for the debugging browser. It appends "
+        "flags only -- no URL argument -- and the resulting browser is driven "
+        "afterwards over CDP, where the policy applies to every navigation."
+    ),
 }
 
 NAVIGATION_CALLS = {"navigate"}
 NAVIGATION_CDP_METHOD = "Page.navigate"
+
+# A headless browser launched with a URL in argv navigates to it just as
+# Page.navigate does -- `browser.shot` reached loopback and file:// that way
+# while every CDP path was already guarded. Any module that builds a
+# `--screenshot=` / `--headless` command line is treated as navigating.
+BROWSER_ARGV_MARKERS = ("--screenshot=", "--headless")
 
 
 def _python_sources() -> list[Path]:
@@ -71,7 +100,27 @@ def _python_sources() -> list[Path]:
     )
 
 
+def _launches_a_browser_with_a_url(tree: ast.AST) -> bool:
+    """True when the module builds a browser command line.
+
+    `ast.JoinedStr` covers the f-string form (`f"--screenshot={png}"`), which
+    is how both MCP screenshot tools spell it.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if any(marker in node.value for marker in BROWSER_ARGV_MARKERS):
+                return True
+        if isinstance(node, ast.JoinedStr):
+            for part in node.values:
+                if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                    if any(m in part.value for m in BROWSER_ARGV_MARKERS):
+                        return True
+    return False
+
+
 def _module_navigates(tree: ast.AST) -> bool:
+    if _launches_a_browser_with_a_url(tree):
+        return True
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             func = node.func
@@ -155,6 +204,8 @@ def test_the_known_agent_facing_handlers_are_guarded():
         "arena/browser/browse_handlers.py",
         "arena/profiles/load_handler.py",
         "arena/mcp/tool_browser_headed.py",
+        "arena/mcp/tool_browser.py",
+        "arena/mcp/standalone_tools.py",
     ]
     missing = []
     for rel in required:

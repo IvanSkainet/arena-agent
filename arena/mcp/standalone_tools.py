@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path as _Path
 
+from arena.browser.navigation_policy import NavigationRejected, check_navigation
 from arena.files.sandbox import SENSITIVE_FILE_BASENAMES as _BLOCKED_BASENAMES
 from arena.mcp.standalone_common import (
     BIN,
@@ -114,6 +115,12 @@ def call_tool(name: str, args: dict) -> dict:
                                        "read", args["url"]], timeout=30)
             return text_content(out or err)
         if name == "browser.shot":
+            # Same policy as the CDP paths: a URL on Chromium's command line
+            # is a navigation, it just does not travel over CDP to get there.
+            try:
+                shot_url = check_navigation(args.get("url"))
+            except NavigationRejected as exc:
+                return text_content(json.dumps({"ok": False, "error": str(exc)}))
             import platform
             import tempfile
             shots = os.path.join(HOME, "arena-bridge", "reports", "shots")
@@ -153,8 +160,8 @@ def call_tool(name: str, args: dict) -> dict:
             chrome_exe = next((shutil.which(c) or (c if os.path.exists(c) else None) for c in chrome_candidates if shutil.which(c) or os.path.exists(c)), None) or "chrome.exe"
             rc, out, err = run_sd([chrome_exe, "--headless=new", "--no-sandbox", "--disable-gpu",
                                     f"--user-data-dir={ud}", "--window-size=1366,768",
-                                    f"--screenshot={png}", args["url"]], timeout=45)
-            return text_content(json.dumps({"ok": rc == 0, "screenshot": png, "url": args["url"]}))
+                                    f"--screenshot={png}", shot_url], timeout=45)
+            return text_content(json.dumps({"ok": rc == 0, "screenshot": png, "url": shot_url}))
 
 
         if name == "sys.status":
