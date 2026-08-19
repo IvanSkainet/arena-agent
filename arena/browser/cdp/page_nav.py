@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import time
 
+from arena.browser.navigation_policy import NavigationRejected, check_navigation
 from arena.handler_context import CdpPageHandlerContext
 from arena.handler_helpers import authed
 
@@ -29,10 +30,11 @@ def make_cdp_navigate_handler(ctx: CdpPageHandlerContext):
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
 
-        url = body.get("url")
-        if not url:
+        try:
+            url = check_navigation(body.get("url"))
+        except NavigationRejected as exc:
             ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": "missing 'url' parameter"}, status=400)
+            return ctx.cors_json_response({"ok": False, "error": str(exc)}, status=400)
 
         tab_id = body.get("tab_id")
         wait = body.get("wait", True)

@@ -29,6 +29,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from arena.browser.navigation_policy import NavigationRejected, check_navigation
 from arena.jsonshape import loads_object
 from arena.mcp.tool_utils import text_content
 
@@ -111,7 +112,13 @@ def _prune_dead_sessions() -> dict[str, Any]:
 
 
 def _launch(args: dict[str, Any]) -> dict[str, Any]:
-    url = str(args.get("url", "") or "about:blank").strip()
+    # The URL becomes a Chrome argv entry, i.e. the very first navigation of
+    # a freshly launched browser -- the same authority as Page.navigate, so
+    # it answers to the same policy (#103).
+    try:
+        url = check_navigation(args.get("url", "") or "about:blank")
+    except NavigationRejected as exc:
+        return {"ok": False, "error": str(exc)}
     session = str(args.get("session", "") or "default").strip() or "default"
     width = int(args.get("width", 1366) or 1366)
     height = int(args.get("height", 768) or 768)

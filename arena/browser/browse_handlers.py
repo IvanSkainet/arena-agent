@@ -9,6 +9,7 @@ from aiohttp import web
 
 from arena.browser.browse_browseract import run_browseract_browse
 from arena.browser.browse_cdp import run_cdp_browse
+from arena.browser.navigation_policy import NavigationRejected, check_navigation
 from arena.handler_context import BrowserBrowseHandlerContext
 from arena.handler_helpers import authed
 
@@ -29,10 +30,11 @@ def make_browser_browse_handlers(ctx: BrowserBrowseHandlerContext) -> BrowserBro
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
 
-        url = body.get("url")
-        if not url:
+        try:
+            url = check_navigation(body.get("url"))
+        except NavigationRejected as exc:
             ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": "missing 'url'"}, status=400)
+            return ctx.cors_json_response({"ok": False, "error": str(exc)}, status=400)
 
         action = body.get("action", "extract")
         stealth = body.get("stealth", False)

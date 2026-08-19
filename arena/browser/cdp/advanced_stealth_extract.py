@@ -5,6 +5,7 @@ import asyncio
 import json
 
 from arena.browser.cdp.advanced_common import get_active_browser
+from arena.browser.navigation_policy import NavigationRejected, check_navigation
 from arena.handler_context import CdpAdvancedHandlerContext
 from arena.handler_helpers import authed
 
@@ -33,10 +34,11 @@ def make_cdp_stealth_extract_handler(ctx: CdpAdvancedHandlerContext):
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
 
-        url = body.get("url")
-        if not url:
+        try:
+            url = check_navigation(body.get("url"))
+        except NavigationRejected as exc:
             ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": "missing 'url'"}, status=400)
+            return ctx.cors_json_response({"ok": False, "error": str(exc)}, status=400)
 
         wait_for = body.get("wait_for")
         timeout = body.get("timeout", 15)

@@ -8,8 +8,8 @@ import pytest
 
 
 def collection_floors() -> dict[str, int]:
-    """Measured after the subagent listing fix (#57) on Linux; Windows keeps +5."""
-    return {"Linux": 8808, "macOS": 8808, "Windows": 8813}
+    """Measured after the navigation policy (T70) on Linux; Windows keeps +5."""
+    return {"Linux": 8924, "macOS": 8924, "Windows": 8929}
 
 
 def collection_error(*, collected: int, runner_os: str) -> str | None:
