@@ -103,6 +103,15 @@ ALLOWLIST: dict[str, str] = {
         "the ack token, DISABLING never does. Failing closed on the disable "
         "path would strand an operator with auto-approve stuck on."
     ),
+    "arena/browser/navigation_policy.py:169:gated-refusal": (
+        "Shape-only match: the scanner keys on 'reject' inside "
+        "NavigationRejected. `if has_credentials:` ADDS a refusal on top of "
+        "the checks around it -- an absent userinfo means the URL carries no "
+        "credentials, which is the ordinary case, not a skipped check. The "
+        "scheme check has already run above and the private/loopback verdict "
+        "runs below, so a URL that falls through this branch is still fully "
+        "validated."
+    ),
     "arena/multiagent/handlers_agents.py:37:gated-refusal": (
         "`if is_agent:` adds a restriction rather than granting access -- an "
         "agent token is refused from /v1/agents/*. Master-token auth already "

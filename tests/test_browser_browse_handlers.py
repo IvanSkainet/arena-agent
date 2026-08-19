@@ -76,7 +76,10 @@ def test_browser_browse_requires_url(tmp_path):
     response = asyncio.run(handler(_JsonRequest({})))
     body = _json(response)
     assert response.status == 400
-    assert body == {"ok": False, "error": "missing 'url'"}
+    # v4.170: every navigation entry point answers through the shared
+    # policy, so the wording matches /v1/browser/cdp/navigate instead of
+    # each handler inventing its own. "missing 'url'" is still a prefix.
+    assert body == {"ok": False, "error": "missing 'url' parameter"}
 
 
 def test_browser_browse_stealth_requires_browseract_skill(tmp_path):

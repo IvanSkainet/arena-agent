@@ -191,6 +191,7 @@ Area Network (LAN) webhooks are stated explicitly.
 | `ARENA_BRIDGE_TOKEN` | security | exact | Supplies the agentctl bearer token through inherited process environment. |
 | `ARENA_BRIDGE_URL` | security | exact | Overrides the agentctl/bootstrap bridge URL. |
 | `ARENA_BRIDGE_URL_CACHE` | security | exact | Can disable the persistent fallback bridge-URL cache. |
+| `ARENA_BROWSER_ALLOW_LOCAL_NAV` | security | exact | Permits agent-driven browser navigation to private/loopback/link-local addresses; off refuses them fail-closed. |
 | `ARENA_BROWSER_HEADED_DIR` | operational | exact | Overrides headed-browser profile/storage directory. |
 | `ARENA_CANDIDATE_RUN_ID` | internal | exact | Records the source-bound release-candidate workflow run in packaged provenance. |
 | `ARENA_CLOUDFLARED_AUTOSTART` | security | exact | Authorizes persisted cloudflared tunnel autostart. |
@@ -275,6 +276,70 @@ ZeroTier membership is a private overlay and does not use this public-exposure
 acknowledgement. Persisted autostart that was explicitly enabled with the same
 acknowledgement remains authorized across restarts; startup restoration does
 not require an interactive API call.
+
+### Browser navigation policy
+
+`browser_read` has always taken an SSRF validator as a required argument, so
+a host-initiated fetch through urllib cannot skip validation. Navigation over
+the Chrome DevTools Protocol (CDP) had no equivalent check:
+`POST /v1/browser/cdp/navigate` verified only
+that `url` was non-empty before handing it to `Page.navigate`. A browser
+driven over CDP is a fully capable HTTP client on the host, so that path
+reached loopback services (including the Bridge's own API and the debugging
+port), link-local metadata endpoints, LAN devices, and `file://`.
+
+Every agent-facing navigation now goes through `check_navigation()` in
+`arena/browser/navigation_policy.py`: `POST /v1/browser/cdp/navigate`,
+`/v1/browser/cdp/stealth/extract`, `/v1/browser/cdp/stealth/shot`,
+`/v1/browser/cdp/tabs/new`, `POST /v1/browser/browse` (both the CDP and
+BrowserAct backends), profile tab restore, and the `browser.launch` MCP tool.
+`tests/test_navigation_policy_call_sites.py` fails the build if a module
+reaches a navigation without consulting the policy and is not on an explicit,
+reasoned exemption list.
+
+The policy refuses, with HTTP **400**:
+
+* schemes other than `http`/`https` — `file:`, `data:`, `javascript:`,
+  `chrome:`, `devtools:`, `view-source:`. `about:blank` is allowed because it
+  is the default target for a new tab;
+* credentials in the URL, on every navigation including opt-in ones, because
+  Chromium caches them for the origin and replays them later;
+* private, loopback, link-local, reserved and multicast addresses, including
+  obfuscated spellings (`2130706433`, `0x7f.1`, `0177.0.0.1`, `127.1`,
+  `::ffff:127.0.0.1`), internal hostnames (`localhost`, `*.internal`,
+  `*.local`, `metadata.google.internal`), and public names that currently
+  resolve to a private address.
+
+`ARENA_BROWSER_ALLOW_LOCAL_NAV=1` re-enables navigation to private addresses
+for operators who legitimately drive a local dashboard or dev server. It does
+**not** lift the scheme or credential rules.
+
+**Known limit — DNS rebinding.** `open_public_url` closes the TOCTOU window
+for urllib by resolving once and pinning the validated IP for every redirect
+hop (T62). That technique does not transfer to CDP: Chromium performs its own
+DNS resolution inside its network stack, and `Page.navigate` offers no way to
+pin an address for it. A hostname that resolves public at validation time may
+resolve to loopback microseconds later inside the browser. The policy
+therefore stops literal and currently-resolving private targets — the whole
+class of accidental and casual cases — and does not claim to defeat an
+attacker who controls a DNS zone with a very short TTL. Operators who need
+that guarantee should run the browser with an egress filter or
+`--host-resolver-rules`, which enforce the decision where the resolution
+actually happens.
+
+**Known limit — HTTP redirects.** The policy validates the URL the agent
+supplies. If that public URL answers with a `3xx` to a private destination,
+Chromium follows the hop inside its own network stack, and no CDP command is
+issued for it, so nothing on the host sees the second URL before the request
+leaves. `open_public_url` re-validates every hop because urllib surfaces them
+to a redirect handler; `Page.navigate` gives no equivalent hook. Closing this
+requires a `Fetch`/`Network` interception domain enabled for the lifetime of
+every tab and a policy check on each `requestWillBeSent` — a change to the
+CDP client's connection model rather than to the navigation entry points,
+tracked in issue #129. Until then the same mitigations apply as for rebinding:
+an egress filter or `--host-resolver-rules` on the browser process. The
+policy's guarantee is therefore precise: an agent cannot *name* a private
+target, but a public target that the agent names can still redirect to one.
 
 ### Recommended production preset
 

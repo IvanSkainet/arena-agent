@@ -7,6 +7,7 @@ from pathlib import Path
 
 from aiohttp import web
 
+from arena.browser.navigation_policy import NavigationRejected, check_navigation
 from arena.handler_context import ProfileHandlerContext
 from arena.profiles.common import auth_and_record, sanitize_profile_name
 
@@ -35,13 +36,21 @@ async def _restore_tabs(ctx: ProfileHandlerContext, tabs: list) -> int:
     if not tab_nav:
         return restored
     for tab_info in tabs:
-        url = tab_info.get("url", "")
-        if url:
-            try:
-                await asyncio.wait_for(tab_nav.navigate(url), timeout=10)
-                restored += 1
-            except Exception:
-                pass
+        # A saved profile is replayed input: it was written to disk by an
+        # earlier session (possibly one that ran with the local-navigation
+        # opt-in) and is re-navigated here without the operator re-stating
+        # each URL. So each entry goes through the same policy as a live
+        # request, and a rejected tab is skipped rather than failing the
+        # whole restore.
+        try:
+            url = check_navigation(tab_info.get("url", ""))
+        except NavigationRejected:
+            continue
+        try:
+            await asyncio.wait_for(tab_nav.navigate(url), timeout=10)
+            restored += 1
+        except Exception:
+            pass
     return restored
 
 

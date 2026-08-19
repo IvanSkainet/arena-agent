@@ -189,6 +189,11 @@ TARGETS: dict[str, tuple[str, ...]] = {
     "arena/admin/tunnel_exposure_policy.py": (
         "tests/test_tunnel_exposure_policy.py",
     ),
+    # T70: the single decision point for every agent-driven navigation.
+    # A surviving mutant here is a URL class the policy stopped refusing.
+    "arena/browser/navigation_policy.py": (
+        "tests/test_cdp_navigation_policy.py",
+    ),
     "arena/security_http.py": (
         "tests/test_security_ssrf_pinned_transport.py",
         "tests/test_security.py",
