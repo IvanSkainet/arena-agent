@@ -11,6 +11,7 @@ from aiohttp import web
 
 from arena.handler_context import MissionLifecycleHandlerContext
 from arena.handler_helpers import authed
+from arena.resources.mission_identifier import parse_mission_identifier
 
 
 @dataclass(frozen=True)
@@ -35,7 +36,7 @@ def _query_bool(value: str) -> bool | None:
 def make_mission_lifecycle_handlers(ctx: MissionLifecycleHandlerContext) -> MissionLifecycleHandlers:
     @authed(ctx)
     async def handle_v1_mission_family(request: web.Request) -> web.Response:
-        name = parse_qs(request.query_string).get("name", [""])[0]
+        name = parse_mission_identifier(request.query_string)
         if not name:
             ctx.record_request(is_error=True, count_request=False)
             # v4.50.12: actionable error hint. Bare "missing name
