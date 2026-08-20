@@ -383,3 +383,52 @@ def test_the_openapi_spec_documents_both_identifier_parameters():
         # Neither may be flagged required on its own: either one suffices.
         for param in spec["paths"][path]["get"]["parameters"]:
             assert param["required"] is False, f"{path}:{param['name']}"
+
+
+# --- show_mission: the reader that does not go through mission_dir -----------
+#
+# Caught in review on this PR, and a fair hit: the claim was "fix it in
+# one place because every reader funnels through `mission_dir`", but
+# `show_mission` predates that helper and does its own lookup. So
+# /v1/mission/show 404'd on the short scenario name while
+# /v1/mission/status answered 200 for the identical identifier -- the
+# exact inconsistency #130 is about, surviving inside its own fix.
+#
+# The handler-level test above only exercised the `mission_id` alias for
+# `show`, which is why it passed. These use the short name.
+
+def test_show_resolves_the_short_scenario_name(tmp_path):
+    from arena.resources.listing import show_mission
+
+    mission = tmp_path / "scenario-my-run"
+    mission.mkdir()
+    (mission / "mission.json").write_text('{"title": "t"}', encoding="utf-8")
+
+    assert show_mission(tmp_path, "my-run")["ok"] is True
+
+
+def test_show_and_status_agree_on_every_spelling(tmp_path):
+    """The two readers must never disagree about the same identifier."""
+    from arena.resources.listing import show_mission
+
+    mission = tmp_path / "scenario-my-run"
+    mission.mkdir()
+    (mission / "mission.json").write_text('{"title": "t"}', encoding="utf-8")
+
+    for spelling in ("my-run", "scenario-my-run"):
+        assert show_mission(tmp_path, spelling).get("ok") is True, spelling
+        assert get_mission_status(tmp_path, spelling).get("ok") is True, spelling
+
+
+def test_show_still_refuses_traversal(tmp_path):
+    """Resolution must not weaken the guard that runs before it."""
+    from arena.resources.listing import show_mission
+
+    for bad in ("../etc", "..", "a/b", "a\\b", ".hidden"):
+        assert show_mission(tmp_path, bad)["error"] == "invalid mission name", bad
+
+
+def test_show_reports_the_name_the_caller_used_when_missing(tmp_path):
+    from arena.resources.listing import show_mission
+
+    assert "no-such" in show_mission(tmp_path, "no-such")["error"]

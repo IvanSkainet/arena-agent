@@ -9,7 +9,7 @@ import pytest
 
 def collection_floors() -> dict[str, int]:
     """Measured after the mission-identifier alias work (T73, #130); Windows keeps +5."""
-    return {"Linux": 9097, "macOS": 9097, "Windows": 9102}
+    return {"Linux": 9101, "macOS": 9101, "Windows": 9106}
 
 
 def collection_error(*, collected: int, runner_os: str) -> str | None:
