@@ -25,7 +25,7 @@ def make_run_local(subprocess_kwargs: Callable[[], dict[str, Any]]):
         # to encode that way, so the two ends agree no matter the codepage.
         # errors="replace" keeps a stray undecodable byte from destroying an
         # otherwise usable payload.
-        kwargs = {"env": utf8_child_env(), **subprocess_kwargs()}
+        kwargs: dict[str, Any] = {"env": utf8_child_env(), **subprocess_kwargs()}
         p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
                            encoding="utf-8", errors="replace", **kwargs)
         return p.returncode, p.stdout, p.stderr
