@@ -12,6 +12,8 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from typing import Any  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 
+from arena.mcp.tool_utils import utf8_child_env
+
 VERSION = "0.3.0"
 HOME = os.path.expanduser("~")
 BIN = os.path.join(HOME, "arena-bridge", "bin")
@@ -41,5 +43,10 @@ def run_sd(argv: list[str], timeout: int = 60) -> tuple[int, str, str]:
 
 def run_local(argv: list[str], timeout: int = 30) -> tuple[int, str, str]:
     """Запуск напрямую (для агент-тулов которые не требуют GUI/sandbox)."""
-    p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    # UTF-8 on both ends: without it a Windows child inherits the console
+    # codepage and any emoji in its output kills the whole payload (#127).
+    # Shared with arena.mcp.tool_utils so the two run_local variants cannot
+    # drift apart.
+    p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
+                       encoding="utf-8", errors="replace", env=utf8_child_env())
     return p.returncode, p.stdout, p.stderr

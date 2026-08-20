@@ -24,6 +24,27 @@ from bs4 import BeautifulSoup, FeatureNotFound
 UA = "Mozilla/5.0 (X11; Linux x86_64) ArenaAgent/0.5 PyBrowser/1.0"
 H  = {"User-Agent": UA, "Accept-Language": "en,ru;q=0.8"}
 
+def _force_utf8_stdio() -> None:
+    """Emit UTF-8 regardless of the console codepage.
+
+    Every command here prints JSON with ``ensure_ascii=False``. On Windows the
+    child's stdout defaults to the ANSI codepage (cp1251 on a Russian install),
+    which cannot encode an emoji in a search snippet or page title - and since
+    TextIOWrapper encodes the whole buffered write before emitting any bytes,
+    the caller gets *no* output at all, only a UnicodeEncodeError. See #127.
+
+    The parent also pins the encoding when it captures us, but this keeps the
+    script correct when a human runs it straight from a cp1251 console.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, OSError, ValueError):
+                pass
+
+
 def _soup(markup: str):
     try:
         return BeautifulSoup(markup, "lxml")
@@ -93,6 +114,7 @@ def cmd_search(q: str, n: int) -> int:
     return 0
 
 def main() -> int:
+    _force_utf8_stdio()
     p = argparse.ArgumentParser(prog="py_browser", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
     for name in ("fetch","read","head"):
