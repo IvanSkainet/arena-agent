@@ -8,8 +8,8 @@ import pytest
 
 
 def collection_floors() -> dict[str, int]:
-    """Measured after the mission-identifier alias work (T73, #130); Windows keeps +5."""
-    return {"Linux": 9107, "macOS": 9107, "Windows": 9112}
+    """Measured after the agentctl dispatch fix (T74, #126); Windows keeps +5."""
+    return {"Linux": 9129, "macOS": 9129, "Windows": 9134}
 
 
 def collection_error(*, collected: int, runner_os: str) -> str | None:
