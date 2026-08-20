@@ -129,9 +129,11 @@ def test_module_entry_point_actually_runs(tmp_path):
     when the module is executed as `__main__`, which an in-process import
     cannot reproduce.
     """
+    # Inherit the real environment: a stripped env drops SYSTEMROOT and
+    # CPython cannot even start on Windows.
     env = {
+        **os.environ,
         "ARENA_AGENT_HOME": str(tmp_path),
-        "PATH": "/usr/bin:/bin",
         "PYTHONPATH": str(REPO_ROOT),
     }
     (tmp_path / "skills").mkdir()
@@ -148,9 +150,11 @@ def test_module_entry_point_actually_runs(tmp_path):
 
 
 def test_module_entry_point_reports_a_bad_name(tmp_path):
+    # Inherit the real environment: a stripped env drops SYSTEMROOT and
+    # CPython cannot even start on Windows.
     env = {
+        **os.environ,
         "ARENA_AGENT_HOME": str(tmp_path),
-        "PATH": "/usr/bin:/bin",
         "PYTHONPATH": str(REPO_ROOT),
     }
     (tmp_path / "skills").mkdir()
