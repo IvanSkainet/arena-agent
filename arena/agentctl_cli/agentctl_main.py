@@ -80,8 +80,8 @@ def main() -> None:
     args = sys.argv[2:]
     ns_map = DISPATCH.get(ns)
     if not ns_map:
-        print(f"Unknown namespace: {ns}")
-        print("Run: agentctl commands")
+        print(f"Unknown namespace: {ns}", file=sys.stderr)
+        print("Run: agentctl commands", file=sys.stderr)
         sys.exit(2)
     sub = args[0].lower() if args else ""
     func = ns_map.get(sub)
@@ -93,9 +93,12 @@ def main() -> None:
         # namespace (`agentctl breaker`) keeps its default command.
         if sub:
             known = " | ".join(k for k in ns_map if k) or "(none)"
-            print(f"Unknown command: {ns} {sub}")
-            print(f"Valid {ns} commands: {known}")
-            print("Run: agentctl commands")
+            # stderr, so a caller piping stdout does not capture a refusal as
+            # if it were command output (agentctl_breaker/agentctl_bridge
+            # already report errors this way).
+            print(f"Unknown command: {ns} {sub}", file=sys.stderr)
+            print(f"Valid {ns} commands: {known}", file=sys.stderr)
+            print("Run: agentctl commands", file=sys.stderr)
             sys.exit(2)
         func = next(iter(ns_map.values()))
         args = []

@@ -86,7 +86,12 @@ def test_unknown_subcommand_runs_nothing_and_exits_2(
     # Compare whole lines, not substrings: a substring assertion still passes
     # when the message is corrupted around the edges, which lets a broken
     # error message ship.
-    lines = capsys.readouterr().out.splitlines()
+    captured = capsys.readouterr()
+    assert captured.out == "", (
+        "a refusal must not go to stdout; a caller piping stdout would "
+        f"capture it as command output: {captured.out!r}"
+    )
+    lines = captured.err.splitlines()
     expected_commands = " | ".join(
         k for k in agentctl_main.DISPATCH[namespace] if k
     )
@@ -184,7 +189,9 @@ def test_namespace_whose_only_command_is_the_bare_default(monkeypatch, capsys):
 
     assert excinfo.value.code == 2
     assert calls == []
-    assert capsys.readouterr().out.splitlines() == [
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.splitlines() == [
         "Unknown command: commands bogus",
         "Valid commands commands: (none)",
         "Run: agentctl commands",
@@ -196,7 +203,12 @@ def test_unknown_namespace_still_rejected(monkeypatch, capsys):
 
     assert calls == []
     assert code == 2
-    assert "Unknown namespace: nosuchns" in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.splitlines() == [
+        "Unknown namespace: nosuchns",
+        "Run: agentctl commands",
+    ]
 
 
 def test_no_namespace_maps_a_typo_onto_a_real_command(monkeypatch):
