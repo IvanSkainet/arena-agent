@@ -5,12 +5,28 @@ from pathlib import Path
 from typing import Any
 
 from arena.jsonshape import loads_object
+from arena.resources.mission_identifier import resolve_mission_name
 
 
 def mission_dir(missions_dir: Path, name: str) -> Path:
+    """Resolve a caller-supplied mission identifier to its directory.
+
+    v4.171.0 (#130): the scenario surface and the mission store use
+    different spellings of the same mission -- `scenario.list` reports
+    `armed-posture-live-proof-41470` as the `name`, while the directory
+    on disk is `scenario-armed-posture-live-proof-41470`. Passing the
+    field called `name` to the parameter called `name` produced a 404.
+
+    Resolution happens here rather than in each handler because every
+    mission read (status, report, history, lineage, family, show) and
+    the MCP tools all funnel through this function; fixing it per
+    caller is how the surfaces drifted apart in the first place. An
+    identifier that already resolves is never rewritten, so an unknown
+    mission still 404s under the name the caller actually used.
+    """
     if ".." in name or "/" in name or "\\" in name or name.startswith("."):
         raise ValueError("invalid mission name")
-    return missions_dir / name
+    return missions_dir / resolve_mission_name(missions_dir, name)
 
 
 

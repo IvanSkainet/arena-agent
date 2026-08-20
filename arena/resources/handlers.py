@@ -11,6 +11,10 @@ from aiohttp import web
 
 from arena.handler_context import ResourceHandlerContext
 from arena.handler_helpers import authed
+from arena.resources.mission_identifier import (
+    IDENTIFIER_KEYS,
+    parse_mission_identifier,
+)
 
 
 @dataclass(frozen=True)
@@ -87,17 +91,28 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         # v4.50.12: shared actionable-error payload for mission
         # endpoints that need a mission name. The MCP tool schemas
         # allow either `name` or `mission_id`; we surface both.
+        #
+        # v4.171.0 (#130): and now REST accepts both too. Until then
+        # this message advertised `mission_id` while every handler read
+        # `name` only, so a client that followed the hint got the same
+        # 400 forever. See arena/resources/mission_identifier.py.
         return {
             "ok": False,
             "error": "missing required parameter 'name' (or 'mission_id')",
-            "hint": "Pass the mission's saved name (case-sensitive). Call mission.catalog first to discover available mission names.",
-            "required": ["name"],
+            "hint": "Pass the mission's saved name or id (case-sensitive), as either 'name' or 'mission_id'. A short scenario name from scenario.list also works. Call mission.catalog first to discover available missions.",
+            # v4.171.0 (#130): machine-readable and prose must name the
+            # same keys. `["name"]` here while the text offered
+            # `mission_id` is the identical defect this change fixes,
+            # one layer down: a client that parses `required` instead of
+            # the English string gets the same wrong answer.
+            "required": ["name|mission_id"],
+            "accepts": list(IDENTIFIER_KEYS),
             "endpoint": hint_endpoint,
         }
 
     @authed(ctx)
     async def handle_v1_mission_show(request: web.Request) -> web.Response:
-        name = parse_qs(request.query_string).get("name", [""])[0]
+        name = parse_mission_identifier(request.query_string)
         if not name:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response(
@@ -113,7 +128,7 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         if r:
             return r
         ctx.record_request()
-        name = parse_qs(request.query_string).get("name", [""])[0]
+        name = parse_mission_identifier(request.query_string)
         if not name:
             ctx.record_request(is_error=True, count_request=False)
             # v4.50.12: use the request path in the hint so the model

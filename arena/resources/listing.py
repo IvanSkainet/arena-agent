@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.resources.mission_catalog import summarize_mission_dir
+from arena.resources.mission_identifier import resolve_mission_name
 
 
 def list_missions(missions_dir: Path) -> list[dict[str, Any]]:
@@ -25,8 +26,18 @@ def list_missions(missions_dir: Path) -> list[dict[str, Any]]:
 
 
 def show_mission(missions_dir: Path, name: str) -> dict[str, Any]:
+    """Read a mission file or directory by name.
+
+    v4.171.0 (#130): this helper predates `mission_dir` and does its own
+    lookup, so it did not get the scenario-name resolution the other
+    five mission readers received -- `/v1/mission/show` 404'd on the
+    short name from `scenario.list` while `/v1/mission/status` answered
+    200 for the very same identifier. Resolve here too; the traversal
+    guard below still runs on the caller's original input.
+    """
     if ".." in name or "/" in name or "\\" in name or name.startswith("."):
         return {"ok": False, "error": "invalid mission name"}
+    name = resolve_mission_name(missions_dir, name)
     for ext in ("", ".json", ".yaml", ".yml", ".md", ".txt"):
         path = missions_dir / f"{name}{ext}"
         if path.exists() and path.is_file():

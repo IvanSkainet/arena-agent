@@ -10,9 +10,9 @@ from arena.governance import pytest_execution_guard as guard
 
 def test_measured_collection_floors_are_exact() -> None:
     assert guard.collection_floors() == {
-        "Linux": 9037,
-        "macOS": 9037,
-        "Windows": 9042,
+        "Linux": 9107,
+        "macOS": 9107,
+        "Windows": 9112,
     }
 
 

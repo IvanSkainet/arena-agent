@@ -202,6 +202,15 @@ TARGETS: dict[str, tuple[str, ...]] = {
         "tests/test_observability_redact.py",
         "tests/test_audit_value_redaction.py",
     ),
+    # T73 (#130): decides WHICH mission a caller reads. A surviving
+    # mutant is either a lookup that silently returns the wrong mission
+    # or a traversal guard that stopped guarding -- this module stats
+    # caller-supplied paths before `mission_dir` validates them.
+    "arena/resources/mission_identifier.py": (
+        "tests/test_mission_identifier_alias_v4_171.py",
+        "tests/test_mission_management.py",
+        "tests/test_resources_handlers.py",
+    ),
     "arena/security_http.py": (
         "tests/test_security_ssrf_pinned_transport.py",
         "tests/test_security.py",
