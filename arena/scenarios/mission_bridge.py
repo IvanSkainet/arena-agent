@@ -80,7 +80,14 @@ def _find_by_name(missions_dir: Path, scenario_name: str) -> Path | None:
     # truth is that this name was never resolved. See #128.
     if scenario_name.startswith(f"{SCENARIO_TEMPLATE_ID}-"):
         aliased = missions_dir / scenario_name
-        if aliased.is_dir() and (aliased / "mission.json").exists():
+        # Must be a scenario-typed mission, exactly as the scan below
+        # requires. Any mission id may begin with "scenario-", so matching on
+        # the directory alone would let an unrelated mission answer as one.
+        try:
+            obj = json.loads((aliased / "mission.json").read_text(encoding="utf-8"))
+        except Exception:
+            obj = None
+        if isinstance(obj, dict) and obj.get("template") == SCENARIO_TEMPLATE_ID:
             return aliased
     if missions_dir.exists():
         for p in missions_dir.iterdir():

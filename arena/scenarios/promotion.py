@@ -26,7 +26,20 @@ def _is_dry_run(run: dict[str, Any]) -> bool:
     steps = [s for s in (run.get("steps") or []) if isinstance(s, dict) and s.get("tool")]
     if not steps:
         return False
-    return all(isinstance(s.get("result"), dict) and s["result"].get("dry_run") for s in steps)
+    return all(_is_dry_step_result(s.get("result")) for s in steps)
+
+
+def _is_dry_step_result(result: Any) -> bool:
+    """True for the exact payload the dry-run branch of the runtime emits.
+
+    Matching on a truthy ``dry_run`` key alone would misjudge a genuine run
+    whose tool happens to return that key in its own response - a real result
+    would then be refused for promotion. The dry-run branch produces exactly
+    ``{"dry_run": True, "arguments": ...}`` and nothing else.
+    """
+    if not isinstance(result, dict):
+        return False
+    return result.get("dry_run") is True and set(result) <= {"dry_run", "arguments"}
 
 
 def scenario_from_run(run: dict[str, Any], *, name: str, title: str | None = None,

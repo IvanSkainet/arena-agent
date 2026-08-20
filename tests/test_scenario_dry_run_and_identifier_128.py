@@ -180,6 +180,70 @@ def test_exists_rejects_an_invalid_name_instead_of_claiming_it_exists(store):
         assert store.exists(bad) is False, f"{bad!r} was reported as existing"
 
 
+def test_mission_id_alias_requires_a_scenario_typed_mission(store, tmp_path):
+    """Any mission id may start with "scenario-"; only scenarios may match.
+
+    The directory scan below the alias enforces
+    `template == SCENARIO_TEMPLATE_ID`, and the alias must not be a way around
+    it - otherwise an unrelated mission answers as a scenario and its run
+    history becomes promotable.
+    """
+    impostor = tmp_path / "missions" / "scenario-foo"
+    impostor.mkdir()
+    (impostor / "mission.json").write_text(
+        json.dumps(
+            {
+                "id": "scenario-foo",
+                "template": "cli-agent-core",
+                "state": "done",
+                "runs": [
+                    {
+                        "ok": True,
+                        "steps": [
+                            {
+                                "id": "s",
+                                "tool": "exec.run",
+                                "ok": True,
+                                "arguments": {},
+                                "result": {"ok": True},
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+    )
+
+    assert store.exists("scenario-foo") is False
+    assert store.load_history("scenario-foo") == []
+
+
+def test_a_real_result_containing_a_dry_run_key_is_still_promotable(store):
+    """A tool may legitimately return `dry_run` in its own payload.
+
+    Judging on the key alone would refuse a genuine run. The runtime's dry-run
+    branch emits exactly {"dry_run": True, "arguments": ...} - nothing else -
+    so the shape, not the key, is the signal.
+    """
+    real = {
+        "ok": True,
+        "name": SCENARIO_NAME,
+        "steps": [
+            {
+                "id": "s1",
+                "tool": "net.http",
+                "ok": True,
+                "arguments": {"url": "https://example.test"},
+                "result": {"dry_run": True, "status": 200, "body": "real response"},
+            }
+        ],
+    }
+
+    assert promotion._is_dry_run(real) is False
+    doc = promotion.scenario_from_run(real, name="promoted-real")
+    assert [s["tool"] for s in doc["steps"] if s.get("tool")] == ["net.http"]
+
+
 def test_mission_id_alias_requires_an_actual_mission_file(store, tmp_path):
     """A bare directory named like a scenario mission must not resolve.
 
