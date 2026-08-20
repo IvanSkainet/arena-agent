@@ -42,6 +42,7 @@ from __future__ import annotations
 import ctypes
 import importlib.util
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -214,7 +215,9 @@ def test_the_right_token_still_works(serving):
 
 def test_the_helper_refuses_to_start_without_a_token(tmp_path):
     """Running it bare must fail loudly, not listen quietly."""
-    env = {"PATH": "/usr/bin:/bin", "SYSTEMROOT": "C:\\Windows"}
+    # Inherit the real environment minus the token: a hand-built dict that
+    # hardcodes SYSTEMROOT only happens to work on the current runner image.
+    env = {k: v for k, v in os.environ.items() if k != "ARENA_INPUT_HELPER_TOKEN"}
     result = subprocess.run(
         [sys.executable, str(HELPER), "--port", "19999"],
         capture_output=True, text=True, timeout=60, env=env,

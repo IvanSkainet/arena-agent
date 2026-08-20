@@ -61,7 +61,7 @@ def _run(monkeypatch, argv: list[str]):
 UNKNOWN_SUBCOMMANDS = [
     ("mem", "st", "set"),          # silently wrote a memory fact
     ("mem", "write", "set"),       # ditto
-    ("skill", "new", "list"),      # the #126 headline: exit 0, no scaffold
+    ("skill", "nwe", "list"),      # the #126 shape; "new" itself is real now
     ("mcp", "lst", "install"),     # ran an installer with no arguments
     ("sub", "lst", "spawn"),       # spawned a subagent
     ("backup", "status", "run"),   # ran a backup

@@ -34,3 +34,10 @@ def main() -> int:
 
     args = ap.parse_args()
     return args.func(args) or 0
+
+
+if __name__ == "__main__":
+    # Without this, `python -m arena.skills.cli new core/x` executed the
+    # module body (definitions only), printed nothing, created nothing and
+    # exited 0 - a silent no-op that looked like success (#126).
+    raise SystemExit(main())

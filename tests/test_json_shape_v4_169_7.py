@@ -190,6 +190,20 @@ def test_no_test_hands_a_handbuilt_env_to_a_python_subprocess() -> None:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError:  # pragma: no cover
             continue
+
+        # A dict literal assigned to a name and then passed as `env=` is the
+        # same landmine spelled in two statements; v4.169.x only inspected the
+        # inline form and missed it (#126). Collect those names per module.
+        stripped_env_names: dict[str, int] = {}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Dict):
+                continue
+            if "os.environ" in ast.unparse(node.value):
+                continue  # inherits the real environment, fine
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    stripped_env_names[target.id] = node.lineno
+
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -199,11 +213,18 @@ def test_no_test_hands_a_handbuilt_env_to_a_python_subprocess() -> None:
             if not func.startswith(("subprocess.", "asyncio.create_subprocess")):
                 continue
             for kw in node.keywords:
-                if kw.arg != "env" or not isinstance(kw.value, ast.Dict):
+                if kw.arg != "env":
                     continue
-                if "os.environ" in ast.unparse(kw.value):
-                    continue  # inherits the real environment, fine
-                offenders.append(f"{path.name}:{node.lineno}: {func}(env={{...}})")
+                if isinstance(kw.value, ast.Dict):
+                    if "os.environ" in ast.unparse(kw.value):
+                        continue  # inherits the real environment, fine
+                    offenders.append(f"{path.name}:{node.lineno}: {func}(env={{...}})")
+                elif isinstance(kw.value, ast.Name) and kw.value.id in stripped_env_names:
+                    built = stripped_env_names[kw.value.id]
+                    offenders.append(
+                        f"{path.name}:{node.lineno}: {func}(env={kw.value.id})"
+                        f" built as a stripped dict at line {built}"
+                    )
     assert not offenders, (
         "hand-built env dicts drop SYSTEMROOT and kill Python on Windows:\n  "
         + "\n  ".join(offenders)
