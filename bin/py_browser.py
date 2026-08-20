@@ -92,7 +92,28 @@ def cmd_search(q: str, n: int) -> int:
     print(json.dumps({"query": q, "results": res}, ensure_ascii=False, indent=2))
     return 0
 
+def _force_utf8_io() -> None:
+    """Write UTF-8 whatever the console codepage is.
+
+    Every command here prints `ensure_ascii=False` JSON, so a snippet holding
+    an emoji (U+1F4FA is common on streaming sites) used to abort the whole
+    command with `'charmap' codec can't encode character` on a cp1251 console
+    - the results were fetched fine and then thrown away at the last step
+    (#127). `errors="replace"` is the backstop for streams that cannot be
+    reconfigured, so output degrades to a placeholder instead of vanishing.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):  # pragma: no cover - exotic streams
+            pass
+
+
 def main() -> int:
+    _force_utf8_io()
     p = argparse.ArgumentParser(prog="py_browser", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
     for name in ("fetch","read","head"):

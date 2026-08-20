@@ -7,11 +7,16 @@ import subprocess
 from collections.abc import Callable
 from typing import Any
 
+# Children print UTF-8 (see bin/py_browser.py); decoding their output with the
+# console codepage turned Cyrillic into mojibake and could raise outright, so
+# the encoding is pinned on this side too rather than inherited (#127).
+TEXT_IO: dict[str, Any] = {"encoding": "utf-8", "errors": "replace"}
+
 
 def make_run_local(subprocess_kwargs: Callable[[], dict[str, Any]]):
     def run_local(argv: list[str], timeout: int = 30) -> tuple[int, str, str]:
         """Run a command directly (no GUI/sandbox needed)."""
-        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, **subprocess_kwargs())
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, **TEXT_IO, **subprocess_kwargs())
         return p.returncode, p.stdout, p.stderr
 
     return run_local
@@ -21,11 +26,11 @@ def make_run_sd(*, bin_dir: Any, subprocess_kwargs: Callable[[], dict[str, Any]]
     def run_sd(argv: list[str], timeout: int = 60) -> tuple[int, str, str]:
         """Run command via sd-exec (Linux) or directly (Windows)."""
         if platform.system() == "Windows":
-            p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, shell=True, **subprocess_kwargs())  # nosec B602 -- Windows-only branch; argv[0] is a fixed sd-exec binary path (no operator interpolation).  # nosemgrep: subprocess-shell-true -- legitimate CLI-side helper (see bandit B602 nosec on the same line for the specific rationale)
+            p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, shell=True, **TEXT_IO, **subprocess_kwargs())  # nosec B602 -- Windows-only branch; argv[0] is a fixed sd-exec binary path (no operator interpolation).  # nosemgrep: subprocess-shell-true -- legitimate CLI-side helper (see bandit B602 nosec on the same line for the specific rationale)
             return p.returncode, p.stdout, p.stderr
         sd = os.path.join(bin_dir, "sd-exec")
         p = subprocess.run([sd, "--timeout", str(timeout), "--"] + argv,
-                           capture_output=True, text=True, timeout=timeout + 10, **subprocess_kwargs())
+                           capture_output=True, text=True, timeout=timeout + 10, **TEXT_IO, **subprocess_kwargs())
         return p.returncode, p.stdout, p.stderr
 
     return run_sd

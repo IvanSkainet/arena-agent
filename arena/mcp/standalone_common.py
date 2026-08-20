@@ -28,18 +28,21 @@ def rpc_error(rid, code, msg): return {"jsonrpc": "2.0", "id": rid, "error": {"c
 
 def text_content(s: str) -> dict: return {"content": [{"type": "text", "text": s}]}
 
+# Children print UTF-8; see arena/mcp/tool_utils.py TEXT_IO and #127.
+TEXT_IO = {"encoding": "utf-8", "errors": "replace"}
+
 def run_sd(argv: list[str], timeout: int = 60) -> tuple[int, str, str]:
     import platform
     if platform.system() == "Windows":
-        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, shell=True)  # nosec B602 -- Windows-only branch; argv[0] is a hard-coded binary name resolved via PATH by cmd.exe (no operator interpolation).  # nosemgrep: subprocess-shell-true -- legitimate CLI-side helper (see bandit B602 nosec on the same line for the specific rationale)
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, shell=True, **TEXT_IO)  # nosec B602 -- Windows-only branch; argv[0] is a hard-coded binary name resolved via PATH by cmd.exe (no operator interpolation).  # nosemgrep: subprocess-shell-true -- legitimate CLI-side helper (see bandit B602 nosec on the same line for the specific rationale)
         return p.returncode, p.stdout, p.stderr
     else:
         sd = os.path.join(BIN, "sd-exec")
         p = subprocess.run([sd, "--timeout", str(timeout), "--"] + argv,
-                           capture_output=True, text=True, timeout=timeout + 10)
+                           capture_output=True, text=True, timeout=timeout + 10, **TEXT_IO)
         return p.returncode, p.stdout, p.stderr
 
 def run_local(argv: list[str], timeout: int = 30) -> tuple[int, str, str]:
     """Запуск напрямую (для агент-тулов которые не требуют GUI/sandbox)."""
-    p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, **TEXT_IO)
     return p.returncode, p.stdout, p.stderr
