@@ -28,7 +28,7 @@ Namespaces:
   bact    doctor|extract|shot|open|state|click|type|input|eval|close|auth|browsers|raw
                                                  BrowserAct stealth browser
   task    list|submit|clean                      Task queue
-  skill   list|run                               Skills (executable + prompt-only)
+  skill   list|run|new                           Skills (executable + prompt-only)
   audit   stats|tail                             Audit log
   breaker status|deprio|reset                    Tunnels_probe circuit breaker
   bridge  urls|best|test                          Client-side URL discovery (v4.22.0)
@@ -57,7 +57,8 @@ DISPATCH = {
     "bact": {name: bact.make_command(name) for name in ("doctor", "extract", "shot", "open", "state",
              "click", "type", "input", "eval", "close", "auth", "browsers", "raw")},
     "task": {"list": tasks.list_tasks, "ls": tasks.list_tasks, "submit": tasks.submit, "clean": tasks.clean},
-    "skill": {"list": skills.list_skills, "ls": skills.list_skills, "run": skills.run_skill},
+    "skill": {"list": skills.list_skills, "ls": skills.list_skills, "run": skills.run_skill,
+              "new": skills.new_skill},
     "audit": {"stats": misc.audit_stats, "tail": misc.audit_tail},
     "breaker": {"status": breaker.status, "deprio": breaker.deprio,
                 "reset": breaker.reset, "help": breaker.help_,

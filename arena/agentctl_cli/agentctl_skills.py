@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -17,6 +18,25 @@ def list_skills(args):
             print(f"  {skill.get('name','?'):40s} {skill.get('description', '')[:50]}")
     except Exception as e:
         print(f"Error: {e}")
+
+
+def new_skill(args):
+    """Scaffold a new skill.
+
+    `arena.skills.cli_new.new_skill` is argparse-driven and reads `args.name`,
+    while agentctl hands each command a plain list, so the two cannot be wired
+    together directly - which is part of why `skill new` was never reachable
+    (#126). This adapts the list to the Namespace the scaffolder expects.
+    """
+    if not args:
+        print("Usage: agentctl skill new <namespace>/<name>  (e.g. core/digest)",
+              file=sys.stderr)
+        sys.exit(2)
+    from argparse import Namespace
+
+    from arena.skills.cli_new import new_skill as _scaffold
+
+    sys.exit(_scaffold(Namespace(name=args[0])) or 0)
 
 
 def _resolve_skill_dir(name: str):
@@ -73,8 +93,19 @@ def run_skill(args):
         print(f"Skill not found: {name}")
         sys.exit(1)
     runner_sh, runner_py, skill_md = skill_dir / "run.sh", skill_dir / "run.py", skill_dir / "SKILL.md"
+    # run.sh used to be tried first unconditionally, and _run_skill_process
+    # ends in sys.exit - so on Windows a skill shipping both runners died on
+    # the missing bash and never reached its run.py. The server-side runner
+    # (arena/skills/runner.py:78) already prefers run.py on win32; match it.
+    if sys.platform == "win32" and runner_py.exists():
+        _run_skill_process([sys.executable or "python3", str(runner_py)] + skill_args, name, skill_dir, skill_args)
     if runner_sh.exists():
-        _run_skill_process(["bash", str(runner_sh)] + skill_args, name, skill_dir, skill_args)
+        bash = shutil.which("bash")
+        if not bash:
+            print("bash not available - .sh skills require WSL or Git Bash on Windows",
+                  file=sys.stderr)
+            sys.exit(1)
+        _run_skill_process([bash, str(runner_sh)] + skill_args, name, skill_dir, skill_args)
     if runner_py.exists():
         _run_skill_process([sys.executable or "python3", str(runner_py)] + skill_args, name, skill_dir, skill_args)
     if skill_md.exists():
