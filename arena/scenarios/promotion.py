@@ -14,10 +14,27 @@ def _safe_step_id(raw: str, idx: int) -> str:
     return sid or f"step{idx}"
 
 
+def _is_dry_run(run: dict[str, Any]) -> bool:
+    """True when the record describes a dry run rather than real execution.
+
+    Runs recorded before the dry-run marker existed carry no ``dry_run`` key,
+    so fall back to the shape a dry-run step leaves behind: every step result
+    is exactly ``{"dry_run": True, "arguments": ...}``.
+    """
+    if run.get("dry_run"):
+        return True
+    steps = [s for s in (run.get("steps") or []) if isinstance(s, dict) and s.get("tool")]
+    if not steps:
+        return False
+    return all(isinstance(s.get("result"), dict) and s["result"].get("dry_run") for s in steps)
+
+
 def scenario_from_run(run: dict[str, Any], *, name: str, title: str | None = None,
                       description: str | None = None) -> dict[str, Any]:
     if not isinstance(run, dict):
         raise ValueError("run must be an object")
+    if _is_dry_run(run):
+        raise ValueError("run is a dry run and cannot be promoted")
     scenario_name = validate_name(name)
     steps = []
     seen: set[str] = set()
@@ -66,6 +83,11 @@ def promote_from_history(source: str, *, name: str, index: int = -1, overwrite: 
                          title: str | None = None, description: str | None = None,
                          storage: ScenarioMissionStore | None = None) -> dict[str, Any]:
     store = storage or ScenarioMissionStore()
+    # "no history" used to be returned for a name that does not resolve at
+    # all, which sent callers looking for a missing run record instead of a
+    # wrong identifier (#128).
+    if not store.exists(source):
+        return {"ok": False, "error": f"source scenario not found: {source}", "source": source}
     runs = store.load_history(source)
     if not runs:
         return {"ok": False, "error": "source scenario has no history", "source": source}

@@ -73,6 +73,15 @@ def _find_by_name(missions_dir: Path, scenario_name: str) -> Path | None:
     exact = missions_dir / mid
     if exact.is_dir() and (exact / "mission.json").exists():
         return exact
+    # mission.catalog reports the directory name ("scenario-<slug>"), so that
+    # is what callers naturally paste back in. Without this, _mission_id()
+    # prefixes it a second time ("scenario-scenario-<slug>"), the lookup
+    # misses, and the caller is told the scenario "has no history" when the
+    # truth is that this name was never resolved. See #128.
+    if scenario_name.startswith(f"{SCENARIO_TEMPLATE_ID}-"):
+        aliased = missions_dir / scenario_name
+        if aliased.is_dir() and (aliased / "mission.json").exists():
+            return aliased
     if missions_dir.exists():
         for p in missions_dir.iterdir():
             if not p.is_dir() or not (p / "mission.json").exists():
@@ -244,6 +253,18 @@ class ScenarioMissionStore:
         obj["state"] = "done" if run.get("ok") else "failed"
         obj["finished_at"] = _now_iso()
         mj.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    def exists(self, scenario_name: str) -> bool:
+        """True when the name resolves to a stored scenario mission.
+
+        Lets callers tell "no such scenario" apart from "scenario with an
+        empty history" - load_history() returns [] for both.
+        """
+        try:
+            n = validate_name(scenario_name)
+        except Exception:
+            return False
+        return _find_by_name(self._dir, n) is not None
 
     def load_history(self, scenario_name: str) -> _Records:
         n = validate_name(scenario_name)
