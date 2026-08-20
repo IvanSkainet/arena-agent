@@ -72,11 +72,13 @@ class ScenarioRunResult:
     steps: list[ScenarioStepResult]
     final: Any
     error: str | None = None
+    dry_run: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "ok": self.ok,
             "name": self.name,
+            "dry_run": self.dry_run,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "duration_ms": self.duration_ms,
@@ -511,9 +513,15 @@ class ScenariosRuntime:
             ok=overall_ok, name=got["name"],
             started_at=started_iso, finished_at=finished_iso,
             duration_ms=int((finished - started) * 1000),
-            steps=step_results, final=final,
+            steps=step_results, final=final, dry_run=dry_run,
         )
-        self._storage.append_run(got["name"], run.to_dict())
+        # A dry run executes no tool, so recording it would append a run whose
+        # steps only carry {"dry_run": true} and - via append_run - flip the
+        # mission state to "done" and stamp finished_at. Worse, since
+        # promote_from_history defaults to runs[-1], the next promotion would
+        # build a scenario out of steps that never ran.
+        if not dry_run:
+            self._storage.append_run(got["name"], run.to_dict())
         return run
 
 

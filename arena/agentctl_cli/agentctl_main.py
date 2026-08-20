@@ -85,13 +85,20 @@ def main() -> None:
         sys.exit(2)
     sub = args[0].lower() if args else ""
     func = ns_map.get(sub)
-    if not func:
-        if ns_map:
-            func = list(ns_map.values())[0]
-            args = [sub] + args[1:]
-        else:
+    if func is None:
+        # A mistyped subcommand used to fall through to the first entry of
+        # the namespace dict, so `agentctl mem st K V` silently ran `mem set`
+        # and wrote to memory, and `agentctl skill new x` silently ran
+        # `skill list` and exited 0. Reject the typo instead; only a bare
+        # namespace (`agentctl breaker`) keeps its default command.
+        if sub:
+            known = " | ".join(k for k in ns_map if k) or "(none)"
             print(f"Unknown command: {ns} {sub}")
+            print(f"Valid {ns} commands: {known}")
+            print("Run: agentctl commands")
             sys.exit(2)
+        func = next(iter(ns_map.values()))
+        args = []
     try:
         func(args[1:] if sub else args)
     except SystemExit:

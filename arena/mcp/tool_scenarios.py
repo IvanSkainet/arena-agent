@@ -238,6 +238,11 @@ def handle_scenario_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, A
         return _text_err(f"scenario not found: {exc}", status=404)
     except InvalidScenario as exc:
         return _text_err(f"invalid scenario: {exc}", status=400)
+    except ValueError as exc:
+        # Promotion rejects unpromotable runs (empty or dry-run) with
+        # ValueError. That is a bad request, not a server fault, and the
+        # catch-all below would report it as 500.
+        return _text_err(str(exc), status=400)
     except Exception as exc:  # pragma: no cover -- catch-all
         return _text_err(f"{type(exc).__name__}: {exc}", status=500)
 
