@@ -76,6 +76,14 @@ _CRED_FIXTURES = [
      + "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c", "jwt"),
     ("db=" + "postgres" + "://admin:hunter2@db.example.com:5432/prod", "uri-creds"),
     ("key: -----BEGIN " + "RSA PRIVATE KEY" + "-----\nMIIC...", "ssh-key"),
+    # v4.170.0 (#132): context patterns. They match on a credential-ish
+    # NAME next to a long value rather than on the value's own shape, so
+    # they also cover tokens this process has never seen (a peer
+    # bridge's) -- the literal registry cannot.
+    ("curl -H 'X-Arena-Token: " + "Abcdefghij" + _SUFFIX + "'", "arena-token-header"),
+    ("arena serve --token " + "Abcdefghij" + _SUFFIX, "cli-credential-option"),
+    ("GET /v1/status?token=" + "Abcdefghij" + _SUFFIX, "query-credential"),
+    ("BRIDGE_TOKEN=" + "Abcdefghij" + _SUFFIX + " ./run.sh", "token-assignment"),
 ]
 
 
@@ -164,3 +172,21 @@ def test_audit_module_aliases_are_the_same():
     assert audit._scrub is redact_value
     assert audit._is_sensitive_key is is_sensitive_key
     assert audit._SENSITIVE_KEY_SUBSTRINGS is SENSITIVE_KEY_SUBSTRINGS
+
+
+# ---------------------------------------------------------------------------
+# Every pattern must be exercised here (v4.170.0). A new credential shape
+# added to _VALUE_PATTERNS without a case in this module is a pattern that
+# nothing in the centralised suite ever proves fires.
+# ---------------------------------------------------------------------------
+
+def test_every_value_pattern_has_a_fixture_in_this_module():
+    from arena.observability.redact import _VALUE_PATTERNS
+
+    covered = {label for _, label in _CRED_FIXTURES}
+    declared = {name for name, _ in _VALUE_PATTERNS}
+    missing = sorted(declared - covered)
+    assert missing == [], (
+        "these _VALUE_PATTERNS members have no fixture in "
+        f"tests/test_observability_redact.py: {missing}"
+    )

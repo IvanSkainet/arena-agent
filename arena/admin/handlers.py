@@ -42,6 +42,10 @@ from arena.admin.tunnels import (
 from arena.app_keys import APP_CFG
 from arena.handler_context import AdminHandlerContext
 from arena.handler_helpers import authed, safe_float
+from arena.observability.redact import (
+    register_literal_secret,
+    unregister_literal_secret,
+)
 
 
 @dataclass(frozen=True)
@@ -120,6 +124,18 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
             lambda: token_regenerate(target, default_token_file=ctx.default_token_file),
         )
         if result.get("ok") and result.get("token"):
+            # v4.170.0 (#132): keep the redactor in step with the live
+            # credential. Registering the new value first means there is no
+            # window in which the fresh token could reach the audit log
+            # unredacted; the old one stays registered until after, because
+            # an in-flight request may still be recording it.
+            # The old literal is dropped only once the new one is
+            # protected: unregistering first would leave a window with
+            # neither covered, and dropping it after a *failed*
+            # registration would leave the live credential unredactable
+            # for the rest of the process's life.
+            if register_literal_secret(result["token"], kind="bridge-token"):
+                unregister_literal_secret(cfg["token"])
             cfg["token"] = result["token"]
         ctx.audit({"type": "token_regenerated", "files": result.get("written_to", [])})
         return ctx.cors_json_response(result)

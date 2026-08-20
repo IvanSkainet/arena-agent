@@ -37,6 +37,7 @@ only ``re`` + built-in string ops.
 from __future__ import annotations
 
 import re
+import threading
 from typing import Any
 
 # Key-name substrings that indicate a value should be redacted
@@ -73,9 +74,17 @@ _LB = r"(?<![A-Za-z0-9])"   # left boundary
 _RB = r"(?![A-Za-z0-9])"    # right boundary
 
 
-_VALUE_PATTERNS: list[tuple[str, "re.Pattern[str]"]] = [
+_VALUE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("bearer", re.compile(_LB + r"Bearer\s+[A-Za-z0-9\-._~+/=]{16,}")),
     ("basic", re.compile(_LB + r"Basic\s+[A-Za-z0-9+/=]{16,}")),
+    # v4.170.0 (#132): the bridge's own auth headers. `Bearer` above
+    # only fires on the Authorization spelling; a curl carrying
+    # `X-Arena-Token: <token>` left the value in the clear. Matched
+    # by header name so it works for any token value, including one
+    # this process does not know (e.g. a peer bridge's).
+    ("arena-token-header", re.compile(
+        r"(?i)X-Arena-Token\s*[:=]\s*[A-Za-z0-9\-._~+/=]{12,}"
+    )),
     ("aws-access-key", re.compile(_LB + r"(?:AKIA|ASIA)[0-9A-Z]{16}" + _RB)),
     ("github", re.compile(_LB + r"(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}" + _RB)),
     ("openai-style", re.compile(_LB + r"sk-(?:ant-)?[A-Za-z0-9\-_]{20,}" + _RB)),
@@ -90,7 +99,130 @@ _VALUE_PATTERNS: list[tuple[str, "re.Pattern[str]"]] = [
     ("ssh-key", re.compile(
         r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"
     )),
+    # --- generic, LAST on purpose ------------------------------------
+    # The two below match by *context* (a credential-ish name next to a
+    # long value) rather than by the value's own shape, so they would
+    # also swallow `token=ghp_...` and report it as a mere assignment.
+    # A marker is not cosmetic: an operator reading the audit uses it to
+    # decide which credential to rotate and where the leak came from, so
+    # the specific patterns above must claim their matches first.
+    #
+    # `--token <v>` / `--token=<v>` on a command line. The bridge's own
+    # CLI takes the master token this way (`arena serve --token ...`), so
+    # an audited command that starts or manages a *peer* bridge -- whose
+    # token this process cannot have registered -- leaked it verbatim.
+    # First among the context patterns: `--token=<v>` also satisfies the
+    # generic assignment pattern below, and the specific marker is the
+    # one an operator needs to know which credential to rotate.
+    ("cli-credential-option", re.compile(
+        r"(?i)--(?:token|api[-_]?key|secret|password|passphrase)"
+        + r"(?:\s+|=)[\"']?[A-Za-z0-9\-._~+/=%]{12,}"
+    )),
+    # `?token=` / `&api_key=` in a recorded URL. The bridge accepts a
+    # query-string token (deprecated but live), so a recorded command
+    # that used one leaked it verbatim. Ordered before the assignment
+    # pattern, which also matches `?token=<v>`.
+    #
+    # `%` belongs in the value class: the query path percent-decodes
+    # before comparing, so `?token=correct%20horse%20battery%20staple`
+    # authenticates as `correct horse battery staple`. Literal
+    # substitution searches for the *decoded* secret and cannot see the
+    # encoded spelling -- only this pattern can.
+    ("query-credential", re.compile(
+        r"(?i)[?&](?:token|api_key|apikey|access_token|secret)"
+        + r"=[A-Za-z0-9\-._~+/=%]{12,}"
+    )),
+    # Shell/env assignment of a known-secret variable name, e.g.
+    # `BRIDGE_TOKEN=...` or `ARENA_BRIDGE_TOKEN=...` in a command line.
+    ("token-assignment", re.compile(
+        r"(?i)(?<![A-Za-z0-9_])[A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)"
+        + r"\s*=\s*[\"']?[A-Za-z0-9\-._~+/=%]{12,}"
+    )),
 ]
+
+
+# v4.170.0 (#132): shape patterns cannot catch the bridge's own
+# bearer. It is 43 characters of unstructured base62 -- no prefix,
+# no separator, no checksum -- so every pattern above misses it,
+# and a generic "long alphanumeric run" pattern would redact
+# commit SHAs, base64 payloads and file hashes across the whole
+# audit log. The only reliable discriminator is the value itself,
+# which this process knows.
+#
+# Registered literals are matched verbatim, before the shape
+# patterns run, so a token that also happens to sit behind
+# ``Bearer `` is reported as the specific secret it is.
+#
+# Membership is kept in a module-level set rather than passed in
+# per call because the emit sites (audit, request log, error
+# formatters) are spread across the codebase and threading a
+# config object through all of them is exactly the kind of change
+# that gets partially applied. Registration is idempotent.
+_LITERAL_SECRETS: dict[str, str] = {}
+
+#: Mutations are rare (startup, rotation); reads are on the audit hot
+#: path and come from executor threads. Iterating the dict directly
+#: raised ``RuntimeError: dictionary changed size during iteration``
+#: when a ``token_regenerate`` rotation landed mid-log -- i.e. exactly
+#: when the audit record mattered most. Readers take one atomic
+#: attribute load of an immutable snapshot instead of locking; the lock
+#: serialises writers only.
+_LITERAL_LOCK = threading.Lock()
+_LITERAL_SNAPSHOT: tuple[tuple[str, str], ...] = ()
+
+#: Below this length a literal is too short to register: a value
+#: like "1" or "dev" would redact unrelated text everywhere. The
+#: bridge's token is 43 chars; agent tokens are longer.
+LITERAL_MIN_LENGTH = 12
+
+
+def _rebuild_literal_snapshot() -> None:
+    """Republish the immutable read snapshot. Caller must hold the lock.
+
+    Longest first: a token that contains a shorter registered literal as
+    a substring must be reported as itself, not left half-substituted.
+    """
+    global _LITERAL_SNAPSHOT
+    _LITERAL_SNAPSHOT = tuple(
+        sorted(_LITERAL_SECRETS.items(), key=lambda kv: len(kv[0]), reverse=True)
+    )
+
+
+def register_literal_secret(value: str, kind: str = "bridge-token") -> bool:
+    """Register an exact string to scrub from every redacted sink.
+
+    Returns True when the value was registered. Short, empty and
+    non-string values are rejected rather than silently ignored so
+    a caller passing a missing config key cannot believe it is
+    protected -- and so registering ``""`` cannot turn every
+    string into a redaction.
+    """
+    if not isinstance(value, str):
+        return False
+    candidate = value.strip()
+    if len(candidate) < LITERAL_MIN_LENGTH:
+        return False
+    with _LITERAL_LOCK:
+        _LITERAL_SECRETS[candidate] = kind
+        _rebuild_literal_snapshot()
+    return True
+
+
+def unregister_literal_secret(value: str) -> None:
+    """Drop a previously registered literal (used after rotation)."""
+    if isinstance(value, str):
+        with _LITERAL_LOCK:
+            _LITERAL_SECRETS.pop(value.strip(), None)
+            _rebuild_literal_snapshot()
+
+
+def registered_literal_count() -> int:
+    """Number of registered literals. For tests and diagnostics.
+
+    Deliberately does not expose the values: a diagnostic endpoint
+    that dumped them would recreate the leak this closes.
+    """
+    return len(_LITERAL_SECRETS)
 
 
 def is_sensitive_key(key: str) -> bool:
@@ -118,7 +250,22 @@ def redact_string(text: str) -> str:
     audit-log hot path this saves ~90% of calls (most audit
     field values are short like status codes, method names,
     booleans).
+
+    v4.170.0 (#132): registered literals are substituted first and
+    are NOT subject to the 16-char fast path, because the fast
+    path's premise -- "nothing shorter can be a credential" --
+    only holds for the shape patterns. A registered literal is
+    known to be a credential at any length above
+    ``LITERAL_MIN_LENGTH``. The scan reads an immutable snapshot,
+    so a rotation on another thread cannot make it raise.
     """
+    # One atomic load; the tuple it names can never be mutated, so a
+    # rotation on another thread cannot make this loop raise. Iterating
+    # an empty tuple is cheaper than any length guard would be, so the
+    # 16-char fast path below is deliberately NOT applied to literals.
+    for secret, kind in _LITERAL_SNAPSHOT:
+        if secret in text:
+            text = text.replace(secret, f"<redacted:{kind}>")
     if len(text) < 16:
         return text
     for name, pat in _VALUE_PATTERNS:
