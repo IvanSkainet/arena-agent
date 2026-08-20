@@ -28,8 +28,11 @@ def new_skill(args):
     together directly - which is part of why `skill new` was never reachable
     (#126). This adapts the list to the Namespace the scaffolder expects.
     """
-    if not args:
-        print("Usage: agentctl skill new <namespace>/<name>  (e.g. core/digest)",
+    if len(args) != 1:
+        # Extra words are a typo, not a flag set: accepting them silently
+        # would scaffold core/x and drop the rest on the floor.
+        detail = "" if not args else f": unexpected extra arguments {args[1:]}"
+        print(f"Usage: agentctl skill new <namespace>/<name>  (e.g. core/digest){detail}",
               file=sys.stderr)
         sys.exit(2)
     from argparse import Namespace

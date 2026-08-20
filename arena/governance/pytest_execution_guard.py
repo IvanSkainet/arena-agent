@@ -9,7 +9,7 @@ import pytest
 
 def collection_floors() -> dict[str, int]:
     """Measured after the skill-new reachability fix (T76, #126); Windows keeps +5."""
-    return {"Linux": 9164, "macOS": 9164, "Windows": 9169}
+    return {"Linux": 9177, "macOS": 9177, "Windows": 9182}
 
 
 def collection_error(*, collected: int, runner_os: str) -> str | None:

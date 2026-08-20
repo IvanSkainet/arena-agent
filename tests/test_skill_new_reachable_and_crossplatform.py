@@ -17,6 +17,7 @@ Three defects, all in the "documented feature that cannot be invoked" family:
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import subprocess
@@ -327,3 +328,135 @@ def test_scaffold_then_run_round_trip(skills_home, monkeypatch):
 
     assert seen, "the scaffolded skill was not runnable"
     assert Path(seen[0][1]).name == "run.py"
+
+
+# --- 4. review findings on the now-reachable command ------------------------
+
+
+@pytest.mark.parametrize(
+    "bad_name",
+    [
+        "../../pwn/x",
+        "../pwn",
+        "core/../../pwn",
+        "core/x/y",
+        "./x",
+        "core/.",
+        "core/..",
+    ],
+)
+def test_scaffold_refuses_to_write_outside_the_skills_tree(skills_home, bad_name):
+    """Making the command reachable also made its name a live path input.
+
+    `../../pwn/x` scaffolded a real skill outside the skills tree; the
+    directory was created and three files written there.
+    """
+    from arena.skills.cli_new import new_skill
+
+    outside = skills_home.parent / "escaped"
+    outside.mkdir(exist_ok=True)
+
+    rc = new_skill(Namespace(name=bad_name))
+
+    assert rc == 2, f"{bad_name!r} was accepted"
+    assert not list(outside.iterdir()), "wrote outside the skills tree"
+    skills = skills_home / "skills"
+    assert not any(skills.rglob("SKILL.md")), "scaffolded despite refusing"
+
+
+def test_a_leading_slash_is_normalised_inside_the_tree(skills_home):
+    """`strip("/")` predates this PR: `/core/x` is core/x, not an absolute path."""
+    from arena.skills.cli_new import new_skill
+
+    assert new_skill(Namespace(name="/core/x")) == 0
+    created = skills_home / "skills" / "core" / "x" / "SKILL.md"
+    assert created.exists(), "leading slash was not normalised into the tree"
+
+
+def test_scaffold_refusal_names_the_problem(skills_home, capsys):
+    from arena.skills.cli_new import new_skill
+
+    rc = new_skill(Namespace(name="../../pwn/x"))
+    captured = capsys.readouterr()
+
+    assert rc == 2
+    assert captured.out == "", "a refusal must not go to stdout"
+    assert captured.err.splitlines() == [
+        "usage: skill new <namespace>/<name>  (e.g. core/digest): "
+        "a skill name is exactly <namespace>/<name>"
+    ]
+
+
+def test_a_malformed_part_says_which_characters_are_allowed(skills_home, capsys):
+    from arena.skills.cli_new import new_skill
+
+    rc = new_skill(Namespace(name="core/-leading-dash"))
+    captured = capsys.readouterr()
+
+    assert rc == 2
+    assert captured.out == ""
+    assert captured.err.splitlines() == [
+        "usage: skill new <namespace>/<name>  (e.g. core/digest): "
+        "each part must start alphanumeric and contain only "
+        "letters, digits, dot, dash or underscore"
+    ]
+
+
+def test_a_hostile_name_cannot_inject_code_into_the_generated_runner(skills_home):
+    """The runner embedded the name in Python source via `.format()`.
+
+    A name carrying a quote closed the string literal and the rest ran as
+    code: `core/a"+__import__('os').getcwd()+"b` really executed.
+    """
+    from arena.skills.cli_new import new_skill
+
+    hostile = 'core/a"+__import__(\'os\').getcwd()+"b'
+
+    assert new_skill(Namespace(name=hostile)) == 2, "hostile name was accepted"
+
+    # Defence in depth: even a name that passes validation is embedded as
+    # JSON data, never as source, so no quote can escape the literal.
+    assert new_skill(Namespace(name="core/quoted")) == 0
+    runner = (skills_home / "skills" / "core" / "quoted" / "run.py").read_text(
+        encoding="utf-8"
+    )
+    assert "_DEFAULT_NAME_JSON" in runner
+    assert "RUN_PY_TEMPLATE.format" not in runner
+    ast.parse(runner)  # must stay valid Python
+
+
+def test_generated_runner_reports_its_name_without_the_environment(skills_home):
+    """SKILL_NAME is normally injected; the baked-in default must still work."""
+    from arena.skills.cli_new import new_skill
+
+    assert new_skill(Namespace(name="core/standalone")) == 0
+    runner = skills_home / "skills" / "core" / "standalone" / "run.py"
+
+    env = {k: v for k, v in os.environ.items() if k != "SKILL_NAME"}
+    proc = subprocess.run(
+        [sys.executable, str(runner), "alpha"],
+        capture_output=True, text=True, timeout=60, env=env,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert "core/standalone" in proc.stdout, proc.stdout
+    assert "{name}" not in proc.stdout, "template placeholder leaked into output"
+
+
+def test_extra_arguments_are_refused_not_dropped(skills_home, monkeypatch, capsys):
+    """`agentctl skill new core/x --bogus` used to scaffold and report success."""
+    monkeypatch.setattr(agentctl_skills, "ROOT", skills_home)
+
+    with pytest.raises(SystemExit) as exc:
+        agentctl_skills.new_skill(["core/x", "--bogus", "junk"])
+
+    captured = capsys.readouterr()
+    assert exc.value.code == 2
+    assert captured.out == ""
+    assert captured.err.splitlines() == [
+        "Usage: agentctl skill new <namespace>/<name>  (e.g. core/digest): "
+        "unexpected extra arguments ['--bogus', 'junk']"
+    ]
+    assert not (skills_home / "skills" / "core" / "x").exists(), (
+        "scaffolded despite the refusal"
+    )
