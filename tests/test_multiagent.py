@@ -39,6 +39,29 @@ def test_resolve_token_returns_record_and_none_for_junk():
     assert ag.resolve_token("") is None
 
 
+def test_resolve_token_uses_constant_time_compare_digest(monkeypatch):
+    import hmac
+    from arena.multiagent import agents as ag
+    rec = ag.create(label="worker", master_token="master")
+    
+    calls = []
+    original_compare = hmac.compare_digest
+    def fake_compare(a, b):
+        calls.append((a, b))
+        return original_compare(a, b)
+        
+    monkeypatch.setattr(hmac, "compare_digest", fake_compare)
+    
+    found = ag.resolve_token(rec.token)
+    assert found is rec
+    assert len(calls) >= 1
+    
+    calls.clear()
+    not_found = ag.resolve_token("agent-invalid-token")
+    assert not_found is None
+    assert len(calls) >= 1
+
+
 def test_looks_like_agent_token_prefix_check():
     from arena.multiagent import agents as ag
     assert ag.looks_like_agent_token("agent-abc-def") is True

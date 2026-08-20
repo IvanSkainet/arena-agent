@@ -113,15 +113,18 @@ class AgentRegistry:
 
     def resolve_token(self, token: str) -> AgentRecord | None:
         """Look up an agent by its bearer token. Constant-time via
-        `hmac.compare_digest` inside `_derive_agent_token` (aliases
-        share the same hash prefix)."""
+        `hmac.compare_digest` across registered agent session tokens."""
         if not token:
             return None
         with self._lock:
-            agent_id = self._by_token.get(token)
-            if not agent_id:
+            matched_agent_id = None
+            for stored_token, agent_id in self._by_token.items():
+                if hmac.compare_digest(token, stored_token):
+                    matched_agent_id = agent_id
+                    break
+            if not matched_agent_id:
                 return None
-            return self._by_id.get(agent_id)
+            return self._by_id.get(matched_agent_id)
 
     def list(self) -> list[AgentRecord]:
         with self._lock:
