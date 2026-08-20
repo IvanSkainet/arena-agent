@@ -26,6 +26,7 @@ name the caller used, and an existing mission never silently rewritten.
 from __future__ import annotations
 
 import sys
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -190,11 +191,15 @@ def _resource_handlers(seen):
         record_request=lambda *a, **k: None,
         cors_json_response=ub._cors_json_response,
         executor=ub._EXECUTOR,
+        # Return types match the declared protocol in
+        # arena/contexts/domain.py: the two list_* helpers are
+        # Callable[[], list[dict]], the three *_list_sync ones are
+        # Callable[[], dict].
         list_missions_sync=lambda: [],
         list_reports_sync=lambda: [],
-        hooks_list_sync=lambda: [],
-        agents_list_sync=lambda: [],
-        subagents_list_sync=lambda: [],
+        hooks_list_sync=lambda: {"ok": True, "hooks": []},
+        agents_list_sync=lambda: {"ok": True, "agents": []},
+        subagents_list_sync=lambda: {"ok": True, "subagents": []},
         mission_show_sync=record("show"),
         mission_status_sync=record("status"),
         mission_report_sync=record("report"),
@@ -284,8 +289,8 @@ def test_mission_family_accepts_both_spellings(spelling):
         executor=ub._EXECUTOR,
         mission_family_sync=lambda value: (seen.append(value) or {"ok": True}),
     )
-    for field in MissionLifecycleHandlerContext.__dataclass_fields__:
-        ctx_kwargs.setdefault(field, lambda *a, **k: {"ok": True})
+    for field in fields(MissionLifecycleHandlerContext):
+        ctx_kwargs.setdefault(field.name, lambda *a, **k: {"ok": True})
 
     handlers = make_mission_lifecycle_handlers(
         MissionLifecycleHandlerContext(**ctx_kwargs)
@@ -432,3 +437,60 @@ def test_show_reports_the_name_the_caller_used_when_missing(tmp_path):
     from arena.resources.listing import show_mission
 
     assert "no-such" in show_mission(tmp_path, "no-such")["error"]
+
+
+# --- the machine-readable contract must match the prose ----------------------
+#
+# Review catch: the 400 body's `required` field still said `["name"]`
+# after the handlers began accepting `mission_id`. That is #130 one
+# layer down -- a client that parses the structured field instead of the
+# English sentence gets the same wrong answer the sentence used to give.
+
+@pytest.mark.parametrize("endpoint", ["status", "report", "history", "lineage", "show"])
+def test_the_400_body_lists_every_key_the_handler_accepts(endpoint):
+    import asyncio
+    import json
+
+    handlers = _resource_handlers([])
+    response = asyncio.run(getattr(handlers, f"mission_{endpoint}")(_Request("")))
+    payload = json.loads(response.body.decode())
+
+    assert payload["accepts"] == list(IDENTIFIER_KEYS)
+    assert payload["required"] == ["name|mission_id"], (
+        "the structured contract still claims only one key is accepted"
+    )
+    for key in IDENTIFIER_KEYS:
+        assert key in payload["error"], f"{key} missing from the prose error"
+
+
+def test_mission_family_400_body_matches_too():
+    """`family` has its own copy of the payload and drifted before."""
+    import asyncio
+    import json
+
+    import unified_bridge as ub
+    from arena.handler_context import MissionLifecycleHandlerContext
+    from arena.resources.mission_lifecycle_handlers import (
+        make_mission_lifecycle_handlers,
+    )
+
+    ctx_kwargs = dict(
+        require_auth=lambda request: None,
+        record_request=lambda *a, **k: None,
+        cors_json_response=ub._cors_json_response,
+        executor=ub._EXECUTOR,
+    )
+    for field in fields(MissionLifecycleHandlerContext):
+        ctx_kwargs.setdefault(field.name, lambda *a, **k: {"ok": True})
+
+    handlers = make_mission_lifecycle_handlers(
+        MissionLifecycleHandlerContext(**ctx_kwargs)
+    )
+    response = asyncio.run(
+        handlers.mission_family(_Request("", "/v1/mission/family"))
+    )
+    payload = json.loads(response.body.decode())
+
+    assert response.status == 400
+    assert payload["accepts"] == list(IDENTIFIER_KEYS)
+    assert payload["required"] == ["name|mission_id"]

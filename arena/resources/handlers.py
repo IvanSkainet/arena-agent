@@ -11,7 +11,10 @@ from aiohttp import web
 
 from arena.handler_context import ResourceHandlerContext
 from arena.handler_helpers import authed
-from arena.resources.mission_identifier import parse_mission_identifier
+from arena.resources.mission_identifier import (
+    IDENTIFIER_KEYS,
+    parse_mission_identifier,
+)
 
 
 @dataclass(frozen=True)
@@ -96,8 +99,14 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         return {
             "ok": False,
             "error": "missing required parameter 'name' (or 'mission_id')",
-            "hint": "Pass the mission's saved name (case-sensitive). Call mission.catalog first to discover available mission names.",
-            "required": ["name"],
+            "hint": "Pass the mission's saved name or id (case-sensitive), as either 'name' or 'mission_id'. A short scenario name from scenario.list also works. Call mission.catalog first to discover available missions.",
+            # v4.171.0 (#130): machine-readable and prose must name the
+            # same keys. `["name"]` here while the text offered
+            # `mission_id` is the identical defect this change fixes,
+            # one layer down: a client that parses `required` instead of
+            # the English string gets the same wrong answer.
+            "required": ["name|mission_id"],
+            "accepts": list(IDENTIFIER_KEYS),
             "endpoint": hint_endpoint,
         }
 

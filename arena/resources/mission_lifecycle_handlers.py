@@ -11,7 +11,10 @@ from aiohttp import web
 
 from arena.handler_context import MissionLifecycleHandlerContext
 from arena.handler_helpers import authed
-from arena.resources.mission_identifier import parse_mission_identifier
+from arena.resources.mission_identifier import (
+    IDENTIFIER_KEYS,
+    parse_mission_identifier,
+)
 
 
 @dataclass(frozen=True)
@@ -47,8 +50,9 @@ def make_mission_lifecycle_handlers(ctx: MissionLifecycleHandlerContext) -> Miss
                 {
                     "ok": False,
                     "error": "missing required parameter 'name' (or 'mission_id')",
-                    "hint": "Pass the mission's saved name (case-sensitive). Example: mission.family({\"name\": \"cachyos-onboarding\"}). Call mission.catalog first to discover available mission names.",
-                    "required": ["name"],
+                    "hint": "Pass the mission's saved name or id (case-sensitive), as either 'name' or 'mission_id'. Example: mission.family({\"name\": \"cachyos-onboarding\"}). Call mission.catalog first to discover available missions.",
+                    "required": ["name|mission_id"],
+                    "accepts": list(IDENTIFIER_KEYS),
                     "endpoint": "GET /v1/mission/family?name=<mission-name>",
                 },
                 status=400,
