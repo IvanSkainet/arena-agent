@@ -35,7 +35,7 @@ class UntrustedProgram(ValueError):
     """argv[0] was not one of ours."""
 
 
-def _require_trusted_program(argv: list[str]) -> None:
+def _require_trusted_program(argv: list[str], bin_dir: Any = None) -> None:
     """argv[0] must name a program this project controls.
 
     Arguments may come from anywhere -- a URL, an operator's command
@@ -49,20 +49,36 @@ def _require_trusted_program(argv: list[str]) -> None:
     program = str(argv[0])
     if program == sys.executable:
         return
+
     resolved = os.path.realpath(program)
-    root = os.path.realpath(os.path.dirname(sys.executable))
-    if os.path.basename(resolved).startswith(("python", "py_")):
-        return
-    # Anything under the interpreter's directory (venv `bin/`) is ours.
-    if resolved.startswith(root + os.sep):
-        return
+    # Directory membership, not filename. Review pointed out that a
+    # basename check on "python*" admits any file so named in any
+    # directory -- /tmp/python, ./python_backdoor -- which is not a
+    # property of our tree at all. Verified: all four were accepted
+    # before this change. What actually makes a program ours is where it
+    # lives.
+    allowed_roots = [
+        os.path.realpath(os.path.dirname(sys.executable)),
+        os.path.realpath(os.path.dirname(os.path.dirname(__file__))),
+    ]
+    if bin_dir:
+        # The installed tree's `bin/`, where `py_browser.py`, `agentctl`
+        # and `hooks_runner.py` actually live at runtime.
+        allowed_roots.append(os.path.realpath(str(bin_dir)))
+    for root in allowed_roots:
+        if resolved == root:
+            continue
+        if os.path.commonpath([resolved, root]) == root:
+            return
+
     raise UntrustedProgram(
         f"run_local is for our own programs; got {program!r}. "
         "Use run_sd for anything else."
     )
 
 
-def make_run_local(subprocess_kwargs: Callable[[], dict[str, Any]]):
+def make_run_local(subprocess_kwargs: Callable[[], dict[str, Any]],
+                   bin_dir: Any = None):
     def run_local(argv: list[str], timeout: int = 30, *, utf8_child: bool = False) -> tuple[int, str, str]:
         """Run one of our own programs directly (no GUI/sandbox needed).
 
@@ -76,7 +92,7 @@ def make_run_local(subprocess_kwargs: Callable[[], dict[str, Any]]):
         chooses *which program runs*, and no amount of argument quoting
         helps with that.
         """
-        _require_trusted_program(argv)
+        _require_trusted_program(argv, bin_dir)
         p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
                            **_decoding(utf8_child, subprocess_kwargs()))
         return p.returncode, p.stdout, p.stderr

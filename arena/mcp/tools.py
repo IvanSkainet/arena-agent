@@ -153,7 +153,7 @@ def _accept_synonyms(tool: str, args: dict) -> dict:
 
 
 def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
-    run_local = make_run_local(ctx.subprocess_kwargs)
+    run_local = make_run_local(ctx.subprocess_kwargs, bin_dir=ctx.bin_dir)
     run_sd = make_run_sd(bin_dir=ctx.bin_dir, subprocess_kwargs=ctx.subprocess_kwargs)
     # Preserve historical module names for compatibility diagnostics/tests.
     try:

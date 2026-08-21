@@ -216,6 +216,92 @@ def test_run_local_refuses_a_program_that_is_not_ours():
             _require_trusted_program(hostile)
 
 
+def test_a_program_is_ours_by_directory_not_by_name(tmp_path):
+    """Review (Sourcery) caught this and was right.
+
+    The first version accepted any basename starting with `python` or
+    `py_`. That is not a property of our tree: `/tmp/python`,
+    `./python_backdoor` and `/tmp/py_evil` all matched. Verified against
+    the old code -- all four were accepted. What makes a program ours is
+    the directory it lives in.
+    """
+    from arena.mcp.tool_utils import UntrustedProgram, _require_trusted_program
+
+    for name in ("python", "python3", "py_evil", "python_backdoor"):
+        planted = tmp_path / name
+        planted.write_text("#!/bin/sh\nid\n", encoding="utf-8")
+        with pytest.raises(UntrustedProgram):
+            _require_trusted_program([str(planted)])
+
+
+def test_the_installed_bin_dir_is_trusted_when_given(tmp_path):
+    """`py_browser.py` and `agentctl` live in the install tree's `bin/`,
+    which is not under the interpreter's directory -- so the guard has
+    to be told about it, or every browser tool breaks."""
+    import os
+
+    from arena.mcp.tool_utils import UntrustedProgram, _require_trusted_program
+
+    bin_dir = tmp_path / "arena-bridge" / "bin"
+    bin_dir.mkdir(parents=True)
+    for name in ("py_browser.py", "agentctl", "hooks_runner.py"):
+        (bin_dir / name).write_text("x", encoding="utf-8")
+        _require_trusted_program([str(bin_dir / name)], str(bin_dir))
+
+    # ...and being told about one directory does not open the parent.
+    outsider = tmp_path / "arena-bridge" / "py_browser.py"
+    outsider.write_text("x", encoding="utf-8")
+    with pytest.raises(UntrustedProgram):
+        _require_trusted_program([str(outsider)], str(bin_dir))
+
+    assert os.path.exists(outsider)
+
+
+def test_a_sibling_directory_is_not_inside_the_trusted_one(tmp_path):
+    """Sabotage caught this: `startswith` is not path containment.
+
+    `/usr/local/bin-evil` starts with `/usr/local/bin`, so a prefix
+    comparison admits a directory that merely shares a name prefix with
+    the trusted one -- an attacker who can create a sibling gets a free
+    pass. `os.path.commonpath` compares components, which is the
+    question actually being asked.
+    """
+    from arena.mcp.tool_utils import UntrustedProgram, _require_trusted_program
+
+    trusted = tmp_path / "bin"
+    trusted.mkdir()
+    sibling = tmp_path / "bin-evil"
+    sibling.mkdir()
+    planted = sibling / "python3"
+    planted.write_text("x", encoding="utf-8")
+
+    with pytest.raises(UntrustedProgram):
+        _require_trusted_program([str(planted)], str(trusted))
+
+
+def test_the_trusted_directory_itself_is_not_a_program(tmp_path):
+    """Passing the directory as argv[0] must not satisfy the guard."""
+    from arena.mcp.tool_utils import UntrustedProgram, _require_trusted_program
+
+    trusted = tmp_path / "bin"
+    trusted.mkdir()
+
+    with pytest.raises(UntrustedProgram):
+        _require_trusted_program([str(trusted)], str(trusted))
+
+
+def test_the_bin_dir_is_actually_wired_through():
+    """A parameter nobody passes is a parameter that does nothing."""
+    import inspect
+
+    from arena.mcp import standalone_common, tools
+
+    assert "bin_dir=BIN" in inspect.getsource(standalone_common).replace(" ", "").replace(
+        "bin_dir=BIN", "bin_dir=BIN")
+    wired = inspect.getsource(tools)
+    assert "make_run_local(ctx.subprocess_kwargs, bin_dir=ctx.bin_dir)" in wired
+
+
 def test_run_local_still_accepts_every_shape_the_tree_uses():
     """The guard is worthless if it breaks the real callers."""
     import os
@@ -225,9 +311,17 @@ def test_run_local_still_accepts_every_shape_the_tree_uses():
     bin_dir = os.path.dirname(sys.executable)
     for ours in ([sys.executable, "-c", "pass"],
                  [sys.executable, os.path.join("bin", "py_browser.py"), "search"],
-                 [os.path.join(bin_dir, "agentctl"), "sys", "status"],
-                 ["py_browser.py"]):
+                 [os.path.join(bin_dir, "agentctl"), "sys", "status"]):
         _require_trusted_program(ours)
+
+    # A bare relative name is refused on purpose: it resolves against
+    # whatever the working directory happens to be, which is not a
+    # location this project controls. Every real call site builds an
+    # absolute path from `BIN` or uses `sys.executable`.
+    from arena.mcp.tool_utils import UntrustedProgram
+
+    with pytest.raises(UntrustedProgram):
+        _require_trusted_program(["py_browser.py"])
 
 
 def test_the_guard_runs_before_the_process_starts():
@@ -236,6 +330,6 @@ def test_the_guard_runs_before_the_process_starts():
 
     source = inspect.getsource(make_run_local)
 
-    at_guard = source.index("_require_trusted_program(argv)")
+    at_guard = source.index("_require_trusted_program(argv")
     at_run = source.index("subprocess.run(")
     assert at_guard < at_run, "the guard must precede the spawn"
