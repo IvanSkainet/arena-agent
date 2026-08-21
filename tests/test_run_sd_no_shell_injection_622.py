@@ -192,3 +192,50 @@ def test_the_navigation_policy_does_not_make_the_url_shell_safe():
         "if the policy starts rejecting these, this test should be "
         "rewritten -- but run_sd must not rely on it either way"
     )
+
+
+# --- run_local: argv[0] is a different question entirely -------------------
+
+def test_run_local_refuses_a_program_that_is_not_ours():
+    """Arguments may come from anywhere; argv[0] may not.
+
+    Without a shell, a caller-supplied *argument* is handed to the child
+    untouched -- that is the whole fix above. A caller-supplied
+    *program* is another matter: it chooses what executes, and no
+    quoting helps. Every real caller passes `sys.executable` or a path
+    under the interpreter's directory, so this was already true by
+    convention. Conventions do not survive refactors.
+    """
+    from arena.mcp.tool_utils import UntrustedProgram, _require_trusted_program
+
+    for hostile in (["/bin/sh", "-c", "id"],
+                    ["/usr/bin/chromium", "--headless"],
+                    ["cmd", "/c", "dir"],
+                    []):
+        with pytest.raises(UntrustedProgram):
+            _require_trusted_program(hostile)
+
+
+def test_run_local_still_accepts_every_shape_the_tree_uses():
+    """The guard is worthless if it breaks the real callers."""
+    import os
+
+    from arena.mcp.tool_utils import _require_trusted_program
+
+    bin_dir = os.path.dirname(sys.executable)
+    for ours in ([sys.executable, "-c", "pass"],
+                 [sys.executable, os.path.join("bin", "py_browser.py"), "search"],
+                 [os.path.join(bin_dir, "agentctl"), "sys", "status"],
+                 ["py_browser.py"]):
+        _require_trusted_program(ours)
+
+
+def test_the_guard_runs_before_the_process_starts():
+    """A check that is defined but never called is decoration."""
+    from arena.mcp.tool_utils import make_run_local
+
+    source = inspect.getsource(make_run_local)
+
+    at_guard = source.index("_require_trusted_program(argv)")
+    at_run = source.index("subprocess.run(")
+    assert at_guard < at_run, "the guard must precede the spawn"

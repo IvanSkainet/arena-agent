@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
+import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -30,12 +31,52 @@ def _decoding(utf8_child: bool, base: dict[str, Any]) -> dict[str, Any]:
     return {**UTF8_CHILD_IO, **base}
 
 
+class UntrustedProgram(ValueError):
+    """argv[0] was not one of ours."""
+
+
+def _require_trusted_program(argv: list[str]) -> None:
+    """argv[0] must name a program this project controls.
+
+    Arguments may come from anywhere -- a URL, an operator's command
+    line -- and that is fine for a no-shell `subprocess.run`, which
+    passes them to the child untouched. argv[0] is different: it decides
+    which binary executes. Nothing in this codebase legitimately puts
+    caller data there, so make it impossible rather than customary.
+    """
+    if not argv:
+        raise UntrustedProgram("empty argv")
+    program = str(argv[0])
+    if program == sys.executable:
+        return
+    resolved = os.path.realpath(program)
+    root = os.path.realpath(os.path.dirname(sys.executable))
+    if os.path.basename(resolved).startswith(("python", "py_")):
+        return
+    # Anything under the interpreter's directory (venv `bin/`) is ours.
+    if resolved.startswith(root + os.sep):
+        return
+    raise UntrustedProgram(
+        f"run_local is for our own programs; got {program!r}. "
+        "Use run_sd for anything else."
+    )
+
+
 def make_run_local(subprocess_kwargs: Callable[[], dict[str, Any]]):
     def run_local(argv: list[str], timeout: int = 30, *, utf8_child: bool = False) -> tuple[int, str, str]:
-        """Run a command directly (no GUI/sandbox needed).
+        """Run one of our own programs directly (no GUI/sandbox needed).
 
         `utf8_child` is for our own helper scripts only; see UTF8_CHILD_IO.
+
+        Every caller passes `sys.executable` or a path under `bin/` as
+        argv[0] and puts caller data only in later arguments. That is the
+        property which makes this safe without a shell, and until now it
+        was a convention rather than a rule -- so `_require_trusted_program`
+        checks it. A tainted argv[0] is a different defect entirely: it
+        chooses *which program runs*, and no amount of argument quoting
+        helps with that.
         """
+        _require_trusted_program(argv)
         p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
                            **_decoding(utf8_child, subprocess_kwargs()))
         return p.returncode, p.stdout, p.stderr
