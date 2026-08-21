@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import platform
 import sys
 import time
 from pathlib import Path
@@ -138,7 +139,18 @@ def test_a_wide_bind_still_reports_its_own_fact(tmp_path):
 
 
 def test_version_never_shells_out_to_a_tunnel_provider(tmp_path):
-    """~20 ms of subprocess on an unauthenticated route is a DoS lever."""
+    """~20 ms of subprocess on an unauthenticated route is a DoS lever.
+
+    `platform.processor()` shells out to `uname -p` once and memoises
+    the answer for the life of the process. Whether this test sees that
+    call depends on whether something else already triggered it, which
+    under `pytest-randomly` depends on the seed -- the test passed or
+    failed by luck of ordering. Warm the cache first so the spy only
+    observes subprocesses *this* route starts.
+    """
+    platform.processor()
+    platform.uname()
+
     exposure_cache.record_tunnel_snapshot(FUNNEL_UP)
     calls: list[list[str]] = []
 
@@ -407,9 +419,15 @@ def test_the_snapshot_keys_are_the_contract():
 
 
 def test_an_observation_exactly_at_the_ttl_is_still_valid():
-    """The boundary is `>`, not `>=`: pin it so it cannot drift silently."""
+    """The boundary is `>`, not `>=`: pin it so it cannot drift silently.
+
+    Reads `at` back from the memo rather than calling `time.monotonic()`
+    again: the boundary must be measured against the stamp actually
+    stored, not against a clock that has moved on since.
+    """
     exposure_cache.record_tunnel_snapshot(FUNNEL_UP)
     at = exposure_cache._STATE["at"]
+    assert at is not None, "record_tunnel_snapshot did not stamp the memo"
 
     assert exposure_cache.exposure_snapshot(
         now=at + exposure_cache.EXPOSURE_TTL_S
