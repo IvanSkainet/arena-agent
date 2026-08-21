@@ -175,8 +175,8 @@
       "severity": "critical",
       "dismissed": 7,
       "reasons": {
-        "won't fix": 5,
-        "false positive": 2
+        "won't fix": 6,
+        "false positive": 1
       }
     },
     "py/http-response-splitting": {
