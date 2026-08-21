@@ -26,6 +26,32 @@ much is a nuisance, claiming to be scoped while checking nothing is a
 lie. Dependabot and secret scanning are never scoped; those are facts
 about the repository, not about a diff.
 
+### `run_sd` no longer hands attacker text to `cmd.exe` (CodeQL #622/#625)
+
+The Windows branch of `make_run_sd` ran with `shell=True` under a `nosec`
+that read "argv[0] is a fixed sd-exec binary path (no operator
+interpolation)". That described nothing in the code. Every Windows call
+site passes argv the caller controls: `browser.shot` appends a URL,
+`exec.run` appends the operator's command line.
+
+With `shell=True`, Python joins the list with `list2cmdline` and hands
+one string to `cmd.exe`, which re-reads it for `&`, `|` and `>`.
+`list2cmdline` quotes for the C runtime, not for a shell, and only when
+an argument contains whitespace. A space-free URL therefore carries its
+payload through intact. Verified on Windows (Python 3.14.7) with the
+argv shape `browser.shot` builds: with `shell=True` the injected command
+ran and wrote its marker file; with it removed, the argument arrived
+whole and nothing else executed.
+
+`browser.shot` does validate the URL first, and that validation does not
+help: the navigation policy answers "may I reach this host" (SSRF) and
+passes `&`, `|` and `>` through untouched. Confirmed by executing it.
+
+The flag is gone. Parity was checked call by call on the operator's own
+Windows host -- pipes, non-ASCII output, exit codes and quoting all
+match, and one case improves: `cmd /c cd` returned exit 1 and a quoting
+error under `shell=True`, and now returns the directory.
+
 ### `/v1/version` no longer implies a loopback bridge is unreachable (#54)
 
 `loopback_only: true` was true and misleading at the same time. It is a

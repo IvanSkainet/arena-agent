@@ -37,4 +37,4 @@ def text_content(s: str) -> dict: return {"content": [{"type": "text", "text": s
 # No subprocess kwargs of their own -- the standalone server has no GUI
 # console to hide, which is the only thing the callable feeds the factories.
 run_sd = make_run_sd(bin_dir=BIN, subprocess_kwargs=dict)
-run_local = make_run_local(dict)
+run_local = make_run_local(dict, bin_dir=BIN)

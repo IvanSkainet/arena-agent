@@ -421,13 +421,21 @@ def test_the_snapshot_keys_are_the_contract():
 def test_an_observation_exactly_at_the_ttl_is_still_valid():
     """The boundary is `>`, not `>=`: pin it so it cannot drift silently.
 
-    Reads `at` back from the memo rather than calling `time.monotonic()`
-    again: the boundary must be measured against the stamp actually
-    stored, not against a clock that has moved on since.
+    The stamp is fixed rather than read from the live clock. Floating
+    point makes `(at + 60.0) - at` slightly *larger* than 60.0 for many
+    ordinary values -- `at = 26.24683275553874` yields
+    `60.00000000000001` -- so with a real `monotonic()` this assertion
+    passed or failed according to how long the machine had been up.
+    It failed on a Windows runner for exactly that reason and passed
+    everywhere else, which is the worst way for a test to be wrong.
+
+    The boundary being tested is the comparison in `exposure_snapshot`,
+    not the arithmetic of the caller, so the arithmetic is made exact.
     """
-    exposure_cache.record_tunnel_snapshot(FUNNEL_UP)
-    at = exposure_cache._STATE["at"]
-    assert at is not None, "record_tunnel_snapshot did not stamp the memo"
+    at = 1000.0
+    with patch.object(exposure_cache.time, "monotonic", lambda: at):
+        exposure_cache.record_tunnel_snapshot(FUNNEL_UP)
+    assert exposure_cache._STATE["at"] == at
 
     assert exposure_cache.exposure_snapshot(
         now=at + exposure_cache.EXPOSURE_TTL_S
@@ -435,6 +443,37 @@ def test_an_observation_exactly_at_the_ttl_is_still_valid():
     assert exposure_cache.exposure_snapshot(
         now=at + exposure_cache.EXPOSURE_TTL_S + 0.001
     )["exposed"] is None
+
+
+def test_freshness_does_not_depend_on_how_long_the_machine_has_been_up():
+    """The verdict must come from the age, not from the size of the stamp.
+
+    Deliberately not asserted *exactly* on the boundary here. For many
+    ordinary stamps `(at + TTL) - at` is not TTL but a few femtoseconds
+    more -- `at = 4.0000000004` gives `60.00000000000001` -- so an
+    exact-boundary assertion across arbitrary stamps tests IEEE 754
+    rather than this cache. Widening the comparison in the cache to
+    swallow that would be tuning production code to a rounding artefact.
+
+    What actually matters, and is asserted: an observation comfortably
+    inside the window is fresh and one past the window is not, for every
+    stamp shape -- a just-booted runner, a long-running host, and the
+    awkward values in between.
+    """
+    for at in (0.1, 3.9999999999, 4.0000000004, 26.24683275553874, 12345.678, 1e9):
+        exposure_cache.reset()
+        with patch.object(exposure_cache.time, "monotonic", lambda at=at: at):
+            exposure_cache.record_tunnel_snapshot(FUNNEL_UP)
+
+        inside = exposure_cache.exposure_snapshot(
+            now=at + exposure_cache.EXPOSURE_TTL_S - 0.001
+        )
+        outside = exposure_cache.exposure_snapshot(
+            now=at + exposure_cache.EXPOSURE_TTL_S + 1.0
+        )
+
+        assert inside["exposed"] is True, f"at={at!r} went unknown inside the window"
+        assert outside["exposed"] is None, f"at={at!r} stayed fresh past the TTL"
 
 
 def test_reset_clears_every_field():
