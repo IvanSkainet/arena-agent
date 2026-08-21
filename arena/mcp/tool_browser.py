@@ -17,11 +17,12 @@ from arena.mcp.tool_utils import text_content
 def handle_browser_tool(name: str, args: dict[str, Any], *, ctx, run_local, run_sd) -> dict[str, Any] | None:
     if name == "browser.search":
         rc, out, err = run_local([sys.executable, os.path.join(ctx.bin_dir, "py_browser.py"),
-                                  "search", args.get("query", ""), "--n", str(args.get("n", 5))], timeout=30)
+                                  "search", args.get("query", ""), "--n", str(args.get("n", 5))],
+                                 timeout=30, utf8_child=True)
         return text_content(out or err)
     if name == "browser.read":
         rc, out, err = run_local([sys.executable, os.path.join(ctx.bin_dir, "py_browser.py"),
-                                  "read", args.get("url", "")], timeout=30)
+                                  "read", args.get("url", "")], timeout=30, utf8_child=True)
         return text_content(out or err)
     if name != "browser.shot":
         return None
