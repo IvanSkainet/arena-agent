@@ -400,5 +400,17 @@ def test_windows_paths_compare_case_insensitively():
     finally:
         tu.os.path = real
 
-    assert tu._is_within("/usr/local/BIN/x", "/usr/local/bin") is False
-    assert tu._is_within("/usr/local/bin/x", "/usr/local/bin") is True
+    # And the POSIX half, pinned through `posixpath` for the same reason
+    # the Windows half goes through `ntpath`: on a Windows runner the
+    # ambient `os.path` *is* ntpath, so asserting "case matters here"
+    # against the ambient module is asserting the runner's platform, not
+    # the code. That mistake failed this very test on windows-latest.
+    import posixpath
+
+    tu.os.path = posixpath
+    try:
+        assert tu._is_within("/usr/local/BIN/x", "/usr/local/bin") is False
+        assert tu._is_within("/usr/local/bin/x", "/usr/local/bin") is True
+        assert tu._is_within("/usr/local/bin-evil/x", "/usr/local/bin") is False
+    finally:
+        tu.os.path = real
