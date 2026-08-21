@@ -1,5 +1,31 @@
 ## v4.169.48 — 2026-08-17
 
+### The alert gate no longer blocks the pull request that fixes the alert
+
+`security_alerts_check.py` asked GitHub for open code-scanning alerts
+across the whole repository. For a push to `master` that is right. For a
+pull request it is a deadlock: a finding on `master` fails every open
+PR, including the branch that removes it.
+
+That is not hypothetical. Two `py/command-line-injection` alerts landed
+on `master`, and the branch deleting the `shell=True` behind them could
+not go green, because the gate kept reporting alerts belonging to the
+branch being merged *into*. A gate no code change can satisfy gets
+bypassed, and then it protects nothing.
+
+On `pull_request` and `pull_request_target` the code-scanning query is
+now scoped to that PR's own head. Every other event -- push, release,
+schedule, manual dispatch -- stays repository-wide, which is the mode
+that catches a finding nobody has opened a PR for.
+
+The scope comes from the event name, not from the shape of `GITHUB_REF`:
+a push can carry a `refs/pull/...` ref, and letting the string decide
+would silently narrow a repository-wide run to one branch. If a PR
+number cannot be determined at all, the query stays wide -- checking too
+much is a nuisance, claiming to be scoped while checking nothing is a
+lie. Dependabot and secret scanning are never scoped; those are facts
+about the repository, not about a diff.
+
 ### Archive deployments have verifiable identity
 
 Release ZIPs now carry canonical source provenance: repository, exact source
