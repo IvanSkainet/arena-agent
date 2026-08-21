@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -48,6 +49,8 @@ from arena.observability.redact import (
     unregister_literal_secret,
 )
 
+_LOG = logging.getLogger(__name__)
+
 
 def _record_exposure(snapshot: Any) -> None:
     """Feed the exposure memo from a tunnels_status() result (#54).
@@ -67,7 +70,11 @@ def _record_exposure(snapshot: Any) -> None:
         if isinstance(providers, dict):
             record_tunnel_snapshot(providers)
     except Exception:  # pragma: no cover - bookkeeping must never throw
-        pass
+        # Swallowed on purpose: a caller asking for tunnel status must get
+        # it even if the memo cannot be updated. But swallow it *loudly* --
+        # a silent failure here means /v1/version answers "unknown" forever
+        # with nothing anywhere saying why.
+        _LOG.warning("could not record the tunnel exposure memo", exc_info=True)
 
 
 @dataclass(frozen=True)

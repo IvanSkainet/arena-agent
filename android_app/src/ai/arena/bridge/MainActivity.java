@@ -168,12 +168,12 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 // One request, one instant: see BridgeProbe.status().
-                final BridgeProbe.Status status = BridgeProbe.status();
-                final String version = status.version;
+                final BridgeProbe.Status probe = BridgeProbe.status();
+                final String version = probe.version;
                 final boolean up = version != null
                         || BridgeProbe.portOpen(BridgePaths.PORT, 700);
-                final Boolean loopback = status.loopbackOnly;
-                final Boolean exposed = status.exposedPublicly;
+                final Boolean loopback = probe.loopbackOnly;
+                final Boolean exposed = probe.exposedPublicly;
                 final String lan = LocalAddress.best();
                 handler.post(new Runnable() {
                     @Override

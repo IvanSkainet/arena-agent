@@ -459,6 +459,27 @@ def test_the_unknown_answer_cannot_be_mutated_by_a_caller():
     }
 
 
+def test_a_failed_recording_is_swallowed_but_not_silent(caplog):
+    """Bookkeeping must not break the response -- and must not vanish.
+
+    If recording ever starts throwing, /v1/version answers "unknown"
+    forever. A bare `except: pass` would make that state indistinguishable
+    from a bridge nobody has probed yet.
+    """
+    from arena.admin import handlers as admin_handlers
+
+    def boom(_snapshot):
+        raise RuntimeError("disk on fire")
+
+    with patch.object(admin_handlers, "record_tunnel_snapshot", boom):
+        with caplog.at_level("WARNING"):
+            admin_handlers._record_exposure({"providers": FUNNEL_UP})
+
+    assert any(
+        "exposure" in rec.message for rec in caplog.records
+    ), "the failure was swallowed without a trace"
+
+
 # --- the Android client, which is where the lie was actually read -------
 
 _APP_SRC = (
