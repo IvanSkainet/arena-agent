@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -42,10 +43,38 @@ from arena.admin.tunnels import (
 from arena.app_keys import APP_CFG
 from arena.handler_context import AdminHandlerContext
 from arena.handler_helpers import authed, safe_float
+from arena.mobile.exposure_cache import record_tunnel_snapshot
 from arena.observability.redact import (
     register_literal_secret,
     unregister_literal_secret,
 )
+
+_LOG = logging.getLogger(__name__)
+
+
+def _record_exposure(snapshot: Any) -> None:
+    """Feed the exposure memo from a tunnels_status() result (#54).
+
+    Accepts both provider shapes the codebase produces (mapping or
+    list), and never lets a bookkeeping failure break the response the
+    caller actually asked for.
+    """
+    try:
+        providers = (snapshot or {}).get("providers")
+        if isinstance(providers, list):
+            providers = {
+                str(item.get("provider", idx)): item
+                for idx, item in enumerate(providers)
+                if isinstance(item, dict)
+            }
+        if isinstance(providers, dict):
+            record_tunnel_snapshot(providers)
+    except Exception:  # pragma: no cover - bookkeeping must never throw
+        # Swallowed on purpose: a caller asking for tunnel status must get
+        # it even if the memo cannot be updated. But swallow it *loudly* --
+        # a silent failure here means /v1/version answers "unknown" forever
+        # with nothing anywhere saying why.
+        _LOG.warning("could not record the tunnel exposure memo", exc_info=True)
 
 
 @dataclass(frozen=True)
@@ -420,6 +449,10 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 bore_status_sync=getattr(ctx, "bore_status_sync", None),
             ),
         )
+        # This authenticated caller already paid for the provider probe;
+        # publish it so the unauthenticated /v1/version can answer
+        # honestly without shelling out itself (#54).
+        _record_exposure(result)
         return ctx.cors_json_response(result)
 
     @authed(ctx)

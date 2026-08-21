@@ -15,6 +15,7 @@ from aiohttp import web
 from arena.app_keys import APP_CFG
 from arena.handler_helpers import authed
 from arena.mobile import access_info
+from arena.mobile.exposure_cache import record_tunnel_snapshot
 
 
 def make_access_handlers(ctx):
@@ -58,12 +59,25 @@ def make_access_handlers(ctx):
                     for idx, item in enumerate(providers)
                     if isinstance(item, dict)
                 }
+            probed = True
         except Exception:
             # A tunnel provider that throws must not take the address
             # readout with it: the LAN answer is still useful, and this
             # endpoint exists precisely for the case where remote access
             # is already broken.
             tunnels = {}
+            probed = False
+
+        # Same memo as /v1/tunnels/status: this call already paid for the
+        # probe, so the unauthenticated /v1/version can stop guessing (#54).
+        #
+        # Only when the probe actually answered. A provider that threw
+        # leaves `tunnels` empty, and recording that would turn "we could
+        # not find out" into "not exposed" -- which is the precise lie
+        # #54 is about, reintroduced one layer up. No memo means the
+        # cache reports unknown, and `/v1/version` says `null`.
+        if probed:
+            record_tunnel_snapshot(tunnels)
 
         return ctx.cors_json_response(access_info.describe(
             # The default bind for a local control bridge: loopback here is

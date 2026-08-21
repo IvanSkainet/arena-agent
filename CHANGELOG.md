@@ -26,6 +26,36 @@ much is a nuisance, claiming to be scoped while checking nothing is a
 lie. Dependabot and secret scanning are never scoped; those are facts
 about the repository, not about a diff.
 
+### `/v1/version` no longer implies a loopback bridge is unreachable (#54)
+
+`loopback_only: true` was true and misleading at the same time. It is a
+property of the bind address, and it was the only reachability fact the
+unauthenticated `/v1/version` published, so the Android status screen
+rendered "Direct access from other machines: no" on a phone whose
+Tailscale Funnel was live and forwarding to that same loopback port.
+`access_info.describe` already knew better -- it returns
+`reachable_remotely: true` for exactly that shape -- but nothing carried
+the answer to the endpoint the phone can actually read.
+
+`/v1/version` now also publishes `exposed_publicly`: `true`, `false`, or
+`null` for "not observed recently". It is not computed on demand.
+Probing the tunnels costs a `tailscale` subprocess (20-36 ms measured),
+and inviting an unauthenticated caller to spawn processes is a
+denial-of-service lever, so the authenticated paths that already pay for
+that answer -- `/v1/tunnels/status` and `/v1/access` -- record what they
+learned in a 60-second in-process memo that `/v1/version` reads. Nothing
+new is spawned on the public endpoint.
+
+`loopback_only` keeps its old meaning and its old value: it describes the
+bind, older clients still parse it, and narrowing it now would break them
+for no gain. The two fields answer two different questions, and the
+status screen prints them on separate lines.
+
+`null` is a first-class answer throughout, on both sides. A bridge that
+has not observed a tunnel says so rather than guessing `false`, and the
+Java client maps a missing field and a literal JSON `null` to `null` --
+never to "no". Reporting "not exposed" when the honest answer is "I have
+not checked" is the same conflation that produced the original defect.
 ### Archive deployments have verifiable identity
 
 Release ZIPs now carry canonical source provenance: repository, exact source

@@ -167,10 +167,13 @@ public class MainActivity extends Activity {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                final String version = BridgeProbe.version();
+                // One request, one instant: see BridgeProbe.status().
+                final BridgeProbe.Status probe = BridgeProbe.status();
+                final String version = probe.version;
                 final boolean up = version != null
                         || BridgeProbe.portOpen(BridgePaths.PORT, 700);
-                final Boolean loopback = BridgeProbe.loopbackOnly();
+                final Boolean loopback = probe.loopbackOnly;
+                final Boolean exposed = probe.exposedPublicly;
                 final String lan = LocalAddress.best();
                 handler.post(new Runnable() {
                     @Override
@@ -205,6 +208,25 @@ public class MainActivity extends Activity {
                                   .append("\n  cat ~/arena-bridge/token.txt");
                             } else {
                                 sb.append("\n\nBind: unknown (bridge older than 4.169.14)");
+                            }
+                            // The bind says who can dial this phone
+                            // directly. It says nothing about a tunnel,
+                            // and a loopback bind behind a live Funnel is
+                            // still open to the internet -- so print that
+                            // as its own line instead of letting the bind
+                            // stand in for it.
+                            if (Boolean.TRUE.equals(exposed)) {
+                                sb.append("\n\nReachable from the internet: YES")
+                                  .append("\nA tunnel is forwarding to this bridge.")
+                                  .append("\nAnyone with the URL and the token can")
+                                  .append("\nreach it. Stop the tunnel to close this.");
+                            } else if (Boolean.FALSE.equals(exposed)) {
+                                sb.append("\n\nReachable from the internet: no")
+                                  .append("\n(no tunnel was forwarding as of the")
+                                  .append("\nlast check)");
+                            } else {
+                                sb.append("\n\nReachable from the internet: unknown")
+                                  .append("\n(the bridge has not checked recently)");
                             }
                         }
                         if (!termux) {
