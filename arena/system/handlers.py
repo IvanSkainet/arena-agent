@@ -81,9 +81,29 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
             # is the empty-scan failure again.
             from arena.app_keys import APP_CFG
             from arena.mobile.access_info import LOOPBACK_BINDS
+            from arena.mobile.exposure_cache import exposure_snapshot
             cfg = request.app[APP_CFG]
             bind = str(cfg.get("bind", "") or "")
             loopback_only = bind in LOOPBACK_BINDS
+            # A loopback bind blocks direct LAN access; it does not block a
+            # tunnel agent, which runs on this host and dials loopback
+            # itself. With a Tailscale Funnel up, this endpoint answered
+            # `loopback_only: true` to requests arriving *through* that
+            # funnel, and the Android screen told the operator "Direct
+            # access from other machines: no" about a bridge on the public
+            # internet (#54).
+            #
+            # The memo is filled by the authenticated paths that already
+            # probe the providers; this endpoint is unauthenticated, so it
+            # must never shell out (`tailscale funnel status` is ~20 ms --
+            # a denial-of-service lever for anyone who can reach the port).
+            # Named `exposed_publicly`, not `reachable_remotely` as in
+            # /v1/access: that one is a plain bool, this one is tri-state.
+            # null means nobody has looked recently, which is not the same
+            # as "nothing is exposed" -- conflating those is the bug being
+            # fixed here, and reusing the name with a wider type would set
+            # the same trap for the next reader.
+            exposure = exposure_snapshot()
             deployed = await deployment_status(public=True)
             return ctx.cors_json_response({
                 "ok": True,
@@ -92,6 +112,7 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
                 "python": sys.version.split()[0],
                 "platform": ctx.clean_platform_name(),
                 "loopback_only": loopback_only,
+                "exposed_publicly": exposure["exposed"],
                 "deployment": deployed,
             })
         except Exception as e:

@@ -15,6 +15,7 @@ from aiohttp import web
 from arena.app_keys import APP_CFG
 from arena.handler_helpers import authed
 from arena.mobile import access_info
+from arena.mobile.exposure_cache import record_tunnel_snapshot
 
 
 def make_access_handlers(ctx):
@@ -64,6 +65,10 @@ def make_access_handlers(ctx):
             # endpoint exists precisely for the case where remote access
             # is already broken.
             tunnels = {}
+
+        # Same memo as /v1/tunnels/status: this call already paid for the
+        # probe, so the unauthenticated /v1/version can stop guessing (#54).
+        record_tunnel_snapshot(tunnels)
 
         return ctx.cors_json_response(access_info.describe(
             # The default bind for a local control bridge: loopback here is

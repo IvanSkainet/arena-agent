@@ -50,6 +50,61 @@ public final class BridgeProbe {
         return body == null ? null : extract(body, "version");
     }
 
+    /**
+     * Everything /v1/version says, read in a single request.
+     *
+     * <p>The status screen needs three fields. Asking three times means
+     * three round trips and, worse, three different instants: the bind
+     * and the tunnel state could come from either side of a tunnel going
+     * down, and the screen would show a combination that was never true.
+     */
+    public static Status status() {
+        return Status.of(fetch(BridgePaths.versionUrl()));
+    }
+
+    /** One reading of /v1/version. Any field may be null: unknown. */
+    public static final class Status {
+        public final String version;
+        public final Boolean loopbackOnly;
+        public final Boolean exposedPublicly;
+
+        Status(String version, Boolean loopbackOnly, Boolean exposedPublicly) {
+            this.version = version;
+            this.loopbackOnly = loopbackOnly;
+            this.exposedPublicly = exposedPublicly;
+        }
+
+        static Status of(String body) {
+            if (body == null) {
+                return new Status(null, null, null);
+            }
+            return new Status(
+                    extract(body, "version"),
+                    tristate(body, "loopback_only"),
+                    tristate(body, "exposed_publicly"));
+        }
+    }
+
+    /**
+     * A JSON boolean as true/false/null.
+     *
+     * <p>Null for a missing field, and null for a literal JSON null:
+     * a bridge that says "I have not checked" must not be read as "no".
+     */
+    static Boolean tristate(String json, String key) {
+        String value = extractRaw(json, key);
+        if (value == null || "null".equals(value)) {
+            return null;
+        }
+        if ("true".equals(value)) {
+            return Boolean.TRUE;
+        }
+        if ("false".equals(value)) {
+            return Boolean.FALSE;
+        }
+        return null;
+    }
+
     /** GET a URL, returning the body or null. Never throws. */
     static String fetch(String url) {
         HttpURLConnection conn = null;
@@ -95,11 +150,26 @@ public final class BridgeProbe {
         if (body == null) {
             return null;
         }
-        String value = extractRaw(body, "loopback_only");
-        if (value == null) {
+        return tristate(body, "loopback_only");
+    }
+
+    /**
+     * Whether the bridge is currently reachable from the public internet
+     * through a tunnel, or null when the bridge cannot say.
+     *
+     * <p>Separate from {@link #loopbackOnly()} on purpose. A bridge bound
+     * to 127.0.0.1 with a live Funnel is loopback-bound *and* exposed to
+     * the internet; reporting only the bind told the operator "no direct
+     * access" while the world could reach the thing. Null means the
+     * bridge is older than this field, or has not observed a tunnel
+     * recently enough to answer -- neither of which is a "no".
+     */
+    public static Boolean exposedPublicly() {
+        String body = fetch(BridgePaths.versionUrl());
+        if (body == null) {
             return null;
         }
-        return Boolean.valueOf("true".equals(value));
+        return tristate(body, "exposed_publicly");
     }
 
     /** Read a bare (unquoted) JSON value: true, false, a number. */

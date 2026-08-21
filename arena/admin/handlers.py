@@ -42,10 +42,32 @@ from arena.admin.tunnels import (
 from arena.app_keys import APP_CFG
 from arena.handler_context import AdminHandlerContext
 from arena.handler_helpers import authed, safe_float
+from arena.mobile.exposure_cache import record_tunnel_snapshot
 from arena.observability.redact import (
     register_literal_secret,
     unregister_literal_secret,
 )
+
+
+def _record_exposure(snapshot: Any) -> None:
+    """Feed the exposure memo from a tunnels_status() result (#54).
+
+    Accepts both provider shapes the codebase produces (mapping or
+    list), and never lets a bookkeeping failure break the response the
+    caller actually asked for.
+    """
+    try:
+        providers = (snapshot or {}).get("providers")
+        if isinstance(providers, list):
+            providers = {
+                str(item.get("provider", idx)): item
+                for idx, item in enumerate(providers)
+                if isinstance(item, dict)
+            }
+        if isinstance(providers, dict):
+            record_tunnel_snapshot(providers)
+    except Exception:  # pragma: no cover - bookkeeping must never throw
+        pass
 
 
 @dataclass(frozen=True)
@@ -420,6 +442,10 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 bore_status_sync=getattr(ctx, "bore_status_sync", None),
             ),
         )
+        # This authenticated caller already paid for the provider probe;
+        # publish it so the unauthenticated /v1/version can answer
+        # honestly without shelling out itself (#54).
+        _record_exposure(result)
         return ctx.cors_json_response(result)
 
     @authed(ctx)

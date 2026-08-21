@@ -118,7 +118,7 @@ ALLOWLIST: dict[str, str] = {
         "happened upstream via @authed; is_agent False means 'authenticated "
         "as master', not 'unauthenticated'."
     ),
-    "arena/system/handlers.py:209:gated-refusal": (
+    "arena/system/handlers.py:230:gated-refusal": (
         "Same pattern as handlers_agents.py:37 -- an extra refusal layered "
         "on top of @authed, not the authentication itself."
     ),
