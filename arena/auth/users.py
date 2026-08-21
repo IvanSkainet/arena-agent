@@ -41,24 +41,41 @@ class UserStore:
     def load_users(self) -> dict[str, dict[str, str]]:
         now = time.time()
         with self._lock:
-            if (now - self._cache["last_load"]) < self.ttl and self._cache["users"]:
+            # v4.169.49 (#63): "no users" is a cacheable answer. The TTL
+            # check used to also require a non-empty roster, so a bridge
+            # with an empty users.json re-read and re-parsed the file on
+            # every single auth check -- measured at 100 reads per 100
+            # calls, versus 1 per 100 once a user exists. `invalidate()`
+            # resets `last_load` to 0.0, so an emptied roster is still
+            # picked up immediately; emptiness never needed to defeat the
+            # cache to stay correct.
+            if (now - self._cache["last_load"]) < self.ttl:
                 return self._cache["users"]
         users: dict[str, dict[str, str]] = {}
-        if self.users_file.exists():
-            try:
-                data = json.loads(self.users_file.read_text(encoding="utf-8"))
-                for user in data.get("users", []):
-                    token = user.get("token", "")
-                    if token:
-                        users[token] = {"role": user.get("role", "user"), "name": user.get("name", "unknown")}
-                with self._lock:
-                    self._cache["users"] = users
-                    self._cache["last_load"] = now
-                if self._log_debug:
-                    self._log_debug("[Auth] Loaded %d users from %s", len(users), self.users_file)
-            except Exception as exc:
-                if self._log_warning:
-                    self._log_warning("[Auth] Failed to load users.json: %s", exc)
+        if not self.users_file.exists():
+            # "no file" is cacheable for the same reason "no users" is:
+            # otherwise every auth check stats the filesystem. Creating a
+            # roster goes through `write_users_data`, which invalidates.
+            with self._lock:
+                self._cache["users"] = users
+                self._cache["last_load"] = now
+            return users
+        try:
+            data = json.loads(self.users_file.read_text(encoding="utf-8"))
+            for user in data.get("users", []):
+                token = user.get("token", "")
+                if token:
+                    users[token] = {"role": user.get("role", "user"), "name": user.get("name", "unknown")}
+            with self._lock:
+                self._cache["users"] = users
+                self._cache["last_load"] = now
+            if self._log_debug:
+                self._log_debug("[Auth] Loaded %d users from %s", len(users), self.users_file)
+        except Exception as exc:
+            # A damaged file is NOT cached: retrying next call is the
+            # right behaviour for a roster someone may be repairing.
+            if self._log_warning:
+                self._log_warning("[Auth] Failed to load users.json: %s", exc)
         return users
 
     def read_users_data(self) -> dict[str, Any]:

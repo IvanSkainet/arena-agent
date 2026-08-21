@@ -304,3 +304,93 @@ def test_production_wiring_supplies_the_auth_probe():
         "system handler wiring no longer forwards check_auth; /v1/version "
         "would silently fall back to anonymous for everyone"
     )
+
+
+# --- the probe must not put disk I/O on a public route ---------------------
+
+
+def test_anonymous_probe_does_no_per_request_disk_io(tmp_path):
+    """Gating auth here must not make the public route touch the disk.
+
+    `check_auth` used to fall straight through to `check_auth_with_role`,
+    whose first act is `UserStore.load_users()`. With an empty roster the
+    TTL cache was skipped (`and self._cache["users"]`), so the file was
+    re-read every call: measured 100 reads per 100 calls. Harmless while
+    only authenticated routes probed auth -- but /v1/version is public,
+    unthrottled and polled by the phone, so this PR would have handed an
+    anonymous caller a disk-I/O amplifier.
+    """
+    from arena.auth.users import UserStore
+
+    users_file = tmp_path / "users.json"
+    users_file.write_text(json.dumps({"users": []}), encoding="utf-8")
+    store = UserStore(users_file=users_file)
+
+    reads = []
+    real_read = Path.read_text
+
+    def counting_read(self, *args, **kwargs):
+        if self == users_file:
+            reads.append(1)
+        return real_read(self, *args, **kwargs)
+
+    with patch.object(Path, "read_text", counting_read):
+        for _ in range(50):
+            store.load_users()
+
+    assert len(reads) <= 1, (
+        f"empty roster re-read {len(reads)} times in 50 calls; an empty "
+        f"answer is still a cacheable answer"
+    )
+
+
+def test_credential_less_request_skips_the_roster_entirely(tmp_path):
+    """No token presented -> no user lookup at all.
+
+    Nothing in the roster can match a caller who presented nothing, so
+    the lookup is pure cost on the public path.
+    """
+    app = ub.make_app(
+        {"token": TOKEN, "bind": "127.0.0.1", "root": str(tmp_path)})
+    request = make_mocked_request("GET", "/v1/version", app=app)
+
+    with patch("arena.auth.users.UserStore.load_users") as loader:
+        assert ub.check_auth(request) is False
+
+    loader.assert_not_called()
+
+
+def test_a_failing_probe_is_logged(tmp_path, caplog):
+    """Failing closed silently would hide a broken auth backend."""
+    app = ub.make_app(
+        {"token": TOKEN, "bind": "127.0.0.1", "root": str(tmp_path)})
+
+    def _explode(_request):
+        raise RuntimeError("auth backend down")
+
+    ctx = SystemHandlerContext(
+        require_auth=ub.require_auth,
+        record_request=lambda: None,
+        cors_json_response=ub._cors_json_response,
+        executor=ub._EXECUTOR,
+        common_status=lambda _cfg: {"ok": True},
+        version=ub.VERSION,
+        clean_platform_name=ub.get_clean_platform_name,
+        doctor_sync=lambda token: {},
+        sysinfo_sync=lambda root: {},
+        play_beep_sync=lambda beep_type, freq, dur: {},
+        send_notification_sync=lambda title, msg: {},
+        check_auth=_explode,
+    )
+    handlers = make_system_handlers(ctx)
+    request = make_mocked_request(
+        "GET", "/v1/version",
+        headers={"Authorization": f"Bearer {TOKEN}"}, app=app)
+
+    with caplog.at_level("WARNING"), \
+            patch("arena.admin.auto_update._install_root", return_value=tmp_path):
+        asyncio.run(handlers.version(request))
+
+    assert any("auth probe failed" in r.message for r in caplog.records), (
+        "a probe that raises must leave a trace for the operator"
+    )

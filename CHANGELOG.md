@@ -35,6 +35,20 @@ file under a different UID. A probe that raises, or wiring that forgets
 to supply one, falls back to the anonymous body -- the failure mode
 discloses less, never more.
 
+Two follow-ups the review surfaced, both verified by measurement rather
+than argument. `check_auth` now returns early when the caller presented
+no credential at all: it used to fall through to the roster lookup,
+which is pure cost for a request that cannot match anything. And
+`UserStore.load_users` caches an empty roster like any other -- the TTL
+check previously required a non-empty dict, so a bridge with an empty
+or absent `users.json` re-read it on every auth check (measured: 100
+reads per 100 calls; 1 per 100 once a user exists). Dormant while only
+authenticated routes probed auth, but `/v1/version` is public and
+polled, so gating it would have handed anonymous callers a disk-I/O
+amplifier. A damaged file is still not cached: a roster somebody is
+repairing should be retried. A probe that raises is now logged at
+WARNING instead of failing closed in silence.
+
 ## v4.169.48 — 2026-08-17
 
 ### The alert gate no longer blocks the pull request that fixes the alert

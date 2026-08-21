@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import platform
 import socket
 import sys
@@ -14,6 +15,8 @@ from aiohttp import web
 from arena.app_keys import APP_CFG
 from arena.handler_context import SystemHandlerContext
 from arena.handler_helpers import authed
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -132,6 +135,13 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
                 except Exception:
                     # An auth probe that blows up must not upgrade the
                     # caller's privileges, and must not 500 a public route.
+                    # It must not be silent either: a miswired auth backend
+                    # would otherwise just stop serving the gated fields to
+                    # operators holding a valid token, with nothing in the
+                    # log to explain it.
+                    _log.warning(
+                        "[/v1/version] auth probe failed; treating caller as "
+                        "anonymous", exc_info=True)
                     authed_caller = False
             deployed = await deployment_status(public=not authed_caller)
             payload = {
