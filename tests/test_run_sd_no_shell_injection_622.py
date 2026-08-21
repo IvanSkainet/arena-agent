@@ -333,3 +333,41 @@ def test_the_guard_runs_before_the_process_starts():
     at_guard = source.index("_require_trusted_program(argv")
     at_run = source.index("subprocess.run(")
     assert at_guard < at_run, "the guard must precede the spawn"
+
+
+def test_a_different_drive_is_a_no_not_a_crash():
+    """Windows runners put Python on C: and the checkout on D:.
+
+    `os.path.commonpath` raises `ValueError: Paths don't have the same
+    drive` rather than returning a non-match, and the first version of
+    this guard let that escape: six Windows jobs died inside a security
+    check that was only ever meant to answer yes or no. A guard that
+    crashes is not a stricter guard, it is an outage.
+
+    Exercised through `ntpath` so it is a real assertion on Linux too --
+    a Windows-only test would have stayed green in the run that broke.
+    """
+    import ntpath
+    import os as _os
+
+    from arena.mcp import tool_utils as tu
+
+    real = _os.path
+    tu.os.path = ntpath
+    try:
+        assert tu._is_within(
+            r"C:\hostedtoolcache\Python\3.13\x64\python.exe",
+            r"D:\a\arena-agent\arena-agent\arena",
+        ) is False
+        assert tu._is_within(r"D:\a\x\bin\py_browser.py", r"D:\a\x\bin") is True
+        assert tu._is_within(r"D:\a\x\bin-evil\py.exe", r"D:\a\x\bin") is False
+    finally:
+        tu.os.path = real
+
+
+def test_the_guard_answers_rather_than_raising_on_junk():
+    """Any path shape must produce a verdict, not an exception."""
+    from arena.mcp import tool_utils as tu
+
+    for junk in ("", "   ", "\x00", "relative/path", "//server/share/x"):
+        assert tu._is_within(junk, "/usr/local/bin") in (True, False)

@@ -35,6 +35,26 @@ class UntrustedProgram(ValueError):
     """argv[0] was not one of ours."""
 
 
+def _is_within(resolved: str, root: str) -> bool:
+    """True when `resolved` lives under `root`.
+
+    `os.path.commonpath` raises `ValueError` on Windows when the two
+    paths sit on different drives -- and on a GitHub runner they do:
+    Python is unpacked on `C:` while the checkout is on `D:`. The first
+    version of this guard let that escape and took six Windows jobs
+    down with `Paths don't have the same drive`. Different drive is a
+    perfectly ordinary "no", not an error, so it is answered as one.
+
+    `commonpath` rather than `startswith`: the latter accepts a sibling
+    directory whose name merely begins with the root -- `/usr/local/bin`
+    would admit `/usr/local/bin-evil/python`.
+    """
+    try:
+        return os.path.commonpath([resolved, root]) == root
+    except ValueError:
+        return False
+
+
 def _require_trusted_program(argv: list[str], bin_dir: Any = None) -> None:
     """argv[0] must name a program this project controls.
 
@@ -68,7 +88,7 @@ def _require_trusted_program(argv: list[str], bin_dir: Any = None) -> None:
     for root in allowed_roots:
         if resolved == root:
             continue
-        if os.path.commonpath([resolved, root]) == root:
+        if _is_within(resolved, root):
             return
 
     raise UntrustedProgram(
