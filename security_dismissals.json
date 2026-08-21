@@ -173,9 +173,10 @@
     },
     "py/command-line-injection": {
       "severity": "critical",
-      "dismissed": 5,
+      "dismissed": 7,
       "reasons": {
-        "won't fix": 5
+        "won't fix": 5,
+        "false positive": 2
       }
     },
     "py/http-response-splitting": {
