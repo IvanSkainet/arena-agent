@@ -34,6 +34,8 @@ SCRIPT = ROOT / "scripts" / "security_alerts_check.py"
 
 def _module():
     spec = importlib.util.spec_from_file_location("security_alerts_check", SCRIPT)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {SCRIPT}")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -154,7 +156,7 @@ def test_the_ref_actually_reaches_the_query(gate, clean_env, monkeypatch):
         return [], ""
 
     monkeypatch.setattr(gate, "_get", fake_get)
-    findings, notes = gate.collect()
+    _, notes = gate.collect()
 
     code_scanning = [p for p in seen if p.startswith("/code-scanning")]
     assert code_scanning, "the code-scanning feed was not queried at all"
@@ -210,3 +212,59 @@ def test_the_ref_is_url_encoded(gate, clean_env, monkeypatch):
     code_scanning = [p for p in seen if p.startswith("/code-scanning")]
     assert " " not in code_scanning[0], code_scanning[0]
     assert "&evil" not in code_scanning[0].split("ref=")[-1], code_scanning[0]
+
+
+# --- review found two ways to crash the gate; one was real ----------------
+
+@pytest.mark.parametrize("payload", ["[]", '"a string"', "42", "null"])
+def test_valid_json_of_the_wrong_shape_does_not_crash_the_gate(
+    gate, clean_env, tmp_path, payload
+):
+    """Reported by Qodo, reproduced, real.
+
+    `json.load(fh).get("number")` raises AttributeError on a list or a
+    string -- valid JSON, wrong shape, and not a `ValueError`, so the
+    existing handler missed it. A security gate must not be crashable by
+    the contents of a file it merely consults; a crashed job reads as
+    "failed", and the fix for a failing security check is not obvious to
+    whoever looks next.
+    """
+    event = tmp_path / "event.json"
+    event.write_text(payload, encoding="utf-8")
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_EVENT_PATH", str(event))
+
+    assert gate.code_scanning_ref() is None
+
+
+@pytest.mark.parametrize("ref", ["refs/pull/", "refs/pull", "refs/pull//", "refs/"])
+def test_a_truncated_ref_does_not_crash_the_gate(gate, clean_env, ref):
+    """Also reported, as an IndexError. It was not reachable.
+
+    `startswith("refs/pull/")` guarantees three segments, so `[2]` is
+    `""` and never raises; `refs/pull` without the trailing slash fails
+    the prefix check and never reaches the split. Verified both ways
+    before changing anything -- sabotage confirms it: restoring the
+    "unsafe" `ref.split("/")[2]` keeps every test green, because there
+    is no input that reaches it badly.
+
+    Kept as a test of the behaviour that matters: a truncated ref must
+    produce a repository-wide scan, not a scoped one.
+    """
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_REF", ref)
+
+    assert gate.code_scanning_ref() is None
+
+
+@pytest.mark.parametrize("number", ["a&b", "1 OR 1", "../../master", "", " "])
+def test_a_non_numeric_pr_number_is_refused(gate, clean_env, tmp_path, number):
+    """A PR number is digits. Anything else builds a ref that matches
+    nothing, and a query matching nothing returns zero alerts -- which
+    reads exactly like a clean repository."""
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"number": number}), encoding="utf-8")
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_EVENT_PATH", str(event))
+
+    assert gate.code_scanning_ref() is None

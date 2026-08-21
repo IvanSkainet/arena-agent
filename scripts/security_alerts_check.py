@@ -57,17 +57,34 @@ def code_scanning_ref() -> str | None:
     number = ""
     ref = os.environ.get("GITHUB_REF", "")
     if ref.startswith("refs/pull/"):
-        number = ref.split("/")[2]
+        # `startswith("refs/pull/")` already guarantees three segments,
+        # so `[2]` cannot raise -- review flagged an IndexError here and
+        # it is not reachable. Written defensively anyway because the
+        # prefix and the index are two facts that must agree, and only
+        # one of them is visible from the other.
+        parts = ref.split("/")
+        number = parts[2] if len(parts) > 2 else ""
     if not number:
         path = os.environ.get("GITHUB_EVENT_PATH", "")
         if path and os.path.exists(path):
             try:
                 with open(path, encoding="utf-8") as fh:
-                    number = str((json.load(fh).get("number") or ""))
+                    payload = json.load(fh)
             except (OSError, ValueError):
-                number = ""
-    if not number:
+                payload = None
+            # Valid JSON of the wrong shape is not an error condition, it
+            # is a list or a string where a dict was expected. Reaching
+            # `.get` on one raises AttributeError and takes the whole gate
+            # down -- a security check must not be crashable by the
+            # contents of a file it merely consults.
+            if isinstance(payload, dict):
+                number = str(payload.get("number") or "")
+    if not number.isdigit():
         # Better repo-wide than silently unfiltered-but-claiming-scoped.
+        # `isdigit` and not just truthiness: a ref segment can be any
+        # string, and a non-numeric one would build a ref that matches
+        # nothing, which reads as "no alerts" -- the failure this gate
+        # exists to prevent.
         return None
     return f"refs/pull/{number}/head"
 
