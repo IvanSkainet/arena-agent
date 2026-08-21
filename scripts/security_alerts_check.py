@@ -28,11 +28,48 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
 REPO = os.environ.get("ARENA_RELEASE_REPO", "IvanSkainet/arena-agent")
 TIMEOUT = 30
+
+
+def code_scanning_ref() -> str | None:
+    """The git ref whose code-scanning alerts this run should judge.
+
+    Without this the query is repository-wide, and a finding on `master`
+    fails every open pull request -- including the one that fixes it.
+    That happened: two `py/command-line-injection` alerts landed on
+    `master`, and the branch that removed the `shell=True` behind them
+    could not merge, because the gate kept reporting the alerts still
+    sitting on the branch being merged into. A gate that cannot be
+    satisfied by fixing the code is not a gate, it is a deadlock.
+
+    On a pull request, judge the PR's own head. Everywhere else -- a
+    push to master, a release -- judge the whole repository, which is
+    the behaviour that catches a finding nobody has a PR for.
+    """
+    event = os.environ.get("GITHUB_EVENT_NAME", "")
+    if not event.startswith("pull_request"):
+        return None
+    number = ""
+    ref = os.environ.get("GITHUB_REF", "")
+    if ref.startswith("refs/pull/"):
+        number = ref.split("/")[2]
+    if not number:
+        path = os.environ.get("GITHUB_EVENT_PATH", "")
+        if path and os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    number = str((json.load(fh).get("number") or ""))
+            except (OSError, ValueError):
+                number = ""
+    if not number:
+        # Better repo-wide than silently unfiltered-but-claiming-scoped.
+        return None
+    return f"refs/pull/{number}/head"
 
 SEVERITY_ORDER = ["note", "low", "warning", "medium", "moderate",
                   "high", "error", "critical"]
@@ -133,7 +170,12 @@ def collect() -> tuple[list[dict[str, Any]], list[str]]:
     findings: list[dict[str, Any]] = []
     notes: list[str] = []
 
-    alerts, note = _get("/code-scanning/alerts?state=open&per_page=100")
+    ref = code_scanning_ref()
+    query = "/code-scanning/alerts?state=open&per_page=100"
+    if ref:
+        query += f"&ref={urllib.parse.quote(ref, safe='/')}"
+        notes.append(f"code scanning scoped to {ref}")
+    alerts, note = _get(query)
     if alerts is None:
         notes.append(f"code scanning: {note}")
     else:
