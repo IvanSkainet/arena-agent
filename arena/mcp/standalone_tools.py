@@ -108,11 +108,12 @@ def call_tool(name: str, args: dict) -> dict:
             return text_content(json.dumps(sorted(os.listdir(p))))
         if name == "browser.search":
             rc, out, err = run_local([sys.executable, os.path.join(BIN, "py_browser.py"),
-                                       "search", args["query"], "--n", str(args.get("n", 5))], timeout=30)
+                                       "search", args["query"], "--n", str(args.get("n", 5))],
+                                      timeout=30, utf8_child=True)
             return text_content(out or err)
         if name == "browser.read":
             rc, out, err = run_local([sys.executable, os.path.join(BIN, "py_browser.py"),
-                                       "read", args["url"]], timeout=30)
+                                       "read", args["url"]], timeout=30, utf8_child=True)
             return text_content(out or err)
         if name == "browser.shot":
             # Same policy as the CDP paths: a URL on Chromium's command line

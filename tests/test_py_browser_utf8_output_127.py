@@ -20,6 +20,11 @@ The defect has two halves and both are covered here:
    no `encoding=`, so even a child that printed clean UTF-8 came back as
    mojibake on a cp1251 machine.
 
+Half 2 is fixed with an opt-in (`utf8_child=True`) rather than a default: the
+same two runners also carry `exec.run`, whose Windows output genuinely is in
+the OEM codepage. Pinning utf-8 for everyone would have fixed the browser and
+corrupted `dir`, so the tests below assert both directions.
+
 `PYTHONIOENCODING=cp1251` reproduces half 1 on any platform: it is what
 CPython uses to pick the stdout encoding, exactly as a Windows console
 codepage does. Half 2 is reproduced by decoding with an explicit encoding.
@@ -49,8 +54,8 @@ SNIPPET = f"Смотреть {TV} онлайн"
 
 def _load_py_browser():
     spec = importlib.util.spec_from_file_location("py_browser_127", PY_BROWSER)
+    assert spec and spec.loader, PY_BROWSER
     mod = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
     spec.loader.exec_module(mod)
     return mod
 
@@ -306,7 +311,7 @@ def _child_printing(tmp_path: Path) -> Path:
     return child
 
 
-def test_run_local_decodes_child_output_as_utf8(tmp_path, monkeypatch):
+def test_run_local_decodes_our_own_child_as_utf8(tmp_path, monkeypatch):
     """Without a pinned encoding this came back as `РЎРјРѕС‚СЂРµС‚СЊ`."""
     from arena.mcp.tool_utils import make_run_local
 
@@ -319,7 +324,8 @@ def test_run_local_decodes_child_output_as_utf8(tmp_path, monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", spy)
     run_local = make_run_local(lambda: {})
-    rc, out, err = run_local([sys.executable, str(_child_printing(tmp_path))], timeout=60)
+    rc, out, err = run_local([sys.executable, str(_child_printing(tmp_path))],
+                             timeout=60, utf8_child=True)
 
     assert rc == 0, err
     assert captured.get("encoding") == "utf-8", captured
@@ -341,41 +347,118 @@ def test_run_local_keeps_the_windows_subprocess_flags(tmp_path, monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", spy)
     run_local = make_run_local(lambda: {"creationflags": 0x08000000})
-    run_local([sys.executable, "-c", "print(1)"], timeout=60)
+    run_local([sys.executable, "-c", "print(1)"], timeout=60, utf8_child=True)
 
     assert captured.get("creationflags") == 0x08000000, captured
     assert captured.get("encoding") == "utf-8", captured
 
 
-@pytest.mark.parametrize("module_name", ["arena.mcp.tool_utils", "arena.mcp.standalone_common"])
-def test_both_runner_modules_pin_the_same_text_io(module_name):
-    """standalone_common is a second copy of these runners; keep them in step."""
-    module = importlib.import_module(module_name)
+def test_an_arbitrary_command_is_not_forced_into_utf8(tmp_path, monkeypatch):
+    """`exec.run` output is whatever the OEM codepage says; do not overrule it.
 
-    assert module.TEXT_IO == {"encoding": "utf-8", "errors": "replace"}
+    The first cut of this fix pinned utf-8 inside the runners themselves. That
+    fixes the browser and breaks everyone else: `Каталог` emitted as cp866 by
+    `cmd /c dir` decodes to replacement characters under utf-8.
+    """
+    from arena.mcp.tool_utils import make_run_local
+
+    captured: dict = {}
+    real_run = subprocess.run
+
+    def spy(argv, **kwargs):
+        captured.update(kwargs)
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", spy)
+    rc, out, err = make_run_local(lambda: {})([sys.executable, "-c", "print(1)"], timeout=60)
+
+    assert "encoding" not in captured, captured
+    assert "errors" not in captured, captured
+    # `text=True` is what keeps this a str once the encoding is gone: without
+    # it the caller silently starts receiving bytes.
+    assert captured.get("text") is True, captured
+    assert isinstance(out, str) and isinstance(err, str), (type(out), type(err))
+    assert (rc, out.strip()) == (0, "1")
 
 
-def test_no_browser_runner_reads_a_child_with_the_console_codepage():
-    """A `text=True` subprocess with no `encoding=` inherits the codepage.
+def test_the_oem_output_this_protects_would_really_be_destroyed():
+    """Proof the default above is not cargo cult: decode cp866 as utf-8."""
+    oem = "Каталог".encode("cp866")
 
-    That is what turned Cyrillic into mojibake on the way back; guard the two
-    modules that launch py_browser so the next edit cannot drop it again.
+    assert oem.decode("utf-8", "replace") != "Каталог"
+    assert "\ufffd" in oem.decode("utf-8", "replace")
+
+
+def test_a_caller_supplied_encoding_is_not_clobbered(tmp_path, monkeypatch):
+    """`f(**UTF8_CHILD_IO, **kwargs)` raises TypeError on a duplicate key."""
+    from arena.mcp.tool_utils import make_run_local
+
+    captured: dict = {}
+    real_run = subprocess.run
+
+    def spy(argv, **kwargs):
+        captured.update(kwargs)
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", spy)
+    run_local = make_run_local(lambda: {"encoding": "cp1251"})
+    run_local([sys.executable, "-c", "print(1)"], timeout=60, utf8_child=True)
+
+    assert captured.get("encoding") == "cp1251", captured
+
+
+@pytest.mark.parametrize("name", ["run_local", "run_sd"])
+def test_the_standalone_dispatcher_reuses_the_shared_runner(name):
+    """standalone_common used to re-implement these byte for byte.
+
+    Two copies meant #127 had to be fixed twice, and CodeQL carried a separate
+    dismissed alert for each. They come from one factory now.
+    """
+    common = importlib.import_module("arena.mcp.standalone_common")
+    utils = importlib.import_module("arena.mcp.tool_utils")
+
+    runner = getattr(common, name)
+    factory = getattr(utils, f"make_{name}")
+
+    assert runner.__qualname__ == f"{factory.__name__}.<locals>.{name}", (
+        f"standalone_common.{name} is a second copy: {runner.__qualname__}"
+    )
+
+
+def test_the_standalone_dispatcher_has_no_subprocess_call_of_its_own():
+    """A future edit must not quietly re-grow the duplicate."""
+    tree = ast.parse((ROOT / "arena/mcp/standalone_common.py").read_text(encoding="utf-8"))
+    calls = [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and ast.unparse(node.func).startswith("subprocess.")
+    ]
+
+    assert not calls, f"standalone_common.py grew its own subprocess call at {calls}"
+
+
+def test_every_py_browser_launch_asks_for_utf8():
+    """The opt-in is worthless if a call site forgets it.
+
+    Both dispatchers shell out to `bin/py_browser.py`; each such call must
+    pass `utf8_child=True`, which is what makes half 2 of #127 stay fixed.
     """
     offenders = []
-    for rel in ("arena/mcp/tool_utils.py", "arena/mcp/standalone_common.py"):
+    for rel in ("arena/mcp/tool_browser.py", "arena/mcp/standalone_tools.py"):
         tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            if ast.unparse(node.func) != "subprocess.run":
+            if ast.unparse(node.func) != "run_local":
                 continue
-            names = {kw.arg for kw in node.keywords if kw.arg}
-            unpacked = " ".join(ast.unparse(kw.value) for kw in node.keywords if kw.arg is None)
-            if "encoding" in names or "TEXT_IO" in unpacked:
+            if "py_browser.py" not in ast.unparse(node):
+                continue
+            if any(kw.arg == "utf8_child" and getattr(kw.value, "value", None) is True
+                   for kw in node.keywords):
                 continue
             offenders.append(f"{rel}:{node.lineno}")
 
     assert not offenders, (
-        "subprocess.run(text=True) without an explicit encoding decodes with "
-        "the console codepage:\n  " + "\n  ".join(offenders)
+        "py_browser prints UTF-8; these launches read it with the console "
+        "codepage:\n  " + "\n  ".join(offenders)
     )

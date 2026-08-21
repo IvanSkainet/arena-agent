@@ -5,12 +5,13 @@ import json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import os
 import secrets
 import shutil  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
-import subprocess
 import sys  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from typing import Any  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+
+from arena.mcp.tool_utils import make_run_local, make_run_sd
 
 VERSION = "0.3.0"
 HOME = os.path.expanduser("~")
@@ -28,21 +29,12 @@ def rpc_error(rid, code, msg): return {"jsonrpc": "2.0", "id": rid, "error": {"c
 
 def text_content(s: str) -> dict: return {"content": [{"type": "text", "text": s}]}
 
-# Children print UTF-8; see arena/mcp/tool_utils.py TEXT_IO and #127.
-TEXT_IO = {"encoding": "utf-8", "errors": "replace"}
-
-def run_sd(argv: list[str], timeout: int = 60) -> tuple[int, str, str]:
-    import platform
-    if platform.system() == "Windows":
-        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, shell=True, **TEXT_IO)  # nosec B602 -- Windows-only branch; argv[0] is a hard-coded binary name resolved via PATH by cmd.exe (no operator interpolation).  # nosemgrep: subprocess-shell-true -- legitimate CLI-side helper (see bandit B602 nosec on the same line for the specific rationale)
-        return p.returncode, p.stdout, p.stderr
-    else:
-        sd = os.path.join(BIN, "sd-exec")
-        p = subprocess.run([sd, "--timeout", str(timeout), "--"] + argv,
-                           capture_output=True, text=True, timeout=timeout + 10, **TEXT_IO)
-        return p.returncode, p.stdout, p.stderr
-
-def run_local(argv: list[str], timeout: int = 30) -> tuple[int, str, str]:
-    """Запуск напрямую (для агент-тулов которые не требуют GUI/sandbox)."""
-    p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, **TEXT_IO)
-    return p.returncode, p.stdout, p.stderr
+# Both runners used to be re-implemented here, byte for byte, next to the
+# copies in arena/mcp/tool_utils.py. They are now bound to the shared
+# factories: one definition, one place to fix, and the `utf8_child` opt-in
+# introduced for #127 reaches this dispatcher too.
+#
+# No subprocess kwargs of their own -- the standalone server has no GUI
+# console to hide, which is the only thing the callable feeds the factories.
+run_sd = make_run_sd(bin_dir=BIN, subprocess_kwargs=dict)
+run_local = make_run_local(dict)

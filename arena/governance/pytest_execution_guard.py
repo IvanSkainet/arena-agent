@@ -9,7 +9,7 @@ import pytest
 
 def collection_floors() -> dict[str, int]:
     """Measured after the py_browser UTF-8 fix (T77, #127); Windows keeps +5."""
-    return {"Linux": 9191, "macOS": 9191, "Windows": 9196}
+    return {"Linux": 9195, "macOS": 9195, "Windows": 9200}
 
 
 def collection_error(*, collected: int, runner_os: str) -> str | None:
