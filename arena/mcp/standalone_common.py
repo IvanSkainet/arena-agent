@@ -22,6 +22,12 @@ def now_ms() -> int: return int(time.time() * 1000)
 
 def sid() -> str: return secrets.token_urlsafe(18)
 
+# `text=True` alone decodes with the locale encoding; our child tools print
+# UTF-8 JSON (ensure_ascii=False), so on a cp1251/cp866 console the result was
+# silently mojibake that still parsed as valid JSON (#127).
+_TEXT_DECODING = {"encoding": "utf-8", "errors": "replace"}
+
+
 def rpc_result(rid, result): return {"jsonrpc": "2.0", "id": rid, "result": result}
 
 def rpc_error(rid, code, msg): return {"jsonrpc": "2.0", "id": rid, "error": {"code": code, "message": msg}}
@@ -31,15 +37,18 @@ def text_content(s: str) -> dict: return {"content": [{"type": "text", "text": s
 def run_sd(argv: list[str], timeout: int = 60) -> tuple[int, str, str]:
     import platform
     if platform.system() == "Windows":
-        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, shell=True)  # nosec B602 -- Windows-only branch; argv[0] is a hard-coded binary name resolved via PATH by cmd.exe (no operator interpolation).  # nosemgrep: subprocess-shell-true -- legitimate CLI-side helper (see bandit B602 nosec on the same line for the specific rationale)
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, shell=True,
+                           **_TEXT_DECODING)  # nosec B602 -- Windows-only branch; argv[0] is a hard-coded binary name resolved via PATH by cmd.exe (no operator interpolation).  # nosemgrep: subprocess-shell-true -- legitimate CLI-side helper (see bandit B602 nosec on the same line for the specific rationale)
         return p.returncode, p.stdout, p.stderr
     else:
         sd = os.path.join(BIN, "sd-exec")
         p = subprocess.run([sd, "--timeout", str(timeout), "--"] + argv,
-                           capture_output=True, text=True, timeout=timeout + 10)
+                           capture_output=True, text=True, timeout=timeout + 10,
+                           **_TEXT_DECODING)
         return p.returncode, p.stdout, p.stderr
 
 def run_local(argv: list[str], timeout: int = 30) -> tuple[int, str, str]:
     """Запуск напрямую (для агент-тулов которые не требуют GUI/sandbox)."""
-    p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
+                       **_TEXT_DECODING)
     return p.returncode, p.stdout, p.stderr

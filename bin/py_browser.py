@@ -21,6 +21,16 @@ import sys
 import requests
 from bs4 import BeautifulSoup, FeatureNotFound
 
+# Every command prints JSON with ensure_ascii=False, so stdout carries real
+# non-ASCII text. On a Windows console that defaults to cp1251/cp866 the
+# encode step raises UnicodeEncodeError and the tool exits 1 on any page with
+# CJK in it (#127), so pin the streams to UTF-8 regardless of locale.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # pragma: no cover - non-TextIO stream
+        pass
+
 UA = "Mozilla/5.0 (X11; Linux x86_64) ArenaAgent/0.5 PyBrowser/1.0"
 H  = {"User-Agent": UA, "Accept-Language": "en,ru;q=0.8"}
 
