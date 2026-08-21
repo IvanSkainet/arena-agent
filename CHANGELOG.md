@@ -1,3 +1,40 @@
+## v4.169.49 — 2026-08-22
+
+### The unauthenticated `/v1/version` no longer fingerprints the host (#63)
+
+Captured from the live bridge, with no token:
+
+    $ curl -s http://127.0.0.1:8765/v1/version
+    {"ok": true, "version": "4.169.48", "service": "arena-unified-bridge",
+     "python": "3.14.7", "platform": "Windows-10-10.0.19044-SP0",
+     "loopback_only": true, "deployment": {...}}
+
+"Python 3.14.7 on Windows-10-10.0.19044-SP0" is not trivia. It names the
+exact CVE set worth trying against this host -- interpreter patch level
+and OS build number are the two inputs a vulnerability scanner most wants
+-- and anyone who could reach the port could read it for free.
+
+`python` and `platform` are now gated on authentication rather than
+deleted. They have a real operator use, and authenticated callers already
+receive both from `common_status()` on `/v1/info` and `/v1/status`, so
+gating costs no function. An authenticated `/v1/version` additionally
+returns the full deployment record instead of the public subset.
+
+What deliberately did *not* change: `version` stays public. `/health`,
+`/v2/health`, `/`, `/metrics` and `/api-docs` all publish it, installers
+read it before they hold a token, and the Android status screen shows it.
+Truncating it on this one route would have cost real function while
+hiding nothing -- a fix that only looks like one.
+
+The route also keeps answering anonymous callers with 200. The auth check
+here reads the credential without refusing the caller: `require_auth`
+returns 401 *and* counts toward the 10-failures-in-60s throttle, so using
+it on a by-design-public route would have rate-limited the Android app,
+which polls `/v1/version` with no token because it cannot read the token
+file under a different UID. A probe that raises, or wiring that forgets
+to supply one, falls back to the anonymous body -- the failure mode
+discloses less, never more.
+
 ## v4.169.48 — 2026-08-17
 
 ### The alert gate no longer blocks the pull request that fixes the alert

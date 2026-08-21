@@ -24,6 +24,8 @@ def build_system_public_admin_registries(g: MutableMapping[str, Any]) -> dict[st
         sysinfo_sync=env._sysinfo_sync,
         play_beep_sync=env._play_beep_sync,
         send_notification_sync=env._send_notification_sync,
+        # v4.169.49 (#63): /v1/version gates python/platform on this.
+        check_auth=env.check_auth,
     ))
     registry.update(_system_handler_registry)
 

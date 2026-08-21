@@ -104,17 +104,48 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
             # fixed here, and reusing the name with a wider type would set
             # the same trap for the next reader.
             exposure = exposure_snapshot()
-            deployed = await deployment_status(public=True)
-            return ctx.cors_json_response({
+            # v4.169.49 (#63): the interpreter patch level and the exact OS
+            # build are a vulnerability-matching shortcut -- "Python 3.14.7 on
+            # Windows-10-10.0.19044-SP0" names the precise CVE set to try
+            # against this host, and it was readable by anyone who could reach
+            # the port. They are not needed here: the Android app reads only
+            # `version`, `loopback_only` and `exposed_publicly`, and every
+            # authenticated caller already gets `python`/`platform` from
+            # `common_status()` via /v1/info and /v1/status.
+            #
+            # So gate the two fingerprinting fields on authentication instead
+            # of deleting them: /v1/version stays a working diagnostic for an
+            # operator holding the token, while an anonymous caller learns
+            # nothing new. `check_auth` reads the credential without refusing
+            # the caller (see SystemHandlerContext) -- `require_auth` would
+            # 401 the anonymous poller this endpoint exists to serve.
+            #
+            # `version` itself stays public: /health, /v2/health, /, /metrics
+            # and /api-docs all publish it, installers read it before they
+            # hold a token, and the Android screen shows it. Truncating it
+            # here alone would cost real function and hide nothing.
+            authed_caller = False
+            probe = getattr(ctx, "check_auth", None)
+            if probe is not None:
+                try:
+                    authed_caller = bool(probe(request))
+                except Exception:
+                    # An auth probe that blows up must not upgrade the
+                    # caller's privileges, and must not 500 a public route.
+                    authed_caller = False
+            deployed = await deployment_status(public=not authed_caller)
+            payload = {
                 "ok": True,
                 "version": ctx.version,
                 "service": "arena-unified-bridge",
-                "python": sys.version.split()[0],
-                "platform": ctx.clean_platform_name(),
                 "loopback_only": loopback_only,
                 "exposed_publicly": exposure["exposed"],
                 "deployment": deployed,
-            })
+            }
+            if authed_caller:
+                payload["python"] = sys.version.split()[0]
+                payload["platform"] = ctx.clean_platform_name()
+            return ctx.cors_json_response(payload)
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 

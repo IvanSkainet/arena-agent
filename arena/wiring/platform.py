@@ -19,6 +19,8 @@ class SystemWiringContext:
     sysinfo_sync: Callable[..., dict[str, Any]]
     play_beep_sync: Callable[..., dict[str, Any]]
     send_notification_sync: Callable[[str, str], dict[str, Any]]
+    # v4.169.49 (#63): non-refusing auth probe; see SystemHandlerContext.
+    check_auth: Callable[..., Any] | None = None
 
 
 def build_system_handlers(ctx: SystemWiringContext) -> dict[str, Callable[..., Any]]:
@@ -37,6 +39,7 @@ def build_system_handlers(ctx: SystemWiringContext) -> dict[str, Callable[..., A
         sysinfo_sync=ctx.sysinfo_sync,
         play_beep_sync=ctx.play_beep_sync,
         send_notification_sync=ctx.send_notification_sync,
+        check_auth=ctx.check_auth,
     )
     handlers = make_system_handlers(system_ctx)
     return {

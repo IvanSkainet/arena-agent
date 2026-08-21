@@ -73,6 +73,16 @@ class SystemHandlerContext:
     sysinfo_sync: Callable[[Any], dict[str, Any]]
     play_beep_sync: Callable[[str, int, int], dict[str, Any]]
     send_notification_sync: Callable[[str, str], dict[str, Any]]
+    # v4.169.49 (#63): read whether the caller is authenticated *without*
+    # refusing them. `require_auth` cannot serve this purpose: it returns a
+    # 401/403 response and feeds the brute-force throttle, so calling it on a
+    # route that answers anonymously by design would rate-limit honest
+    # pollers -- the Android status screen polls /v1/version with no token
+    # because it cannot read the token file (different UID).
+    # Optional: an absent probe means "treat the caller as anonymous", i.e.
+    # the minimal disclosure. Failing closed keeps a wiring mistake from
+    # silently re-publishing the interpreter version.
+    check_auth: Callable[[web.Request], bool] | None = None
 
 
 @dataclass(frozen=True)

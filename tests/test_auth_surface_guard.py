@@ -56,8 +56,11 @@ PUBLIC_BY_DESIGN: dict[str, str] = {
     "/gui/v2": "dashboard login page — must render before any token exists",
     "/sse": "event stream; emits nothing until a token is presented",
     "/v1/version": (
-        "version + interpreter + platform string; the same facts /health "
-        "already publishes, and installers read it before holding a token"
+        "version + loopback_only + exposed_publicly + deployment model; "
+        "installers read it before holding a token and the Android status "
+        "screen cannot hold one at all. The interpreter build and OS build "
+        "are NOT public here -- they are gated on authentication (#63); "
+        "see tests/test_version_fingerprint_63.py"
     ),
     "/gui/assets/manifest.json": (
         "list of dashboard script URLs; the login page must fetch it before "
