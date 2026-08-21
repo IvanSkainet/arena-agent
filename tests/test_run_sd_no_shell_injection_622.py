@@ -371,3 +371,34 @@ def test_the_guard_answers_rather_than_raising_on_junk():
 
     for junk in ("", "   ", "\x00", "relative/path", "//server/share/x"):
         assert tu._is_within(junk, "/usr/local/bin") in (True, False)
+
+
+def test_windows_paths_compare_case_insensitively():
+    """`D:\\A\\X\\Bin` and `D:\\a\\x\\bin` are the same directory there.
+
+    Without `normcase` the guard refuses a program that really is ours
+    whenever the case differs. That fails closed rather than open, which
+    is why it is not a vulnerability -- and exactly why it still has to
+    be fixed: a guard that blocks legitimate work is a guard someone
+    switches off.
+
+    POSIX must keep the opposite behaviour: `/usr/local/BIN` is a
+    genuinely different directory from `/usr/local/bin`.
+    """
+    import ntpath
+    import os as _os
+
+    from arena.mcp import tool_utils as tu
+
+    real = _os.path
+    tu.os.path = ntpath
+    try:
+        assert tu._is_within(r"D:\A\X\Bin\py_browser.py", r"D:\a\x\bin") is True
+        assert tu._is_within(r"d:\a\x\bin\py.exe", r"D:\a\x\bin") is True
+        # case folding must not smuggle a sibling in
+        assert tu._is_within(r"D:\A\X\BIN-EVIL\py.exe", r"D:\a\x\bin") is False
+    finally:
+        tu.os.path = real
+
+    assert tu._is_within("/usr/local/BIN/x", "/usr/local/bin") is False
+    assert tu._is_within("/usr/local/bin/x", "/usr/local/bin") is True

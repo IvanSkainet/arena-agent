@@ -49,8 +49,16 @@ def _is_within(resolved: str, root: str) -> bool:
     directory whose name merely begins with the root -- `/usr/local/bin`
     would admit `/usr/local/bin-evil/python`.
     """
+    # `normcase` because Windows paths are case-insensitive: without it
+    # `D:\\A\\X\\Bin` is judged outside `D:\\a\\x\\bin`, and the guard
+    # refuses a program that is genuinely ours. That direction is
+    # fail-closed rather than a hole, but a security check that blocks
+    # legitimate work gets switched off, so it has to be right. On POSIX
+    # `normcase` is the identity function and nothing changes.
     try:
-        return os.path.commonpath([resolved, root]) == root
+        a = os.path.normcase(resolved)
+        b = os.path.normcase(root)
+        return os.path.commonpath([a, b]) == b
     except ValueError:
         return False
 
