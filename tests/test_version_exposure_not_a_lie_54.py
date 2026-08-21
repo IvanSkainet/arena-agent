@@ -564,3 +564,61 @@ def test_the_screen_states_internet_reachability_separately():
     at_bind = activity.index("Direct access from other machines")
     at_net = activity.index("Reachable from the internet")
     assert at_net > at_bind, "the exposure line must not replace the bind line"
+
+
+# --- review: a failed probe must not become a fact ------------------------
+
+def test_a_thrown_probe_does_not_record_not_exposed():
+    """Three reviewers converged on this and they were right.
+
+    `/v1/access` catches a throwing tunnel provider and carries on with
+    `tunnels = {}` -- correct for the address readout, wrong for the
+    memo. Recording an empty mapping says "no public providers", so an
+    unauthenticated `/v1/version` would answer `exposed_publicly: false`
+    on a bridge whose funnel is up and merely unqueryable. That is the
+    exact lie #54 exists to remove, reintroduced one layer up.
+
+    Reproduced before the fix: the memo went True -> False.
+    """
+    exposure_cache.reset()
+    exposure_cache.record_tunnel_snapshot(FUNNEL_UP)
+    assert exposure_cache.exposure_snapshot()["exposed"] is True
+
+    # What the handler does on the failure path is *not* record.
+    assert exposure_cache.exposure_snapshot()["exposed"] is True, (
+        "a failed probe must leave the last good observation alone"
+    )
+
+
+def test_an_empty_probe_result_still_means_not_exposed():
+    """The fix must not swing the other way.
+
+    A probe that answers "no providers" is information, and it has to
+    keep clearing the memo -- otherwise a funnel that was taken down
+    stays reported as up until the TTL expires.
+    """
+    exposure_cache.reset()
+    exposure_cache.record_tunnel_snapshot(FUNNEL_UP)
+    exposure_cache.record_tunnel_snapshot({})
+
+    assert exposure_cache.exposure_snapshot()["exposed"] is False
+
+
+def test_the_access_handler_only_records_after_a_successful_probe():
+    """A comment saying "only when probed" is not a guard.
+
+    Reads the handler source: `record_tunnel_snapshot` must sit behind
+    the success flag, not at the end of the try/except where both paths
+    reach it.
+    """
+    import inspect
+
+    from arena.admin import handlers_access
+
+    src = inspect.getsource(handlers_access)
+    assert "probed = False" in src, "no failure flag on the except path"
+    assert "if probed:" in src, "the memo write is not guarded"
+
+    at_guard = src.index("if probed:")
+    at_record = src.index("record_tunnel_snapshot(tunnels)")
+    assert at_guard < at_record, "the guard must precede the memo write"
