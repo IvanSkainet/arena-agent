@@ -138,9 +138,10 @@ def test_resolve_token_is_on_the_constant_time_path(agent_registry, monkeypatch)
     """The headline of #61: comparison must not be a dict lookup."""
     rec = agent_registry.create(label="a", master_token=MASTER)
     seen = []
+    real = A.secrets_equal
     monkeypatch.setattr(
         "arena.multiagent.agents.secrets_equal",
-        lambda a, b: (seen.append((a, b)), a == b)[1],
+        lambda a, b: (seen.append((a, b)), real(a, b))[1],
     )
 
     assert agent_registry.resolve_token(rec.token) is rec
@@ -149,6 +150,29 @@ def test_resolve_token_is_on_the_constant_time_path(agent_registry, monkeypatch)
     seen.clear()
     assert agent_registry.resolve_token("agent-deadbeef-0000000000000000") is None
     assert seen, "a miss must also go through the timing-safe compare"
+
+
+def test_resolve_token_encodes_the_probe_once(agent_registry, monkeypatch):
+    """Re-encoding per iteration would burn CPU under the registry lock."""
+    for i in range(4):
+        agent_registry.create(label=f"a{i}", master_token=MASTER)
+
+    seen = []
+    real = A.secrets_equal
+    monkeypatch.setattr(
+        "arena.multiagent.agents.secrets_equal",
+        lambda a, b: (seen.append(a), real(a, b))[1],
+    )
+    agent_registry.resolve_token("agent-deadbeef-0000000000000000")
+
+    assert seen, "the scan never ran"
+    assert all(isinstance(a, bytes) for a in seen), (
+        "the probe must reach the comparator pre-encoded"
+    )
+    assert len(set(map(id, seen))) == 1, (
+        "the same encoded probe must be reused across the scan, not "
+        "re-encoded on every iteration"
+    )
 
 
 def test_resolve_token_scan_length_does_not_depend_on_the_guess(
@@ -242,6 +266,45 @@ def test_hostile_token_against_a_configured_roster(tmp_path, hostile):
     assert ok is False and role == ""
 
 
+def test_roster_scan_length_does_not_depend_on_the_match_position(tmp_path,
+                                                                   monkeypatch):
+    """The roster loop has the same timing leak `resolve_token` had.
+
+    Flagged in review on this PR, and correct: breaking on the first hit
+    makes the comparison count reveal where the matching token sits.
+    """
+    from aiohttp.test_utils import make_mocked_request
+
+    from arena.app_keys import APP_CFG
+    from arena.auth.users import UserStore
+
+    users_file = tmp_path / "users.json"
+    users_file.write_text(json.dumps({"users": [
+        {"token": f"roster-token-{i}", "role": "user", "name": f"u{i}"}
+        for i in range(5)
+    ]}), encoding="utf-8")
+    store = UserStore(users_file=users_file)
+    assert len(store.load_users()) == 5, "roster fixture is wrong"
+
+    counts = []
+    real = __import__("arena.auth.users", fromlist=["x"]).secrets_equal
+    monkeypatch.setattr("arena.auth.users.secrets_equal",
+                        lambda a, b: (counts.append(1), real(a, b))[1])
+    app = {APP_CFG: {"token": MASTER}}
+
+    for probe in ("roster-token-0", "roster-token-4", "nobody"):
+        counts.clear()
+        store.check_auth_with_role(make_mocked_request(
+            "GET", "/v1/status",
+            headers={"Authorization": f"Bearer {probe}"}, app=app))
+        # 5 roster comparisons; a miss adds one more for the cfg token.
+        expected = 5 if probe.startswith("roster-token-") else 6
+        assert len(counts) == expected, (
+            f"{probe!r} took {len(counts)} comparisons, expected {expected}: "
+            "the count leaks where the match sits in the roster"
+        )
+
+
 def test_configured_roster_still_authenticates_its_users(tmp_path):
     """Guard the fix against a comparator that just returns False."""
     from aiohttp.test_utils import make_mocked_request
@@ -283,6 +346,9 @@ def _load_helper_server():
     path = Path(__file__).resolve().parents[1] / "arena" / "input_helper" \
         / "helper_server.py"
     spec = importlib.util.spec_from_file_location("_helper_server_61", path)
+    assert spec is not None and spec.loader is not None, (
+        f"helper_server.py not importable from {path}; it moved or is gone"
+    )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

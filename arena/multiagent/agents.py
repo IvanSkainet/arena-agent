@@ -133,10 +133,14 @@ class AgentRegistry:
         """
         if not token:
             return None
+        # Encoded once, outside the lock: `secrets_equal` accepts bytes,
+        # so re-encoding the same token on every iteration would only
+        # burn CPU while the registry lock is held.
+        probe = token.encode("utf-8", "surrogatepass")
         with self._lock:
             found: str | None = None
             for stored_token, agent_id in self._by_token.items():
-                if secrets_equal(token, stored_token):
+                if secrets_equal(probe, stored_token):
                     found = agent_id
             if found is None:
                 return None
