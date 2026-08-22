@@ -120,8 +120,26 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
     if backup_root is not None:
         backup = backup_root.as_posix().replace("/", "\\")
         lines.extend([
+            # v4.169.50: `mkdir` sets errorlevel 1 when the directory
+            # ALREADY EXISTS, and this path is not unique per attempt --
+            # the deployment id is derived from the *previous* version and
+            # its digest, so every retry of the same upgrade reuses it.
+            # Gating on that errorlevel meant a leftover snapshot was read
+            # as "cannot create a rollback", and the mover fail-closed
+            # before copying a single file. Observed installing v4.169.49:
+            # "rollback directory unavailable" -> full rollback -> the
+            # bridge came back on the old version with the new release
+            # sitting unused on disk.
+            #
+            # Same lesson as v4.169.21 and `schtasks`: judge the observable,
+            # not the exit code of the call that was meant to produce it.
+            # Clear any stale snapshot so this backup is ours alone and not
+            # a mixture of two attempts, then ask whether the directory is
+            # there. `\.` is the idiom that also answers "yes" for an empty
+            # directory -- `\*` does not, and would fail-closed all over again.
+            f'rmdir /S /Q "{backup}" 2>NUL',
             f'mkdir "{backup}" 2>NUL',
-            'if not errorlevel 1 goto :rollback_dir_ready',
+            f'if exist "{backup}\\." goto :rollback_dir_ready',
             f'echo [%DATE% %TIME%] rollback directory unavailable >> "{log}"',
             'goto :copy_failed',
             ':rollback_dir_ready',

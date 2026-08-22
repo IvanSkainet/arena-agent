@@ -25,6 +25,38 @@ def _prepare_windows_relaunch(install_root: Path) -> dict[str, Any]:
     )
 
 
+def _update_mover_pending(install_root: Path | str | None) -> bool:
+    """Is a copy mover armed and waiting for this process to exit?
+
+    v4.169.50. Installing v4.169.49 put the new files on disk and left the
+    OLD build running: `/health` answered 4.169.48 with seconds of uptime.
+
+    Two detached waiters had been armed against one PID. `apply` writes
+    `.arena-update-apply.cmd`, which waits for the bridge to exit, copies
+    the payload, and only then relaunches. A manual `/v1/admin/update/restart`
+    then armed `.arena-restart.cmd`, which waits for the same PID and
+    relaunches immediately. It had no copying to do, so it won by six
+    seconds and started Python against a tree robocopy was mid-way through
+    rewriting -- new files on disk, old code in memory.
+
+    The apply handler already avoids this by passing
+    ``relauncher_prepared=True``; the manual endpoint had no such knowledge.
+    So detect the mover instead of relying on the caller to declare it.
+
+    The lock directory alone is not proof: a mover killed between taking the
+    lock and finishing leaves it behind, and treating that as "someone will
+    relaunch me" would exit with nobody to bring us back -- the exact
+    shutdown-instead-of-restart failure v4.169.21 fixed. Require the mover
+    script too, so a stale lock degrades to arming our own helper.
+    """
+    if install_root is None:
+        return False
+    root = Path(install_root)
+    return (root / ".arena-update-apply.lock").is_dir() and (
+        root / ".arena-update-apply.cmd"
+    ).is_file()
+
+
 def restart_process(*, delay_sec: float = 0.5, force: bool = False,
                     install_root: Path | str | None = None,
                     relauncher_prepared: bool = False) -> dict[str, Any]:
@@ -72,6 +104,13 @@ def restart_process(*, delay_sec: float = 0.5, force: bool = False,
         # its own detached mover, while a manual restart must prepare one now,
         # before this process becomes unreachable.
         relaunch_info: dict[str, Any] | None = None
+        # v4.169.50: an armed copy mover owns the relaunch. Arming a second
+        # waiter on the same PID is what restarted the old build mid-copy.
+        if not relauncher_prepared and _update_mover_pending(
+            capability["install_root"]
+        ):
+            relauncher_prepared = True
+            relaunch_info = {"prepared": True, "source": "update-mover"}
         if capability["can_restart"] and not relauncher_prepared:
             try:
                 relaunch_info = _prepare_windows_relaunch(Path(capability["install_root"]))
@@ -83,7 +122,7 @@ def restart_process(*, delay_sec: float = 0.5, force: bool = False,
                     "capability": capability,
                     "hint": "Bridge remains running; relaunch was not armed.",
                 }
-        elif relauncher_prepared:
+        elif relauncher_prepared and relaunch_info is None:
             relaunch_info = {"prepared": True, "source": "external-update-mover"}
 
         # Fire-and-return: HTTP handler wants a JSON body back, so we
@@ -115,7 +154,12 @@ def restart_process(*, delay_sec: float = 0.5, force: bool = False,
                 "capability": capability,
                 "relauncher": relaunch_info,
                 "forced": bool(force and not capability["can_restart"]),
-                "hint": ("Bridge will exit; a detached helper is armed and "
+                "hint": ("Bridge will exit; the pending update mover will "
+                         "finish copying, then relaunch and verify the port."
+                         if (capability["can_restart"]
+                             and (relaunch_info or {}).get("source")
+                             == "update-mover") else
+                         "Bridge will exit; a detached helper is armed and "
                          "will verify the listening port after relaunch."
                          if capability["can_restart"] else
                          "Bridge will exit and will NOT come back: forced "
