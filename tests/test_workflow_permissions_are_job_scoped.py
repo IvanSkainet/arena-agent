@@ -55,7 +55,16 @@ _SAFE_SCALARS = {"read-all", "{}"}
 
 def _workflow_files() -> list[pathlib.Path]:
     files = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
-    assert files, f"no workflow files found under {WORKFLOWS}"
+    if not files:
+        # A `raise`, not an `assert`: this runs at import time to parametrize
+        # the tests below. Under `python -O` an assert here is stripped, the
+        # parametrize list comes back empty, and the whole gate reports success
+        # having checked nothing -- the exact failure mode this file exists to
+        # prevent. (Codacy flagged it on #163; correct for this line.)
+        raise RuntimeError(
+            f"no workflow files found under {WORKFLOWS}; the permissions gate "
+            f"would otherwise pass by collecting zero tests"
+        )
     return files
 
 
