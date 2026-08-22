@@ -69,13 +69,18 @@ def test_rollback_readiness_is_decided_by_the_directory_existing(
 ) -> None:
     """Gate on the observable -- the directory -- not on the call's exit code."""
     assert "if exist" in backup_script
-    ready = backup_script.index(":rollback_dir_ready")
-    gate = backup_script.index("goto :rollback_dir_ready")
-    assert gate < ready, "the gate must precede its label"
-    # The decision to proceed is made by an existence test, not an errorlevel.
-    decision = backup_script[:gate].rsplit("\r\n", 2)[-2:]
-    assert any("if exist" in line for line in decision), (
-        f"readiness is not gated on directory existence: {decision!r}"
+    # Absence of the directory routes to the "unavailable" failure, and that
+    # decision is an existence test rather than a call's exit code.
+    guard = next(
+        line for line in backup_script.splitlines()
+        if line.endswith("goto :rollback_dir_unavailable")
+        and not line.startswith(":")
+    )
+    assert guard.startswith('if not exist "'), (
+        f"readiness is not gated on directory existence: {guard!r}"
+    )
+    assert guard.endswith('\\." goto :rollback_dir_unavailable'), (
+        rf"must use the `\.` form, which is also true for an empty dir: {guard!r}"
     )
 
 
@@ -111,3 +116,30 @@ def test_no_parenthesised_if_block_was_introduced(backup_script: str) -> None:
 def test_backupless_movers_are_untouched() -> None:
     """A mover with no rollback root must not grow a rollback gate."""
     assert ":rollback_dir_ready" not in _script(None)
+
+
+def test_a_snapshot_that_could_not_be_purged_aborts_instead_of_mixing(
+    backup_script: str,
+) -> None:
+    """`rmdir` suppresses its errors, so "it exists" does not mean "it is ours".
+
+    A locked file leaves the old snapshot in place; backing up on top of it
+    produces a rollback tree that is a mixture of two attempts. Raised in
+    review of this change and reproduced here as a requirement: the mover
+    must confirm the directory is empty before claiming it.
+    """
+    assert "stale rollback snapshot could not be purged" in backup_script
+    dirty = backup_script.index(":rollback_dir_dirty")
+    ready = backup_script.index(":rollback_dir_ready")
+    first_robocopy = backup_script.index("robocopy")
+    assert dirty < first_robocopy and ready < first_robocopy
+    # The emptiness check has to happen before we declare the backup ours.
+    assert "dir /b /a" in backup_script
+    assert backup_script.index("dir /b /a") < ready
+
+
+def test_the_two_failure_modes_are_reported_distinctly(backup_script: str) -> None:
+    """"Cannot create" and "cannot purge" are different operator problems."""
+    assert "rollback directory unavailable" in backup_script
+    assert ":rollback_dir_unavailable" in backup_script
+    assert backup_script.count("goto :copy_failed") >= 2

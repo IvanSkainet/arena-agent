@@ -43,18 +43,39 @@ def _update_mover_pending(install_root: Path | str | None) -> bool:
     ``relauncher_prepared=True``; the manual endpoint had no such knowledge.
     So detect the mover instead of relying on the caller to declare it.
 
-    The lock directory alone is not proof: a mover killed between taking the
-    lock and finishing leaves it behind, and treating that as "someone will
-    relaunch me" would exit with nobody to bring us back -- the exact
-    shutdown-instead-of-restart failure v4.169.21 fixed. Require the mover
-    script too, so a stale lock degrades to arming our own helper.
+    Files are NOT the evidence. Review of this change established two facts
+    that rule the obvious check out:
+
+      * ``.arena-update-apply.cmd`` is never deleted -- it sits in the
+        install root of every host that has ever updated;
+      * the mover's own ``rmdir`` of the lock directory is deliberately
+        best-effort, so an abandoned lock is a supported failure mode.
+
+    "Both files exist" therefore degenerates to "this host updated once",
+    and deferring to a mover that is not running turns a restart into a
+    permanent shutdown -- the very failure v4.169.21 fixed.
+
+    So the marker records the PID the mover was armed to wait for, and
+    liveness is decided by asking the OS whether that process is alive.
+    ``apply`` writes the marker *before* spawning the mover, which also
+    covers the window between arming the mover and its lock appearing.
+    The marker is our own pid at arming time; if that process is gone the
+    mover has either finished or died, and either way it owes us nothing.
     """
     if install_root is None:
         return False
-    root = Path(install_root)
-    return (root / ".arena-update-apply.lock").is_dir() and (
-        root / ".arena-update-apply.cmd"
-    ).is_file()
+    from arena.admin.auto_update_windows import MOVER_PID_MARKER
+
+    marker = Path(install_root) / MOVER_PID_MARKER
+    try:
+        recorded = int(marker.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return False
+    if recorded <= 0:
+        return False
+    # A mover waits for THIS process to exit; while we are alive and the
+    # marker names us, the relaunch belongs to it.
+    return recorded == os.getpid()
 
 
 def restart_process(*, delay_sec: float = 0.5, force: bool = False,

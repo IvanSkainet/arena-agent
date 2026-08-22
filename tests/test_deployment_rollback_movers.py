@@ -201,7 +201,8 @@ def test_windows_mover_backs_up_before_copy_and_publishes_provenance_last(tmp_pa
     # of the same upgrade, so that gate aborted the v4.169.49 install
     # ("rollback directory unavailable" with nothing copied). Gate on the
     # directory being there -- see test_mover_rollback_dir_preexisting.py.
-    assert f'if exist "{str(backup).replace("/", chr(92))}\\." goto :rollback_dir_ready' in text
+    bk = str(backup).replace("/", chr(92))
+    assert f'if not exist "{bk}\\." goto :rollback_dir_unavailable' in text
     assert 'if not errorlevel 1 goto :rollback_dir_ready' not in text
     assert 'if errorlevel 1 echo' not in text
     assert backup_command in text

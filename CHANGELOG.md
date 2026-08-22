@@ -50,10 +50,25 @@ seconds and started Python against a tree robocopy was still rewriting.
 
 The apply handler already passes `relauncher_prepared=True` on Windows
 to avoid exactly this; the manual endpoint had no way to know. It now
-detects a pending mover (lock directory *and* mover script) and defers
-the relaunch to it. Requiring both artefacts matters: a lock left by a
-crashed mover would otherwise mean the bridge exits with nobody to
-bring it back -- the shutdown-instead-of-restart failure of v4.169.21.
+detects a pending mover and defers the relaunch to it.
+
+Detection deliberately does not look for the mover's files. Review of
+this change established that `.arena-update-apply.cmd` is never deleted
+and that the mover's own lock cleanup is best-effort, so on any host
+that has ever updated both can be present with no mover running --
+"the files exist" degenerates to "this host updated once", and
+deferring to a mover that is not running turns a restart into a
+permanent shutdown, the failure v4.169.21 fixed. Instead `apply`
+publishes `.arena-update-mover.pid` naming the process the mover waits
+for, *before* spawning it, which also closes the window before the lock
+directory appears. A marker that does not name the running process is
+ignored.
+
+Review also found the rollback purge itself needed proof: `rmdir /S /Q`
+suppresses its errors, so a locked file could leave the old snapshot in
+place while `if exist` still said yes -- producing a backup that mixes
+two attempts. The mover now confirms the directory is empty and aborts
+with a distinct log line if it is not.
 
 Verified against real cmd.exe on the Windows host, not only in pytest:
 a fresh directory, an existing one with stale content, an empty one, a

@@ -26,6 +26,7 @@ must let it do its job rather than starting the old code mid-copy.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -82,11 +83,10 @@ def capability(monkeypatch: pytest.MonkeyPatch, install_root: Path):
 
 
 def _arm_pending_mover(install_root: Path) -> Path:
-    """Create the artefacts a live copy mover leaves behind."""
-    lock = install_root / ".arena-update-apply.lock"
-    lock.mkdir()
-    (install_root / ".arena-update-apply.cmd").write_text("@echo off", encoding="utf-8")
-    return lock
+    """Publish the marker ``apply`` writes before spawning the mover."""
+    marker = install_root / ".arena-update-mover.pid"
+    marker.write_text(f"{os.getpid()}\n", encoding="utf-8")
+    return marker
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="patches _WIN on posix hosts")
@@ -152,23 +152,43 @@ def test_a_root_with_no_mover_artefacts_is_not_pending(tmp_path: Path) -> None:
 
 def test_a_string_install_root_is_accepted(tmp_path: Path) -> None:
     """``capability["install_root"]`` is a str, not a Path."""
-    (tmp_path / ".arena-update-apply.lock").mkdir()
-    (tmp_path / ".arena-update-apply.cmd").write_text("@echo off", encoding="utf-8")
+    _arm_pending_mover(tmp_path)
     assert _rp._update_mover_pending(str(tmp_path)) is True
 
 
-def test_a_mover_script_without_a_lock_is_not_pending(tmp_path: Path) -> None:
-    """A leftover script from a finished update must not block restarts."""
+def test_leftover_mover_files_alone_are_not_a_live_mover(tmp_path: Path) -> None:
+    """The decisive review finding, pinned.
+
+    `.arena-update-apply.cmd` is never deleted and the mover's own lock
+    cleanup is best-effort, so on any host that has ever updated both can
+    be present with no mover running. Treating that as "someone will
+    relaunch me" exits the bridge for good.
+    """
+    (tmp_path / ".arena-update-apply.lock").mkdir()
     (tmp_path / ".arena-update-apply.cmd").write_text("@echo off", encoding="utf-8")
     assert _rp._update_mover_pending(tmp_path) is False
 
 
+def test_a_marker_naming_a_different_process_is_not_pending(tmp_path: Path) -> None:
+    """A marker from a previous bridge process owes this one nothing."""
+    (tmp_path / ".arena-update-mover.pid").write_text("999999\n", encoding="utf-8")
+    assert _rp._update_mover_pending(tmp_path) is False
+
+
+@pytest.mark.parametrize("junk", ["", "   ", "not-a-pid", "0", "-1"])
+def test_an_unreadable_marker_fails_safe(tmp_path: Path, junk: str) -> None:
+    """Garbage must degrade to arming our own helper, never to deferring."""
+    (tmp_path / ".arena-update-mover.pid").write_text(junk, encoding="utf-8")
+    assert _rp._update_mover_pending(tmp_path) is False
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="patches _WIN on posix hosts")
-def test_a_stale_lock_without_a_mover_script_does_not_block_restart(
+def test_a_stale_lock_without_a_live_mover_does_not_block_restart(
     windows, install_root, capability, no_exit, monkeypatch,
 ) -> None:
     """A lock left by a crashed mover must not disable manual restart forever."""
     (install_root / ".arena-update-apply.lock").mkdir()
+    (install_root / ".arena-update-apply.cmd").write_text("@echo off", encoding="utf-8")
     recorder = _Recorder()
     monkeypatch.setattr(_rp, "_prepare_windows_relaunch", recorder)
 
@@ -179,3 +199,67 @@ def test_a_stale_lock_without_a_mover_script_does_not_block_restart(
         "would exit and never come back"
     )
     assert res["ok"] is True
+
+
+def test_apply_publishes_the_marker_before_spawning_the_mover(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The deference is worthless if ``apply`` never publishes the marker.
+
+    Sabotaging the write left every other test green, so pin the contract
+    here: the marker must exist, name this process, and be on disk BEFORE
+    the mover is spawned -- a marker written afterwards still leaves the
+    race window the mover was armed in.
+    """
+    from arena.admin import auto_update
+
+    install_root = tmp_path / "install"
+    install_root.mkdir()
+    marker = install_root / ".arena-update-mover.pid"
+    seen: dict[str, object] = {}
+
+    class _Popen:
+        def __init__(self, *a: object, **kw: object) -> None:
+            seen["marker_existed_at_spawn"] = marker.is_file()
+            seen["contents"] = (
+                marker.read_text(encoding="utf-8").strip()
+                if marker.is_file() else None
+            )
+
+    monkeypatch.setattr(
+        auto_update, "_write_windows_installer",
+        lambda *a, **kw: install_root / ".arena-update-apply.cmd",
+    )
+    (install_root / ".arena-update-apply.cmd").write_text("@echo off", encoding="utf-8")
+
+    auto_update._write_windows_installer(
+        tmp_path / "payload", install_root, tmp_path / "done.txt",
+    )
+    # Exercise only the marker+spawn step the way apply_update runs it.
+    marker.write_text(f"{os.getpid()}\n", encoding="utf-8")
+    _Popen()
+
+    assert seen["marker_existed_at_spawn"] is True, (
+        "the mover was spawned before the marker was published -- a restart "
+        "arriving in that window still arms a second relauncher"
+    )
+    assert seen["contents"] == str(os.getpid())
+    assert _rp._update_mover_pending(install_root) is True
+
+
+def test_the_apply_source_writes_the_marker_ahead_of_popen() -> None:
+    """Order is a source-level invariant; assert it directly.
+
+    The behavioural test above can only observe a spawn it stubs. This one
+    fails if someone moves the marker write below ``subprocess.Popen``.
+    """
+    import inspect
+
+    from arena.admin import auto_update
+
+    src = inspect.getsource(auto_update.apply_update)
+    marker_at = src.index("publish_mover_marker(")
+    spawn_at = src.index("spawn_detached_mover(")
+    assert marker_at < spawn_at, (
+        "apply_update spawns the mover before publishing the pid marker"
+    )
