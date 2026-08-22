@@ -8,17 +8,21 @@ concurrency:
   group: dependency-review-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-  # The action posts its findings as a PR comment; without this it logs
-  # "Unable to write summary to pull-request" and the report is lost.
-  pull-requests: write
+# Nothing is granted at workflow level: a scope written here is inherited by
+# every job added to this file later, including one whose author never thought
+# about tokens. The review job below asks for exactly what it uses.
+permissions: {}
 
 jobs:
   dependency-review:
     timeout-minutes: 5
     name: Dependency review (block new CVEs in PRs)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The action posts its findings as a PR comment; without this it logs
+      # "Unable to write summary to pull-request" and the report is lost.
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
