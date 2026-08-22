@@ -29,12 +29,28 @@ import pathlib
 
 import pytest
 
-yaml = pytest.importorskip("yaml")
+try:
+    import yaml
+except ImportError as exc:  # pragma: no cover - exercised only without PyYAML
+    # Deliberately NOT importorskip: a security gate that silently evaporates
+    # when a dependency is missing is a gate that reports success on the one
+    # environment where nobody checked. PyYAML is in the test requirements.
+    raise RuntimeError(
+        "PyYAML is required for the workflow-permissions gate; without it this "
+        "test would skip and the audit would pass by default"
+    ) from exc
 
 WORKFLOWS = pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows"
 
 # Read-only scopes are safe to inherit: they cannot mutate the repository.
 _HARMLESS_TO_INHERIT = {"read", "none"}
+
+# `permissions:` also accepts a bare scalar. `write-all` grants every scope at
+# once -- the single most dangerous value the key can take -- and `read-all` is
+# the safe counterpart. An earlier revision of this test only inspected the
+# mapping form, so `permissions: write-all` passed the gate untouched; three
+# reviewers caught it on #163. Scalars are now checked explicitly.
+_SAFE_SCALARS = {"read-all", "{}"}
 
 
 def _workflow_files() -> list[pathlib.Path]:
@@ -52,12 +68,29 @@ def _load(path: pathlib.Path) -> dict:
 def test_no_write_scopes_at_workflow_level(path: pathlib.Path) -> None:
     """A write scope at workflow level leaks into every job in the file."""
     doc = _load(path)
-    permissions = doc.get("permissions")
 
-    # `permissions: {}` (deny-all) and a missing key are both fine here; the
-    # latter is covered by test_every_job_declares_permissions below.
-    if not isinstance(permissions, dict):
+    if "permissions" not in doc:
+        # Covered by test_every_workflow_pins_a_permissions_baseline.
         return
+
+    permissions = doc["permissions"]
+
+    # Scalar form: `permissions: write-all` / `read-all`. YAML hands back a
+    # plain string, which an isinstance(dict) check skips straight past.
+    if isinstance(permissions, str):
+        assert permissions.strip().lower() in _SAFE_SCALARS, (
+            f"{path.name} sets `permissions: {permissions}` at workflow level, "
+            f"granting every scope to every job in the file. Use "
+            f"`permissions: {{}}` at the top and grant scopes per job "
+            f"(see issue #162)."
+        )
+        return
+
+    if not isinstance(permissions, dict):
+        raise AssertionError(
+            f"{path.name} has an unrecognised `permissions:` form "
+            f"({permissions!r}); expected a mapping or a scalar."
+        )
 
     offenders = {
         scope: level
