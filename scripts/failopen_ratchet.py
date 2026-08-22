@@ -95,8 +95,11 @@ ALLOWLIST: dict[str, str] = {
     "arena/auth/users.py:154:gated-refusal": (
         "`if users:` gates the multi-user table, not the auth decision. An "
         "empty table falls through to the single shared config token below "
-        "-- which is compared with hmac.compare_digest. No users configured "
-        "means 'nobody has a per-user token', not 'everybody is allowed'."
+        "-- which is compared with `secrets_equal`, a timing-safe compare "
+        "that non-ASCII input cannot crash (#61; it was hmac.compare_digest "
+        "directly before, which raises TypeError on a non-ASCII token). No "
+        "users configured means 'nobody has a per-user token', not "
+        "'everybody is allowed'."
     ),
     "arena/autonomy/yolo.py:68:gated-refusal": (
         "Deliberate and documented in the docstring: enabling YOLO requires "

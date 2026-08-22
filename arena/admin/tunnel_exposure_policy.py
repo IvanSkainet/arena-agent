@@ -1,8 +1,9 @@
 """Authorization policy for agent-requested public tunnel exposure."""
 from __future__ import annotations
 
-import hmac
 from typing import Any
+
+from arena.auth.compare import secrets_equal
 
 PUBLIC_TUNNEL_ACK = "I_ACCEPT_PUBLIC_BRIDGE_EXPOSURE"
 PUBLIC_TUNNEL_PROVIDERS = frozenset({"tailscale", "cloudflared", "ngrok", "bore"})
@@ -34,7 +35,7 @@ def public_start_denial(
     if (
         isinstance(ack, str)
         and len(ack) == len(PUBLIC_TUNNEL_ACK)
-        and hmac.compare_digest(ack, PUBLIC_TUNNEL_ACK)
+        and secrets_equal(ack, PUBLIC_TUNNEL_ACK)
     ):
         return None
     return {

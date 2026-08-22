@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import contextlib
-import hmac
 import json
 import os
 import threading
@@ -13,6 +12,7 @@ from typing import Any
 from aiohttp import web
 
 from arena.app_keys import APP_CFG
+from arena.auth.compare import secrets_equal
 
 ROLE_LEVEL = {"admin": 3, "user": 2, "readonly": 1}
 
@@ -152,15 +152,22 @@ class UserStore:
             token = xt_header
 
         if users:
+            # No early return: breaking on the first hit would make the
+            # number of comparisons depend on where the matching token
+            # sits in the roster, which is the timing leak #61 is about.
+            # The scan is the roster length either way.
+            matched: dict[str, str] | None = None
             for stored_token, user_info in users.items():
-                if hmac.compare_digest(token, stored_token):
-                    user_role = user_info.get("role", "user")
-                    if required_role and ROLE_LEVEL.get(user_role, 0) < ROLE_LEVEL.get(required_role, 0):
-                        return False, user_role
-                    return True, user_role
+                if secrets_equal(token, stored_token):
+                    matched = user_info
+            if matched is not None:
+                user_role = matched.get("role", "user")
+                if required_role and ROLE_LEVEL.get(user_role, 0) < ROLE_LEVEL.get(required_role, 0):
+                    return False, user_role
+                return True, user_role
 
         cfg_token = request.app[APP_CFG]["token"]
-        if token and hmac.compare_digest(token, cfg_token):
+        if token and secrets_equal(token, cfg_token):
             return True, "admin"
         return False, ""
 

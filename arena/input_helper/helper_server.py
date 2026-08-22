@@ -81,6 +81,32 @@ VK_MAP = {
 # ---------------------------------------------------------------------------
 # ctypes structures for SendInput
 # ---------------------------------------------------------------------------
+def _secrets_equal(presented: object, expected: object) -> bool:
+    """Constant-time compare that a hostile header cannot crash.
+
+    Duplicated from `arena.auth.compare` on purpose: this file is a
+    standalone script (`python helper_server.py`), started outside the
+    package with no guarantee that `arena` is importable, so it must not
+    grow a package dependency. Keep the two in sync.
+
+    `hmac.compare_digest` rejects non-ASCII `str` with a TypeError, and
+    `Authorization` is attacker-controlled -- on the bridge the same
+    pattern turned anonymous requests into HTTP 500. Comparing UTF-8
+    bytes is total and still timing-safe.
+    """
+    def _b(value: object) -> "bytes | None":
+        if isinstance(value, bytes):
+            return value
+        if isinstance(value, str):
+            return value.encode("utf-8", "surrogatepass")
+        return None
+
+    left, right = _b(presented), _b(expected)
+    if left is None or right is None:
+        return False
+    return hmac.compare_digest(left, right)
+
+
 class MOUSEINPUT(ctypes.Structure):
     _fields_ = [
         ("dx", ctypes.c_long),
@@ -321,7 +347,7 @@ class InputHandler(BaseHTTPRequestHandler):
         # Constant-time: a plain `==` leaks the shared secret one byte at
         # a time to anyone who can measure response latency, and this
         # token guards keystroke injection into the live desktop.
-        if hmac.compare_digest(auth, f"Bearer {_TOKEN}"):
+        if _secrets_equal(auth, f"Bearer {_TOKEN}"):
             return True
         self.send_response(401)
         self.end_headers()
