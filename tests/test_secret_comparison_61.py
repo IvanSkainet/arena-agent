@@ -128,33 +128,33 @@ def test_secrets_equal_uses_the_constant_time_primitive(monkeypatch):
 
 
 @pytest.fixture
-def registry():
+def agent_registry():
     reg = A.AgentRegistry()
     yield reg
     reg.reset()
 
 
-def test_resolve_token_is_on_the_constant_time_path(registry, monkeypatch):
+def test_resolve_token_is_on_the_constant_time_path(agent_registry, monkeypatch):
     """The headline of #61: comparison must not be a dict lookup."""
-    rec = registry.create(label="a", master_token=MASTER)
+    rec = agent_registry.create(label="a", master_token=MASTER)
     seen = []
     monkeypatch.setattr(
         "arena.multiagent.agents.secrets_equal",
         lambda a, b: (seen.append((a, b)), a == b)[1],
     )
 
-    assert registry.resolve_token(rec.token) is rec
+    assert agent_registry.resolve_token(rec.token) is rec
     assert seen, "resolve_token still resolves without a timing-safe compare"
 
     seen.clear()
-    assert registry.resolve_token("agent-deadbeef-0000000000000000") is None
+    assert agent_registry.resolve_token("agent-deadbeef-0000000000000000") is None
     assert seen, "a miss must also go through the timing-safe compare"
 
 
 def test_resolve_token_scan_length_does_not_depend_on_the_guess(
-        registry, monkeypatch):
+        agent_registry, monkeypatch):
     """A `break` on first hit would leak the match position by timing."""
-    tokens = [registry.create(label=f"a{i}", master_token=MASTER).token
+    tokens = [agent_registry.create(label=f"a{i}", master_token=MASTER).token
               for i in range(5)]
     counts = []
     real = A.secrets_equal
@@ -165,7 +165,7 @@ def test_resolve_token_scan_length_does_not_depend_on_the_guess(
 
     for token in (tokens[0], tokens[-1], "agent-deadbeef-0000000000000000"):
         counts.clear()
-        registry.resolve_token(token)
+        agent_registry.resolve_token(token)
         assert len(counts) == len(tokens), (
             f"scanned {len(counts)} of {len(tokens)} tokens: the number of "
             "comparisons leaks where the match sits"
@@ -187,25 +187,25 @@ def test_resolve_token_docstring_no_longer_makes_the_false_claim():
 
 
 @pytest.mark.parametrize("hostile", HOSTILE)
-def test_resolve_token_survives_hostile_tokens(registry, hostile):
+def test_resolve_token_survives_hostile_tokens(agent_registry, hostile):
     """The naive #61 fix crashes here; this one must not."""
-    registry.create(label="victim", master_token=MASTER)
-    assert registry.resolve_token(hostile) is None
+    agent_registry.create(label="victim", master_token=MASTER)
+    assert agent_registry.resolve_token(hostile) is None
 
 
-def test_resolve_token_still_resolves_and_revokes(registry):
+def test_resolve_token_still_resolves_and_revokes(agent_registry):
     """Constant-time must not mean broken."""
-    a = registry.create(label="a", master_token=MASTER)
-    b = registry.create(label="b", master_token=MASTER)
+    a = agent_registry.create(label="a", master_token=MASTER)
+    b = agent_registry.create(label="b", master_token=MASTER)
 
-    assert registry.resolve_token(a.token) is a
-    assert registry.resolve_token(b.token) is b
-    assert registry.resolve_token("") is None
-    assert registry.resolve_token(a.token + "x") is None
+    assert agent_registry.resolve_token(a.token) is a
+    assert agent_registry.resolve_token(b.token) is b
+    assert agent_registry.resolve_token("") is None
+    assert agent_registry.resolve_token(a.token + "x") is None
 
-    assert registry.revoke(a.agent_id) is True
-    assert registry.resolve_token(a.token) is None, "revocation stopped working"
-    assert registry.resolve_token(b.token) is b
+    assert agent_registry.revoke(a.agent_id) is True
+    assert agent_registry.resolve_token(a.token) is None, "revocation stopped working"
+    assert agent_registry.resolve_token(b.token) is b
 
 
 # --- the roster path, which only runs when users are configured ------------
@@ -473,9 +473,9 @@ def test_correctly_signed_cache_is_still_accepted(tmp_path, monkeypatch):
 # --- the live surface: no credential may produce a 500 ---------------------
 
 
-async def _get(path, headers=None, params=None):
+async def _get(path, root, headers=None, params=None):
     cfg = {
-        "token": MASTER, "bind": "127.0.0.1", "root": "/tmp",
+        "token": MASTER, "bind": "127.0.0.1", "root": str(root),
         "max_concurrent": 4, "profile": "default",
     }
     app = ub.make_app(cfg)
@@ -495,14 +495,14 @@ async def _get(path, headers=None, params=None):
         await server.close()
 
 
-def _serve(path, **kw):
-    return asyncio.run(_get(path, **kw))
+def _serve(path, root, **kw):
+    return asyncio.run(_get(path, root, **kw))
 
 
 @pytest.mark.parametrize("hostile", HOSTILE)
-def test_hostile_bearer_token_is_rejected_not_a_server_error(hostile):
+def test_hostile_bearer_token_is_rejected_not_a_server_error(hostile, tmp_path):
     """Measured as HTTP 500 on the live bridge before this fix."""
-    status, _ = _serve("/v1/status",
+    status, _ = _serve("/v1/status", tmp_path,
                        headers={"Authorization": f"Bearer {hostile}"})
     assert status != 500, (
         f"Bearer {hostile!r} crashed the auth path; an unauthenticated "
@@ -512,21 +512,22 @@ def test_hostile_bearer_token_is_rejected_not_a_server_error(hostile):
 
 
 @pytest.mark.parametrize("hostile", HOSTILE)
-def test_hostile_gui_query_token_is_rejected_not_a_server_error(hostile):
+def test_hostile_gui_query_token_is_rejected_not_a_server_error(hostile,
+                                                                 tmp_path):
     """`/gui?token=<non-ascii>` returned 500 on the live bridge too.
 
     The GUI answers 200 either way -- login page or dashboard -- so the
     body decides. Asserting only on the status would pass even if the
     dashboard were handed to an anonymous caller.
     """
-    status, body = _serve("/gui", params={"token": hostile})
+    status, body = _serve("/gui", tmp_path, params={"token": hostile})
     assert status != 500, f"?token={hostile!r} crashed the GUI login route"
     assert "login" in body.lower(), (
         "a bogus GUI token must land on the login page, not the dashboard"
     )
 
 
-def test_the_real_credentials_still_authenticate():
+def test_the_real_credentials_still_authenticate(tmp_path):
     """The gate must still open for the operator.
 
     `/v1/status` is deliberately not used for the positive case: with
@@ -536,14 +537,14 @@ def test_the_real_credentials_still_authenticate():
     unrelated bug. The GUI route reaches the comparator with no such
     dependency, and distinguishes accept from reject by body.
     """
-    status, body = _serve("/gui", params={"token": MASTER})
+    status, body = _serve("/gui", tmp_path, params={"token": MASTER})
     assert status == 200
     assert "login" not in body.lower(), (
         "a valid GUI token must reach the dashboard, not the login page"
     )
 
 
-def test_the_master_token_is_still_accepted_by_the_auth_check():
+def test_the_master_token_is_still_accepted_by_the_auth_check(tmp_path):
     """The API-side verdict, asserted on the check rather than a route.
 
     Complements the GUI test above without depending on a route whose
@@ -552,7 +553,7 @@ def test_the_master_token_is_still_accepted_by_the_auth_check():
     from arena.auth import runtime as auth_runtime
 
     async def _check(bearer):
-        cfg = {"token": MASTER, "bind": "127.0.0.1", "root": "/tmp",
+        cfg = {"token": MASTER, "bind": "127.0.0.1", "root": str(tmp_path),
                "max_concurrent": 4, "profile": "default"}
         app = ub.make_app(cfg)
         app.on_cleanup.clear()

@@ -1,4 +1,4 @@
-## v4.169.50 — 2026-08-22
+## v4.169.49 — 2026-08-22
 
 ### A non-ASCII credential crashed the auth path (#61)
 
@@ -45,8 +45,6 @@ And #61 proper: `resolve_token` now scans every registered token
 without breaking early, so the number of comparisons no longer depends
 on where the match sits, and the docstring describes what the code
 actually does.
-
-## v4.169.49 — 2026-08-22
 
 ### The unauthenticated `/v1/version` no longer fingerprints the host (#63)
 
