@@ -177,11 +177,30 @@ def test_health_endpoint_is_public_and_reports_version(bridge):
 
 
 def test_v1_version_reports_running_interpreter(bridge):
+    """With a token, the diagnostic fields are still served."""
     status, body, _, _ = bridge.get("/v1/version")
     assert status == 200
     assert body["ok"] is True
     assert body["version"] == _expected_version()
     assert "python" in body and "platform" in body
+
+
+def test_v1_version_hides_the_interpreter_from_anonymous_callers(bridge):
+    """#63, against a real server: no token, no host fingerprint.
+
+    The unit tests drive the handler directly; this one proves the wiring
+    that composes the live app actually supplies the auth probe. Without
+    it the handler treats everyone as anonymous, or -- worse, if the gate
+    were wired backwards -- everyone as authenticated.
+    """
+    status, body, raw, _ = bridge.get("/v1/version", token=None)
+
+    assert status == 200, "the route must stay public (#54: Android polls it)"
+    assert body["ok"] is True
+    assert body["version"] == _expected_version(), "version stays public"
+    assert "python" not in body
+    assert "platform" not in body
+    assert sys.version.split()[0].encode() not in raw
 
 
 # ------------------------------------------------------------------- auth

@@ -91,6 +91,18 @@ def make_auth_runtime(ctx: AuthRuntimeContext) -> AuthRuntime:
         cfg = request.app[APP_CFG]
         master = cfg["token"]
         candidates = _presented_tokens(request)
+        if not candidates:
+            # v4.169.49 (#63): a caller who presented no credential at all
+            # cannot match anything below, so stop before the roster lookup.
+            # `check_auth_with_role` calls `UserStore.load_users()` first
+            # thing, and that re-reads users.json on every call whenever the
+            # roster is empty (the TTL cache is skipped for a falsy dict).
+            # Measured: 100 anonymous calls -> 100 stat+read pairs. That was
+            # dormant while only authenticated routes probed auth; /v1/version
+            # now probes it too, and it is public, unthrottled, and polled by
+            # the Android status screen. Returning early keeps the public
+            # route free of per-request disk I/O.
+            return False
         for cand in candidates:
             if hmac.compare_digest(cand, master):
                 return True

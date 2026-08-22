@@ -92,7 +92,7 @@ ALLOWLIST: dict[str, str] = {
         "Same shape, same function family: the token check precedes it and "
         "_ok_status() refuses everything this branch lets through."
     ),
-    "arena/auth/users.py:137:gated-refusal": (
+    "arena/auth/users.py:154:gated-refusal": (
         "`if users:` gates the multi-user table, not the auth decision. An "
         "empty table falls through to the single shared config token below "
         "-- which is compared with hmac.compare_digest. No users configured "
@@ -118,7 +118,7 @@ ALLOWLIST: dict[str, str] = {
         "happened upstream via @authed; is_agent False means 'authenticated "
         "as master', not 'unauthenticated'."
     ),
-    "arena/system/handlers.py:230:gated-refusal": (
+    "arena/system/handlers.py:271:gated-refusal": (
         "Same pattern as handlers_agents.py:37 -- an extra refusal layered "
         "on top of @authed, not the authentication itself."
     ),
