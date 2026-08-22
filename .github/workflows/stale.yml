@@ -20,14 +20,19 @@ on:
     - cron: "30 2 * * *"
   workflow_dispatch: {}
 
-permissions:
-  issues: write
-  pull-requests: write
+# Nothing is granted at workflow level: a scope written here is inherited by
+# every job added to this file later, including one whose author never thought
+# about tokens. The stale job below asks for exactly what it uses.
+permissions: {}
 
 jobs:
   stale:
+    name: Mark stale issues and pull requests
     timeout-minutes: 5
     runs-on: ubuntu-latest
+    permissions:
+      issues: write         # actions/stale labels, comments on and closes stale issues
+      pull-requests: write  # ...and does the same to stale pull requests
     steps:
       - name: Mark stale issues and PRs
         uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11.0.0
