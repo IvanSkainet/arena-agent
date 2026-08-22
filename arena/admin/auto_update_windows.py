@@ -23,6 +23,7 @@ characters in path values, so the mover works with any install path.
 from __future__ import annotations
 
 import os
+import subprocess  # nosec B404 -- fixed wscript argv, no shell
 from pathlib import Path
 
 # From a third module, not from auto_update: importing back into
@@ -40,6 +41,70 @@ def _bridge_port() -> int:
         return int(raw)
     except ValueError:
         return 8765
+
+
+MOVER_PID_MARKER = ".arena-update-mover.pid"
+
+
+def publish_mover_marker(install_root: Path, pid: int | None = None) -> Path | None:
+    """Record which process the copy mover is waiting on.
+
+    v4.169.50. ``apply`` arms a mover that waits for this pid, copies the
+    payload, then relaunches. A manual ``/v1/admin/update/restart`` used to
+    arm a SECOND detached waiter on the same pid; with nothing to copy it
+    won by six seconds and started the old build over a tree ``robocopy``
+    was still rewriting.
+
+    The marker cannot be inferred from the mover's own files:
+    ``.arena-update-apply.cmd`` is never deleted, and the mover's ``rmdir``
+    of its lock directory is deliberately best-effort. Both therefore
+    outlive the process, and treating them as "a mover will relaunch me"
+    turns a restart into a shutdown.
+
+    Callers must publish this BEFORE spawning the mover, which also covers
+    the window before the lock directory appears. Failure is non-fatal: it
+    costs the deference, not the update.
+    """
+    marker = Path(install_root) / MOVER_PID_MARKER
+    try:
+        marker.write_text(f"{os.getpid() if pid is None else int(pid)}\n",
+                          encoding="utf-8")
+    except OSError:
+        return None
+    return marker
+
+
+def spawn_detached_mover(script: Path) -> Path:
+    """Launch the copy mover so it survives this process exiting.
+
+    v4.60.16: launching via ``subprocess.Popen(cmd, DETACHED_PROCESS)``
+    silently shares the parent's console, because that flag is downgraded
+    when the parent already has one. The bridge then called ``os._exit(0)``
+    a second later and the mover's ``cmd.exe`` died with it, before its
+    ``:wait`` loop had even started -- ``.arena-update-apply.log`` showed
+    the ``mover-start`` line and never ``bridge exited``.
+
+    Windows Script Host is properly detached and survives parent exit, so
+    we drop a one-line ``.vbs`` beside the mover that Runs it hidden and
+    without waiting, and spawn that instead.
+    """
+    vbs_shim = script.with_suffix(".vbs")
+    cmd_win = str(script).replace('"', '""')
+    vbs_shim.write_bytes((
+        'Set WshShell = CreateObject("WScript.Shell")\r\n'
+        f'WshShell.Run "cmd /c ""{cmd_win}""", 0, False\r\n'
+    ).encode("utf-8"))
+    subprocess.Popen(  # nosec B603 -- fixed wscript argv, no shell
+        ["wscript.exe", str(vbs_shim)],
+        creationflags=getattr(subprocess, "DETACHED_PROCESS", 0)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+    )
+    return vbs_shim
 
 
 def _write_windows_installer(payload_root: Path, install_root: Path,
@@ -120,8 +185,40 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
     if backup_root is not None:
         backup = backup_root.as_posix().replace("/", "\\")
         lines.extend([
+            # v4.169.50: `mkdir` sets errorlevel 1 when the directory
+            # ALREADY EXISTS, and this path is not unique per attempt --
+            # the deployment id is derived from the *previous* version and
+            # its digest, so every retry of the same upgrade reuses it.
+            # Gating on that errorlevel meant a leftover snapshot was read
+            # as "cannot create a rollback", and the mover fail-closed
+            # before copying a single file. Observed installing v4.169.49:
+            # "rollback directory unavailable" -> full rollback -> the
+            # bridge came back on the old version with the new release
+            # sitting unused on disk.
+            #
+            # Same lesson as v4.169.21 and `schtasks`: judge the observable,
+            # not the exit code of the call that was meant to produce it.
+            # Clear any stale snapshot so this backup is ours alone and not
+            # a mixture of two attempts, then ask whether the directory is
+            # there. `\.` is the idiom that also answers "yes" for an empty
+            # directory -- `\*` does not, and would fail-closed all over again.
+            f'rmdir /S /Q "{backup}" 2>NUL',
             f'mkdir "{backup}" 2>NUL',
-            'if not errorlevel 1 goto :rollback_dir_ready',
+            f'if not exist "{backup}\\." goto :rollback_dir_unavailable',
+            # The purge above suppresses its errors, so "the directory is
+            # there" does not prove it is *ours*. A locked file would leave
+            # the old snapshot in place and we would back up into a mixture
+            # of two attempts -- exactly what this rewrite set out to stop.
+            # `dir /b` prints one line per entry, so findstr matching any
+            # character means leftovers survived.
+            f'dir /b /a "{backup}" 2>NUL | findstr /r /c:"." >NUL',
+            'if not errorlevel 1 goto :rollback_dir_dirty',
+            'goto :rollback_dir_ready',
+            ':rollback_dir_dirty',
+            f'echo [%DATE% %TIME%] ERROR stale rollback snapshot could not be '
+            f'purged; refusing to mix attempts >> "{log}"',
+            'goto :copy_failed',
+            ':rollback_dir_unavailable',
             f'echo [%DATE% %TIME%] rollback directory unavailable >> "{log}"',
             'goto :copy_failed',
             ':rollback_dir_ready',

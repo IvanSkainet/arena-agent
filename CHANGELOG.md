@@ -1,3 +1,79 @@
+## v4.169.50 — 2026-08-22
+
+### Windows auto-update could not install a release (#158)
+
+Installing v4.169.49 on the operator's machine failed twice, in two
+different ways. Both are in the shipped updater, and both were found by
+reading `.arena-update-apply.log` on the live host rather than by any
+test going red.
+
+**1. A pre-existing rollback directory aborted the update.**
+
+    [22.08.2026 20:01:46] bridge exited, starting copy
+    [22.08.2026 20:03:16] rollback directory unavailable
+    [22.08.2026 20:03:16] ERROR copy failed, restoring rollback snapshot
+
+Not one file was copied. The bridge came back on the old version with
+the new release sitting unused on disk. The cause is one line:
+
+    mkdir "<backup>" 2>NUL
+    if not errorlevel 1 goto :rollback_dir_ready
+
+`mkdir` sets errorlevel 1 when the directory *already exists*. The
+snapshot path is `backups/deployments/<previous-version>-<digest>`,
+derived from the version being replaced -- so it is identical on every
+retry of the same upgrade, and `apply` itself prepares it before the
+mover runs. Any second attempt was guaranteed to hit an existing
+directory and fail closed. Readiness is now decided by the directory
+being there (`if exist "<backup>\."`), after clearing any stale
+snapshot so the backup cannot become a mixture of two attempts. A path
+that genuinely cannot be created still aborts the copy.
+
+This repeats the lesson of v4.169.21 and `schtasks`: the exit code of
+the call that was supposed to produce a thing is not evidence that the
+thing exists. Check the observable.
+
+**2. Two relaunch helpers raced, and the old build won.**
+
+The retry copied correctly, yet `/health` still answered 4.169.48 --
+with 118 seconds of uptime. New files on disk, old code in memory:
+
+    .arena-update-apply.log   bridge exited, starting copy   20:11:58
+    .arena-restart.log        fired start_hidden.vbs         20:11:59
+    .arena-update-apply.log   copy done, launching relaunch  20:12:05
+
+`apply` arms `.arena-update-apply.cmd`, which waits for the bridge PID,
+copies the payload, *then* relaunches. A manual
+`POST /v1/admin/update/restart` armed `.arena-restart.cmd`, a second
+detached waiter on the same PID -- with no copying to do, it won by six
+seconds and started Python against a tree robocopy was still rewriting.
+
+The apply handler already passes `relauncher_prepared=True` on Windows
+to avoid exactly this; the manual endpoint had no way to know. It now
+detects a pending mover and defers the relaunch to it.
+
+Detection deliberately does not look for the mover's files. Review of
+this change established that `.arena-update-apply.cmd` is never deleted
+and that the mover's own lock cleanup is best-effort, so on any host
+that has ever updated both can be present with no mover running --
+"the files exist" degenerates to "this host updated once", and
+deferring to a mover that is not running turns a restart into a
+permanent shutdown, the failure v4.169.21 fixed. Instead `apply`
+publishes `.arena-update-mover.pid` naming the process the mover waits
+for, *before* spawning it, which also closes the window before the lock
+directory appears. A marker that does not name the running process is
+ignored.
+
+Review also found the rollback purge itself needed proof: `rmdir /S /Q`
+suppresses its errors, so a locked file could leave the old snapshot in
+place while `if exist` still said yes -- producing a backup that mixes
+two attempts. The mover now confirms the directory is empty and aborts
+with a distinct log line if it is not.
+
+Verified against real cmd.exe on the Windows host, not only in pytest:
+a fresh directory, an existing one with stale content, an empty one, a
+path with parentheses and a space, and an impossible volume.
+
 ## v4.169.49 — 2026-08-22
 
 ### A non-ASCII credential crashed the auth path (#61)
