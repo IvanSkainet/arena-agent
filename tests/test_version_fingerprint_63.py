@@ -59,16 +59,22 @@ def _clean_memo():
     exposure_cache.reset()
 
 
-def _call_version(tmp_path, *, headers=None):
+#: "argument not supplied", distinct from `check_auth=None` -- the latter
+#: is the wiring slip this module exists to catch, so it must stay askable.
+_UNSET = object()
+
+
+def _call_version(tmp_path, *, headers=None, check_auth=_UNSET):
     """Drive the real handler with the real auth probe.
 
-    `check_auth` is the production function from the auth runtime, not a
-    stub: a test that hand-waves authentication cannot show that an
-    anonymous caller is treated as anonymous.
+    `check_auth` defaults to the production function from the auth
+    runtime, not a stub: a test that hand-waves authentication cannot
+    show that an anonymous caller is treated as anonymous. Tests that
+    need a broken or absent probe pass their own.
     """
     cfg = {"token": TOKEN, "bind": "127.0.0.1", "root": str(tmp_path)}
     app = ub.make_app(cfg)
-    ctx = SystemHandlerContext(
+    fields = dict(
         require_auth=ub.require_auth,
         record_request=lambda: None,
         cors_json_response=ub._cors_json_response,
@@ -80,14 +86,25 @@ def _call_version(tmp_path, *, headers=None):
         sysinfo_sync=lambda root: {},
         play_beep_sync=lambda beep_type, freq, dur: {},
         send_notification_sync=lambda title, msg: {},
-        check_auth=ub.check_auth,
     )
+    # `check_auth` is optional on the context and defaults to None there,
+    # so "left off the constructor" is expressed by passing None -- which
+    # a test must be able to ask for without it meaning "use the default".
+    fields["check_auth"] = ub.check_auth if check_auth is _UNSET else check_auth
+    ctx = SystemHandlerContext(**fields)
     handlers = make_system_handlers(ctx)
     request = make_mocked_request(
         "GET", "/v1/version", headers=headers or {}, app=app)
     with patch("arena.admin.auto_update._install_root", return_value=tmp_path):
         response = asyncio.run(handlers.version(request))
     return response, json.loads(response.text)
+
+
+def _explode(_request):
+    raise RuntimeError("auth backend down")
+
+
+_BEARER = {"Authorization": f"Bearer {TOKEN}"}
 
 
 def _anonymous(tmp_path):
@@ -219,33 +236,8 @@ def test_a_bad_token_is_treated_as_anonymous(tmp_path):
 
 def test_a_broken_auth_probe_fails_closed(tmp_path):
     """If the probe raises, disclose less -- never more, never 500."""
-    cfg = {"token": TOKEN, "bind": "127.0.0.1", "root": str(tmp_path)}
-    app = ub.make_app(cfg)
-
-    def _explode(_request):
-        raise RuntimeError("auth backend down")
-
-    ctx = SystemHandlerContext(
-        require_auth=ub.require_auth,
-        record_request=lambda: None,
-        cors_json_response=ub._cors_json_response,
-        executor=ub._EXECUTOR,
-        common_status=lambda _cfg: {"ok": True},
-        version=ub.VERSION,
-        clean_platform_name=ub.get_clean_platform_name,
-        doctor_sync=lambda token: {},
-        sysinfo_sync=lambda root: {},
-        play_beep_sync=lambda beep_type, freq, dur: {},
-        send_notification_sync=lambda title, msg: {},
-        check_auth=_explode,
-    )
-    handlers = make_system_handlers(ctx)
-    request = make_mocked_request(
-        "GET", "/v1/version",
-        headers={"Authorization": f"Bearer {TOKEN}"}, app=app)
-    with patch("arena.admin.auto_update._install_root", return_value=tmp_path):
-        response = asyncio.run(handlers.version(request))
-    body = json.loads(response.text)
+    response, body = _call_version(
+        tmp_path, headers=_BEARER, check_auth=_explode)
 
     assert response.status == 200
     for field in FINGERPRINT_FIELDS:
@@ -258,28 +250,7 @@ def test_missing_probe_defaults_to_minimal_disclosure(tmp_path):
     `check_auth` is optional on the context so existing constructors keep
     working. Defaulting it to None must mean 'assume anonymous'.
     """
-    cfg = {"token": TOKEN, "bind": "127.0.0.1", "root": str(tmp_path)}
-    app = ub.make_app(cfg)
-    ctx = SystemHandlerContext(
-        require_auth=ub.require_auth,
-        record_request=lambda: None,
-        cors_json_response=ub._cors_json_response,
-        executor=ub._EXECUTOR,
-        common_status=lambda _cfg: {"ok": True},
-        version=ub.VERSION,
-        clean_platform_name=ub.get_clean_platform_name,
-        doctor_sync=lambda token: {},
-        sysinfo_sync=lambda root: {},
-        play_beep_sync=lambda beep_type, freq, dur: {},
-        send_notification_sync=lambda title, msg: {},
-    )
-    handlers = make_system_handlers(ctx)
-    request = make_mocked_request(
-        "GET", "/v1/version",
-        headers={"Authorization": f"Bearer {TOKEN}"}, app=app)
-    with patch("arena.admin.auto_update._install_root", return_value=tmp_path):
-        response = asyncio.run(handlers.version(request))
-    body = json.loads(response.text)
+    _, body = _call_version(tmp_path, headers=_BEARER, check_auth=None)
 
     for field in FINGERPRINT_FIELDS:
         assert field not in body
@@ -362,34 +333,8 @@ def test_credential_less_request_skips_the_roster_entirely(tmp_path):
 
 def test_a_failing_probe_is_logged(tmp_path, caplog):
     """Failing closed silently would hide a broken auth backend."""
-    app = ub.make_app(
-        {"token": TOKEN, "bind": "127.0.0.1", "root": str(tmp_path)})
-
-    def _explode(_request):
-        raise RuntimeError("auth backend down")
-
-    ctx = SystemHandlerContext(
-        require_auth=ub.require_auth,
-        record_request=lambda: None,
-        cors_json_response=ub._cors_json_response,
-        executor=ub._EXECUTOR,
-        common_status=lambda _cfg: {"ok": True},
-        version=ub.VERSION,
-        clean_platform_name=ub.get_clean_platform_name,
-        doctor_sync=lambda token: {},
-        sysinfo_sync=lambda root: {},
-        play_beep_sync=lambda beep_type, freq, dur: {},
-        send_notification_sync=lambda title, msg: {},
-        check_auth=_explode,
-    )
-    handlers = make_system_handlers(ctx)
-    request = make_mocked_request(
-        "GET", "/v1/version",
-        headers={"Authorization": f"Bearer {TOKEN}"}, app=app)
-
-    with caplog.at_level("WARNING"), \
-            patch("arena.admin.auto_update._install_root", return_value=tmp_path):
-        asyncio.run(handlers.version(request))
+    with caplog.at_level("WARNING"):
+        _call_version(tmp_path, headers=_BEARER, check_auth=_explode)
 
     assert any("auth probe failed" in r.message for r in caplog.records), (
         "a probe that raises must leave a trace for the operator"
