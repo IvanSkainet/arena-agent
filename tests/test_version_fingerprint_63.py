@@ -130,21 +130,29 @@ def test_anonymous_caller_gets_no_interpreter_or_os_build(tmp_path):
         )
 
 
-def test_no_value_in_the_anonymous_body_reveals_the_python_build(tmp_path):
-    """Not just the key: the value must be gone from the whole payload.
+def test_no_value_in_the_anonymous_body_reveals_the_host_fingerprint(tmp_path):
+    """Not just the keys: the values must be gone from the whole payload.
 
-    Renaming the field, or folding the interpreter string into some
-    other value, would pass the key check above while disclosing the
-    same fact.
+    Renaming a field, or folding the interpreter or OS string into some
+    other value, would pass the key checks above while disclosing the
+    same fact. Both gated values are checked, since the PR gates both.
     """
-    _, body = _anonymous(tmp_path)
+    response, body = _anonymous(tmp_path)
 
-    python_build = sys.version.split()[0]  # e.g. "3.14.7"
     blob = json.dumps(body)
-    assert python_build not in blob, (
-        f"the running interpreter build {python_build!r} still appears in "
-        f"the anonymous response: {blob}"
-    )
+    raw = response.text.encode()
+    for label, value in (
+        ("interpreter build", sys.version.split()[0]),  # e.g. "3.14.7"
+        ("OS build", ub.get_clean_platform_name()),
+    ):
+        assert value not in blob, (
+            f"the running {label} {value!r} still appears in the anonymous "
+            f"response: {blob}"
+        )
+        assert value.encode() not in raw, (
+            f"the running {label} {value!r} still appears in the raw "
+            f"anonymous response bytes"
+        )
 
 
 def test_authenticated_caller_still_gets_the_diagnostic(tmp_path):
@@ -265,13 +273,28 @@ def test_production_wiring_supplies_the_auth_probe():
     Without this, every assertion above would still pass while the live
     bridge published the fingerprint to the world -- the handler would
     simply never see a probe and treat the operator as anonymous too.
-    """
-    import inspect
 
+    Asserted by running the real wiring and inspecting the context it
+    builds, rather than by grepping its source: reformatting or moving
+    the argument must not fail this, and dropping it must.
+    """
     from arena.wiring import system_public_admin_registries as reg
 
-    source = inspect.getsource(reg.build_system_public_admin_registries)
-    assert "check_auth=env.check_auth" in source, (
+    sentinel = object()
+    captured = {}
+
+    def _capture(ctx):
+        captured["ctx"] = ctx
+        return {}
+
+    g = dict(vars(ub))
+    g["check_auth"] = sentinel
+    g["build_system_handlers"] = _capture
+
+    reg.build_system_public_admin_registries(g)
+
+    assert captured, "the real wiring never built the system handlers"
+    assert getattr(captured["ctx"], "check_auth", None) is sentinel, (
         "system handler wiring no longer forwards check_auth; /v1/version "
         "would silently fall back to anonymous for everyone"
     )
