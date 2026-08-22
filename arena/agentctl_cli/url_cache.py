@@ -128,6 +128,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from arena.auth.compare import secrets_equal
+
 # Bumped in v4.40.0 -- v4.39.0 wrote unsigned version-1 snapshots
 # with no allowlist. Those are silently discarded on first load
 # by this release, and the next successful bootstrap rewrites the
@@ -413,7 +415,7 @@ def load(secret: str | None = None) -> dict[str, Any] | None:
     # leak signature-prefix bytes via timing (paranoid; the file
     # is under the attacker's control anyway, but the discipline
     # is free).
-    if not hmac.compare_digest(sig, expected):
+    if not secrets_equal(sig, expected):
         return None
     if payload.get("version") != CACHE_VERSION:
         # Different schema version -- ignore quietly. Future

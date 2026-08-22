@@ -1,3 +1,51 @@
+## v4.169.50 — 2026-08-22
+
+### A non-ASCII credential crashed the auth path (#61)
+
+Issue #61 was filed against a docstring: `AgentRegistry.resolve_token`
+claimed constant-time comparison "via `hmac.compare_digest` inside
+`_derive_agent_token`" while resolving tokens with a plain dict lookup.
+`_derive_agent_token` mints tokens with `hmac.new`; it compares nothing.
+
+Applying the fix the issue suggests -- `hmac.compare_digest` in the
+lookup loop -- would have introduced a worse bug than it fixed, because
+that function raises on non-ASCII `str`:
+
+    TypeError: comparing strings with non-ASCII characters is not supported
+
+Checking that hazard against the eight existing comparison sites found
+it was already live. Measured against the running bridge, with no
+credential at all:
+
+    GET /v1/status  Authorization: Bearer <u-umlaut>         -> 500
+    GET /v1/status  Authorization: Bearer agent-<uml>-attack -> 500
+    GET /gui?token=%C3%BC                                    -> 500
+    GET /v1/status  Authorization: Bearer agent-deadbeef-... -> 401
+
+An anonymous caller could turn any auth check into an unhandled
+exception on paths whose entire job is to answer 401 -- an
+error-response amplifier and a liveness bug, reachable from the public
+internet whenever a tunnel is up.
+
+The fix is `arena/auth/compare.py`: `secrets_equal` compares UTF-8
+bytes, which `compare_digest` accepts for every input, so the
+comparison stays timing-safe and becomes total. Non-string operands
+(`None`, a dict decoded from JSON) compare `False` instead of raising.
+Lone surrogates, which a latin-1-decoded header can carry, are encoded
+with `surrogatepass` rather than crashing on the way in.
+
+Applied at every credential comparison: the master-token path, the
+per-user roster, both GUI login routes, the public-tunnel
+acknowledgement, and the signed URL cache. `arena/input_helper/
+helper_server.py` carries its own copy on purpose -- it runs as a
+standalone script outside the package -- with a test asserting the two
+agree.
+
+And #61 proper: `resolve_token` now scans every registered token
+without breaking early, so the number of comparisons no longer depends
+on where the match sits, and the docstring describes what the code
+actually does.
+
 ## v4.169.49 — 2026-08-22
 
 ### The unauthenticated `/v1/version` no longer fingerprints the host (#63)

@@ -1,7 +1,6 @@
 """Handlers and templates for the built-in dashboard GUI."""
 from __future__ import annotations
 
-import hmac
 import os
 import socket
 from collections.abc import Callable
@@ -12,6 +11,7 @@ from typing import Any
 from aiohttp import web
 
 from arena.app_keys import APP_CFG
+from arena.auth.compare import secrets_equal
 from arena.gui.templates import DASHBOARD_V2_HTML, GUI_LOGIN_HTML
 from arena.handler_context import GuiHandlerContext
 
@@ -33,7 +33,7 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
         cfg = request.app[APP_CFG]
         url_token = request.query.get("token", "")
         # nosemgrep: nan-injection -- bool() on a string tests non-emptiness; NaN/Inf are float-only concerns and cannot come from a string here.
-        valid_token = bool(url_token) and hmac.compare_digest(url_token, cfg["token"])
+        valid_token = bool(url_token) and secrets_equal(url_token, cfg["token"])
         if not valid_token:
             return web.Response(text=GUI_LOGIN_HTML, content_type="text/html", charset="utf-8")
         return web.Response(text=DASHBOARD_V2_HTML, content_type="text/html", charset="utf-8")
@@ -150,7 +150,7 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
         # Only URL token param is accepted — timing-attack safe.
         url_token = request.query.get("token", "")
         # nosemgrep: nan-injection -- bool() on a string tests non-emptiness; NaN/Inf are float-only concerns and cannot come from a string here.
-        valid_token = bool(url_token) and hmac.compare_digest(url_token, cfg["token"])
+        valid_token = bool(url_token) and secrets_equal(url_token, cfg["token"])
 
         # No valid URL token — show login page.
         # (We require the token in the URL because the dashboard HTML needs it for API calls.)

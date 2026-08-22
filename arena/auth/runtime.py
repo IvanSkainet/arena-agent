@@ -1,7 +1,6 @@
 """Authentication runtime helpers and compatibility wrappers."""
 from __future__ import annotations
 
-import hmac
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -10,6 +9,7 @@ from typing import Any
 from aiohttp import web
 
 from arena.app_keys import APP_CFG
+from arena.auth.compare import secrets_equal
 from arena.auth.users import UserStore
 
 
@@ -104,7 +104,7 @@ def make_auth_runtime(ctx: AuthRuntimeContext) -> AuthRuntime:
             # route free of per-request disk I/O.
             return False
         for cand in candidates:
-            if hmac.compare_digest(cand, master):
+            if secrets_equal(cand, master):
                 return True
         # v3.86.0: multi-agent bearer tokens. Recognise `agent-<id>-<hex>`
         # by consulting the process-wide registry. On a hit we attach

@@ -40,6 +40,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from arena.auth.compare import secrets_equal
+
 # Ring-buffer size for the per-agent audit log. 500 * ~200 bytes ≈
 # 100 KB per agent, comfortably below any concern for hundreds of
 # agents.
@@ -112,16 +114,33 @@ class AgentRegistry:
             return self._by_id.get(agent_id)
 
     def resolve_token(self, token: str) -> AgentRecord | None:
-        """Look up an agent by its bearer token. Constant-time via
-        `hmac.compare_digest` inside `_derive_agent_token` (aliases
-        share the same hash prefix)."""
+        """Look up an agent by its bearer token, in constant time.
+
+        The lookup scans every registered token and compares each with
+        `secrets_equal`, without breaking early: the number of
+        comparisons is the number of agents regardless of whether or
+        where a match is found, so neither the hit position nor the
+        hit/miss outcome is leaked by the loop's shape.
+
+        Before #61 this was `self._by_token.get(token)`. A dict lookup
+        is not constant-time, and the docstring claimed the comparison
+        happened "via `hmac.compare_digest` inside `_derive_agent_token`"
+        -- which mints tokens with `hmac.new` and compares nothing.
+
+        `secrets_equal`, not `hmac.compare_digest` directly: the token
+        is an attacker-supplied header value, and `compare_digest`
+        raises TypeError on non-ASCII `str`. See `arena.auth.compare`.
+        """
         if not token:
             return None
         with self._lock:
-            agent_id = self._by_token.get(token)
-            if not agent_id:
+            found: str | None = None
+            for stored_token, agent_id in self._by_token.items():
+                if secrets_equal(token, stored_token):
+                    found = agent_id
+            if found is None:
                 return None
-            return self._by_id.get(agent_id)
+            return self._by_id.get(found)
 
     def list(self) -> list[AgentRecord]:
         with self._lock:
