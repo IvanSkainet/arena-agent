@@ -76,3 +76,53 @@ updates:
     # PRs stay open for a week so the maintainer has time to read
     # the diff before CI inevitably decides to rebase it.
     open-pull-requests-limit: 5
+
+  # GitHub Actions. Added in v4.169.51 after measuring what the SHA pins
+  # actually cost us.
+  #
+  # The pip block above says actions are deliberately excluded because every
+  # one is pinned to a reviewed commit SHA. The pinning is real -- all 25
+  # third-party actions are full 40-character SHAs, none stale, none from an
+  # archived or renamed upstream. What the comment missed is that pinning
+  # silently disables the alerting channel:
+  #
+  #   "Dependabot will only create Dependabot alerts for vulnerable GitHub
+  #    Actions that use semantic versioning. You will not receive alerts for
+  #    a vulnerable action that uses SHA versioning."
+  #    -- docs.github.com, About Dependabot alerts, Limitations
+  #
+  # Measured on this repository rather than assumed: all 25 actions ARE in
+  # the dependency graph, and all 25 are recorded with a 40-char SHA as their
+  # versionInfo -- zero semver entries. Dependabot alerts and automated
+  # security fixes are both enabled, and in the repository's whole history
+  # they have produced exactly two alerts, one pip and one npm. Never an
+  # action, and not because we were lucky: three of our pinned actions
+  # (harden-runner, codeql-action, download-artifact) carry published
+  # advisories, and our pins sit above every vulnerable range. Had they not,
+  # nothing here would have said so.
+  #
+  # GitHub's own documented remedy for that gap is this block: with version
+  # updates enabled, Dependabot resolves each SHA back to its release and
+  # proposes the next one, so a security fix upstream arrives as a PR even
+  # though no alert can fire. It does not restore alerting -- it replaces it
+  # with a slower channel that at least exists.
+  #
+  # Why weekly and not daily: an action bump is a supply-chain decision, not
+  # a routine upgrade. Each PR must be reviewed the same way the original pin
+  # was -- read the diff between the two SHAs, confirm the new one is a
+  # tagged release of the real upstream and not a fork. A limit of 3 keeps
+  # that reviewable; grouping would defeat it by hiding several such
+  # decisions behind one diff, so these stay ungrouped on purpose.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "automated-pr"
+      - "github-actions"
+    open-pull-requests-limit: 3
