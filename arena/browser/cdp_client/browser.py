@@ -174,6 +174,12 @@ class CDPBrowser(CDPBrowserEventsMixin, CDPBrowserPageMixin):
             logger.info("[CDP] Reconnect attempt %d/%d", attempt, RECONNECT_ATTEMPTS)
             try:
                 await self.connect()
+                # The new session starts with Fetch disabled, so any armed
+                # navigation guard would stop receiving paused requests and
+                # fail open without a sound. Replay the domain state.
+                arbiter = getattr(self, "_fetch_arbiter", None)
+                if arbiter is not None:
+                    await arbiter.resync()
                 return
             except Exception as e:
                 logger.warning("[CDP] Reconnect failed: %s", e)

@@ -81,7 +81,14 @@ class NavigationGuard:
         frame_id = params.get("frameId")
         top = await self.main_frame_id()
         if top is not None and frame_id is not None and frame_id != top:
-            return NOT_CLAIMED
+            # The cached id survives reconnects and target switches, and a
+            # stale one makes a genuine top-level navigation look like a
+            # subframe -- skipped, unchecked, fail-open. Only a re-read of the
+            # frame tree may excuse a request from judgement.
+            self._main_frame_id = None
+            top = await self.main_frame_id()
+            if top is not None and frame_id != top:
+                return NOT_CLAIMED
 
         url = params.get("request", {}).get("url", "")
         try:

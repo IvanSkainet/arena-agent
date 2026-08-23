@@ -93,6 +93,24 @@ class FetchArbiter:
     def is_registered(self, name: str) -> bool:
         return name in self._subs
 
+    async def resync(self) -> None:
+        """Re-send ``Fetch.enable`` for the current subscribers.
+
+        ``CDPBrowser.reconnect()`` builds a *new* CDP session, so the browser
+        side of the Fetch domain is gone while this object still believes it
+        is enabled. Nothing then pauses, and the guard silently stops
+        enforcing. Event handlers live on the browser object and survive the
+        reconnect, so only the domain command is replayed -- re-registering
+        the listener here would double-dispatch every paused request.
+        """
+        async with self._lock:
+            if not self._subs:
+                return
+            await self._browser.send(
+                "Fetch.enable",
+                {"patterns": self.merged_patterns(), "handleAuthRequests": False},
+            )
+
     @property
     def active(self) -> bool:
         return self._enabled

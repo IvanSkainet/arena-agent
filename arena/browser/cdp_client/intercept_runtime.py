@@ -11,6 +11,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 from arena.browser.cdp_client.common import Dict, List, Optional, base64, logger
 from arena.browser.cdp_client.fetch_arbiter import CLAIMED, NOT_CLAIMED, get_arbiter
+from arena.browser.navigation_policy import NavigationRejected, check_navigation
 
 #: Arbiter subscriber name for the user-facing interception rules.
 INTERCEPTOR_NAME = "network_interceptor"
@@ -124,7 +125,28 @@ class CDPNetworkInterceptRuntimeMixin:
                 })
 
             elif matched_rule.action == "redirect":
-                # Use continueRequest with url for true network-level redirect
+                # A rewrite is a navigation the agent chose, so it faces the
+                # same policy as one it typed. Without this, an interception
+                # rule launders any allowed main-frame Document straight to a
+                # private target: the guard judges the ORIGINAL url, passes it,
+                # and the rewrite then lands on loopback. Demonstrated against
+                # an earlier revision of this change -- a rule matching
+                # "example.com" rewrote to http://127.0.0.1:8765/v1/status and
+                # the request went through. Found in review of PR #173.
+                if resource_type == "Document":
+                    try:
+                        check_navigation(matched_rule.redirect_url)
+                    except NavigationRejected as exc:
+                        logger.warning(
+                            "[CDPNetworkInterceptor] Rule '%s' redirect to %.120s refused: %s",
+                            matched_rule.name, matched_rule.redirect_url, exc,
+                        )
+                        await self._browser.send("Fetch.failRequest", {
+                            "requestId": request_id,
+                            "errorReason": "BlockedByClient",
+                        })
+                        self._paused_requests.pop(request_id, None)
+                        return
                 await self._browser.send("Fetch.continueRequest", {
                     "requestId": request_id,
                     "url": matched_rule.redirect_url,

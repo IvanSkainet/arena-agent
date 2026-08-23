@@ -33,6 +33,7 @@ guard is armed" are one bit of state with two owners.
 from __future__ import annotations
 
 import asyncio
+import pathlib
 
 import pytest
 
@@ -354,3 +355,108 @@ def test_non_cdp_screenshot_paths_are_documented_as_uncovered():
     security = (Path(__file__).resolve().parents[1] / "SECURITY.md").read_text(encoding="utf-8")
     assert "browser.shot" in security, "SECURITY.md no longer records the shot-path gap"
     assert "--headless" in security or "headless" in security
+
+
+# --- defects found in review of PR #173 ------------------------------------
+
+def test_interception_rule_cannot_launder_navigation_to_a_private_target(browser):
+    """A redirect rule is a navigation the agent chose; it faces the policy.
+
+    The guard judges the URL of the paused request. An interception rule then
+    rewrites that request via `Fetch.continueRequest{url}`, so an allowed
+    public target can be swapped for loopback after the guard has passed it.
+    Reproduced against the first revision of this branch: a rule matching
+    "example.com" rewrote to http://127.0.0.1:8765/v1/status and the request
+    went through.
+    """
+    from arena.browser.cdp_client.intercept_rule import InterceptRule
+
+    async def go():
+        await arm_navigation_guard(browser, env={})
+        interceptor = CDPNetworkInterceptor(browser)
+        await interceptor.start()
+        interceptor.add_rule(InterceptRule(
+            name="launder", url_pattern="example.com", action="redirect",
+            redirect_url="http://127.0.0.1:8765/v1/status",
+        ))
+        browser.sent.clear()
+        await browser.fire(paused("https://example.com/ok"))
+
+        assert browser.verdict() == ["Fetch.failRequest"]
+        rewrites = [p.get("url") for m, p in browser.fetch_calls()
+                    if m == "Fetch.continueRequest"]
+        assert "http://127.0.0.1:8765/v1/status" not in rewrites
+
+    asyncio.run(go())
+
+
+def test_a_rule_may_still_rewrite_to_a_public_target(browser):
+    """The fix must not break ordinary redirect rules."""
+    from arena.browser.cdp_client.intercept_rule import InterceptRule
+
+    async def go():
+        await arm_navigation_guard(browser, env={})
+        interceptor = CDPNetworkInterceptor(browser)
+        await interceptor.start()
+        interceptor.add_rule(InterceptRule(
+            name="mirror", url_pattern="example.com", action="redirect",
+            redirect_url="https://mirror.example.org/ok",
+        ))
+        browser.sent.clear()
+        await browser.fire(paused("https://example.com/ok"))
+
+        assert [(m, p.get("url")) for m, p in browser.fetch_calls()] == [
+            ("Fetch.continueRequest", "https://mirror.example.org/ok")
+        ]
+
+    asyncio.run(go())
+
+
+def test_guard_survives_a_reconnect(browser):
+    """A new CDP session starts with Fetch disabled.
+
+    The arbiter still believed the domain was enabled, so nothing paused and
+    the guard stopped enforcing without a sound.
+    """
+    async def go():
+        await arm_navigation_guard(browser, env={})
+        arbiter = get_arbiter(browser)
+        browser.sent.clear()
+
+        await arbiter.resync()
+        assert "Fetch.enable" in [m for m, _ in browser.sent]
+
+        # exactly one listener, so a paused request gets one disposition
+        browser.sent.clear()
+        await browser.fire(paused("http://127.0.0.1:8765/v1/status"))
+        assert browser.verdict() == ["Fetch.failRequest"]
+
+    asyncio.run(go())
+
+
+def test_reconnect_resync_is_wired_into_the_browser():
+    """The arbiter is resynced by reconnect() itself, not only on demand."""
+    source = pathlib.Path("arena/browser/cdp_client/browser.py").read_text(encoding="utf-8")
+    reconnect = source.split("async def reconnect", 1)[1]
+    assert "resync()" in reconnect, "reconnect() must replay the Fetch domain state"
+
+
+def test_a_stale_main_frame_id_does_not_excuse_a_navigation(browser):
+    """The cached frame id survives target switches.
+
+    A stale id makes a genuine top-level navigation look like a subframe, and
+    subframes are skipped -- unchecked, fail-open. A mismatch must force a
+    re-read of the frame tree before the request is excused.
+    """
+    async def go():
+        await arm_navigation_guard(browser, env={})
+        await browser.fire(paused("https://example.com/", rid="WARM"))
+
+        browser.root = "NEW-FRAME-AFTER-NAVIGATION"
+        browser.sent.clear()
+        await browser.fire(paused("http://127.0.0.1:8765/v1/status",
+                                  frame="NEW-FRAME-AFTER-NAVIGATION", rid="R2"))
+
+        assert browser.verdict() == ["Fetch.failRequest"]
+
+    asyncio.run(go())
