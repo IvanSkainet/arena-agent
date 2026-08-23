@@ -46,10 +46,14 @@ except ImportError as exc:  # pragma: no cover - exercised only without PyYAML
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEPENDABOT = REPO_ROOT / ".github" / "dependabot.yml"
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
+# Composite actions live here if any are ever added. Empty today, walked anyway
+# so a future `.github/actions/foo/action.yml` cannot pin a tag unnoticed
+# (raised in review on #164).
+ACTION_DIRS = REPO_ROOT / ".github" / "actions"
 
-# `uses: owner/repo@ref` -- ignores commented-out lines.
-_USES = re.compile(r"^\s*-?\s*uses:\s*([^\s#]+)", re.MULTILINE)
-_SHA_PIN = re.compile(r"@[0-9a-f]{40}$")
+# Case-insensitive: a SHA pin written in uppercase hex is equally immutable
+# and must not be reported as unpinned (raised in review on #164).
+_SHA_PIN = re.compile(r"@[0-9a-fA-F]{40}$")
 
 
 def _updates() -> list[dict]:
@@ -58,20 +62,77 @@ def _updates() -> list[dict]:
     updates = config.get("updates")
     if not isinstance(updates, list) or not updates:
         raise RuntimeError(f"{DEPENDABOT} declares no `updates:` list")
+    malformed = [u for u in updates if not isinstance(u, dict)]
+    if malformed:
+        # Fail closed with a readable message rather than AttributeError on
+        # the first .get() (raised in review on #164).
+        raise RuntimeError(
+            f"{DEPENDABOT} has non-mapping entries in `updates:`: {malformed!r}"
+        )
     return updates
+
+
+def _yaml_files() -> list[pathlib.Path]:
+    files = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
+    if ACTION_DIRS.is_dir():
+        files += sorted(ACTION_DIRS.rglob("action.yml"))
+        files += sorted(ACTION_DIRS.rglob("action.yaml"))
+    return files
+
+
+def _walk_uses(node: object) -> list[str]:
+    """Collect every `uses:` value from a parsed YAML document.
+
+    Parsing rather than regex-matching the text: a quoted `uses: "owner/x@sha"`
+    keeps its quotes under a regex and would then be misread as unpinned, and a
+    `uses:` mentioned inside a `run:` script would be picked up as a dependency.
+    Walking the parsed structure gets both right by construction.
+    """
+    found: list[str] = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "uses" and isinstance(value, str):
+                found.append(value.strip())
+            else:
+                found += _walk_uses(value)
+    elif isinstance(node, list):
+        for item in node:
+            found += _walk_uses(item)
+    return found
 
 
 def _third_party_uses() -> list[str]:
     """Every `uses:` reference that points outside this repository."""
+    # Read the owner/repo from git's own remote rather than hardcoding it, so a
+    # rename or a fork does not silently reclassify first-party reusable
+    # workflows as third-party (raised in review on #164).
+    own_repo = _own_repo_slug()
     refs = []
-    for path in sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml")):
-        for ref in _USES.findall(path.read_text(encoding="utf-8")):
-            # `./local-action` and `owner/repo/.github/workflows/x.yml@ref`
-            # for this same repo are not third-party dependencies.
-            if ref.startswith("./") or ref.startswith("IvanSkainet/arena-agent"):
+    for path in _yaml_files():
+        with path.open(encoding="utf-8") as handle:
+            doc = yaml.safe_load(handle)
+        for ref in _walk_uses(doc):
+            # `./local-action`, `docker://...` and reusable workflows from this
+            # same repository are not third-party dependencies.
+            if ref.startswith("./") or ref.startswith("docker://"):
+                continue
+            if own_repo and ref.lower().startswith(f"{own_repo}/"):
                 continue
             refs.append(ref)
     return refs
+
+
+def _own_repo_slug() -> str:
+    """`owner/repo` for this checkout, or "" when it cannot be determined."""
+    config = REPO_ROOT / ".git" / "config"
+    if not config.is_file():
+        return ""
+    match = re.search(
+        r"github\.com[:/]([^/\s]+/[^/\s]+?)(?:\.git)?\s*$",
+        config.read_text(encoding="utf-8", errors="replace"),
+        re.MULTILINE,
+    )
+    return match.group(1).lower() if match else ""
 
 
 def test_dependabot_watches_the_github_actions_ecosystem() -> None:
