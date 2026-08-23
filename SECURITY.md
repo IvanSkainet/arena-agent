@@ -327,19 +327,40 @@ that guarantee should run the browser with an egress filter or
 `--host-resolver-rules`, which enforce the decision where the resolution
 actually happens.
 
-**Known limit — HTTP redirects.** The policy validates the URL the agent
-supplies. If that public URL answers with a `3xx` to a private destination,
-Chromium follows the hop inside its own network stack, and no CDP command is
-issued for it, so nothing on the host sees the second URL before the request
-leaves. `open_public_url` re-validates every hop because urllib surfaces them
-to a redirect handler; `Page.navigate` gives no equivalent hook. Closing this
-requires a `Fetch`/`Network` interception domain enabled for the lifetime of
-every tab and a policy check on each `requestWillBeSent` — a change to the
-CDP client's connection model rather than to the navigation entry points,
-tracked in issue #122. Until then the same mitigations apply as for rebinding:
-an egress filter or `--host-resolver-rules` on the browser process. The
-policy's guarantee is therefore precise: an agent cannot *name* a private
-target, but a public target that the agent names can still redirect to one.
+**HTTP redirects — closed for CDP navigations (#122).** The policy validated
+only the URL the agent supplied; a public URL answering `3xx` with a private
+`Location` was followed inside Chromium's network stack with no second check.
+Demonstrated end to end before the fix: a public `https://` start URL,
+accepted by the policy, redirected to a loopback HTTP server whose content was
+then read out of the DOM.
+
+Every CDP navigation now arms `NavigationGuard`, which re-applies
+`check_navigation()` to each main-frame `Document` request — including the
+ones Chromium generates for redirect hops — and fails a refused target with
+`BlockedByClient`. The error text is the static policy's, and
+`ARENA_BROWSER_ALLOW_LOCAL_NAV=1` still applies across hops.
+
+Because the CDP `Fetch` domain is single-slot (a second `Fetch.enable`
+replaces the first one's patterns, and `Fetch.disable` is global — both
+measured against live Chromium), the guard and the user-facing interception
+rules are arbitrated by `FetchArbiter`: it owns enable/disable, merges
+patterns, consults the guard first so a user rule cannot launder a request
+past the policy, and only disables `Fetch` when the last subscriber leaves.
+
+**Still uncovered — the non-CDP screenshot paths.** `browser.shot` and the
+standalone shot tool run `chromium --headless --screenshot <url>` with no CDP
+session, so there is no `Fetch` domain to arm. Those paths keep the static
+`check_navigation()` check on the agent-supplied URL, and a redirect from
+there to a private target is still followed. `--host-resolver-rules` does not
+substitute for the guard here: it rewrites *name* resolution, while the
+demonstrated attack redirects to a literal IP and bypasses resolution
+entirely. Operators who need that path covered should apply an egress filter
+to the browser process.
+
+**Known limit — DNS rebinding (unchanged).** The redirect half above is now
+enforced, but rebinding is not: a hostname that resolves public at check time
+may resolve to loopback microseconds later inside Chromium, and the guard
+re-checks the URL, not the address the browser finally connects to.
 
 ### Audit-log credential redaction
 
