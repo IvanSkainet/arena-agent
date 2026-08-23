@@ -104,6 +104,32 @@ def test_actions_updates_are_not_grouped() -> None:
         )
 
 
+def test_every_ecosystem_waits_out_a_cooldown() -> None:
+    """Do not offer a version that was published minutes ago.
+
+    Without `cooldown`, Dependabot proposes a release the moment it appears --
+    which is the window a supply-chain attacker needs. The tj-actions and npm
+    chalk/debug compromises were both live for well under a day before being
+    caught and yanked, so a week's delay means the malicious version is gone
+    before it is ever offered.
+
+    zizmor's `dependabot-cooldown` audit raised this on #164, against the
+    pre-existing pip block as well as the new actions one. It surfaced as a
+    code-scanning alert rather than a failed job -- the required check exited
+    0 while the SARIF upload reported the warning, the same split documented
+    in #162.
+    """
+    for update in _updates():
+        eco = update.get("package-ecosystem")
+        cooldown = update.get("cooldown") or {}
+        days = cooldown.get("default-days")
+        assert isinstance(days, int) and days >= 7, (
+            f"the {eco} entry sets cooldown default-days={days!r}; it must be at "
+            f"least 7 so a freshly published (and possibly malicious) release is "
+            f"never proposed before the ecosystem has had time to catch it."
+        )
+
+
 def test_the_premise_still_holds_every_action_is_sha_pinned() -> None:
     """If actions were tag-pinned, alerts would work and this gate would be moot.
 
