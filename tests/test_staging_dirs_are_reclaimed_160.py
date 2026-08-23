@@ -75,8 +75,13 @@ def release_server() -> Iterator[str]:
             self.end_headers()
             self.wfile.write(PAYLOAD)
 
-        def log_message(self, *_args: object) -> None:
-            pass
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+            """Silence the per-request stderr logging.
+
+            Signature matches BaseHTTPRequestHandler exactly (flagged in
+            review on #170); `format` shadows the builtin by inheritance, not
+            by choice, hence the noqa.
+            """
 
     server = socketserver.TCPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -199,4 +204,52 @@ def test_caller_supplied_dest_dir_is_never_deleted(tmp_path: pathlib.Path) -> No
     assert caller_dir.exists(), "cleanup deleted a directory it did not create"
     assert keeper.read_text(encoding="utf-8") == "must survive", (
         "cleanup destroyed caller-owned content"
+    )
+
+
+@pytest.mark.usefixtures("allow_loopback")
+def test_digest_read_failure_leaves_no_staging_tree(
+    staging_root: pathlib.Path, release_server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An exception after the bytes land must still reclaim the tree.
+
+    The first fix cleaned up at each `return _err(...)`, which covered only the
+    paths that were remembered. `_sha256_of` runs *after* the download and can
+    raise on a disk read error -- that escaped every one of them and leaked.
+    Found in review on #170 and reproduced before fixing; the cleanup is now a
+    `finally`, so the exception still propagates but the tree does not survive.
+    """
+
+    def boom(_path: pathlib.Path) -> str:
+        raise OSError("disk read error")
+
+    monkeypatch.setattr(fetch, "_sha256_of", boom)
+
+    with pytest.raises(OSError, match="disk read error"):
+        download_release(
+            asset_url=release_server, asset_name="a.zip", expected_sha256=BAD_SHA
+        )
+
+    assert _staging_trees(staging_root) == [], (
+        "an exception raised after the download leaked the staging tree (#170)"
+    )
+
+
+def test_falsey_dest_dir_is_treated_as_ours(staging_root: pathlib.Path) -> None:
+    """`dest_dir=""` creates a temp tree, so that tree is ours to reclaim.
+
+    `owned` was computed as `dest_dir is None` while the mkdtemp decision used
+    `if dest_dir`. An empty string therefore took the mkdtemp branch and was
+    then marked not-ours, leaking on every failure. The two tests must agree.
+    """
+    result = download_release(
+        asset_url="https://no-such-host.invalid/a.zip",
+        asset_name="a.zip",
+        expected_sha256=BAD_SHA,
+        dest_dir="",
+    )
+
+    assert result["ok"] is False
+    assert _staging_trees(staging_root) == [], (
+        'dest_dir="" created a staging tree that was never reclaimed (#170)'
     )

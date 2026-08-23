@@ -112,9 +112,43 @@ def download_release(*, asset_url: str, asset_name: str,
     # URL, a DNS failure, an oversized archive or a digest mismatch each left
     # an empty `arena-update-*` behind forever. Measured on the operator's
     # machine: 191 trees, 185 of them empty, accumulating ~4-8 per day.
-    owned = dest_dir is None
+    # `owned` must follow the *same* test that decides whether mkdtemp runs.
+    # `dest_dir is None` diverged from `if dest_dir`: a falsey non-None value
+    # ("" or Path("")) created a temp tree and then marked it not-ours, so it
+    # was never reclaimed. Raised independently by two reviewers on #170.
+    owned = not dest_dir
     dest = Path(dest_dir) if dest_dir else Path(tempfile.mkdtemp(prefix="arena-update-"))
     dest.mkdir(parents=True, exist_ok=True)
+    # try/finally is the guarantee. Cleaning up at each `return _err` covered
+    # only the paths someone remembered: an exception out of _sha256_of -- a
+    # disk read error after the bytes landed -- still leaked, and any early
+    # return added later would leak again. Reclaiming is now the default and
+    # success is the single explicit opt-out. Both gaps were reproduced before
+    # fixing; raised by sourcery, codacy and qodo on #170.
+    result = _err("download did not run")
+    try:
+        result = _download_into(
+            dest=dest,
+            asset_url=asset_url,
+            asset_name=asset_name,
+            expected_sha256=expected_sha256,
+            allow_unverified=allow_unverified,
+        )
+        return result
+    finally:
+        if not result.get("ok"):
+            _discard_staging(dest, owned)
+
+
+def _download_into(*, dest: Path, asset_url: str, asset_name: str,
+                   expected_sha256: str | None,
+                   allow_unverified: bool) -> dict[str, Any]:
+    """Fetch and verify into an already-created `dest`.
+
+    Split out so `download_release` can wrap the whole thing in one
+    try/finally: the cleanup decision then depends only on the returned
+    `ok`, and no future early return can bypass it.
+    """
     zip_path = dest / asset_name
     try:
         # v4.43.0: SSRF + size-cap defence for the release
@@ -128,7 +162,6 @@ def download_release(*, asset_url: str, asset_name: str,
         from arena.security_ssrf import _validate_url
         ssrf_err = _validate_url(asset_url)
         if ssrf_err:
-            _discard_staging(dest, owned)
             return _err(f"asset_url rejected: {ssrf_err}",
                         asset_url=asset_url)
         req = urllib.request.Request(asset_url, headers={"User-Agent": _user_agent()})
@@ -143,18 +176,15 @@ def download_release(*, asset_url: str, asset_name: str,
                     raise _TooLarge()
                 out.write(chunk)
     except _TooLarge:
-        _discard_staging(dest, owned)
         return _err("release zip exceeded 512 MiB size cap",
                     asset_url=asset_url)
     except Exception as e:
-        _discard_staging(dest, owned)
         return _err(f"download failed: {e!r}", asset_url=asset_url)
 
     got = _sha256_of(zip_path)
     want = (expected_sha256 or "").split(":", 1)[-1].strip().lower()
     if not want:
         if not allow_unverified:
-            _discard_staging(dest, owned)
             return _err(
                 "expected_sha256 is required: refusing to hand back an "
                 "unverified release archive",
@@ -164,7 +194,6 @@ def download_release(*, asset_url: str, asset_name: str,
                       "deliberately."),
             )
     elif want != got:
-        _discard_staging(dest, owned)
         return _err("sha256 mismatch after download",
                     expected=want, got=got, path=str(zip_path))
     return {
