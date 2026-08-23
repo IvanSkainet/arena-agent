@@ -10,6 +10,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from arena.browser.cdp_client.browser import CDPBrowser
 
 from arena.browser.cdp_client.common import Dict, List, Optional, base64, logger
+from arena.browser.cdp_client.fetch_arbiter import CLAIMED, NOT_CLAIMED, get_arbiter
+from arena.browser.navigation_policy import NavigationRejected, check_navigation
+
+#: Arbiter subscriber name for the user-facing interception rules.
+INTERCEPTOR_NAME = "network_interceptor"
 
 
 class CDPNetworkInterceptRuntimeMixin:
@@ -29,6 +34,12 @@ class CDPNetworkInterceptRuntimeMixin:
             patterns: Optional list of Fetch pattern dicts to pass to Fetch.enable.
                      If None, intercepts all requests.
                      Example: [{"urlPattern": "*://example.com/*"}]
+
+        Goes through `FetchArbiter` rather than touching `Fetch` directly.
+        Measured on live Chromium: a second `Fetch.enable` replaces the first
+        one's patterns and `Fetch.disable` is global, so an interceptor that
+        owned the domain by itself would silently disarm the #122 navigation
+        guard the moment it started or stopped.
         """
         if self._active:
             return
@@ -37,12 +48,9 @@ class CDPNetworkInterceptRuntimeMixin:
         if patterns is None:
             patterns = [{"urlPattern": "*"}]
 
-        await self._browser.send("Fetch.enable", {
-            "patterns": patterns,
-            "handleAuthRequests": False,
-        })
-
-        self._browser.on("Fetch.requestPaused", self._on_request_paused)
+        await get_arbiter(self._browser).register(
+            INTERCEPTOR_NAME, self._on_request_paused_arbitrated, patterns=patterns
+        )
         self._active = True
         logger.info("[CDPNetworkInterceptor] Interception started with %d pattern(s)", len(patterns))
 
@@ -51,7 +59,7 @@ class CDPNetworkInterceptRuntimeMixin:
         if not self._active:
             return
 
-        self._browser.off("Fetch.requestPaused", self._on_request_paused)
+        await get_arbiter(self._browser).unregister(INTERCEPTOR_NAME)
 
         # Resume any paused requests before disabling
         for request_id, params in list(self._paused_requests.items()):
@@ -61,13 +69,22 @@ class CDPNetworkInterceptRuntimeMixin:
                 pass
         self._paused_requests.clear()
 
-        try:
-            await self._browser.send("Fetch.disable")
-        except Exception:
-            pass
-
         self._active = False
         logger.info("[CDPNetworkInterceptor] Interception stopped")
+
+    async def _on_request_paused_arbitrated(self, params: Dict) -> str:
+        """Arbiter adapter: report whether this request was disposed of here.
+
+        The arbiter guarantees exactly one disposition per request, so a rule
+        that matched must claim it and an unmatched one must not -- otherwise
+        the request is either continued twice or stranded.
+        """
+        url = params.get("request", {}).get("url", "")
+        resource_type = params.get("resourceType", "")
+        if not any(rule.matches(url, resource_type) for rule in self._rules):
+            return NOT_CLAIMED
+        await self._on_request_paused(params)
+        return CLAIMED
 
     async def _on_request_paused(self, params: Dict) -> None:
         """Handle Fetch.requestPaused — apply rules and decide action."""
@@ -108,7 +125,28 @@ class CDPNetworkInterceptRuntimeMixin:
                 })
 
             elif matched_rule.action == "redirect":
-                # Use continueRequest with url for true network-level redirect
+                # A rewrite is a navigation the agent chose, so it faces the
+                # same policy as one it typed. Without this, an interception
+                # rule launders any allowed main-frame Document straight to a
+                # private target: the guard judges the ORIGINAL url, passes it,
+                # and the rewrite then lands on loopback. Demonstrated against
+                # an earlier revision of this change -- a rule matching
+                # "example.com" rewrote to http://127.0.0.1:8765/v1/status and
+                # the request went through. Found in review of PR #173.
+                if resource_type == "Document":
+                    try:
+                        check_navigation(matched_rule.redirect_url)
+                    except NavigationRejected as exc:
+                        logger.warning(
+                            "[CDPNetworkInterceptor] Rule '%s' redirect to %.120s refused: %s",
+                            matched_rule.name, matched_rule.redirect_url, exc,
+                        )
+                        await self._browser.send("Fetch.failRequest", {
+                            "requestId": request_id,
+                            "errorReason": "BlockedByClient",
+                        })
+                        self._paused_requests.pop(request_id, None)
+                        return
                 await self._browser.send("Fetch.continueRequest", {
                     "requestId": request_id,
                     "url": matched_rule.redirect_url,

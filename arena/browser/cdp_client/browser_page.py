@@ -41,6 +41,24 @@ class CDPBrowserPageMixin(CDPBrowserInputMixin):
         """
         effective_timeout = timeout or self.timeout
 
+        # #122: the static policy validated the URL the agent supplied, but
+        # Chromium follows redirects inside its own network stack and a 30x
+        # never re-entered the policy -- a public URL answering
+        # "302 Location: http://127.0.0.1/..." reached loopback unchecked.
+        # Arming here rather than at the fifteen call sites for the same
+        # reason the policy itself lives in one module: every CDP navigation
+        # funnels through this method.
+        try:
+            from arena.browser.cdp_client.navigation_guard import arm_navigation_guard
+
+            await arm_navigation_guard(self)
+        except Exception as exc:
+            # An unarmable guard must not silently downgrade to "no guard".
+            from arena.browser.cdp_client.common import logger
+
+            logger.error("[CDP] navigation guard could not be armed: %s", exc)
+            raise
+
         if wait:
             # Set up load listener before navigating
             load_future = asyncio.ensure_future(
