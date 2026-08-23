@@ -195,12 +195,17 @@ def _probe_no_half_close(port: int, declared: int, send: bytes, timeout: float =
         if send:
             sock.sendall(send)
         try:
-            data = sock.recv(65536)
+            data = b""
+            while b"\r\n" not in data:      # a status line may be split across reads
+                got = sock.recv(65536)
+                if not got:
+                    return "EOF" if not data else data.decode(errors="replace")
+                data += got
         except socket.timeout:
             return "HANG"
         except OSError:
             return "RESET"
-        return data.split(b"\r\n", 1)[0].decode(errors="replace") if data else "EOF"
+        return data.split(b"\r\n", 1)[0].decode(errors="replace")
     finally:
         sock.close()
 
@@ -264,5 +269,78 @@ def test_drain_is_bounded_so_a_huge_declared_body_cannot_stall_it(gateway) -> No
             assert b"503" in raw.split(b"\r\n", 1)[0]
     except OSError:
         pass  # reset on an absurd declared length is a fine outcome
+    finally:
+        sock.close()
+
+
+def test_a_body_sent_with_the_headers_is_refused_immediately(gateway) -> None:
+    """The common case: one write carrying headers and body together.
+
+    A first version drained `self.connection` directly. BaseHTTPRequestHandler
+    parses headers through a buffered `rfile`, so a body in the same packet is
+    already in that buffer and invisible to `sock.recv()` -- every ordinary
+    refusal then blocked for the full drain timeout. Measured 2.00 s before,
+    0.00 s after. Draining reads through `rfile` for exactly this reason.
+    """
+    port = gateway(None)
+    body = json.dumps({"command": "agentctl sys status"}).encode()
+    sock = socket.create_connection(("127.0.0.1", port), timeout=15)
+    try:
+        started = time.monotonic()
+        sock.sendall(
+            f"POST /run HTTP/1.1\r\nHost: localhost\r\n"
+            f"Content-Type: application/json\r\nContent-Length: {len(body)}\r\n"
+            f"Connection: close\r\n\r\n".encode() + body      # single write
+        )
+        raw = b""
+        while b"\r\n" not in raw:
+            got = sock.recv(65536)
+            if not got:
+                break
+            raw += got
+        elapsed = time.monotonic() - started
+        assert b"503" in raw.split(b"\r\n", 1)[0], raw[:120]
+        assert elapsed < 1.0, f"buffered body cost {elapsed:.2f}s -- drain bypassed rfile"
+    finally:
+        sock.close()
+
+
+def test_chunked_body_refusal_is_also_drained(gateway) -> None:
+    """`Transfer-Encoding: chunked` carries no Content-Length.
+
+    Reading only Content-Length made `_declared_length()` return 0, the drain
+    was skipped, and the refusal reset the connection exactly as before the
+    fix. Confirmed on a real Windows host: WinError 10053 for a chunked
+    refusal while every Content-Length case already passed.
+
+    Honest limitation: on Linux this assertion passes even with the chunked
+    handling removed, because Linux does not send RST for unread data -- the
+    same reason the original bug was Windows-only. What this test does hold
+    everywhere is the timing assertion below (stopping at the terminator
+    rather than burning the full drain budget). The reset itself is only
+    observable on Windows, where CI runs it.
+    """
+    port = gateway(None)
+    sock = socket.create_connection(("127.0.0.1", port), timeout=15)
+    try:
+        sock.sendall(
+            b"POST /run HTTP/1.1\r\nHost: localhost\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
+        )
+        time.sleep(0.05)
+        started = time.monotonic()
+        sock.sendall(b'1b\r\n{"command":"agentctl status"}\r\n0\r\n\r\n')
+        raw = b""
+        while b"\r\n" not in raw:
+            got = sock.recv(65536)
+            if not got:
+                break
+            raw += got
+        elapsed = time.monotonic() - started
+        assert raw, "chunked refusal reset the connection instead of answering"
+        assert b"503" in raw.split(b"\r\n", 1)[0], raw[:120]
+        # Stopping at the terminator, not just running out the clock.
+        assert elapsed < 1.0, f"chunked drain waited {elapsed:.2f}s for the timeout"
     finally:
         sock.close()

@@ -155,12 +155,19 @@ class H(BaseHTTPRequestHandler):
         if getattr(self, "_body_consumed", False):
             return
         self._body_consumed = True
-        remaining = min(self._declared_length(), self.MAX_DRAIN_BYTES)
+        chunked = "chunked" in self.headers.get("Transfer-Encoding", "").lower()
+        remaining = self.MAX_DRAIN_BYTES if chunked else min(
+            self._declared_length(), self.MAX_DRAIN_BYTES
+        )
         if remaining <= 0:
             return
         sock = self.connection
         original = sock.gettimeout()
         deadline = time.monotonic() + self.MAX_DRAIN_SECONDS
+        # Tail buffer for spotting the chunked terminator across read boundaries.
+        TERMINATOR = b"0\r\n\r\n"
+        goal = len(TERMINATOR) * 2
+        seen = b""
         try:
             while remaining > 0:
                 budget = deadline - time.monotonic()
@@ -169,10 +176,26 @@ class H(BaseHTTPRequestHandler):
                 # Bound the blocking read itself: a client that promises bytes
                 # and never sends them must not hold the handler open.
                 sock.settimeout(budget)
-                chunk = sock.recv(min(65536, remaining))
+                # Read through rfile, not the raw socket. BaseHTTPRequestHandler
+                # reads headers through a buffered rfile, so a body sent in the
+                # same packet as the headers is already sitting in that buffer
+                # and is invisible to sock.recv() -- draining the socket
+                # directly would then block for the full timeout on the most
+                # ordinary request there is. Measured: every refusal cost 2.00 s
+                # before this. read1() returns what is buffered without waiting
+                # for the full count.
+                chunk = self.rfile.read1(min(65536, remaining))
                 if not chunk:
                     break
                 remaining -= len(chunk)
+                if chunked:
+                    # No Content-Length to count down to, so stop at the
+                    # terminating zero-length chunk instead of waiting for the
+                    # timeout with nothing left to read. Keep a short tail so
+                    # the marker is still found when it straddles two reads.
+                    seen = (seen + chunk)[-goal:]
+                    if TERMINATOR in seen:
+                        break
         except OSError:
             # Timed out or the client vanished; either way, stop draining and
             # let the response go out.
