@@ -25,6 +25,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -106,8 +107,108 @@ class H(BaseHTTPRequestHandler):
         h = self.headers.get("X-Arena-Token") or self.headers.get("Authorization", "").replace("Bearer ", "")
         return h == TOKEN
 
+    #: Cap on how much unread request body a response will drain.
+    #:
+    #: Draining is politeness toward the client, not an obligation to read
+    #: whatever it declares: an attacker announcing Content-Length: 10GB must
+    #: not be able to make the gateway sit there reading it. Past this cap the
+    #: connection is allowed to reset, which is the correct outcome for a body
+    #: that large on a refusal path anyway.
+    MAX_DRAIN_BYTES = 1 << 20
+
+    #: Wall-clock cap on draining, in seconds.
+    #:
+    #: A byte cap alone is not enough: a client that announces a large
+    #: Content-Length and then sends nothing leaves the handler blocked in
+    #: read() with no bytes to count. Measured -- with only the byte cap, such
+    #: a request pinned the handler indefinitely. Refusing a caller must never
+    #: cost more than this.
+    MAX_DRAIN_SECONDS = 2.0
+
+    def _declared_length(self) -> int:
+        try:
+            return max(0, int(self.headers.get("Content-Length", "0") or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _read_body(self) -> bytes:
+        """Read the declared request body, exactly once."""
+        if getattr(self, "_body_consumed", False):
+            return b""
+        self._body_consumed = True
+        n = self._declared_length()
+        return self.rfile.read(n) if n else b""
+
+    def _drain_request_body(self) -> None:
+        """Consume an unread request body before responding.
+
+        A handler that answers and closes while the client is still sending
+        makes the Windows TCP stack emit RST instead of FIN, and the client
+        sees `WinError 10053` instead of the 401/503 the server actually
+        produced. That is not just test flake: a caller who is refused cannot
+        tell "you are not authorized" from "the service died", which defeats
+        the point of the fail-closed behaviour this gateway exists for.
+
+        Idempotent, so the success path -- which has already read the body --
+        does not read again.
+        """
+        if getattr(self, "_body_consumed", False):
+            return
+        self._body_consumed = True
+        chunked = "chunked" in self.headers.get("Transfer-Encoding", "").lower()
+        remaining = self.MAX_DRAIN_BYTES if chunked else min(
+            self._declared_length(), self.MAX_DRAIN_BYTES
+        )
+        if remaining <= 0:
+            return
+        sock = self.connection
+        original = sock.gettimeout()
+        deadline = time.monotonic() + self.MAX_DRAIN_SECONDS
+        # Tail buffer for spotting the chunked terminator across read boundaries.
+        TERMINATOR = b"0\r\n\r\n"
+        goal = len(TERMINATOR) * 2
+        seen = b""
+        try:
+            while remaining > 0:
+                budget = deadline - time.monotonic()
+                if budget <= 0:
+                    break
+                # Bound the blocking read itself: a client that promises bytes
+                # and never sends them must not hold the handler open.
+                sock.settimeout(budget)
+                # Read through rfile, not the raw socket. BaseHTTPRequestHandler
+                # reads headers through a buffered rfile, so a body sent in the
+                # same packet as the headers is already sitting in that buffer
+                # and is invisible to sock.recv() -- draining the socket
+                # directly would then block for the full timeout on the most
+                # ordinary request there is. Measured: every refusal cost 2.00 s
+                # before this. read1() returns what is buffered without waiting
+                # for the full count.
+                chunk = self.rfile.read1(min(65536, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                if chunked:
+                    # No Content-Length to count down to, so stop at the
+                    # terminating zero-length chunk instead of waiting for the
+                    # timeout with nothing left to read. Keep a short tail so
+                    # the marker is still found when it straddles two reads.
+                    seen = (seen + chunk)[-goal:]
+                    if TERMINATOR in seen:
+                        break
+        except OSError:
+            # Timed out or the client vanished; either way, stop draining and
+            # let the response go out.
+            pass
+        finally:
+            try:
+                sock.settimeout(original)
+            except OSError:
+                pass
+
     def _json(self, obj, code=200):
         body = json.dumps(obj, ensure_ascii=False).encode()
+        self._drain_request_body()
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -144,9 +245,8 @@ class H(BaseHTTPRequestHandler):
             return self._json({"ok": False, "error": "gateway misconfigured: no token; refusing privileged access"}, 503)
         if not self._check_auth():
             return self._json({"ok": False, "error": "unauthorized"}, 401)
-        n = int(self.headers.get("Content-Length", "0") or 0)
         try:
-            data = json.loads(self.rfile.read(n).decode() or "{}")
+            data = json.loads(self._read_body().decode() or "{}")
         except Exception as e:
             return self._json({"ok": False, "error": f"bad json: {e}"}, 400)
 
