@@ -236,7 +236,7 @@ def _init_temp_repo(tmp_path) -> Path:
         ["git", "config", "user.name", "t"],
     ):
         subprocess.run(cmd, cwd=repo, check=True,
-                       capture_output=True, timeout=10)
+                       capture_output=True, timeout=git_timeout())
     (repo / "README.md").write_text("hello\n", encoding="utf-8")
     subprocess.run(["git", "add", "README.md"], cwd=repo, check=True,
                    capture_output=True, timeout=git_timeout())

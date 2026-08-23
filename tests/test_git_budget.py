@@ -42,21 +42,62 @@ GIT_MODULES = (
 _NO_TIMEOUT_CALLERS = frozenset({"test_install_termux.py", "test_pre_release_check.py"})
 
 
+_RUNNERS = {"run", "check_output", "check_call", "call", "Popen"}
+
+
+def _starts_with_git(node: ast.AST) -> bool:
+    return (
+        isinstance(node, (ast.List, ast.Tuple))
+        and bool(node.elts)
+        and isinstance(node.elts[0], ast.Constant)
+        and node.elts[0].value == "git"
+    )
+
+
+def _git_argv_names(tree: ast.AST) -> set[str]:
+    """Variables that get bound to a git argv somewhere in the module.
+
+    `subprocess.run(cmd, ...)` inside `for cmd in (["git", "init"], ...)`
+    hid a `timeout=10` from an earlier version of this gate that only
+    understood a list literal written at the call site. Three separate
+    reviewers caught it on the PR and the gate did not, so the gate now
+    resolves the indirection instead of assuming argv is spelled inline.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        targets: list[ast.AST] = []
+        values: list[ast.AST] = []
+        if isinstance(node, ast.Assign):
+            targets, values = list(node.targets), [node.value]
+        elif isinstance(node, ast.For):
+            targets = [node.target]
+            it = node.iter
+            values = list(it.elts) if isinstance(it, (ast.List, ast.Tuple)) else [it]
+        else:
+            continue
+        if not any(_starts_with_git(v) for v in values):
+            continue
+        for t in targets:
+            if isinstance(t, ast.Name):
+                names.add(t.id)
+    return names
+
+
 def _git_calls(path: Path) -> list[ast.Call]:
-    """Every subprocess call in `path` whose argv literal starts with "git"."""
+    """Every subprocess call in `path` that runs git, however argv is spelled."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    git_names = _git_argv_names(tree)
     calls = []
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
             continue
-        if node.func.attr not in {"run", "check_output", "call", "Popen"}:
-            continue
-        if not node.args:
+        name = node.func.attr if isinstance(node.func, ast.Attribute) else (
+            node.func.id if isinstance(node.func, ast.Name) else None
+        )
+        if name not in _RUNNERS or not node.args:
             continue
         argv = node.args[0]
-        if not (isinstance(argv, ast.List) and argv.elts):
-            continue
-        head = argv.elts[0]
-        if isinstance(head, ast.Constant) and head.value == "git":
+        if _starts_with_git(argv) or (isinstance(argv, ast.Name) and argv.id in git_names):
             calls.append(node)
     return calls
 
