@@ -32,13 +32,24 @@ from __future__ import annotations
 import os
 import platform
 
+
 #: Seconds allowed for a single `git` invocation in tests.
 #:
 #: Windows agents are the slow case by a wide margin, so they get the larger
 #: allowance rather than every platform paying for the worst one. 30 s is six
 #: times the literal that actually failed, and still short enough that a truly
 #: hung git fails the test rather than the job's wall clock.
-GIT_TIMEOUT_S: int = 30 if platform.system().lower() == "windows" else 15
+def budget_for(system: str) -> int:
+    """Budget for a named platform, as `platform.system()` spells it.
+
+    Split out from the module constant so both branches are reachable on any
+    OS: the Windows number is the one this change exists for, and it would
+    otherwise never be exercised by the Linux and macOS CI jobs.
+    """
+    return 30 if system.lower() == "windows" else 15
+
+
+GIT_TIMEOUT_S: int = budget_for(platform.system())
 
 
 def git_timeout() -> int:
@@ -57,4 +68,4 @@ def git_timeout() -> int:
         return GIT_TIMEOUT_S
 
 
-__all__ = ["GIT_TIMEOUT_S", "git_timeout"]
+__all__ = ["GIT_TIMEOUT_S", "budget_for", "git_timeout"]

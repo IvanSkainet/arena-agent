@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tests._git_budget import GIT_TIMEOUT_S, git_timeout  # noqa: E402
+from tests._git_budget import GIT_TIMEOUT_S, budget_for, git_timeout  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 TESTS = REPO / "tests"
@@ -150,6 +150,20 @@ def test_windows_gets_a_larger_allowance_than_the_literal_that_failed() -> None:
     """
     assert GIT_TIMEOUT_S >= 15
     assert git_timeout() >= GIT_TIMEOUT_S
+
+
+def test_both_platform_branches_are_covered_on_any_os() -> None:
+    """Windows is the case this change exists for and the case CI mostly is not.
+
+    `platform.system()` is fixed at import time, so without this the Windows
+    number is never actually evaluated on a Linux runner.
+    """
+    assert budget_for("Windows") == 30
+    assert budget_for("windows") == 30
+    assert budget_for("Linux") == 15
+    assert budget_for("Darwin") == 15
+    assert budget_for("Windows") > budget_for("Linux"), "Windows is the slow platform"
+    assert GIT_TIMEOUT_S in {15, 30}
 
 
 def test_env_override_can_only_raise_the_budget(monkeypatch) -> None:

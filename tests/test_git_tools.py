@@ -24,12 +24,12 @@ class _MockCtx:
 
 def _init_repo(path: Path):
     """Initialize a git repo with an initial commit."""
-    subprocess.run(["git", "init"], cwd=str(path), capture_output=True, timeout=git_timeout())
-    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(path), capture_output=True, timeout=git_timeout())
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(path), capture_output=True, timeout=git_timeout())
+    subprocess.run(["git", "init"], cwd=str(path), check=True, capture_output=True, timeout=git_timeout())
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(path), check=True, capture_output=True, timeout=git_timeout())
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(path), check=True, capture_output=True, timeout=git_timeout())
     (path / "README.md").write_text("# Test Repo\n")
-    subprocess.run(["git", "add", "-A"], cwd=str(path), capture_output=True, timeout=git_timeout())
-    subprocess.run(["git", "commit", "-m", "initial commit"], cwd=str(path), capture_output=True, timeout=git_timeout())
+    subprocess.run(["git", "add", "-A"], cwd=str(path), check=True, capture_output=True, timeout=git_timeout())
+    subprocess.run(["git", "commit", "-m", "initial commit"], cwd=str(path), check=True, capture_output=True, timeout=git_timeout())
 
 
 # ============================================================
