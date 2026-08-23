@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from arena.mcp.tool_git import handle_git_tool  # noqa: E402
 from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
+from tests._git_budget import git_timeout  # noqa: E402
 
 
 class _MockCtx:
@@ -23,12 +24,12 @@ class _MockCtx:
 
 def _init_repo(path: Path):
     """Initialize a git repo with an initial commit."""
-    subprocess.run(["git", "init"], cwd=str(path), capture_output=True, timeout=10)
-    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(path), capture_output=True, timeout=5)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(path), capture_output=True, timeout=5)
+    subprocess.run(["git", "init"], cwd=str(path), check=True, capture_output=True, timeout=git_timeout())
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(path), check=True, capture_output=True, timeout=git_timeout())
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(path), check=True, capture_output=True, timeout=git_timeout())
     (path / "README.md").write_text("# Test Repo\n")
-    subprocess.run(["git", "add", "-A"], cwd=str(path), capture_output=True, timeout=5)
-    subprocess.run(["git", "commit", "-m", "initial commit"], cwd=str(path), capture_output=True, timeout=5)
+    subprocess.run(["git", "add", "-A"], cwd=str(path), check=True, capture_output=True, timeout=git_timeout())
+    subprocess.run(["git", "commit", "-m", "initial commit"], cwd=str(path), check=True, capture_output=True, timeout=git_timeout())
 
 
 # ============================================================
@@ -120,8 +121,8 @@ def test_git_log_limit(tmp_path):
     _init_repo(tmp_path)
     for i in range(5):
         (tmp_path / f"file{i}.py").write_text(f"# file {i}\n")
-        subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), capture_output=True, timeout=5)
-        subprocess.run(["git", "commit", "-m", f"commit {i}"], cwd=str(tmp_path), capture_output=True, timeout=5)
+        subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), capture_output=True, timeout=git_timeout())
+        subprocess.run(["git", "commit", "-m", f"commit {i}"], cwd=str(tmp_path), capture_output=True, timeout=git_timeout())
     ctx = _MockCtx(tmp_path)
     result = handle_git_tool("git.log", {"path": str(tmp_path), "limit": 2}, ctx=ctx)
     assert result is not None
