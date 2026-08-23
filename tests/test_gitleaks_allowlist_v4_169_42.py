@@ -25,6 +25,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._git_budget import git_timeout
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GITLEAKS_TOML = REPO_ROOT / ".gitleaks.toml"
 
@@ -114,18 +116,18 @@ def _run_gitleaks(cwd: Path) -> subprocess.CompletedProcess[str]:
 
 
 def _init_git_repo(root: Path) -> None:
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True, timeout=15)
-    subprocess.run(["git", "config", "user.name", "gate"], cwd=root, check=True, timeout=15)
-    subprocess.run(["git", "config", "user.email", "gate@example.test"], cwd=root, check=True, timeout=15)
-    subprocess.run(["git", "config", "core.fileMode", "false"], cwd=root, check=True, timeout=15)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True, timeout=git_timeout())
+    subprocess.run(["git", "config", "user.name", "gate"], cwd=root, check=True, timeout=git_timeout())
+    subprocess.run(["git", "config", "user.email", "gate@example.test"], cwd=root, check=True, timeout=git_timeout())
+    subprocess.run(["git", "config", "core.fileMode", "false"], cwd=root, check=True, timeout=git_timeout())
 
 
 def _commit(root: Path, rel: str, body: str) -> None:
     path = root / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
-    subprocess.run(["git", "add", rel], cwd=root, check=True, timeout=15)
-    subprocess.run(["git", "commit", "-q", "-m", f"add {rel}"], cwd=root, check=True, timeout=15)
+    subprocess.run(["git", "add", rel], cwd=root, check=True, timeout=git_timeout())
+    subprocess.run(["git", "commit", "-q", "-m", f"add {rel}"], cwd=root, check=True, timeout=git_timeout())
 
 
 @pytest.mark.skipif(_gitleaks() is None, reason="gitleaks binary not on PATH")

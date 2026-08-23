@@ -41,6 +41,7 @@ from arena.admin.proposal import (  # noqa: E402
     validate_diff,
     validate_metadata,
 )
+from tests._git_budget import git_timeout  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pre-flight filters
@@ -238,9 +239,9 @@ def _init_temp_repo(tmp_path) -> Path:
                        capture_output=True, timeout=10)
     (repo / "README.md").write_text("hello\n", encoding="utf-8")
     subprocess.run(["git", "add", "README.md"], cwd=repo, check=True,
-                   capture_output=True, timeout=10)
+                   capture_output=True, timeout=git_timeout())
     subprocess.run(["git", "commit", "-m", "init", "-q"], cwd=repo,
-                   check=True, capture_output=True, timeout=10)
+                   check=True, capture_output=True, timeout=git_timeout())
     return repo
 
 
@@ -256,7 +257,7 @@ def test_create_worktree_makes_branch_outside_main_checkout(tmp_path):
     assert (wt / "README.md").exists()
     # And a new branch was created off HEAD.
     r = subprocess.run(["git", "-C", str(repo), "branch"],
-                       capture_output=True, text=True, timeout=10)
+                       capture_output=True, text=True, timeout=git_timeout())
     assert "proposal/deadbeef" in r.stdout
 
 
@@ -289,7 +290,7 @@ def test_apply_diff_stages_changes(tmp_path):
     # Working tree reflects the patch, and the change is staged.
     assert (wt / "README.md").read_text() == "goodbye\n"
     r = subprocess.run(["git", "-C", str(wt), "diff", "--cached", "--name-only"],
-                       capture_output=True, text=True, timeout=10)
+                       capture_output=True, text=True, timeout=git_timeout())
     assert r.stdout.strip() == "README.md"
 
 
@@ -329,7 +330,7 @@ def test_commit_proposal_records_message_and_id(tmp_path):
     # trace back to the audit log.
     r = subprocess.run(
         ["git", "-C", str(wt), "log", "-1", "--pretty=%B"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True, text=True, timeout=git_timeout(),
     )
     assert "test title" in r.stdout
     assert "test rationale" in r.stdout
@@ -354,14 +355,14 @@ def test_apply_failure_never_touches_master_ref(tmp_path):
     home = tmp_path / "bridge_home"
     master_before = subprocess.run(
         ["git", "-C", str(repo), "rev-parse", "master"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True, text=True, timeout=git_timeout(),
     ).stdout.strip()
     wt, _ = create_worktree(repo, home, "eeee5678")
     apply_diff(wt, "not-a-valid-diff\n")   # bound to fail
     cleanup_worktree(repo, home, "eeee5678")
     master_after = subprocess.run(
         ["git", "-C", str(repo), "rev-parse", "master"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True, text=True, timeout=git_timeout(),
     ).stdout.strip()
     assert master_before == master_after
 

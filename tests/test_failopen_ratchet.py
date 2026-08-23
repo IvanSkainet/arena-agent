@@ -38,12 +38,14 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import failopen_ratchet as ratchet  # noqa: E402
 
+from tests._git_budget import git_timeout  # noqa: E402
+
 
 def _historic(commit: str, path: str, tmp_path: pathlib.Path) -> pathlib.Path:
     """The file as it was one commit BEFORE the fix landed."""
     result = subprocess.run(
         ["git", "show", f"{commit}~1:{path}"],
-        cwd=ROOT, capture_output=True, text=True, timeout=60,
+        cwd=ROOT, capture_output=True, text=True, timeout=git_timeout(),
     )
     if result.returncode != 0:
         pytest.skip(f"history for {commit} unavailable in this checkout")

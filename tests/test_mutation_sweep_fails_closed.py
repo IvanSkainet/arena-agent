@@ -22,6 +22,8 @@ import sys
 
 import pytest
 
+from tests._git_budget import git_timeout
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "mutation_sweep.py"
 
@@ -262,7 +264,7 @@ def test_the_leak_check_reads_real_git_state(tmp_path):
     target = "arena/mobile/apk_paths.py"
     proc = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
         ["git", "diff", "--name-only", "--", target],
-        cwd=ROOT, capture_output=True, text=True, timeout=60,
+        cwd=ROOT, capture_output=True, text=True, timeout=git_timeout(),
     )
     expected = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
     assert mod._leaked_mutants([target]) == expected
