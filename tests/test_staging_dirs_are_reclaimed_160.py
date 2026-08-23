@@ -99,7 +99,11 @@ def allow_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         fetch,
         "open_public_url",
-        lambda req, timeout=60: urllib.request.urlopen(req, timeout=timeout),  # noqa: S310
+        # The only URL reaching this stub is the loopback address of the
+        # fixture's own http.server, built in this file. It replaces the
+        # production guard precisely because that guard would (correctly)
+        # refuse 127.0.0.1, leaving the success path untested.
+        lambda req, timeout=60: urllib.request.urlopen(req, timeout=timeout),  # noqa: S310  # nosec B310
     )
 
 

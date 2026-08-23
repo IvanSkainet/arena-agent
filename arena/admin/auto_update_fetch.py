@@ -76,13 +76,16 @@ def _discard_staging(dest: Path, owned: bool) -> None:
     Best-effort by design. A cleanup failure must not convert a reported
     download error into a raised exception -- the caller needs the real
     reason the update did not happen, not an errno from the janitor.
+
+    `ignore_errors=True` is the entire error policy. An outer try/except/pass
+    around it would be dead code that could only ever swallow a *different*
+    fault (flagged as B110 in review on #170), so there is deliberately none:
+    if rmtree itself is ever replaced with something that can raise, that
+    should surface rather than hide here.
     """
     if not owned:
         return
-    try:
-        shutil.rmtree(dest, ignore_errors=True)
-    except Exception:  # pragma: no cover - rmtree already swallows errors
-        pass
+    shutil.rmtree(dest, ignore_errors=True)
 
 
 def download_release(*, asset_url: str, asset_name: str,
