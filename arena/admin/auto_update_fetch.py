@@ -14,6 +14,7 @@ never something an empty argument causes.
 from __future__ import annotations
 
 import hashlib
+import shutil
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -22,6 +23,17 @@ from typing import Any
 from arena.security_http import open_public_url
 
 _MAX_RELEASE_SIZE_BYTES = 512 * 1024 * 1024
+
+
+class _TooLarge(Exception):
+    """Size cap tripped mid-stream.
+
+    Raised rather than returned so the open file handle is closed by the
+    `with` block before the staging tree is removed -- on Windows an open
+    handle blocks rmtree, which would silently re-leak the directory the
+    cleanup exists to reclaim.
+    """
+
 _DOWNLOAD_CHUNK_SIZE_BYTES = 1024 * 1024
 
 
@@ -49,6 +61,30 @@ def _sha256_of(path: Path) -> str:
     return h.hexdigest()
 
 
+def _discard_staging(dest: Path, owned: bool) -> None:
+    """Remove a staging tree this function created, on a failure path only.
+
+    `owned` is the whole point. When the caller passed `dest_dir` the
+    directory is theirs -- it may be an install-managed staging root with
+    other content -- and deleting it would destroy data this function was
+    merely borrowing. Only the `mkdtemp` we made ourselves is ours to remove.
+
+    Never called on success: on Windows the detached mover copies *from*
+    staging after the bridge process exits, so the tree has to outlive us
+    (see #160, and the constraint recorded in `auto_update_windows.py`).
+
+    Best-effort by design. A cleanup failure must not convert a reported
+    download error into a raised exception -- the caller needs the real
+    reason the update did not happen, not an errno from the janitor.
+    """
+    if not owned:
+        return
+    try:
+        shutil.rmtree(dest, ignore_errors=True)
+    except Exception:  # pragma: no cover - rmtree already swallows errors
+        pass
+
+
 def download_release(*, asset_url: str, asset_name: str,
                      expected_sha256: str | None = None,
                      allow_unverified: bool = False,
@@ -67,6 +103,13 @@ def download_release(*, asset_url: str, asset_name: str,
     """
     if not asset_url or not asset_name:
         return _err("asset_url and asset_name are required")
+    # v4.169.51 (#160): `owned` tracks whether this call created the staging
+    # tree. Every early return below used to leak it -- the directory is made
+    # before the SSRF check and before a single byte is fetched, so a rejected
+    # URL, a DNS failure, an oversized archive or a digest mismatch each left
+    # an empty `arena-update-*` behind forever. Measured on the operator's
+    # machine: 191 trees, 185 of them empty, accumulating ~4-8 per day.
+    owned = dest_dir is None
     dest = Path(dest_dir) if dest_dir else Path(tempfile.mkdtemp(prefix="arena-update-"))
     dest.mkdir(parents=True, exist_ok=True)
     zip_path = dest / asset_name
@@ -82,6 +125,7 @@ def download_release(*, asset_url: str, asset_name: str,
         from arena.security_ssrf import _validate_url
         ssrf_err = _validate_url(asset_url)
         if ssrf_err:
+            _discard_staging(dest, owned)
             return _err(f"asset_url rejected: {ssrf_err}",
                         asset_url=asset_url)
         req = urllib.request.Request(asset_url, headers={"User-Agent": _user_agent()})
@@ -93,16 +137,21 @@ def download_release(*, asset_url: str, asset_name: str,
                     break
                 written += len(chunk)
                 if written > _MAX_RELEASE_SIZE_BYTES:
-                    return _err("release zip exceeded 512 MiB size cap",
-                                asset_url=asset_url)
+                    raise _TooLarge()
                 out.write(chunk)
+    except _TooLarge:
+        _discard_staging(dest, owned)
+        return _err("release zip exceeded 512 MiB size cap",
+                    asset_url=asset_url)
     except Exception as e:
+        _discard_staging(dest, owned)
         return _err(f"download failed: {e!r}", asset_url=asset_url)
 
     got = _sha256_of(zip_path)
     want = (expected_sha256 or "").split(":", 1)[-1].strip().lower()
     if not want:
         if not allow_unverified:
+            _discard_staging(dest, owned)
             return _err(
                 "expected_sha256 is required: refusing to hand back an "
                 "unverified release archive",
@@ -112,6 +161,7 @@ def download_release(*, asset_url: str, asset_name: str,
                       "deliberately."),
             )
     elif want != got:
+        _discard_staging(dest, owned)
         return _err("sha256 mismatch after download",
                     expected=want, got=got, path=str(zip_path))
     return {
