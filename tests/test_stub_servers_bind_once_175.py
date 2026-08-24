@@ -140,7 +140,21 @@ def test_binding_to_port_zero_yields_distinct_live_ports():
         second.server_close()
 
 
-def test_the_gate_actually_rejects_the_forbidden_pattern(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "receiver, port_name",
+    [
+        ("s", "port"),
+        # The dotted receiver is not decoration: `\\w+` does not span
+        # `self._sock`, and while writing this test a sabotage that narrowed
+        # the character class went unnoticed because the fixture used a plain
+        # name. Both forms have to be here or the test is theatre.
+        ("self._sock", "self.port"),
+    ],
+    ids=["plain-receiver", "dotted-receiver"],
+)
+def test_the_gate_actually_rejects_the_forbidden_pattern(
+    receiver, port_name, tmp_path, monkeypatch
+):
     """A scanner nobody has seen fail is a scanner nobody should trust.
 
     The first version of this gate matched `<name> = HTTPServer(` after the
@@ -154,35 +168,16 @@ def test_the_gate_actually_rejects_the_forbidden_pattern(tmp_path, monkeypatch):
         "import socket\n"
         "from http.server import HTTPServer\n"
         "def start(handler):\n"
-        "    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n"
-        '    s.bind(("127.0.0.1", 0))\n'
-        "    self_port = s.getsockname()[1]\n"
-        "    s.close()\n"
-        '    return HTTPServer(("127.0.0.1", self_port), handler)\n',
+        f"    {receiver} = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n"
+        f'    {receiver}.bind(("127.0.0.1", 0))\n'
+        f"    {port_name} = {receiver}.getsockname()[1]\n"
+        f"    {receiver}.close()\n"
+        f'    return HTTPServer(("127.0.0.1", {port_name}), handler)\n',
         encoding="utf-8",
     )
     assert PICK_CLOSE_REBIND.search(offender.read_text(encoding="utf-8")) is not None
 
-    # ...and the dotted-attribute form that the first regex missed.
-    dotted = tmp_path / "test_offender_attr.py"
-    dotted.write_text(
-        "import socket\n"
-        "from http.server import HTTPServer\n"
-        "class S:\n"
-        "    def start(self, handler):\n"
-        "        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n"
-        '        self._sock.bind(("127.0.0.1", 0))\n'
-        "        self.port = self._sock.getsockname()[1]\n"
-        # A dotted receiver on the close, too: `\w+` does not span
-        # `self._sock`, and narrowing the character class there let a real
-        # sabotage through unnoticed while this test still passed.
-        "        self._sock.close()\n"
-        '        self.server = HTTPServer(("127.0.0.1", self.port), handler)\n',
-        encoding="utf-8",
-    )
-    assert PICK_CLOSE_REBIND.search(dotted.read_text(encoding="utf-8")) is not None
-
-    # The gate must fail for such a file when it is not exempt.
+    # ...and the gate itself must fail for such a file when it is not exempt.
     monkeypatch.setattr("tests.test_stub_servers_bind_once_175.TESTS", tmp_path)
     with pytest.raises(AssertionError, match="picks a port"):
         test_no_stub_server_picks_a_port_then_rebinds_it(offender)
