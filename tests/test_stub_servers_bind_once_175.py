@@ -12,6 +12,13 @@ it is a window for nothing: `HTTPServer(("127.0.0.1", 0), ...)` gets the
 same result with no window at all, because the kernel holds the port for
 the whole life of the server.
 
+The window is worse on Windows than on Linux. `HTTPServer` sets
+`SO_REUSEADDR`, and on Windows that permits a second bind to a port that
+is still being listened on -- verified on the Windows host, where the
+second bind succeeded. Two stubs can therefore land on one port with no
+error at all, the second quietly taking connections. On Linux the same
+bind is refused with errno 98.
+
 Scope note, recorded so the next reader does not "fix" the exceptions:
 three call sites bind-and-close deliberately and are NOT defects.
 
@@ -83,21 +90,37 @@ def test_the_exemptions_still_exist():
         assert (TESTS / name).exists(), f"{name} is gone; drop it from DELIBERATE"
 
 
-def test_binding_to_port_zero_leaves_no_window():
-    """The replacement genuinely holds the port, rather than just looking
-    tidier: a second bind to the same port must be refused while the first
-    server is alive."""
+def test_binding_to_port_zero_yields_distinct_live_ports():
+    """The replacement genuinely allocates, rather than just looking tidier.
+
+    Deliberately *not* asserting that a second bind to the same port is
+    refused. It is on Linux (`OSError` errno 98), but on Windows
+    `SO_REUSEADDR` -- which `HTTPServer` sets by default -- lets a second
+    bind take a port that is still being listened on, and it succeeds.
+    Verified on the Windows host: `SECOND BIND SUCCEEDED`.
+
+    That platform split is the substance, not a footnote: on Windows the
+    pick-close-rebind window is worse than on Linux, because nothing
+    complains when two stubs end up on one port -- the second simply
+    starts stealing connections. An earlier version of this test encoded
+    the Linux behaviour as universal and failed on the Windows host.
+
+    What holds everywhere is that port 0 hands out distinct live ports,
+    which is all the replacement pattern needs to promise.
+    """
     from http.server import BaseHTTPRequestHandler, HTTPServer
 
     class _H(BaseHTTPRequestHandler):
         def log_message(self, *_a, **_kw):
             pass
 
-    server = HTTPServer(("127.0.0.1", 0), _H)
+    first = HTTPServer(("127.0.0.1", 0), _H)
+    second = HTTPServer(("127.0.0.1", 0), _H)
     try:
-        port = server.server_address[1]
-        assert port > 0
-        with pytest.raises(OSError):
-            HTTPServer(("127.0.0.1", port), _H)
+        p1 = first.server_address[1]
+        p2 = second.server_address[1]
+        assert p1 > 0 and p2 > 0
+        assert p1 != p2
     finally:
-        server.server_close()
+        first.server_close()
+        second.server_close()
