@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import http.server
 import json
-import socket
 import sys
 import threading
 import time
@@ -217,11 +216,9 @@ class _CountingHandler(http.server.BaseHTTPRequestHandler):
 def local_http():
     _CountingHandler.responses = []
     _CountingHandler.hits = []
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-    server = http.server.HTTPServer(("127.0.0.1", port), _CountingHandler)
+    # Bind once; see #175 for why pick-close-rebind is avoided.
+    server = http.server.HTTPServer(("127.0.0.1", 0), _CountingHandler)
+    port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

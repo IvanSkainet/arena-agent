@@ -10,7 +10,6 @@ Two suites:
 from __future__ import annotations
 
 import hashlib
-import socket
 import ssl
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -239,11 +238,9 @@ def tls_server(tmp_path):
 
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(str(cert_path), str(key_path))
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-    server = HTTPServer(("127.0.0.1", port), _Handler)
+    # Bind once; see #175 for why pick-close-rebind is avoided.
+    server = HTTPServer(("127.0.0.1", 0), _Handler)
+    port = server.server_address[1]
     server.socket = ctx.wrap_socket(server.socket, server_side=True)
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
