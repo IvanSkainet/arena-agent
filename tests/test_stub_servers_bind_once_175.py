@@ -83,11 +83,25 @@ def test_no_stub_server_picks_a_port_then_rebinds_it(path: Path):
     )
 
 
-def test_the_exemptions_still_exist():
+@pytest.mark.parametrize("name", sorted(DELIBERATE), ids=sorted(DELIBERATE))
+def test_each_exemption_is_still_needed(name: str):
     """A stale allowlist is worse than none: it silently permits a pattern
-    nobody is choosing any more."""
-    for name in DELIBERATE:
-        assert (TESTS / name).exists(), f"{name} is gone; drop it from DELIBERATE"
+    nobody is choosing any more.
+
+    Asserting only that the file still exists does not do that -- an
+    exemption whose file was cleaned up but whose entry stayed behind
+    would pass, which is precisely the case the docstring claims to
+    prevent. Raised in review of PR #176 and confirmed: both entries were
+    passing on existence alone. The entry has to be revoked the moment the
+    file stops needing it.
+    """
+    path = TESTS / name
+    assert path.exists(), f"{name} is gone; drop it from DELIBERATE"
+    source = path.read_text(encoding="utf-8")
+    assert PICK_CLOSE_REBIND.search(source) is not None, (
+        f"{name} no longer picks-and-releases a port, so its DELIBERATE "
+        f"exemption ({DELIBERATE[name]}) is stale -- remove it."
+    )
 
 
 def test_binding_to_port_zero_yields_distinct_live_ports():
@@ -124,3 +138,62 @@ def test_binding_to_port_zero_yields_distinct_live_ports():
     finally:
         first.server_close()
         second.server_close()
+
+
+def test_the_gate_actually_rejects_the_forbidden_pattern(tmp_path, monkeypatch):
+    """A scanner nobody has seen fail is a scanner nobody should trust.
+
+    The first version of this gate matched `<name> = HTTPServer(` after the
+    close, and `\\w+` does not span `self.server` -- so it passed while the
+    forbidden pattern was sitting in the tree. That was found by sabotage,
+    not by review, and this test is what makes the failure mode permanent
+    rather than a story in a commit message.
+    """
+    offender = tmp_path / "test_offender_stub.py"
+    offender.write_text(
+        "import socket\n"
+        "from http.server import HTTPServer\n"
+        "def start(handler):\n"
+        "    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n"
+        '    s.bind(("127.0.0.1", 0))\n'
+        "    self_port = s.getsockname()[1]\n"
+        "    s.close()\n"
+        '    return HTTPServer(("127.0.0.1", self_port), handler)\n',
+        encoding="utf-8",
+    )
+    assert PICK_CLOSE_REBIND.search(offender.read_text(encoding="utf-8")) is not None
+
+    # ...and the dotted-attribute form that the first regex missed.
+    dotted = tmp_path / "test_offender_attr.py"
+    dotted.write_text(
+        "import socket\n"
+        "from http.server import HTTPServer\n"
+        "class S:\n"
+        "    def start(self, handler):\n"
+        "        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n"
+        '        self._sock.bind(("127.0.0.1", 0))\n'
+        "        self.port = self._sock.getsockname()[1]\n"
+        # A dotted receiver on the close, too: `\w+` does not span
+        # `self._sock`, and narrowing the character class there let a real
+        # sabotage through unnoticed while this test still passed.
+        "        self._sock.close()\n"
+        '        self.server = HTTPServer(("127.0.0.1", self.port), handler)\n',
+        encoding="utf-8",
+    )
+    assert PICK_CLOSE_REBIND.search(dotted.read_text(encoding="utf-8")) is not None
+
+    # The gate must fail for such a file when it is not exempt.
+    monkeypatch.setattr("tests.test_stub_servers_bind_once_175.TESTS", tmp_path)
+    with pytest.raises(AssertionError, match="picks a port"):
+        test_no_stub_server_picks_a_port_then_rebinds_it(offender)
+
+
+def test_the_replacement_pattern_is_not_flagged():
+    """The gate must not fire on the fix it is asking for."""
+    good = (
+        "from http.server import HTTPServer\n"
+        "def start(handler):\n"
+        '    server = HTTPServer(("127.0.0.1", 0), handler)\n'
+        "    return server, server.server_address[1]\n"
+    )
+    assert PICK_CLOSE_REBIND.search(good) is None

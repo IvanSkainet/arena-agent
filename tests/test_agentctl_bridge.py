@@ -22,8 +22,22 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parents[1]
 _CLI = _REPO / "bin" / "agentctl"
 
-sys.path.insert(0, str(_REPO))
-from arena.agentctl_cli import agentctl_bridge  # noqa: E402
+
+
+def _bridge_module():
+    """Import the CLI module lazily.
+
+    Deliberately not a module-scope import: that would run
+    `agentctl_common`'s import-time token/home-path evaluation for every
+    test in this file, including the subprocess ones that do not need it.
+    Raised in review of PR #176. The `sys.path` insert matches what 259
+    other test modules in this suite already do -- changing that
+    convention is not this PR's subject.
+    """
+    if str(_REPO) not in sys.path:
+        sys.path.insert(0, str(_REPO))
+    from arena.agentctl_cli import agentctl_bridge
+    return agentctl_bridge
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +196,23 @@ def test_urls_bootstrap_unreachable_exits_1():
 # ---------------------------------------------------------------------------
 # best verb
 # ---------------------------------------------------------------------------
+def _measurement(url, provider, latency_ms):
+    return {"url": url, "provider": provider, "kind": "https",
+            "ok": True, "latency_ms": latency_ms, "status": 200, "error": None}
+
+
+def _run_best_with(monkeypatch, measured, args=()):
+    """Drive `best` against injected measurements and return its stdout."""
+    agentctl_bridge = _bridge_module()
+    monkeypatch.setattr(agentctl_bridge, "_fetch_config", lambda: {"urls": []})
+    monkeypatch.setattr(agentctl_bridge, "_probe_all",
+                        lambda cfg, timeout, m=measured: list(m))
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        agentctl_bridge.best(list(args))
+    return out.getvalue().strip()
+
+
 def test_best_ranks_by_measured_latency_not_config_order(monkeypatch):
     """`best` must pick the lowest measured latency, not the first entry.
 
@@ -199,42 +230,21 @@ def test_best_ranks_by_measured_latency_not_config_order(monkeypatch):
     injected measurements. No clock, no sleep, no ports.
     """
     measured = [
-        {"url": "https://slow.example", "provider": "slow-prov", "kind": "https",
-         "ok": True, "latency_ms": 300.0, "status": 200, "error": None},
-        {"url": "https://fast.example", "provider": "fast-prov", "kind": "https",
-         "ok": True, "latency_ms": 10.0, "status": 200, "error": None},
+        _measurement("https://slow.example", "slow-prov", 300.0),
+        _measurement("https://fast.example", "fast-prov", 10.0),
     ]
-    monkeypatch.setattr(agentctl_bridge, "_fetch_config", lambda: {"urls": []})
-    monkeypatch.setattr(agentctl_bridge, "_probe_all", lambda cfg, timeout: list(measured))
-
-    out = io.StringIO()
-    with contextlib.redirect_stdout(out):
-        agentctl_bridge.best([])
-
-    assert out.getvalue().strip() == "https://fast.example"
+    assert _run_best_with(monkeypatch, measured) == "https://fast.example"
 
 
 def test_best_prefers_the_fastest_regardless_of_which_entry_is_listed_first(monkeypatch):
     """Config order must not decide the winner in either direction."""
     for fast_first in (True, False):
         measured = [
-            {"url": "https://a.example", "provider": "a", "kind": "https",
-             "ok": True, "latency_ms": 10.0 if fast_first else 300.0,
-             "status": 200, "error": None},
-            {"url": "https://b.example", "provider": "b", "kind": "https",
-             "ok": True, "latency_ms": 300.0 if fast_first else 10.0,
-             "status": 200, "error": None},
+            _measurement("https://a.example", "a", 10.0 if fast_first else 300.0),
+            _measurement("https://b.example", "b", 300.0 if fast_first else 10.0),
         ]
-        monkeypatch.setattr(agentctl_bridge, "_fetch_config", lambda: {"urls": []})
-        monkeypatch.setattr(agentctl_bridge, "_probe_all",
-                            lambda cfg, timeout, m=measured: list(m))
-
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            agentctl_bridge.best([])
-
         expected = "https://a.example" if fast_first else "https://b.example"
-        assert out.getvalue().strip() == expected
+        assert _run_best_with(monkeypatch, measured) == expected
 
 
 def test_best_returns_the_only_reachable_url_end_to_end():
