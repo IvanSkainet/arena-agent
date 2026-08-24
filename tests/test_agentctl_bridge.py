@@ -8,9 +8,10 @@ endpoint whose latency we control by injecting sleeps.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
-import socket
 import subprocess
 import sys
 import threading
@@ -20,6 +21,9 @@ from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
 _CLI = _REPO / "bin" / "agentctl"
+
+sys.path.insert(0, str(_REPO))
+from arena.agentctl_cli import agentctl_bridge  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -68,11 +72,11 @@ class _StubBridge:
             def log_message(self, *_a, **_kw):
                 pass
 
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.bind(("127.0.0.1", 0))
-        self.port = s.getsockname()[1]
-        s.close()
-        self.server = HTTPServer(("127.0.0.1", self.port), _H)
+        # Bind once and never release: picking a port, closing the socket
+        # and rebinding leaves a window in which the kernel may hand the
+        # same port to another stub (#175).
+        self.server = HTTPServer(("127.0.0.1", 0), _H)
+        self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever,
                                        daemon=True)
         self.thread.start()
@@ -178,20 +182,73 @@ def test_urls_bootstrap_unreachable_exits_1():
 # ---------------------------------------------------------------------------
 # best verb
 # ---------------------------------------------------------------------------
-def test_best_picks_fastest_from_client_vantage():
-    """Two candidate URLs, one is slow. ``best`` must return the
-    fast one even though the boot-cfg lists slow first."""
-    slow = _StubBridge({}, delays={"/health": 0.30}).start()
+def test_best_ranks_by_measured_latency_not_config_order(monkeypatch):
+    """`best` must pick the lowest measured latency, not the first entry.
+
+    #175: this used to be asserted by racing two live stubs, one delayed
+    300ms and one 10ms, and checking which URL came back. That made a
+    290ms wall-clock margin part of the contract. `_probe_all` probes
+    sequentially, so any stall longer than the margin landing on the fast
+    probe inverts the winner -- which is exactly how it failed on a macOS
+    runner (`49582 != 49583`: two valid ports, the *slow* stub returned).
+    Widening the margin would only make the flake rarer, and a failure
+    that shows up once a quarter and is cleared by a re-run is worse than
+    one that shows up every time.
+
+    The ranking is pure given the measurements, so it is asserted against
+    injected measurements. No clock, no sleep, no ports.
+    """
+    measured = [
+        {"url": "https://slow.example", "provider": "slow-prov", "kind": "https",
+         "ok": True, "latency_ms": 300.0, "status": 200, "error": None},
+        {"url": "https://fast.example", "provider": "fast-prov", "kind": "https",
+         "ok": True, "latency_ms": 10.0, "status": 200, "error": None},
+    ]
+    monkeypatch.setattr(agentctl_bridge, "_fetch_config", lambda: {"urls": []})
+    monkeypatch.setattr(agentctl_bridge, "_probe_all", lambda cfg, timeout: list(measured))
+
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        agentctl_bridge.best([])
+
+    assert out.getvalue().strip() == "https://fast.example"
+
+
+def test_best_prefers_the_fastest_regardless_of_which_entry_is_listed_first(monkeypatch):
+    """Config order must not decide the winner in either direction."""
+    for fast_first in (True, False):
+        measured = [
+            {"url": "https://a.example", "provider": "a", "kind": "https",
+             "ok": True, "latency_ms": 10.0 if fast_first else 300.0,
+             "status": 200, "error": None},
+            {"url": "https://b.example", "provider": "b", "kind": "https",
+             "ok": True, "latency_ms": 300.0 if fast_first else 10.0,
+             "status": 200, "error": None},
+        ]
+        monkeypatch.setattr(agentctl_bridge, "_fetch_config", lambda: {"urls": []})
+        monkeypatch.setattr(agentctl_bridge, "_probe_all",
+                            lambda cfg, timeout, m=measured: list(m))
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            agentctl_bridge.best([])
+
+        expected = "https://a.example" if fast_first else "https://b.example"
+        assert out.getvalue().strip() == expected
+
+
+def test_best_returns_the_only_reachable_url_end_to_end():
+    """One live stub, no competing delays: the wiring still gets a real
+    HTTP round trip, without any test depending on which of two probes
+    wins a race."""
     fast = _StubBridge({}, delays={"/health": 0.01}).start()
     boot = _bootstrap([
-        {"provider": "slow-prov", "url": slow.url(), "kind": "https"},
         {"provider": "fast-prov", "url": fast.url(), "kind": "https"},
     ])
     try:
         proc = _run_cli(["bridge", "best"], boot.url())
     finally:
         boot.stop()
-        slow.stop()
         fast.stop()
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.strip() == fast.url()

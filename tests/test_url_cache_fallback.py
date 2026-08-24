@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import subprocess
 import sys
 import threading
@@ -124,11 +123,11 @@ class _StubBridge:
             def log_message(self, *_a, **_kw):
                 pass
 
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.bind(("127.0.0.1", 0))
-        self.port = s.getsockname()[1]
-        s.close()
-        self.server = HTTPServer(("127.0.0.1", self.port), _H)
+        # Bind once and never release: picking a port, closing the socket
+        # and rebinding leaves a window in which the kernel may hand the
+        # same port to another stub (#175).
+        self.server = HTTPServer(("127.0.0.1", 0), _H)
+        self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever,
                                        daemon=True)
         self.thread.start()
