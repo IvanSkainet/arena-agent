@@ -289,3 +289,124 @@ def test_an_entry_unlinked_mid_scan_is_survivable(root, monkeypatch):
     monkeypatch.setattr(Path, "iterdir", vanishing)
     result = mod.list_agents(agents)
     assert _names(result["agents"]) == ["b"]
+
+
+# --- defects found in review of PR #174 ------------------------------------
+
+def test_nested_mission_json_symlink_does_not_leak(root, outside):
+    """Containment of a directory says nothing about what is inside it.
+
+    Reproduced on the first revision of this fix: a *contained* mission
+    directory whose `mission.json` was a link outside the root had its fields
+    read and returned -- `id="X"`, `name="LEAKED"`. The escape simply moved
+    one level deeper than the check.
+    """
+    missions = root / "missions"
+    missions.mkdir()
+    contained = missions / "contained"
+    contained.mkdir()
+    (contained / "mission.json").symlink_to(outside / "secret.json")
+
+    listed = list_missions(missions)
+    assert [m["name"] for m in listed] == ["contained"]
+    assert "LEAKED" not in json.dumps(listed)
+    assert listed[0]["ext"] == "[dir]", "must fall back to the plain dir entry"
+
+    shown = show_mission(missions, "contained")
+    assert shown["ok"] is True
+    assert "mission" not in shown
+    assert "LEAKED" not in json.dumps(shown)
+
+
+def test_nested_subagent_meta_symlink_does_not_leak(root, outside):
+    """`meta.json`/`summary.json` inside a contained run directory."""
+    subagents = root / "subagents"
+    subagents.mkdir()
+    run = subagents / "run1"
+    run.mkdir()
+    (run / "meta.json").symlink_to(outside / "secret.json")
+
+    result = list_subagents(subagents)
+    assert result["count"] == 1
+    assert result["subagents"][0]["name"] == "run1", "dir stays listed, unnamed by the link"
+    blob = json.dumps(result)
+    for leaked in ("PWNED", "rm -rf /", "LEAKED"):
+        assert leaked not in blob
+
+
+def test_nested_descriptor_inside_the_root_is_still_read(root):
+    """The nested check must not break ordinary mission/run directories."""
+    subagents = root / "subagents"
+    subagents.mkdir()
+    run = subagents / "run1"
+    run.mkdir()
+    (run / "meta.json").write_text(
+        json.dumps({"id": "abc", "name": "real-run", "status": "done", "cmd": "echo hi"}),
+        encoding="utf-8",
+    )
+
+    entry = list_subagents(subagents)["subagents"][0]
+    assert entry["name"] == "real-run"
+    assert entry["status"] == "done"
+
+
+def test_an_unresolvable_entry_is_not_called_an_escape(root, caplog):
+    """A symlink loop establishes nothing either way.
+
+    Reporting it as "resolves outside the resource root" states a guess as a
+    fact, which is the same failure as the broken-link case.
+    """
+    missions = root / "missions"
+    missions.mkdir()
+    (missions / "a.json").symlink_to(missions / "b.json")
+    (missions / "b.json").symlink_to(missions / "a.json")
+
+    with caplog.at_level(logging.DEBUG, logger="arena.resources.listing"):
+        assert list_missions(missions) == []
+
+    assert not any("resolves outside" in r.getMessage() for r in caplog.records), caplog.text
+    assert any("unresolvable" in r.getMessage() for r in caplog.records), caplog.text
+
+
+def test_show_mission_logs_a_refused_escape(root, outside, caplog):
+    """A refusal that leaves no trace looks like the file not existing."""
+    missions = root / "missions"
+    missions.mkdir()
+    (missions / "leak.txt").symlink_to(outside / "secret.txt")
+
+    with caplog.at_level(logging.WARNING, logger="arena.resources.listing"):
+        assert show_mission(missions, "leak")["ok"] is False
+
+    assert any("refusing mission" in r.getMessage() for r in caplog.records), caplog.text
+
+
+def test_a_value_error_from_containment_is_treated_as_not_contained(root, monkeypatch):
+    """The Windows drive-mismatch branch, exercised on Linux.
+
+    `is_relative_to` raises ValueError across unrelated drives on Windows.
+    CI is Linux, so the branch is reached by making `resolve` raise directly.
+    """
+    import arena.resources.listing as mod
+
+    agents = root / "agents"
+    agents.mkdir()
+    (agents / "a.json").write_text("{}", encoding="utf-8")
+
+    real_resolve = Path.resolve
+
+    def exploding(self, strict=False):
+        if self.name == "a.json":
+            raise ValueError("Paths don't have the same drive")
+        return real_resolve(self, strict=strict)
+
+    monkeypatch.setattr(Path, "resolve", exploding)
+    assert mod.list_agents(agents)["count"] == 0
+
+
+def test_toctou_is_a_documented_limit_not_a_silent_gap():
+    """Review raised the check-then-read race; the answer is written down."""
+    import arena.resources.listing as mod
+
+    doc = mod._is_contained.__doc__ or ""
+    assert "TOCTOU" in doc
+    assert "write access" in doc, "the reason it is out of scope must be stated"

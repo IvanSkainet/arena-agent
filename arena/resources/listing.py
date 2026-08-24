@@ -25,13 +25,16 @@ def _classify(path: Path, resolved_root: Path) -> tuple[bool, str]:
     the reader to ignore it.
     """
     try:
-        return path.resolve(strict=True).is_relative_to(resolved_root), "ok"
+        resolved = path.resolve(strict=True)
     except FileNotFoundError:
         return False, "gone"
     except (OSError, RuntimeError, ValueError):
         # RuntimeError: symlink loop. ValueError: unrelated drive on Windows.
         # OSError also covers ELOOP, which some platforms raise instead.
         return False, "unresolvable"
+    if resolved.is_relative_to(resolved_root):
+        return True, "ok"
+    return False, "escaped"
 
 
 def _is_contained(path: Path, resolved_root: Path) -> bool:
@@ -46,8 +49,46 @@ def _is_contained(path: Path, resolved_root: Path) -> bool:
     entries are ordinary files whose real location is still outside.
 
     `strict=True` also drops broken links, which cannot be inventory either.
+
+    Known limit -- TOCTOU. Containment is checked, then the caller reads or
+    stats the path in a separate syscall, so an attacker who can swap the
+    entry in between can still be read. Closing that would need
+    descriptor-relative operations with `O_NOFOLLOW`, which do not carry to
+    Windows, and it buys nothing here: planting the symlink already requires
+    write access to the agent's own home directory, and anyone holding it can
+    write a real descriptor file with arbitrary contents instead. This guard
+    is about inventory integrity, not about defending a directory an attacker
+    can already write to.
     """
     return _classify(path, resolved_root)[0]
+
+
+def _contained_child(directory: Path, name: str, resolved_root: Path) -> Path | None:
+    """Return ``directory/name`` when it exists and stays inside the root.
+
+    Containment of the directory entry says nothing about what is *inside* it:
+    a legitimately contained mission or run directory can hold a `mission.json`
+    or `meta.json` that is itself a link out of the tree. Demonstrated on the
+    first revision of this fix -- a contained `missions/contained/` whose
+    `mission.json` pointed outside returned `id`, `name` and `goal` from the
+    linked file, and a `subagents/run1/meta.json` link returned
+    `status="PWNED"` and `cmd="rm -rf /"`. The escape simply moved one level
+    deeper than the check.
+    """
+    child = directory / name
+    if not child.exists():
+        return None
+    contained, reason = _classify(child, resolved_root)
+    if contained:
+        return child
+    if reason == "escaped":
+        logger.warning(
+            "[resources] ignoring %s: resolves outside the resource root %s",
+            child, resolved_root,
+        )
+    else:
+        logger.debug("[resources] ignoring %s: %s", child, reason)
+    return None
 
 
 def _contained_entries(directory: Path, root: Path) -> Iterator[Path]:
@@ -76,6 +117,11 @@ def _contained_entries(directory: Path, root: Path) -> Iterator[Path]:
         elif reason == "gone":
             # A broken link or an entry unlinked mid-scan: not an escape.
             logger.debug("[resources] skipping %s: no longer resolvable", path)
+        elif reason == "unresolvable":
+            # A symlink loop or a drive mismatch: containment was never
+            # established either way, so calling it an escape would be a
+            # guess stated as a fact.
+            logger.warning("[resources] skipping %s: path is unresolvable", path)
         else:
             # Skipped entries used to vanish without trace; an inventory that
             # silently drops things is its own kind of wrong answer.
@@ -88,11 +134,15 @@ def _contained_entries(directory: Path, root: Path) -> Iterator[Path]:
 def list_missions(missions_dir: Path) -> list[dict[str, Any]]:
     missions: list[dict[str, Any]] = []
     if missions_dir.exists():
+        try:
+            resolved_root = missions_dir.resolve(strict=True)
+        except (OSError, RuntimeError, ValueError):
+            return missions
         for path in _contained_entries(missions_dir, missions_dir):
             if path.is_file() and path.suffix in (".json", ".yaml", ".yml", ".md", ".txt"):
                 missions.append({"name": path.stem, "ext": path.suffix, "size": path.stat().st_size, "modified": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()})
             elif path.is_dir():
-                if (path / "mission.json").exists():
+                if _contained_child(path, "mission.json", resolved_root) is not None:
                     missions.append(summarize_mission_dir(path))
                 else:
                     missions.append({"name": path.name, "ext": "[dir]", "size": len(list(path.iterdir())), "modified": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()})
@@ -123,16 +173,37 @@ def show_mission(missions_dir: Path, name: str) -> dict[str, Any]:
         return {"ok": False, "error": f"mission '{name}' not found"}
     for ext in ("", ".json", ".yaml", ".yml", ".md", ".txt"):
         path = missions_dir / f"{name}{ext}"
-        if path.exists() and path.is_file() and _is_contained(path, resolved_root):
+        if not path.exists() or not path.is_file():
+            continue
+        contained, reason = _classify(path, resolved_root)
+        if not contained:
+            # A refusal that leaves no trace is indistinguishable from the
+            # file simply not being there.
+            if reason == "escaped":
+                logger.warning(
+                    "[resources] refusing mission %r: %s resolves outside %s",
+                    name, path, resolved_root,
+                )
+            continue
+        if True:
             content = path.read_text(encoding="utf-8", errors="replace")
             return {"ok": True, "name": name, "file": str(path), "ext": path.suffix or ext, "content": content, "size": path.stat().st_size}
     directory = missions_dir / name
-    if directory.exists() and directory.is_dir() and _is_contained(directory, resolved_root):
+    if directory.exists() and directory.is_dir():
+        contained, reason = _classify(directory, resolved_root)
+        if not contained and reason == "escaped":
+            logger.warning(
+                "[resources] refusing mission directory %r: %s resolves outside %s",
+                name, directory, resolved_root,
+            )
+    else:
+        contained = False
+    if contained:
         files = []
         for item in _contained_entries(directory, resolved_root):
             files.append({"name": item.name, "size": item.stat().st_size if item.is_file() else 0, "is_dir": item.is_dir()})
         payload: dict[str, Any] = {"ok": True, "name": name, "is_dir": True, "files": files}
-        if (directory / "mission.json").exists():
+        if _contained_child(directory, "mission.json", resolved_root) is not None:
             payload["mission"] = summarize_mission_dir(directory)
         return payload
     return {"ok": False, "error": f"mission '{name}' not found"}
@@ -220,7 +291,7 @@ def _mtime_iso(path: Path, stat_result: os.stat_result | None = None) -> str:
     return datetime.fromtimestamp(stat_result.st_mtime, tz=timezone.utc).isoformat()
 
 
-def _subagent_meta(directory: Path) -> dict[str, Any]:
+def _subagent_meta(directory: Path, resolved_root: Path | None = None) -> dict[str, Any]:
     """Describe a spawned subagent run directory (``<id>/meta.json``)."""
     info: dict[str, Any] = {
         "name": directory.name,
@@ -230,7 +301,13 @@ def _subagent_meta(directory: Path) -> dict[str, Any]:
         "modified": _mtime_iso(directory),
     }
     for candidate in ("meta.json", "summary.json"):
-        data = _read_json_dict(directory / candidate)
+        if resolved_root is None:
+            descriptor: Path | None = directory / candidate
+        else:
+            descriptor = _contained_child(directory, candidate, resolved_root)
+        if descriptor is None:
+            continue
+        data = _read_json_dict(descriptor)
         if data is None:
             continue
         info["id"] = str(data.get("id") or directory.name)
@@ -257,11 +334,15 @@ def list_subagents(subagents_dir: Path) -> dict[str, Any]:
     subagents: list[dict[str, Any]] = []
     if not subagents_dir.exists():
         return {"ok": True, "count": 0, "subagents": []}
+    try:
+        resolved_root = subagents_dir.resolve(strict=True)
+    except (OSError, RuntimeError, ValueError):
+        return {"ok": True, "count": 0, "subagents": []}
     for path in _contained_entries(subagents_dir, subagents_dir):
         if path.name.startswith("."):
             continue
         if path.is_dir():
-            subagents.append(_subagent_meta(path))
+            subagents.append(_subagent_meta(path, resolved_root))
             continue
         if not path.is_file() or path.suffix not in SUBAGENT_FILE_SUFFIXES:
             continue
