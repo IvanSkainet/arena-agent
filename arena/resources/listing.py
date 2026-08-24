@@ -185,9 +185,8 @@ def show_mission(missions_dir: Path, name: str) -> dict[str, Any]:
                     name, path, resolved_root,
                 )
             continue
-        if True:
-            content = path.read_text(encoding="utf-8", errors="replace")
-            return {"ok": True, "name": name, "file": str(path), "ext": path.suffix or ext, "content": content, "size": path.stat().st_size}
+        content = path.read_text(encoding="utf-8", errors="replace")
+        return {"ok": True, "name": name, "file": str(path), "ext": path.suffix or ext, "content": content, "size": path.stat().st_size}
     directory = missions_dir / name
     if directory.exists() and directory.is_dir():
         contained, reason = _classify(directory, resolved_root)
