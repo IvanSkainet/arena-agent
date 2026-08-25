@@ -22,19 +22,19 @@ Design notes worth keeping:
 from __future__ import annotations
 
 import contextlib
-import itertools
 import json
 import logging
 import math
 import os
 import re
 import tempfile
-import threading
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from arena.relay.ordering import ordering_prefix as _ordering_prefix, sorted_mailbox as _sorted_mailbox
 
 # Cap a single message. The relay is for instructions and answers, not
 # file transfer -- there is /v1/fs for that. An unbounded field here would
@@ -45,71 +45,6 @@ POLL_INTERVAL_S = 0.2
 POLL_FRESH_S = 60.0
 MESSAGE_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 LOGGER = logging.getLogger(__name__)
-
-# Sort key for mailbox filenames: nanoseconds, then a process-local counter.
-#
-# Delivery order is `sorted()` over filenames, so the name IS the ordering
-# contract. It used to be `f"{created_at:015.4f}"` -- 0.1 ms resolution -- with
-# a uuid4 suffix. Two messages inside one tick tied on the timestamp and the
-# sort fell through to the uuid, which is random: FIFO by luck (#179).
-#
-# Measured, not assumed:
-#   * Linux sandbox: a send costs 0.097 ms against a 0.1 ms tick, so
-#     consecutive sends collided constantly -- 56 failures in 300 trials.
-#   * The clock was never the problem. `time.time_ns()` resolves to 123 ns on
-#     Linux and 100 ns on Windows; the *format* was throwing that away.
-#
-# Nanoseconds alone are still not enough. Windows returns duplicate
-# `time_ns()` values under concurrency -- 7.08% of 20000 calls across 8
-# threads, versus 0% on Linux -- so a counter breaks the remaining ties. It is
-# monotonic within a process, which is where the burst ordering that matters
-# happens: one sender queueing several messages in a row.
-#
-# The shape is `<10-digit seconds>.<9-digit nanoseconds>-<12-digit counter>`,
-# deliberately the old `015.4f` layout with more fraction digits, so a mailbox
-# holding both formats keeps draining in order across an upgrade.
-#
-# A flat 19-digit nanosecond integer sorts correctly against legacy names too
-# (checked over 200000 randomised pairs, plus the equal-second boundary where
-# '.' < any digit puts the legacy file first). It was rejected for being
-# unreadable, not for being wrong -- an earlier note here claimed it broke
-# migration, which was a broken test fixture, not the format.
-#
-# Ten seconds digits hold until the year 2286.
-_SEQUENCE_LOCK = threading.Lock()
-_SEQUENCE = itertools.count()
-_SEQUENCE_LIMIT = 1_000_000_000_000  # 12 digits; beyond it the field widens
-
-
-def _ordering_prefix(created_ns: int) -> str:
-    """Return the monotonic, lexically sortable filename prefix.
-
-    The counter is never wrapped. A first version masked it to six digits for
-    a shorter name; that inverts ordering the moment it rolls over, because
-    `999999` sorts after `000000` as text. Caught by asserting the wrap
-    instead of reasoning that it was unreachable -- and it is worth stating
-    that the reasoning was also wrong: the wrap does not need a million sends
-    in one nanosecond, only a million sends in the process before two of them
-    happen to share a nanosecond.
-
-    Twelve digits keep the field fixed-width for lexical comparison. Passing
-    10**12 messages in a single process would widen it and is gated against;
-    at a thousand messages a second that is roughly 31 years of uptime.
-    """
-    with _SEQUENCE_LOCK:
-        seq = next(_SEQUENCE)
-    if seq >= _SEQUENCE_LIMIT:
-        # Widening the field would silently invert ordering, which on this
-        # channel means an instruction delivered before the one that was sent
-        # first. Refuse loudly instead: a restarted relay is recoverable, a
-        # reordered mailbox is not.
-        raise RuntimeError(
-            f"relay ordering sequence exhausted after {_SEQUENCE_LIMIT} "
-            f"messages in this process; restart the relay"
-        )
-    seconds, nanoseconds = divmod(created_ns, 1_000_000_000)
-    return f"{seconds:010d}.{nanoseconds:09d}-{seq:012d}"
-
 
 def validate_message_id(value: Any) -> str:
     message_id = str(value or "").strip()
@@ -314,7 +249,7 @@ def claim_next(root: Path) -> RelayMessage | None:
     property worth paying an extra syscall for.
     """
     inbox, claimed, _replies = _dirs(root)
-    for path in sorted(inbox.glob("*.json")):
+    for path in _sorted_mailbox(inbox):
         lock = claimed / (path.name + ".lock")
         try:
             fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
@@ -484,7 +419,7 @@ def read_replies(root: Path, *, in_reply_to: str = "",
     """
     _inbox, _claimed, replies = _dirs(root)
     found: list[RelayMessage] = []
-    for path in sorted(replies.glob("*.json")):
+    for path in _sorted_mailbox(replies):
         if path.name.endswith(".taken"):
             continue
         try:

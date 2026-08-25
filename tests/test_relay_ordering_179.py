@@ -37,9 +37,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.relay import (
-    lifecycle as L,  # noqa: E402
-    store as S,  # noqa: E402
+from arena.relay import (  # noqa: E402
+    lifecycle as L,
+    ordering as O,
+    store as S,
 )
 
 FROZEN_NS = 1_700_000_000_000_000_000
@@ -48,10 +49,10 @@ FROZEN_NS = 1_700_000_000_000_000_000
 @pytest.fixture(autouse=True)
 def _reset_sequence():
     """Each test starts from a known counter value."""
-    original = S._SEQUENCE
-    S._SEQUENCE = itertools.count()
+    original = O._SEQUENCE
+    O._SEQUENCE = itertools.count()
     yield
-    S._SEQUENCE = original
+    O._SEQUENCE = original
 
 
 @pytest.fixture
@@ -87,7 +88,7 @@ def test_replies_are_also_ordered_within_one_nanosecond(tmp_path, frozen_clock):
 
 
 def test_the_ordering_prefix_never_repeats_within_a_nanosecond():
-    seen = {S._ordering_prefix(FROZEN_NS) for _ in range(5000)}
+    seen = {O.ordering_prefix(FROZEN_NS) for _ in range(5000)}
     assert len(seen) == 5000
 
 
@@ -97,7 +98,7 @@ def test_the_prefix_ascends_under_concurrent_senders(frozen_clock):
     lock = threading.Lock()
 
     def worker():
-        local = [S._ordering_prefix(FROZEN_NS) for _ in range(200)]
+        local = [O.ordering_prefix(FROZEN_NS) for _ in range(200)]
         with lock:
             produced.extend(local)
 
@@ -118,8 +119,8 @@ def test_the_sequence_never_wraps_into_a_smaller_string():
     queue. Caught by asserting the wrap instead of arguing it was
     unreachable.
     """
-    S._SEQUENCE = itertools.count(999_998)
-    prefixes = [S._ordering_prefix(FROZEN_NS) for _ in range(3)]
+    O._SEQUENCE = itertools.count(999_998)
+    prefixes = [O.ordering_prefix(FROZEN_NS) for _ in range(3)]
     assert prefixes == sorted(prefixes)
 
 
@@ -131,10 +132,10 @@ def test_exhausting_the_sequence_refuses_instead_of_reordering():
     with nobody able to reproduce it. Failing loudly is recoverable; a
     silently reordered mailbox is not.
     """
-    S._SEQUENCE = itertools.count(S._SEQUENCE_LIMIT - 1)
-    S._ordering_prefix(FROZEN_NS)  # the last valid one
+    O._SEQUENCE = itertools.count(O.SEQUENCE_LIMIT - 1)
+    O.ordering_prefix(FROZEN_NS)  # the last valid one
     with pytest.raises(RuntimeError, match="sequence exhausted"):
-        S._ordering_prefix(FROZEN_NS)
+        O.ordering_prefix(FROZEN_NS)
 
 
 def test_a_mailbox_written_by_the_old_format_still_drains_in_order(tmp_path):
@@ -179,7 +180,7 @@ def test_a_mailbox_written_by_the_old_format_still_drains_in_order(tmp_path):
     now_ns = time.time_ns()
     seconds = now_ns // 1_000_000_000
     legacy_same_second = f"{seconds + 0.0001:015.4f}-{'a' * 12}.json"
-    fresh = f"{S._ordering_prefix(now_ns)}-{'b' * 12}.json"
+    fresh = f"{O.ordering_prefix(now_ns)}-{'b' * 12}.json"
     assert legacy_same_second < fresh
 
 
@@ -208,3 +209,74 @@ def test_created_at_matches_the_name_it_is_sorted_by(tmp_path):
     nanoseconds = rest.split("-")[0]
     from_name = int(seconds) + int(nanoseconds) / 1_000_000_000
     assert from_name == pytest.approx(sent.created_at, abs=1e-6)
+
+
+def test_a_legacy_name_that_rounded_up_still_sorts_before_a_later_message(tmp_path):
+    """`{x:015.4f}` rounds to nearest, so a legacy name can overshoot.
+
+    Raised in review of PR #180 and confirmed: my claim that the two formats
+    compared safely assumed truncation, and `%f` does not truncate. A legacy
+    message at `...446.000050068` is *named* `...446.0001` -- 49.8 us late --
+    so a new message sent 1 us afterwards sorted ahead of it and was
+    delivered first. Reproduced end to end before fixing.
+
+    Delivery order therefore keys off the earliest instant a name can
+    represent, not the name itself.
+    """
+    legacy_true = 1787639446.000050068
+    assert float(f"{legacy_true:015.4f}") > legacy_true, "fixture must round up"
+
+    inbox = tmp_path / "inbox"
+    inbox.mkdir(parents=True)
+    (inbox / f"{legacy_true:015.4f}-{'a' * 12}.json").write_text(
+        json.dumps(
+            {
+                "id": "a" * 12,
+                "body": "old_sent_first",
+                "sender": "operator",
+                "created_at": legacy_true,
+                "meta": {},
+                "lifecycle": "queued",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    original = S.time.time_ns
+    S.time.time_ns = lambda: int(legacy_true * 1_000_000_000) + 1_000
+    try:
+        S.send_message(tmp_path, "new_sent_second")
+    finally:
+        S.time.time_ns = original
+
+    delivered = [S.claim_next(tmp_path).body for _ in range(2)]
+    assert delivered == ["old_sent_first", "new_sent_second"]
+
+
+@pytest.mark.parametrize("overshoot_ns", [1_000, 10_000, 49_000, 60_000])
+def test_legacy_and_new_stay_ordered_across_the_rounding_grid(tmp_path, overshoot_ns):
+    """One hand-picked timestamp proves little; sweep the bucket instead."""
+    legacy_true = 1787639446.000050068
+    inbox = tmp_path / "inbox"
+    inbox.mkdir(parents=True)
+    (inbox / f"{legacy_true:015.4f}-{'a' * 12}.json").write_text(
+        json.dumps(
+            {
+                "id": "a" * 12,
+                "body": "old",
+                "sender": "operator",
+                "created_at": legacy_true,
+                "meta": {},
+                "lifecycle": "queued",
+            }
+        ),
+        encoding="utf-8",
+    )
+    original = S.time.time_ns
+    S.time.time_ns = lambda: int(legacy_true * 1_000_000_000) + overshoot_ns
+    try:
+        S.send_message(tmp_path, "new")
+    finally:
+        S.time.time_ns = original
+
+    assert [S.claim_next(tmp_path).body for _ in range(2)] == ["old", "new"]
