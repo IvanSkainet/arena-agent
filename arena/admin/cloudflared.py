@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.admin.binaries import which_windows_or_path
+from arena.util import _subprocess_kwargs
 
 CLOUDFLARED_STATE: dict[str, Any] = {"proc": None, "url": "", "log": []}
 
@@ -82,14 +83,22 @@ def _resolve_cloudflared(root_agent: Path) -> str | None:
     return cf
 
 
-def _get_cloudflared_version(cf_path: str) -> str | None:
+def _get_cloudflared_version(
+    cf_path: str,
+    *,
+    subprocess_kwargs: Callable[[], dict[str, Any]] | None = None,
+) -> str | None:
     """Get cloudflared version string."""
     try:
+        kwargs = _subprocess_kwargs()
+        if subprocess_kwargs is not None:
+            kwargs.update(subprocess_kwargs())
         result = subprocess.run(
             [cf_path, "--version"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
+            **kwargs,
         )
         # Output: "cloudflared version 2026.7.1 (built 20260710-02:54:19)"
         match = re.search(r"version\s+([\d.]+)", result.stdout)
@@ -196,12 +205,14 @@ def _start_cloudflared(cf: str, port: int, *, subprocess_kwargs: Callable[[], di
     CLOUDFLARED_STATE["url"] = ""
     CLOUDFLARED_STATE["log"].clear()
     try:
+        kwargs = _subprocess_kwargs()
+        kwargs.update(subprocess_kwargs())
         CLOUDFLARED_STATE["proc"] = subprocess.Popen(
             [cf, "tunnel", "--url", f"http://127.0.0.1:{port}"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            **subprocess_kwargs(),
+            **kwargs,
         )
         thread = threading.Thread(target=_cloudflared_monitor_thread, args=(CLOUDFLARED_STATE["proc"], port), daemon=True)
         thread.start()
@@ -263,7 +274,7 @@ def cloudflared_funnel_action(
     proc = CLOUDFLARED_STATE["proc"]
     running = proc is not None and proc.poll() is None
     installed = cf is not None
-    version = _get_cloudflared_version(cf) if cf else None
+    version = _get_cloudflared_version(cf, subprocess_kwargs=subprocess_kwargs) if cf else None
 
     result = {
         "ok": True,

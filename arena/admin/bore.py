@@ -72,6 +72,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.admin.binaries import which_windows_or_path
+from arena.util import _subprocess_kwargs
 
 BORE_STATE: dict[str, Any] = {"proc": None, "url": "", "log": []}
 
@@ -193,7 +194,10 @@ def _resolve_bore_with_source(root_agent: Path) -> tuple[str | None, str]:
 def _subprocess_options(
     subprocess_kwargs: Callable[[], dict[str, Any]] | None,
 ) -> dict[str, Any]:
-    return subprocess_kwargs() if subprocess_kwargs is not None else {}
+    opts = _subprocess_kwargs()
+    if subprocess_kwargs is not None:
+        opts.update(subprocess_kwargs())
+    return opts
 
 
 def _get_bore_version(
@@ -354,7 +358,7 @@ def _start_bore(bin_path: str, port: int, *,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            **subprocess_kwargs(),
+            **_subprocess_options(subprocess_kwargs),
         )
     except Exception as e:
         return {"ok": False, "action": "start", "error": str(e),
