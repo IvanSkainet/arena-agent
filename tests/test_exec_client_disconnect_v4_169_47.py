@@ -201,11 +201,15 @@ def test_real_tcp_abort_reaps_exec_and_releases_handler(tmp_path: Path, endpoint
         ]
         writer.write("\r\n".join(header_lines).encode() + body)
         await writer.drain()
-        await _wait_until(lambda: request_id in runner.ACTIVE_PROCESSES)
+        await _wait_until(lambda: request_id in runner.ACTIVE_PROCESSES, timeout=45)
 
+        # Under matrix load (see _wait_until above) hosted macOS/Windows runners can
+        # exceed the default 15 s to tear down the killed tree (taskkill / tree-kill
+        # plus the up to 5 s pipe drain). Bump the reaping waits to 45 s so a slow but
+        # correct teardown is not reported as a timing flake.
         writer.transport.abort()
-        await _wait_until(lambda: request_id not in runner.ACTIVE_PROCESSES)
-        await _wait_until(lambda: cfg["active_exec"] == 0)
+        await _wait_until(lambda: request_id not in runner.ACTIVE_PROCESSES, timeout=45)
+        await _wait_until(lambda: cfg["active_exec"] == 0, timeout=45)
         assert cfg["semaphore"].locked() is False
         # Depending on aiohttp's handler-cancellation setting, cleanup is
         # reached either by the explicit watcher or by task cancellation.
