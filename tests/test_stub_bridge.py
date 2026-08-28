@@ -23,7 +23,7 @@ from tests._stub_bridge import StubBridge, _StubBridge
 def _get(url: str) -> tuple[int, dict[str, Any]]:
     req = urllib.request.Request(url, method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310  # nosec B310
             data = json.loads(resp.read().decode("utf-8"))
             return resp.status, data
     except urllib.error.HTTPError as e:
@@ -43,7 +43,7 @@ def _post(url: str, body: dict[str, Any] | bytes) -> tuple[int, dict[str, Any]]:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310  # nosec B310
             data = json.loads(resp.read().decode("utf-8"))
             return resp.status, data
     except urllib.error.HTTPError as e:
