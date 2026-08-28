@@ -27,12 +27,11 @@ import json
 import os
 import subprocess
 import sys
-import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 from arena.agentctl_cli import url_cache as _url_cache
+from tests._stub_bridge import _StubBridge
 
 # Must match the value _run_cli exports as ARENA_BRIDGE_TOKEN --
 # the on-disk cache signature is only valid when signed by that
@@ -66,80 +65,6 @@ def _prime_cache(cache_path: Path, urls: list[dict],
 
 _REPO = Path(__file__).resolve().parents[1]
 _CLI = _REPO / "bin" / "agentctl"
-
-
-# ---------------------------------------------------------------------------
-# Stub bridge (adapted from tests/test_agentctl_bridge.py). Each instance
-# serves a fixed /v1/agent/config response.
-# ---------------------------------------------------------------------------
-class _StubBridge:
-    """Toy HTTP server pretending to be a bridge. Responses can
-    be swapped mid-test by mutating ``self.responses``, and we
-    can inject 5xx to simulate outage without shutting the
-    server down (which would give the client a totally different
-    error class -- connection-refused vs HTTP 503)."""
-
-    def __init__(self, agent_config: dict | None,
-                 health_status: int = 200):
-        self.agent_config = agent_config
-        self.health_status = health_status
-        self.received: list[tuple[str, str]] = []
-        self.server = None
-        self.thread = None
-        self.port = 0
-        # When set to a non-200 value, /v1/agent/config returns
-        # that status. Simulates "bridge alive but sick".
-        self.config_status = 200
-
-    def start(self):
-        outer = self
-
-        class _H(BaseHTTPRequestHandler):
-            def _write(self, status, body):
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json")
-                data = (body if isinstance(body, bytes)
-                        else json.dumps(body).encode())
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self):
-                path = self.path.split("?")[0]
-                outer.received.append(("GET", path))
-                if path == "/health":
-                    self._write(outer.health_status,
-                                {"ok": True, "service": "stub"})
-                    return
-                if path == "/v1/agent/config":
-                    if outer.config_status != 200:
-                        self._write(outer.config_status,
-                                    {"ok": False, "error": "sick"})
-                        return
-                    self._write(200, outer.agent_config or {})
-                    return
-                self._write(404, {"ok": False, "error": "not found"})
-
-            def log_message(self, *_a, **_kw):
-                pass
-
-        # Bind once and never release: picking a port, closing the socket
-        # and rebinding leaves a window in which the kernel may hand the
-        # same port to another stub (#175).
-        self.server = HTTPServer(("127.0.0.1", 0), _H)
-        self.port = self.server.server_address[1]
-        self.thread = threading.Thread(target=self.server.serve_forever,
-                                       daemon=True)
-        self.thread.start()
-        return self
-
-    def stop(self):
-        if self.server:
-            self.server.shutdown()
-            self.server.server_close()
-
-    def url(self) -> str:
-        return f"http://127.0.0.1:{self.port}"
 
 
 def _agent_config_for(*bridges) -> dict:
