@@ -1,4 +1,5 @@
-"""Tests for ``tests/_stub_bridge.py`` (#185).
+"""
+Tests for ``tests/_stub_bridge.py`` (#185).
 
 Guards the shared test HTTP server contract:
 * Ephemeral port binding on port 0 (#175)
@@ -12,6 +13,7 @@ Guards the shared test HTTP server contract:
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -21,6 +23,8 @@ from tests._stub_bridge import StubBridge, _StubBridge
 
 
 def _get(url: str) -> tuple[int, dict[str, Any]]:
+    if not url.startswith(("http://", "https://")):
+        raise ValueError(f"Unsupported scheme: {url}")
     req = urllib.request.Request(url, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310  # nosec B310
@@ -32,6 +36,8 @@ def _get(url: str) -> tuple[int, dict[str, Any]]:
 
 
 def _post(url: str, body: dict[str, Any] | bytes) -> tuple[int, dict[str, Any]]:
+    if not url.startswith(("http://", "https://")):
+        raise ValueError(f"Unsupported scheme: {url}")
     if isinstance(body, bytes):
         payload = body
     else:
@@ -71,7 +77,7 @@ def test_context_manager_lifecycle():
         assert body["ok"] is True
         assert body["service"] == "stub"
     # After exiting context, server is stopped and connection fails
-    with pytest.raises(Exception):
+    with pytest.raises((urllib.error.URLError, ConnectionRefusedError, OSError)):
         _get(f"{stub.url()}/health")
 
 
@@ -90,6 +96,12 @@ def test_health_status_healthy_and_sick():
 
 
 def test_agent_config_endpoint_handling():
+    # When agent_config is None and not in responses, returns 200 with empty dict
+    with StubBridge() as stub_empty:
+        status, body = _get(f"{stub_empty.url()}/v1/agent/config")
+        assert status == 200
+        assert body == {}
+
     cfg = {"ok": True, "version": "v1.2.3", "urls": ["http://a", "http://b"]}
     with StubBridge(agent_config=cfg) as stub:
         status, body = _get(f"{stub.url()}/v1/agent/config")
@@ -128,7 +140,7 @@ def test_custom_routes_and_query_stripping():
         # Verify received recording
         assert len(stub.received) == 3
         assert stub.received[0][0] == "GET"
-        assert stub.received[0][1] == "/test/item"
+        assert stub.received[0][1] == "/test/item?filter=all&page=2"
         assert stub.received[1][0] == "POST"
         assert stub.received[1][1] == "/test/submit"
         assert json.loads(stub.received[1][2]) == post_data

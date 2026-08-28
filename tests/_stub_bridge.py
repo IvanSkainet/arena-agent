@@ -1,4 +1,5 @@
-"""Shared HTTP stub bridge server for test suites.
+"""
+Shared HTTP stub bridge server for test suites.
 
 Eliminates duplicate in-test HTTP servers across test_agentctl_breaker,
 test_agentctl_bridge, and test_url_cache_fallback (#176, #185).
@@ -46,12 +47,7 @@ class StubBridge:
             def _write(self, status: int, body: Any) -> None:
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
-                if isinstance(body, bytes):
-                    data = body
-                elif isinstance(body, str):
-                    data = body.encode("utf-8")
-                else:
-                    data = json.dumps(body).encode("utf-8")
+                data = body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
@@ -59,7 +55,7 @@ class StubBridge:
             def do_GET(self) -> None:
                 raw_path = self.path
                 path = raw_path.split("?")[0]
-                outer.received.append(("GET", path, b""))
+                outer.received.append(("GET", raw_path, b""))
                 if path in outer.delays:
                     time.sleep(outer.delays[path])
                 if path == "/health":
@@ -75,6 +71,13 @@ class StubBridge:
                     if outer.agent_config is not None:
                         self._write(200, outer.agent_config)
                         return
+                    resp = outer.responses.get(("GET", path))
+                    if resp is not None:
+                        status, body = resp
+                        self._write(status, body)
+                        return
+                    self._write(200, {})
+                    return
                 resp = outer.responses.get(("GET", path))
                 if resp is not None:
                     status, body = resp
@@ -87,7 +90,7 @@ class StubBridge:
                 path = raw_path.split("?")[0]
                 length = int(self.headers.get("Content-Length") or 0)
                 body_in = self.rfile.read(length) if length else b""
-                outer.received.append(("POST", path, body_in))
+                outer.received.append(("POST", raw_path, body_in))
                 if path in outer.delays:
                     time.sleep(outer.delays[path])
                 resp = outer.responses.get(("POST", path))
