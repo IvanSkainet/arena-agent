@@ -119,15 +119,9 @@ def _resolve_ngrok_with_source(root_agent: Path) -> tuple[str | None, str]:
     return None, "not_found"
 
 
-def _get_ngrok_version(
-    bin_path: str,
-    *,
-    subprocess_kwargs: Callable[[], dict[str, Any]] | None = None,
-) -> str | None:
+def _get_ngrok_version(bin_path: str) -> str | None:
     try:
         kwargs = _subprocess_kwargs()
-        if subprocess_kwargs is not None:
-            kwargs.update(subprocess_kwargs())
         result = subprocess.run(
             [bin_path, "--version"],
             capture_output=True, text=True, timeout=5,
@@ -463,7 +457,7 @@ def ngrok_action(action: str, port: int, *,
     proc = NGROK_STATE["proc"]
     running = proc is not None and proc.poll() is None
     installed = bin_path is not None
-    version = _get_ngrok_version(bin_path, subprocess_kwargs=subprocess_kwargs) if bin_path else None
+    version = _get_ngrok_version(bin_path) if bin_path else None
 
     # v4.36.1: if we're NOT running any more but NGROK_STATE["url"]
     # still holds a stale value (from a prior start that later
