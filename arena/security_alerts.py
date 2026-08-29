@@ -37,11 +37,15 @@ The name is ``security_alerts`` and not ``security.alerts`` because
 ``arena/security.py`` already exists: a ``arena/security/`` package
 shadows it, and the first attempt at this move took every job in the
 matrix down with `ImportError: cannot import name
-'_INPUT_INJECTION_PATTERNS' from 'arena.security'` -- `unified_bridge`
-imports that module at start-up through ``arena.runtime_deps.core``. A
-flat module sits alongside ``security_http.py``, ``security_ssrf.py``
+'_INPUT_INJECTION_PATTERNS' from 'arena.security'`, raised while
+``unified_bridge`` was still assembling its runtime facade at start-up.
+A flat module sits alongside ``security_http.py``, ``security_ssrf.py``
 and ``security_input.py``, which is the convention this tree already
 uses for that domain.
+
+(The facade namespace is named in full in the test that pins this, not
+here: `test_runtime_dependency_namespace_is_facade_only` fails any
+``arena/`` file outside the facade that mentions it, prose included.)
 
 The gate's behaviour is deliberately unchanged by the move: fail closed
 on ANY open secret-scanning alert, exit non-zero when a finding is at or
