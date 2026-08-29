@@ -44,6 +44,11 @@ EXPECTED_EXACT = frozenset({
     "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "LD_DEBUG",
     "PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME",
     "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_SSH_COMMAND",
+    # Git/SSH/Node helper selection: programs Git, ssh or Node execute on
+    # the caller's behalf (diff output, askpass, module lookup, runtime
+    # option injection) -- the same class as GIT_SSH_COMMAND.
+    "GIT_EXTERNAL_DIFF", "GIT_ASKPASS", "SSH_ASKPASS",
+    "NODE_PATH", "NODE_OPTIONS",
     # macOS execution control: the DYLD_* family is the counterpart of
     # LD_PRELOAD / LD_LIBRARY_PATH on Darwin.
     "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
@@ -126,6 +131,18 @@ def test_secret_families_are_blocked_by_substring_in_any_case():
         "SIGNING_KEY": "x", "STRIPE_CREDENTIAL": "x", "OpenAI_API_Key": "x",
     }
     assert filter_caller_env(blocked) == {}
+
+
+def test_git_ssh_and_node_helper_selection_is_blocked():
+    # GIT_EXTERNAL_DIFF makes `git diff` execute the caller's program;
+    # GIT_ASKPASS/SSH_ASKPASS replace the credential prompt program;
+    # NODE_PATH performs module lookup in an attacker-chosen tree and
+    # NODE_OPTIONS can inject code via --require/--import.
+    assert filter_caller_env({"GIT_EXTERNAL_DIFF": "/evil/diff"}) == {}
+    assert filter_caller_env({"git_askpass": "/evil/askpass"}) == {}
+    assert filter_caller_env({"SSH_ASKPASS": "/evil/askpass"}) == {}
+    assert filter_caller_env({"NODE_PATH": "/evil/node_modules"}) == {}
+    assert filter_caller_env({"node_options": "--require=/evil/preload.js"}) == {}
 
 
 def test_macos_and_shell_function_injection_vectors_are_blocked():

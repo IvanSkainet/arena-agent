@@ -4,8 +4,8 @@ Shared by the buffered ``/v1/exec`` handler and the ``/v1/exec/stream``
 handler (the raw-script endpoint takes no caller ``env`` payload). The
 webview is untrusted input like any other frontend: names that decide
 *what actually runs* — interpreter resolution, shell selection, dynamic
-loading, module lookup — are never taken from the caller, on POSIX or
-Windows. Where user data lives (TEMP, APPDATA, USERPROFILE, …) is a
+loading, module lookup, Git/SSH helper and Node runtime selection — are
+never taken from the caller, on POSIX or Windows. Where user data lives (TEMP, APPDATA, USERPROFILE, …) is a
 different invariant and deliberately not blocked here.
 """
 
@@ -27,6 +27,11 @@ _BLOCKED_ENV_EXACT = frozenset({
     "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "LD_DEBUG",
     "PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME",
     "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_SSH_COMMAND",
+    # Git/SSH/Node helper selection: programs Git, ssh or Node will execute
+    # on the caller's behalf during ordinary operations (diff output, askpass,
+    # module lookup, runtime option injection) -- GIT_SSH_COMMAND's family.
+    "GIT_EXTERNAL_DIFF", "GIT_ASKPASS", "SSH_ASKPASS",
+    "NODE_PATH", "NODE_OPTIONS",
     # macOS execution control: the DYLD_* family is the counterpart of
     # LD_PRELOAD / LD_LIBRARY_PATH on Darwin.
     "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
