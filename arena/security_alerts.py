@@ -140,7 +140,13 @@ def _get(path: str) -> tuple[list[dict[str, Any]] | None, str]:
                  "Accept": "application/vnd.github+json",
                  "User-Agent": "arena-security-alerts"})
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:  # nosec B310 -- fixed api.github.com host; nosemgrep: dynamic-urllib-use-detected -- the host is the literal api.github.com and only the path, built from constants above, varies
+        # Both annotations say the same thing: the host is the literal
+        # api.github.com built above, and only the path varies, from the
+        # constants in `collect`. Neither scanner can see that from the
+        # Request object alone.
+        # nosec B310 -- fixed api.github.com host
+        # nosemgrep: dynamic-urllib-use-detected -- fixed api.github.com host
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected
             data = json.loads(resp.read().decode("utf-8"))
         return (data, "") if isinstance(data, list) else (None, "unexpected payload")
     except urllib.error.HTTPError as exc:

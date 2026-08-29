@@ -309,13 +309,17 @@ def test_the_entrypoint_still_runs_as_a_script(tmp_path) -> None:
     tests would stay green while every pipeline that shells out to the
     path failed on an ImportError.
     """
-    import subprocess
+    import subprocess  # nosec B404 -- fixed argv, no shell; running the entrypoint IS the test
     import sys
 
-    proc = subprocess.run(
+    # An empty string, not a credential: the point is to clear both
+    # variables so the gate takes its no-token path. bandit's B105
+    # pattern-matches the name, not the value.
+    no_token = ""  # nosec B105 -- clears the variable, not a secret
+    proc = subprocess.run(  # nosec B603 -- fixed argv, no shell
         [sys.executable, str(SCRIPT), "--max-severity", "medium"],
         capture_output=True, text=True, timeout=120,
-        env={**os.environ, "GITHUB_TOKEN": "", "GH_TOKEN": ""},
+        env={**os.environ, "GITHUB_TOKEN": no_token, "GH_TOKEN": no_token},
         cwd=str(tmp_path),
         # The exit code IS the assertion below; raising on it here would
         # turn a legible failure into a CalledProcessError traceback.
