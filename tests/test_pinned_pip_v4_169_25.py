@@ -422,6 +422,25 @@ def test_no_suppression_markers_leak_into_documentation() -> None:
                 )
 
 
+_SENSITIVE_NAME = re.compile(
+    r"secret|token|password|passwd|credential|api_?key|private_?key|access_?key",
+    re.IGNORECASE,
+)
+
+
+def _sensitive_function_names(source: str) -> list[str]:
+    """Function names in *source* that read as sensitive data to CodeQL."""
+    import ast
+
+    tree = ast.parse(source)
+    return [
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and _SENSITIVE_NAME.search(node.name)
+    ]
+
+
 def test_no_secret_shaped_function_names_in_the_alert_gate() -> None:
     """A secret-shaped function NAME is a CodeQL taint source on its own.
 
@@ -433,18 +452,38 @@ def test_no_secret_shaped_function_names_in_the_alert_gate() -> None:
     cleared the last source (#191); this test keeps the next rename
     from quietly reintroducing one.
     """
-    import ast
-    import re
-
     source = (REPO_ROOT / "scripts" / "security_alerts_check.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    sensitive = re.compile(
-        r"secret|token|password|passwd|credential|api_?key|private_?key|access_?key"
+    offenders = _sensitive_function_names(source)
+    assert not offenders, (
+        f"function names {offenders!r} read as sensitive data to "
+        "py/clear-text-logging-sensitive-data; their return values "
+        "would taint the printed rows regardless of content"
     )
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            assert not sensitive.search(node.name), (
-                f"function name {node.name!r} reads as sensitive data to "
-                "py/clear-text-logging-sensitive-data; its return value "
-                "would taint the printed rows regardless of content"
-            )
+
+
+def test_sensitive_name_gate_rejects_violating_source() -> None:
+    """Negative test for the gate above: it must fire on secret-shaped names.
+
+    Mixed case counts (`getToken`, `loadCredentialRows`): Python
+    identifiers are case-sensitive but the analyser's name heuristics
+    are not, so the pattern is compiled with `re.IGNORECASE`.
+    """
+    violating = (
+        "def _secret_findings():\n"
+        "    return []\n"
+        "\n"
+        "\n"
+        "def getToken():\n"
+        "    return None\n"
+        "\n"
+        "\n"
+        "async def loadCredentialRows():\n"
+        "    return []\n"
+    )
+    assert _sensitive_function_names(violating) == [
+        "_secret_findings",
+        "getToken",
+        "loadCredentialRows",
+    ]
+    compliant = "def _scanning_rows():\n    return []\n"
+    assert _sensitive_function_names(compliant) == []
