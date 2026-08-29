@@ -122,8 +122,7 @@ def _get(path: str) -> tuple[list[dict[str, Any]] | None, str]:
 
 
 def _scanning_rows(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """
-    Turn secret-scanning alerts into printable rows.
+    """Turn secret-scanning alerts into printable rows.
 
     Two independent CodeQL sources had to go for alert #341 to clear,
     and this docstring keeps both mechanisms from being re-learned the
