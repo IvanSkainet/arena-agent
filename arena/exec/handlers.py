@@ -44,6 +44,7 @@ from arena.exec.client_lifecycle import (
     record_client_disconnect,
 )
 from arena.exec.control_gate import control_injection_response
+from arena.exec.environment import filter_caller_env
 from arena.exec.interpreters import (
     _INTERPRETERS,
     _quote_path,
@@ -56,10 +57,6 @@ from arena.handler_helpers import authed, err_json, parse_json_body
 from arena.security_commands import command_allowlist_reason
 from arena.web_utils import CORS_HEADERS
 
-_BLOCKED_ENV_PATTERNS = [
-    "ARENA_TOKEN", "TOKEN", "SECRET", "PASSWORD", "KEY",
-    "LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH", "PYTHONSTARTUP",
-]
 
 @dataclass(frozen=True)
 class ExecHandlers:
@@ -136,12 +133,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         raw_env = data.get("env")
         env_extra: dict[str, Any] = dict(raw_env) if isinstance(raw_env, dict) else {}
         env = os.environ.copy()
-        for key in list(env_extra.keys()):
-            for blocked in _BLOCKED_ENV_PATTERNS:
-                if blocked in key.upper():
-                    del env_extra[key]
-                    break
-        env.update({str(k): str(v) for k, v in env_extra.items()})
+        env.update(filter_caller_env(env_extra))
 
         sem: asyncio.Semaphore = cfg["semaphore"]
         if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:
@@ -468,12 +460,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         raw_env = data.get("env")
         env_extra: dict[str, Any] = dict(raw_env) if isinstance(raw_env, dict) else {}
         env = os.environ.copy()
-        for key in list(env_extra.keys()):
-            for blocked in _BLOCKED_ENV_PATTERNS:
-                if blocked in key.upper():
-                    del env_extra[key]
-                    break
-        env.update({str(k): str(v) for k, v in env_extra.items()})
+        env.update(filter_caller_env(env_extra))
 
         sem: asyncio.Semaphore = cfg["semaphore"]
         if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:
