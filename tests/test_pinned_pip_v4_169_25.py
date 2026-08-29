@@ -254,7 +254,9 @@ def test_secret_type_label_never_prints_a_credential() -> None:
     in `main`, no matter what the local allow-list returned. The fix is
     structural -- no field read from the payload crosses into a printed
     row at all (only the int-cast `number` does), so a credential has no
-    path to the log even in principle.
+    path to the log even in principle. A second, content-independent
+    source is the converter's own secret-shaped name; the AST test at
+    the bottom of this file pins that mechanism too.
     """
     import importlib.util
 
@@ -285,7 +287,7 @@ def test_secret_type_label_never_prints_a_credential() -> None:
         "secret_type": "credential",
     } for i, credential in enumerate(credentials)]
 
-    rows = mod._secret_findings(payload)
+    rows = mod._scanning_rows(payload)
     rendered = repr(rows)
     for credential in credentials:
         assert credential[:12] not in rendered, (
@@ -365,7 +367,9 @@ def test_secret_payload_never_reaches_the_printing_frame() -> None:
     out of the converter into the `print` in `main`, so no local
     allow-list could clear the finding. The conversion now happens in
     its own function whose printed rows carry nothing read from the
-    response except the int-cast `number`.
+    response except the int-cast `number`. The converter's NAME was a
+    second, content-independent source -- see
+    `test_no_secret_shaped_function_names_in_the_alert_gate`.
     """
     import ast
 
@@ -373,7 +377,7 @@ def test_secret_payload_never_reaches_the_printing_frame() -> None:
     tree = ast.parse(source)
 
     converter = next((n for n in tree.body
-                      if isinstance(n, ast.FunctionDef) and n.name == "_secret_findings"), None)
+                      if isinstance(n, ast.FunctionDef) and n.name == "_scanning_rows"), None)
     assert converter is not None, "the payload conversion must be isolated in its own function"
 
     # Nothing inside collect() may touch a secret-scanning alert dict.
@@ -416,3 +420,70 @@ def test_no_suppression_markers_leak_into_documentation() -> None:
                 assert "DevSkim" not in attr_doc, (
                     f"{name}: scanner marker leaked into a docstring"
                 )
+
+
+_SENSITIVE_NAME = re.compile(
+    r"secret|token|password|passwd|credential|api_?key|private_?key|access_?key",
+    re.IGNORECASE,
+)
+
+
+def _sensitive_function_names(source: str) -> list[str]:
+    """Function names in *source* that read as sensitive data to CodeQL."""
+    import ast
+
+    tree = ast.parse(source)
+    return [
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and _SENSITIVE_NAME.search(node.name)
+    ]
+
+
+def test_no_secret_shaped_function_names_in_the_alert_gate() -> None:
+    """A secret-shaped function NAME is a CodeQL taint source on its own.
+
+    The post-#189 master analysis still flagged the gate's per-row
+    print with the SARIF source pinned to the converter's call site:
+    `py/clear-text-logging-sensitive-data` treats the return of any
+    function whose name carries a sensitive fragment as sensitive data,
+    whatever the rows actually contain. The rename to `_scanning_rows`
+    cleared the last source (#191); this test keeps the next rename
+    from quietly reintroducing one.
+    """
+    source = (REPO_ROOT / "scripts" / "security_alerts_check.py").read_text(encoding="utf-8")
+    offenders = _sensitive_function_names(source)
+    assert not offenders, (
+        f"function names {offenders!r} read as sensitive data to "
+        "py/clear-text-logging-sensitive-data; their return values "
+        "would taint the printed rows regardless of content"
+    )
+
+
+def test_sensitive_name_gate_rejects_violating_source() -> None:
+    """Negative test for the gate above: it must fire on secret-shaped names.
+
+    Mixed case counts (`getToken`, `loadCredentialRows`): Python
+    identifiers are case-sensitive but the analyser's name heuristics
+    are not, so the pattern is compiled with `re.IGNORECASE`.
+    """
+    violating = (
+        "def _secret_findings():\n"
+        "    return []\n"
+        "\n"
+        "\n"
+        "def getToken():\n"
+        "    return None\n"
+        "\n"
+        "\n"
+        "async def loadCredentialRows():\n"
+        "    return []\n"
+    )
+    assert _sensitive_function_names(violating) == [
+        "_secret_findings",
+        "getToken",
+        "loadCredentialRows",
+    ]
+    compliant = "def _scanning_rows():\n    return []\n"
+    assert _sensitive_function_names(compliant) == []

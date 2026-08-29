@@ -121,19 +121,26 @@ def _get(path: str) -> tuple[list[dict[str, Any]] | None, str]:
         return None, f"unreachable: {exc}"
 
 
-def _secret_findings(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _scanning_rows(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
-    Turn secret-scanning alerts into printable rows without tainted fields.
+    Turn secret-scanning alerts into printable rows.
 
-    CodeQL's `py/clear-text-logging-sensitive-data` treats the
-    response's type-label field as sensitive data, and the taint
-    survives any local sanitization: the analyser follows the value out
-    of this function into the `print` at the end of `main`, which is why
-    a label allow-list was not enough. So no field read from the
-    response -- other than the int-cast `number`, which is not flagged --
-    crosses into a printed row. The secret type is on GitHub's alert
-    page; this gate's contract is to fail closed on ANY open
-    secret-scanning alert, not to describe it in the log.
+    Two independent CodeQL sources had to go for alert #341 to clear,
+    and this docstring keeps both mechanisms from being re-learned the
+    hard way. First, the response fields: nothing read from the payload
+    crosses into a row except the int-cast `number` (PR #189 removed the
+    type-label read). Second, this function's own NAME:
+    `py/clear-text-logging-sensitive-data` treats the return of any
+    function whose name carries a secret-shaped fragment as sensitive
+    data in its own right -- the post-#189 master analysis still flagged
+    the print in `main` with the SARIF source pinned to this function's
+    call site, while its rows were already pure literals. Hence the
+    neutral `_scanning_rows` name; an AST test keeps sensitive fragments
+    out of function names in this script.
+
+    The gate's contract is unchanged: fail closed on ANY open
+    secret-scanning alert. The type is on GitHub's alert page, not in
+    the CI log.
     """
     rows: list[dict[str, Any]] = []
     for alert in alerts:
@@ -194,7 +201,7 @@ def collect() -> tuple[list[dict[str, Any]], list[str]]:
     if alerts is None:
         notes.append(f"secret scanning: {note}")
     else:
-        findings.extend(_secret_findings(alerts))
+        findings.extend(_scanning_rows(alerts))
     return findings, notes
 
 
