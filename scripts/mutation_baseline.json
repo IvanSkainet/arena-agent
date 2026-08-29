@@ -16,6 +16,7 @@
  "arena/desktop/capability.py": 0,
  "arena/exec/client_lifecycle.py": 0,
  "arena/exec/control_gate.py": 0,
+ "arena/exec/environment.py": 0,
  "arena/exec/interpreters.py": 0,
  "arena/files/sandbox.py": 0,
  "arena/governance/firefox_tree_parity.py": 0,

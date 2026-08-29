@@ -146,6 +146,15 @@ TARGETS: dict[str, tuple[str, ...]] = {
     "arena/exec/control_gate.py": (
         "tests/test_exec_control_gate.py",
     ),
+    # T54 (#64): the caller-supplied env policy shared by the buffered exec
+    # and stream handlers. A surviving mutant here is an execution-control
+    # name (or secret family) that stopped being dropped from caller
+    # overrides. The expected denylist is pinned independently in the guard
+    # test (equality, not membership), so a product-side deletion cannot
+    # silently delete the coverage along with it.
+    "arena/exec/environment.py": (
+        "tests/test_exec_env_gate.py",
+    ),
     "arena/governance/firefox_tree_parity.py": (
         "tests/test_firefox_extension_parity.py",
     ),
