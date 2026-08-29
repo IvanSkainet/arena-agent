@@ -32,14 +32,15 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 # The high-water mark. Lower this when routes get documented; never raise it.
-# eb925fa3 measured 227. This change documented POST /v1/exec/script,
-# POST /v1/exec/stream and POST /v1/token/regenerate -- the credential-rotation
-# and code-execution endpoints an operator could not find in the spec.
-MAX_UNDOCUMENTED = 224
+#
+# Measured from all_routes(): 363 effective routes, 67 documented. The first
+# draft of this gate read ROUTES and reported 224; that number excluded the 72
+# generated CDP routes and was wrong. The real gap is larger than #204 recorded.
+MAX_UNDOCUMENTED = 296
 
 # A detector that silently compares two empty sets reports OK forever.
 # Same failure mode json_shape_ratchet.py guards with MIN_FILES_SCANNED.
-MIN_REGISTRY_ROUTES = 250
+MIN_REGISTRY_ROUTES = 320
 MIN_DOCUMENTED_OPERATIONS = 50
 
 _HTTP_METHODS = frozenset({"get", "post", "put", "delete", "patch", "head", "options"})
@@ -52,12 +53,27 @@ def _normalise(path: str) -> str:
     notion. Without this the two artefacts disagree on paths that match the
     same requests, and the ratchet reports drift that does not exist.
     """
-    return re.sub(r"\{(\w+):[^}]*\}", r"{\1}", path)
+    previous = None
+    while previous != path:
+        previous = path
+        # `[^{}]|\{[^{}]*\}` lets the converter step over one level of nested
+        # braces, so a quantifier like `{id:\d{8}}` collapses to `{id}` instead
+        # of leaving `{id}\d{8}}` behind and reporting drift that is not real.
+        path = re.sub(r"\{(\w+):(?:[^{}]|\{[^{}]*\})*\}", r"{\1}", path)
+    return path
 
 
 def registry_routes() -> set[tuple[str, str]]:
-    from arena.route_registry.registry import ROUTES
-    return {(method.upper(), _normalise(path)) for method, path, *_rest in ROUTES}
+    """Every route the app actually registers, not just the hand-written list.
+
+    ``ROUTES`` is the literal table. ``all_routes()`` is what
+    ``register_group`` iterates: ``ROUTES`` plus ``_CDP_EXPANDED``, the 72 CDP
+    routes generated under two prefixes. Reading ``ROUTES`` alone left those 72
+    outside the gate -- they could be added, removed or renamed without moving
+    the count. Caught in review of #205 by qodo-code-review.
+    """
+    from arena.route_registry.registry import all_routes
+    return {(method.upper(), _normalise(path)) for method, path, *_rest in all_routes()}
 
 
 def documented_operations() -> set[tuple[str, str]]:

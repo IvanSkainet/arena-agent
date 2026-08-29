@@ -41,14 +41,26 @@ def test_the_ratchet_script_exists_and_is_executable_as_a_module():
 
 def test_ratchet_passes_on_the_current_tree():
     proc = subprocess.run(  # noqa: S603
-        [sys.executable, str(RATCHET)], capture_output=True, text=True, cwd=REPO_ROOT,
+        [sys.executable, str(RATCHET)],
+        capture_output=True, text=True, cwd=REPO_ROOT, check=False,
     )
     assert proc.returncode == 0, f"parity ratchet is red on a clean tree:\n{proc.stdout}{proc.stderr}"
 
 
-def test_registry_reader_sees_the_whole_registry(ratchet):
-    """A reader that returns a handful of routes would make the gate decorative."""
+def test_registry_reader_reads_the_effective_route_source(ratchet):
+    """The gate must read all_routes(), not the hand-written ROUTES table.
+
+    ROUTES omits _CDP_EXPANDED -- 72 CDP routes generated under two prefixes
+    and registered at runtime. The first draft of this gate read ROUTES and
+    reported 224 undocumented; the true figure was 296. Those 72 routes could
+    have been added or removed without moving the count.
+    """
+    from arena.route_registry.registry import ROUTES, all_routes
+    assert len(all_routes()) > len(ROUTES), "all_routes() should include generated routes"
     routes = ratchet.registry_routes()
+    assert ("GET", "/v1/browser/cdp/health") in routes, (
+        "a generated CDP route is missing: the reader is back on ROUTES"
+    )
     assert len(routes) >= ratchet.MIN_REGISTRY_ROUTES, (
         f"only {len(routes)} routes read from the registry"
     )
@@ -115,3 +127,74 @@ def test_security_relevant_routes_are_documented(ratchet, route):
     assert route in ratchet.documented_operations(), (
         f"{route[0]} {route[1]} is registered but absent from the OpenAPI document"
     )
+
+
+# ---------------------------------------------------------------------
+# Failure paths. Without these the suite only ever proves the gate is
+# green on a compliant tree; a regression that stopped main() returning
+# nonzero would pass unnoticed. Raised in review of #205.
+# ---------------------------------------------------------------------
+
+def _run_with(monkeypatch, ratchet, *, registered, documented):
+    monkeypatch.setattr(ratchet, "registry_routes", lambda: registered)
+    monkeypatch.setattr(ratchet, "documented_operations", lambda: documented)
+    return ratchet.main()
+
+
+def _plausible(n, prefix="/v1/generated"):
+    return {("GET", f"{prefix}/{i}") for i in range(n)}
+
+
+def test_main_fails_when_the_ceiling_is_exceeded(monkeypatch, ratchet, capsys):
+    registered = _plausible(ratchet.MIN_REGISTRY_ROUTES + 10)
+    documented = set(sorted(registered)[:ratchet.MIN_DOCUMENTED_OPERATIONS])
+    undocumented = len(registered) - len(documented)
+    monkeypatch.setattr(ratchet, "MAX_UNDOCUMENTED", undocumented - 1)
+    assert _run_with(monkeypatch, ratchet, registered=registered, documented=documented) == 1
+    assert "more than the ceiling" in capsys.readouterr().out
+
+
+def test_main_fails_on_a_ghost_operation(monkeypatch, ratchet, capsys):
+    registered = _plausible(ratchet.MIN_REGISTRY_ROUTES + 10)
+    documented = set(sorted(registered)[:ratchet.MIN_DOCUMENTED_OPERATIONS])
+    documented.add(("GET", "/v1/promised/but/not/registered"))
+    assert _run_with(monkeypatch, ratchet, registered=registered, documented=documented) == 1
+    out = capsys.readouterr().out
+    assert "not registered" in out and "/v1/promised/but/not/registered" in out
+
+
+def test_main_fails_when_the_registry_reader_returns_nothing(monkeypatch, ratchet, capsys):
+    """A comparison of two empty sets would otherwise report OK forever."""
+    assert _run_with(monkeypatch, ratchet, registered=set(), documented=set()) == 1
+    assert "the reader is broken" in capsys.readouterr().out
+
+
+def test_main_fails_when_the_openapi_reader_returns_nothing(monkeypatch, ratchet, capsys):
+    registered = _plausible(ratchet.MIN_REGISTRY_ROUTES + 10)
+    assert _run_with(monkeypatch, ratchet, registered=registered, documented=set()) == 1
+    assert "the reader is broken" in capsys.readouterr().out
+
+
+def test_main_passes_and_invites_lowering_when_drift_shrinks(monkeypatch, ratchet, capsys):
+    registered = _plausible(ratchet.MIN_REGISTRY_ROUTES + 10)
+    documented = set(sorted(registered)[:ratchet.MIN_DOCUMENTED_OPERATIONS])
+    monkeypatch.setattr(ratchet, "MAX_UNDOCUMENTED",
+                        len(registered) - len(documented) + 5)
+    assert _run_with(monkeypatch, ratchet, registered=registered, documented=documented) == 0
+    assert "Lower MAX_UNDOCUMENTED" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(("raw", "expected"), [
+    ("/v1/x/{p:.*}", "/v1/x/{p}"),
+    ("/{id:\\d{8}}", "/{id}"),
+    ("/{a:[0-9]{2,4}}/{b:.*}", "/{a}/{b}"),
+    ("/v1/agents/{agent_id}", "/v1/agents/{agent_id}"),
+    ("/health", "/health"),
+])
+def test_normalisation_survives_regex_quantifiers(ratchet, raw, expected):
+    """`{n}` and `{n,m}` inside a path variable are brace-nested.
+
+    A single non-greedy pass turned `/{id:\\d{8}}` into `/{id}\\d{8}}` and the
+    gate reported drift that did not exist. Raised in review of #205.
+    """
+    assert ratchet._normalise(raw) == expected
