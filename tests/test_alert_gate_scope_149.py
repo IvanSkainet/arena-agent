@@ -316,7 +316,7 @@ def test_the_entrypoint_still_runs_as_a_script(tmp_path) -> None:
     # variables so the gate takes its no-token path. bandit's B105
     # pattern-matches the name, not the value.
     no_token = ""  # nosec B105 -- clears the variable, not a secret
-    proc = subprocess.run(  # nosec B603 -- fixed argv, no shell
+    proc = subprocess.run(  # nosec B603 -- fixed argv, no shell  # nosemgrep: dangerous-subprocess-use-audit -- argv is [sys.executable, a repo-relative constant, two literals]; same rationale as the bandit nosec on this line
         [sys.executable, str(SCRIPT), "--max-severity", "medium"],
         capture_output=True, text=True, timeout=120,
         env={**os.environ, "GITHUB_TOKEN": no_token, "GH_TOKEN": no_token},
