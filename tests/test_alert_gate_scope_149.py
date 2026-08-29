@@ -29,18 +29,18 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "security_alerts_check.py"
-MODULE = ROOT / "arena" / "security" / "alerts.py"
+MODULE = ROOT / "arena" / "security_alerts.py"
 
 
 def _module():
     """The gate under test.
 
     #190 moved the logic out of the `scripts/` entrypoint into
-    `arena.security.alerts`; the script is now a thin wrapper. These
+    `arena.security_alerts`; the script is now a thin wrapper. These
     tests follow the decisions, so they import the module rather than
     exec'ing the file by path.
     """
-    import arena.security.alerts as gate_module
+    import arena.security_alerts as gate_module
 
     return gate_module
 
@@ -294,10 +294,10 @@ def test_the_entrypoint_stays_a_thin_wrapper() -> None:
                  if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
     assert functions == [], (
         f"the entrypoint defines {functions!r}; gate logic belongs in "
-        "arena/security/alerts.py"
+        "arena/security_alerts.py"
     )
     assert "urllib" not in source, "the entrypoint does its own networking again"
-    assert "arena.security.alerts" in source, (
+    assert "arena.security_alerts" in source, (
         "the entrypoint no longer delegates to the module"
     )
 
@@ -320,3 +320,34 @@ def test_the_entrypoint_still_runs_as_a_script(tmp_path) -> None:
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "SKIPPED" in proc.stdout, proc.stdout
+
+
+def test_the_gate_module_does_not_shadow_arena_security() -> None:
+    """`arena/security.py` already exists, and start-up depends on it.
+
+    The first attempt at #190 put the gate in `arena/security/alerts.py`.
+    A package of that name shadows the module, and every job in the
+    matrix died before collecting a single test:
+
+        File "arena/runtime_deps/core.py", line 160, in <module>
+            from arena.security import (
+        ImportError: cannot import name '_INPUT_INJECTION_PATTERNS'
+        from 'arena.security'
+
+    `unified_bridge` imports that through `arena.runtime_deps.core` at
+    start-up, so the failure was total and instant -- which was lucky.
+    A partial shadow would have been a subtle one. The gate is a flat
+    `arena/security_alerts.py`, alongside `security_http.py`,
+    `security_ssrf.py` and `security_input.py`.
+    """
+    import arena.security
+
+    assert not (ROOT / "arena" / "security").is_dir(), (
+        "a arena/security/ package shadows arena/security.py, which "
+        "unified_bridge imports at start-up"
+    )
+    assert hasattr(arena.security, "_INPUT_INJECTION_PATTERNS"), (
+        "arena.security no longer resolves to the module runtime_deps.core "
+        "imports from"
+    )
+    assert MODULE.is_file(), f"the gate module is missing at {MODULE}"

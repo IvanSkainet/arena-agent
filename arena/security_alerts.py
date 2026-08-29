@@ -33,6 +33,16 @@ CodeQL alert #341 had to land in the file the taint was reported in, so
 rewriting the gate in the same PR would have widened a security fix into
 a refactor; that is why the two are separate changes.
 
+The name is ``security_alerts`` and not ``security.alerts`` because
+``arena/security.py`` already exists: a ``arena/security/`` package
+shadows it, and the first attempt at this move took every job in the
+matrix down with `ImportError: cannot import name
+'_INPUT_INJECTION_PATTERNS' from 'arena.security'` -- `unified_bridge`
+imports that module at start-up through ``arena.runtime_deps.core``. A
+flat module sits alongside ``security_http.py``, ``security_ssrf.py``
+and ``security_input.py``, which is the convention this tree already
+uses for that domain.
+
 The gate's behaviour is deliberately unchanged by the move: fail closed
 on ANY open secret-scanning alert, exit non-zero when a finding is at or
 above ``--max-severity``, and never report a repository as clean when it
@@ -126,7 +136,7 @@ def _get(path: str) -> tuple[list[dict[str, Any]] | None, str]:
                  "Accept": "application/vnd.github+json",
                  "User-Agent": "arena-security-alerts"})
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:  # nosec B310 -- fixed api.github.com host
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:  # nosec B310 -- fixed api.github.com host; nosemgrep: dynamic-urllib-use-detected -- the host is the literal api.github.com and only the path, built from constants above, varies
             data = json.loads(resp.read().decode("utf-8"))
         return (data, "") if isinstance(data, list) else (None, "unexpected payload")
     except urllib.error.HTTPError as exc:

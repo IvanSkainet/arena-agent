@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Thin CLI wrapper around ``arena.security.alerts``.
+"""Thin CLI wrapper around ``arena.security_alerts``.
 
 The gate itself -- networking, alert processing, severity ranking and
-output -- lives in ``arena/security/alerts.py``. This file only resolves
+output -- lives in ``arena/security_alerts.py``. This file only resolves
 the repository root onto ``sys.path``, hands the argv over and returns
 the exit code, which is the boundary `scripts/` entrypoints are supposed
 to keep (#190).
@@ -21,7 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from arena.security.alerts import main  # noqa: E402 -- needs the path line above
+from arena.security_alerts import main  # noqa: E402 -- needs the path line above
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

@@ -223,7 +223,7 @@ def test_alert_check_is_wired_into_ci_and_preflight() -> None:
     # #190: the entrypoint stayed at the same path on purpose -- three
     # pipelines invoke it by path -- but the logic it runs now lives in
     # the module, and that is what the pipelines are really wiring in.
-    assert (REPO_ROOT / "arena" / "security" / "alerts.py").exists(), (
+    assert (REPO_ROOT / "arena" / "security_alerts.py").exists(), (
         "the gate module moved; ci.yml, preflight.py and security-scan.yml "
         "still shell out to scripts/security_alerts_check.py"
     )
@@ -237,7 +237,7 @@ def test_severity_ranking_orders_the_levels_it_receives() -> None:
     low/medium/high/critical. Comparing them by string would put
     'critical' below 'note'.
     """
-    import arena.security.alerts as mod
+    import arena.security_alerts as mod
 
     assert mod._rank("critical") > mod._rank("medium") > mod._rank("note")
     assert mod._rank("error") > mod._rank("warning")
@@ -259,7 +259,7 @@ def test_secret_type_label_never_prints_a_credential() -> None:
     source is the converter's own secret-shaped name; the AST test at
     the bottom of this file pins that mechanism too.
     """
-    import arena.security.alerts as mod
+    import arena.security_alerts as mod
 
     # Assembled from fragments on purpose. Written out whole, GitHub's
     # push protection recognises these patterns and rejects the push
@@ -296,7 +296,7 @@ def test_secret_type_label_never_prints_a_credential() -> None:
 
 def test_alert_checker_does_not_print_the_secret_field() -> None:
     """Structural: the raw payload must not reach any print()."""
-    source = (REPO_ROOT / "arena" / "security" / "alerts.py").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "arena" / "security_alerts.py").read_text(encoding="utf-8")
     code = "\n".join(ln for ln in source.splitlines()
                      if not ln.strip().startswith("#"))
     assert '"secret"' not in code and "['secret']" not in code, (
@@ -368,7 +368,7 @@ def test_secret_payload_never_reaches_the_printing_frame() -> None:
     """
     import ast
 
-    source = (REPO_ROOT / "arena" / "security" / "alerts.py").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "arena" / "security_alerts.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
 
     converter = next((n for n in tree.body
@@ -447,7 +447,7 @@ def test_no_secret_shaped_function_names_in_the_alert_gate() -> None:
     cleared the last source (#191); this test keeps the next rename
     from quietly reintroducing one.
     """
-    source = (REPO_ROOT / "arena" / "security" / "alerts.py").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "arena" / "security_alerts.py").read_text(encoding="utf-8")
     offenders = _sensitive_function_names(source)
     assert not offenders, (
         f"function names {offenders!r} read as sensitive data to "
