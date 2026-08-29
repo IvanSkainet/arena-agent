@@ -317,6 +317,9 @@ def test_the_entrypoint_still_runs_as_a_script(tmp_path) -> None:
         capture_output=True, text=True, timeout=120,
         env={**os.environ, "GITHUB_TOKEN": "", "GH_TOKEN": ""},
         cwd=str(tmp_path),
+        # The exit code IS the assertion below; raising on it here would
+        # turn a legible failure into a CalledProcessError traceback.
+        check=False,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "SKIPPED" in proc.stdout, proc.stdout
