@@ -13,85 +13,14 @@ import os
 import socket
 import subprocess
 import sys
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
 
+from tests._stub_bridge import _StubBridge
+
 _REPO = Path(__file__).resolve().parents[1]
 _CLI = _REPO / "bin" / "agentctl"
-
-
-# ---------------------------------------------------------------------------
-# Fake bridge -- returns whatever we hand it
-# ---------------------------------------------------------------------------
-class _StubBridge:
-    """Tiny HTTPServer that answers /v1/tunnels/probe,
-    /v1/agent/config and /v1/tunnels/probe/reset with whatever
-    payloads we injected via ``self.responses``. Records every
-    request so tests can assert on side-effects."""
-
-    def __init__(self, responses):
-        self.responses = dict(responses)
-        self.received: list[tuple[str, str, bytes]] = []
-        self.server = None
-        self.thread = None
-        self.port = 0
-
-    def start(self):
-        outer = self
-
-        class _H(BaseHTTPRequestHandler):
-            def _write(self, status, body):
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json")
-                data = body if isinstance(body, bytes) else json.dumps(body).encode()
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self):
-                outer.received.append(("GET", self.path, b""))
-                resp = outer.responses.get(("GET", self.path.split("?")[0]))
-                if resp is None:
-                    self._write(404, {"ok": False, "error": "not found"})
-                    return
-                status, body = resp
-                self._write(status, body)
-
-            def do_POST(self):
-                length = int(self.headers.get("Content-Length") or 0)
-                body_in = self.rfile.read(length) if length else b""
-                outer.received.append(("POST", self.path, body_in))
-                resp = outer.responses.get(("POST", self.path))
-                if resp is None:
-                    self._write(404, {"ok": False, "error": "not found"})
-                    return
-                status, body = resp
-                self._write(status, body)
-
-            def log_message(self, *_a, **_kw):
-                pass
-
-        # Bind to an ephemeral port so parallel tests don't clash.
-        # Bind once and never release: picking a port, closing the socket
-        # and rebinding leaves a window in which the kernel may hand the
-        # same port to another stub (#175).
-        self.server = HTTPServer(("127.0.0.1", 0), _H)
-        self.port = self.server.server_address[1]
-        self.thread = threading.Thread(target=self.server.serve_forever,
-                                       daemon=True)
-        self.thread.start()
-        return self
-
-    def stop(self):
-        if self.server:
-            self.server.shutdown()
-            self.server.server_close()
-
-    def url(self) -> str:
-        return f"http://127.0.0.1:{self.port}"
 
 
 @pytest.fixture
