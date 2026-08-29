@@ -477,6 +477,14 @@ jobs:
         run: |
           python scripts/catalogue_harden.py --repo-root .
 
+      # v4.171: the registry declares 291 routes; the hand-written OpenAPI
+      # document described 64 of them. Both artefacts had passing tests and
+      # neither read the other, so 227 endpoints -- including
+      # POST /v1/token/regenerate, which rotates the caller's own
+      # credential -- were absent from the served spec (#204).
+      - name: OpenAPI parity ratchet (spec must not fall behind the route registry)
+        run: python scripts/openapi_parity_ratchet.py
+
   # ----------------------------------------------------------------
   # Lint: ruff F821/F811 are blocking. Full rule set is
   # informational.
