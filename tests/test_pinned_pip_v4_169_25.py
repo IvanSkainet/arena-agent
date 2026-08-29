@@ -248,11 +248,13 @@ def test_secret_type_label_never_prints_a_credential() -> None:
     """CodeQL flagged the alert checker itself (high).
 
     The secret-scanning payload carries the leaked credential in
-    `a["secret"]`, one dictionary key from a line this script prints.
-    Only the type label is wanted, and the first cut scrubbed
-    punctuation out of it -- which let `ghp_AbCdEf123!@#` through as
-    `ghp_AbCdEf123`, most of a token. "Remove the bad characters" is the
-    wrong question; a display name is words, a credential is not.
+    `a["secret"]`. Even the *type label* field is treated by the
+    analyser as sensitive data, and the taint survived every sanitization
+    attempt: the value is followed out of the converter into the `print`
+    in `main`, no matter what the local allow-list returned. The fix is
+    structural -- no field read from the payload crosses into a printed
+    row at all (only the int-cast `number` does), so a credential has no
+    path to the log even in principle.
     """
     import importlib.util
 
@@ -262,30 +264,37 @@ def test_secret_type_label_never_prints_a_credential() -> None:
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
 
-    # Real display names survive intact -- otherwise the output is useless.
-    assert mod._safe_label("GitHub Personal Access Token") == "GitHub Personal Access Token"
-    assert mod._safe_label("Amazon AWS Access Key ID") == "Amazon AWS Access Key ID"
-
-    # Anything shaped like a credential is withheld, not scrubbed.
-    #
     # Assembled from fragments on purpose. Written out whole, GitHub's
-    # push protection recognised the Slack pattern and rejected the push
+    # push protection recognises these patterns and rejects the push
     # -- correctly: it cannot know a literal in a test is fake, and a
     # scanner that trusted context would be useless. Splitting the
-    # prefix keeps the test honest without teaching the repository to
-    # ignore that shape.
+    # prefixes keeps the test honest without teaching the repository to
+    # ignore those shapes.
     credentials = (
         "ghp" + "_AbCdEf123!@#$%",
         "ghp" + "_16CharsAndMoreHere0123456789abcdef",
         "AKIA" + "IOSFODNN7EXAMPLE",
         "xoxb" + "-1234567890-abcdefghijklmnop",
     )
-    for credential in credentials:
-        out = mod._safe_label(credential)
-        assert "withheld" in out, f"a credential-shaped label was printed as {out!r}"
-        assert credential[:12] not in out
+    payload = [{
+        "number": i + 1,
+        # The credential itself and the label field both sit in the same
+        # response dict; neither may reach a printed row.
+        "secret": credential,
+        "secret_type_display_name": credential,
+        "secret_type": "credential",
+    } for i, credential in enumerate(credentials)]
 
-    assert mod._safe_label(None) == "unknown secret type"
+    rows = mod._secret_findings(payload)
+    rendered = repr(rows)
+    for credential in credentials:
+        assert credential[:12] not in rendered, (
+            f"a credential-shaped payload reached the printed rows: {rows!r}")
+    # The rows are neutral: fixed label text, the int-cast number, and a
+    # constant severity -- nothing read from the response beyond ``number``.
+    assert [r["id"] for r in rows] == ["see the alert on GitHub"] * len(rows)
+    assert [r["number"] for r in rows] == [i + 1 for i in range(len(rows))]
+    assert all(r["severity"] == "critical" for r in rows)
 
 
 def test_alert_checker_does_not_print_the_secret_field() -> None:
@@ -349,12 +358,14 @@ def test_no_blanket_devskim_disables() -> None:
 def test_secret_payload_never_reaches_the_printing_frame() -> None:
     """CodeQL kept flagging the checker after the label was sanitised.
 
-    That was the useful part of the report: the taint is on the whole
-    response, not on one key. Reading `secret_type_display_name` out of
-    a dict that also holds `secret` leaves both in the same scope, and
-    neither a reader nor an analyser can tell from the print statement
-    which one arrives there. The conversion now happens in its own
-    function whose return value contains nothing taken verbatim.
+    That was the useful part of the report: the taint is not in the
+    label's content, it is in the field's origin. Reading
+    `secret_type_display_name` out of a dict that also holds `secret`
+    leaves both in the same scope, and the analyser follows the value
+    out of the converter into the `print` in `main`, so no local
+    allow-list could clear the finding. The conversion now happens in
+    its own function whose printed rows carry nothing read from the
+    response except the int-cast `number`.
     """
     import ast
 
@@ -372,9 +383,14 @@ def test_secret_payload_never_reaches_the_printing_frame() -> None:
     assert "secret_type_display_name" not in body, (
         "collect() reads the payload again; the whole point is that it does not"
     )
-    # And the converter must not pass any raw field straight through.
+    # And the converter carries no response field into its rows except the
+    # int-cast number. The label field is not read at all: an analyser
+    # that treats it as sensitive data must have nothing to follow.
     conv = ast.unparse(converter)
-    assert "_safe_label(" in conv
+    assert "secret_type_display_name" not in conv, (
+        "the converter still reads the payload label field; the taint it "
+        "carries survives any local sanitization")
+    assert "_safe_label" not in conv
     assert "int(" in conv, "the alert number should be cast, not forwarded verbatim"
 
 
