@@ -485,6 +485,9 @@ jobs:
       - name: OpenAPI parity ratchet (spec must not fall behind the route registry)
         run: python scripts/openapi_parity_ratchet.py
 
+      - name: OpenAPI contract ratchet (documented operations must declare their errors)
+        run: python scripts/openapi_contract_ratchet.py
+
       - name: README metrics are current
         run: python scripts/render_readme_metrics.py --check
 
