@@ -488,6 +488,9 @@ jobs:
       - name: OpenAPI contract ratchet (documented operations must declare their errors)
         run: python scripts/openapi_contract_ratchet.py
 
+      - name: README metrics are current
+        run: python scripts/render_readme_metrics.py --check
+
   # ----------------------------------------------------------------
   # Lint: ruff F821/F811 are blocking. Full rule set is
   # informational.
