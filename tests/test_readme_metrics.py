@@ -153,7 +153,8 @@ def test_production_files_are_not_dropped_for_having_test_in_the_name(renderer):
     Found in review: filtering runtime files on `"test" in name` removed 1,114
     lines of shipped code from the count.
     """
-    counted = {str(p.relative_to(renderer.REPO_ROOT)) for p in renderer.runtime_paths()}
+    # as_posix(): on Windows str() yields backslashes and never matches.
+    counted = {p.relative_to(renderer.REPO_ROOT).as_posix() for p in renderer.runtime_paths()}
     for shipped in ("arena/browser/cdp/test_launch.py", "scripts/check_latest_release.py"):
         if (renderer.REPO_ROOT / shipped).exists():
             assert shipped in counted, f"{shipped} is production code but was excluded"
