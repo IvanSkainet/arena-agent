@@ -256,6 +256,17 @@ once; none is guesswork.
   `NativeCommandError`. Check `exit_code`, not stderr.
 - `gh` output is cp1251: capture bytes and `.decode("utf-8", "replace")`, and set
   `$env:PYTHONIOENCODING="utf-8"`.
+- **Never kill host processes by image name.** `Get-Process python | Stop-Process`
+  looks like it targets a stray test run; the bridge is itself a Python process,
+  so it kills the bridge and every subsequent request returns 502 until an
+  operator restarts it by hand. This has happened. Record the PID when you start
+  something and stop that PID, or filter on `CommandLine` and exclude the bridge:
+  `Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+  Where-Object { $_.CommandLine -like '*pytest*' }`.
+- Long runs must be started detached and polled through a log file; a background
+  run left going will also keep rewriting the worktree under you. Have the
+  detached script finish with `git checkout -- .` so the tree is clean for the
+  next checkout.
 
 ## Verification doctrine (v4.153.3+)
 
