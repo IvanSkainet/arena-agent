@@ -79,12 +79,12 @@ def test_check_reports_a_missing_block(renderer, tmp_path, monkeypatch):
 
 def test_check_reports_stale_numbers(renderer, tmp_path, monkeypatch, capsys):
     """A figure well outside tolerance must fail."""
-    block = renderer.render(renderer.collect()).replace("**109", "**1")
+    m = renderer.collect()
+    m["runtime_lines"] = int(m["runtime_lines"] * 2) + 1000   # far outside tolerance
     fake = tmp_path / "README.md"
-    fake.write_text(f"intro\n{block}\noutro\n", encoding="utf-8")
+    fake.write_text(f"intro\n{renderer.render(m)}\noutro\n", encoding="utf-8")
     monkeypatch.setattr(renderer, "README", fake)
-    if renderer.main(["--check"]) == 0:
-        pytest.skip("substitution did not perturb a figure on this tree")
+    assert renderer.main(["--check"]) == 1, "a doubled line count was accepted as current"
     assert "out of date" in capsys.readouterr().out
 
 
@@ -127,3 +127,72 @@ def test_check_actually_rejects_a_grossly_wrong_figure(renderer, tmp_path, monke
         "--check accepted a README claiming 1 line of code; the staleness "
         "branch is not doing anything"
     )
+
+
+def test_the_ratio_is_covered_by_the_freshness_check(renderer, tmp_path, monkeypatch):
+    """A wrong test-to-code ratio must fail --check.
+
+    Found in review: the number pattern only matched bold integers, so the
+    decimal ratio was never compared and could display any value.
+    """
+    block = renderer.render(renderer.collect())
+    ratio_line = next(line for line in block.splitlines() if "ratio" in line)
+    broken = block.replace(ratio_line, "| Test-to-code ratio | **9.99x** |")
+    assert broken != block, "could not perturb the ratio line"
+    fake = tmp_path / "README.md"
+    fake.write_text(f"intro\n{broken}\noutro\n", encoding="utf-8")
+    monkeypatch.setattr(renderer, "README", fake)
+    assert renderer.main(["--check"]) == 1, (
+        "--check accepted a fabricated test-to-code ratio"
+    )
+
+
+def test_production_files_are_not_dropped_for_having_test_in_the_name(renderer):
+    """Runtime CDP handlers are named test_*.py but are production code.
+
+    Found in review: filtering runtime files on `"test" in name` removed 1,114
+    lines of shipped code from the count.
+    """
+    counted = {str(p.relative_to(renderer.REPO_ROOT)) for p in renderer.runtime_paths()}
+    for shipped in ("arena/browser/cdp/test_launch.py", "scripts/check_latest_release.py"):
+        if (renderer.REPO_ROOT / shipped).exists():
+            assert shipped in counted, f"{shipped} is production code but was excluded"
+
+
+def test_unreadable_input_fails_closed(renderer, tmp_path):
+    """A file the script cannot read must abort, not shrink the totals."""
+    missing = tmp_path / "gone.py"
+    missing.write_text("x = 1\n", encoding="utf-8")
+    missing.unlink()
+    with pytest.raises(SystemExit):
+        renderer._count([missing])
+
+
+def test_exclusions_match_path_components_not_substrings(renderer, monkeypatch, tmp_path):
+    """A checkout under a directory named .venv must still be counted.
+
+    Substring matching on the absolute path would exclude every file in the
+    project depending only on where CI happens to check it out.
+    """
+    root = tmp_path / ".venv-cache" / "arena-agent"
+    (root / "arena").mkdir(parents=True)
+    (root / "arena" / "mod.py").write_text("a = 1\n", encoding="utf-8")
+    (root / "arena" / "__pycache__").mkdir()
+    (root / "arena" / "__pycache__" / "junk.py").write_text("junk\n", encoding="utf-8")
+    monkeypatch.setattr(renderer, "REPO_ROOT", root)
+    found = {p.name for p in renderer._iter_files(("arena/**/*.py",))}
+    assert "mod.py" in found, "a real file was excluded because a PARENT dir contained .venv"
+    assert "junk.py" not in found, "__pycache__ must still be excluded"
+
+
+def test_hand_editing_the_table_is_detected(renderer, tmp_path, monkeypatch):
+    """Renaming a row must fail --check even though the figures still match.
+
+    Found by sabotage: the check compared only numbers, so the labels around
+    them could say anything.
+    """
+    block = renderer.render(renderer.collect()).replace("| Runtime code |", "| Runtime CODE |")
+    fake = tmp_path / "README.md"
+    fake.write_text(f"intro\n{block}\noutro\n", encoding="utf-8")
+    monkeypatch.setattr(renderer, "README", fake)
+    assert renderer.main(["--check"]) == 1, "a hand-edited table was accepted as current"

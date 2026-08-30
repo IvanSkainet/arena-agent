@@ -193,7 +193,7 @@ message is visible wherever the operator happens to be.
 Concrete, reproducible obstacles. Each one was diagnosed the slow way at least
 once; none is guesswork.
 
-**Test suite**
+### Test suite
 
 - Run pytest with `--no-cov` when running a subset, or it fails on
   `Required test coverage of 46% not reached`.
@@ -208,7 +208,7 @@ once; none is guesswork.
 - Compare failures by **test id**, never by count, when deciding whether a
   branch regressed. Run the same command on the base commit and diff the sets.
 
-**Gates and tooling**
+### Gates and tooling
 
 - `pyrefly` and `import-linter` are not installable in every sandbox, so
   `scripts/quality_ratchet.py` fails closed locally. Some findings (for example
@@ -225,7 +225,7 @@ once; none is guesswork.
   or widening a tolerance must turn the suite red -- both mutations have slipped
   through here before.
 
-**Merging**
+### Merging
 
 - `master` is protected by a **ruleset**, not classic branch protection:
   `/branches/master/protection` returns 404, which does not mean "unprotected".
@@ -234,7 +234,7 @@ once; none is guesswork.
   included -- must be resolved or the merge is refused. Resolve via GraphQL
   `addPullRequestReviewThreadReply` then `resolveReviewThread`.
 
-**Working over the bridge (Windows host)**
+### Working over the bridge (Windows host)
 
 - `/v1/exec/script` takes a raw body; interpreter, timeout and cwd come from the
   `X-Arena-Interpreter`, `X-Arena-Timeout` and `X-Arena-Cwd` headers. Without

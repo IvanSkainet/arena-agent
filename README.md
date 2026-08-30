@@ -26,8 +26,8 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 
 | Metric | Value |
 | --- | --- |
-| Runtime code | **109,173** lines across 788 files |
-| Test code | **103,061** lines across 555 files |
+| Runtime code | **110,328** lines across 802 files |
+| Test code | **103,190** lines across 555 files |
 | Test-to-code ratio | **0.94×** |
 | CI workflows | **11** |
 | Quality gates (ratchets) | **18** |

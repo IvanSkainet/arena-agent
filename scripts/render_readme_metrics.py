@@ -39,40 +39,60 @@ TOLERANCE = 0.05
 _RUNTIME_GLOBS = ("arena/**/*.py", "scripts/**/*.py")
 _RUNTIME_EXTRA = ("unified_bridge.py",)
 _TEST_GLOBS = ("tests/**/*.py",)
-_EXCLUDE = ("__pycache__", ".venv", "node_modules")
+# Matched against path COMPONENTS relative to the repo, never as a substring of
+# the absolute path: a checkout living under e.g. /home/runner/.venv-cache/
+# would otherwise exclude every file in the project.
+_EXCLUDE = frozenset({"__pycache__", ".venv", "node_modules", ".git"})
 
 
 def _iter_files(globs, extra=()):
     for pattern in globs:
         for path in sorted(REPO_ROOT.glob(pattern)):
-            if path.is_file() and not any(x in str(path) for x in _EXCLUDE):
+            rel = path.relative_to(REPO_ROOT)
+            if path.is_file() and not (_EXCLUDE & set(rel.parts)):
                 yield path
-    for rel in extra:
-        path = REPO_ROOT / rel
+    for rel_name in extra:
+        path = REPO_ROOT / rel_name
         if path.is_file():
             yield path
 
 
 def _count(paths) -> tuple[int, int]:
+    """Count files and lines, failing closed if an input cannot be read.
+
+    Skipping an unreadable file would let the gate report success on partial
+    counts -- the exact fail-open shape this repo keeps getting bitten by.
+    """
     files = lines = 0
     for path in paths:
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
+        except OSError as exc:
+            raise SystemExit(
+                f"render_readme_metrics: cannot read {path}: {exc}. "
+                f"Refusing to report metrics from an incomplete file set."
+            ) from exc
         files += 1
         lines += len(text.splitlines())
     return files, lines
 
 
+def runtime_paths() -> list:
+    """The files counted as runtime code (single source of truth for the gate)."""
+    return list(_iter_files(_RUNTIME_GLOBS, _RUNTIME_EXTRA))
+
+
 def collect() -> dict[str, int]:
-    runtime = [p for p in _iter_files(_RUNTIME_GLOBS, _RUNTIME_EXTRA)
-               if "test" not in p.name]
+    # Test code is identified by LOCATION, not by basename. Filtering on
+    # "test" in the filename silently dropped 1,114 lines of production code
+    # (arena/browser/cdp/test_launch*.py are runtime CDP handlers,
+    # scripts/check_latest_release.py matched on "latest").
+    runtime = runtime_paths()
     tests = list(_iter_files(_TEST_GLOBS))
     rf, rl = _count(runtime)
     tf, tl = _count(tests)
     workflows = len(list((REPO_ROOT / ".github" / "workflows").glob("*.yml")))
-    gates = len([p for p in (REPO_ROOT / "scripts").glob("*ratchet*.py")])
+    gates = len(list((REPO_ROOT / "scripts").glob("*ratchet*.py")))
     return {
         "runtime_files": rf, "runtime_lines": rl,
         "test_files": tf, "test_lines": tl,
@@ -104,8 +124,21 @@ def _existing_block(text: str) -> str | None:
     return match.group(0) if match else None
 
 
-def _numbers(block: str) -> list[int]:
-    return [int(n.replace(",", "")) for n in re.findall(r"\*\*([\d,]+)\*\*", block)]
+def _labels(block: str) -> list[str]:
+    """Row labels, so a hand-edited table is detected even if figures match."""
+    return [line.split("|")[1].strip()
+            for line in block.splitlines()
+            if line.startswith("|") and line.count("|") >= 3]
+
+
+def _numbers(block: str) -> list[float]:
+    """Every bold figure in the block, including the decimal ratio.
+
+    An integer-only pattern skipped `**0.94x**` entirely, so the ratio could
+    drift to any value while --check still reported the block as current.
+    """
+    found = re.findall(r"\*\*([\d,]+(?:\.\d+)?)", block)
+    return [float(n.replace(",", "")) for n in found]
 
 
 def main(argv=None) -> int:
@@ -128,6 +161,14 @@ def main(argv=None) -> int:
         README.write_text(text.replace(current, fresh), encoding="utf-8")
         print("readme metrics: rewritten")
         return 0
+
+    # Compare labels before figures: matching numbers under renamed rows is
+    # still a hand-edited table, and the block must stay generator-owned.
+    if _labels(current) != _labels(fresh):
+        print("readme metrics: FAIL -- the block was hand-edited (row labels "
+              "differ from the generator's output).")
+        print("  Run: python scripts/render_readme_metrics.py")
+        return 1
 
     old, new = _numbers(current), _numbers(fresh)
     if len(old) != len(new):
