@@ -57,9 +57,135 @@ def _cognitive_request_schemas() -> tuple[dict, dict, dict]:
     return plan, react, reflect
 
 
+# ---------------------------------------------------------------------
+# Universal response contract (#89).
+#
+# Measured on 221d2742: of 67 documented operations, 62 of the 63 that sit
+# behind authentication declared no 401, and 66 declared no schema for their
+# success body. A spec that never mentions the error a caller will actually
+# hit is not a contract -- it is a brochure.
+#
+# These responses are not per-endpoint decisions, so they are not written
+# per-endpoint. They follow from two pieces of shared machinery:
+#
+#   * `authed()` (arena/handler_helpers.py) runs `ctx.require_auth` before
+#     every wrapped handler and returns whatever it produces, then converts
+#     any uncaught exception into a 500 envelope.
+#   * `require_auth()` (arena/auth/runtime.py) answers 401 for a bad or
+#     absent credential, and 429 once an IP fails ten times in sixty
+#     seconds -- with a Retry-After header.
+#
+# So every authenticated operation can return 401, 429 and 500 whatever else
+# it does. Generating them keeps the document honest as routes are added, and
+# stops 63 copies of the same three stanzas drifting apart.
+#
+# Public endpoints are excluded deliberately. The allow-list mirrors
+# PUBLIC_BY_DESIGN in tests/test_auth_surface_guard.py, which is enforced by
+# execution: that test walks every route the router registered and requires a
+# refusal from each one absent from the list. Documenting a 401 on a route
+# that never returns one would be a new lie, not a fix.
+# ---------------------------------------------------------------------
+
+_PUBLIC_PATHS = frozenset({
+    "/", "/health", "/v2/health", "/metrics", "/v1/metrics", "/openapi.json",
+    "/api-docs", "/gui", "/gui/v2", "/sse", "/v1/version",
+    "/gui/assets/manifest.json", "/mcp", "/messages",
+})
+
+_ERROR_ENVELOPE = {
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean", "enum": [False]},
+        "error": {"type": "string"},
+        "request_id": {"type": "string"},
+    },
+    "required": ["ok", "error"],
+}
+
+
+def _error_response(description: str) -> dict:
+    return {
+        "description": description,
+        "content": {"application/json": {"schema": _ERROR_ENVELOPE}},
+    }
+
+
+def _json_schema(properties: dict, required: list[str]) -> dict:
+    """A 2xx body description a client generator can actually consume."""
+    return {"content": {"application/json": {"schema": {
+        "type": "object", "properties": properties, "required": required}}}}
+
+
+# Success-body schemas for the endpoints whose shape was confirmed by calling
+# them in-process (see tests/test_openapi_error_contract_89.py, which re-checks
+# every key below against a live response so these cannot silently rot).
+#
+# Only paths already present in `paths` above can appear here. /v2/health and
+# /v1/metrics were measured too, but they are still part of the undocumented
+# backlog tracked by the parity ratchet, so their schemas wait for the entry.
+_SUCCESS_SCHEMAS: dict[tuple[str, str], dict] = {
+    ("/health", "get"): (
+        {"ok": {"type": "boolean"}, "service": {"type": "string"},
+         "version": {"type": "string"}, "uptime_seconds": {"type": "number"}},
+        ["ok", "service", "version", "uptime_seconds"],
+    ),
+    ("/v1/version", "get"): (
+        {"ok": {"type": "boolean"}, "version": {"type": "string"},
+         "service": {"type": "string"}, "loopback_only": {"type": "boolean"},
+         "exposed_publicly": {"type": ["boolean", "null"]},
+         "deployment": {"type": "object"}},
+        ["ok", "version", "service", "loopback_only", "deployment"],
+    ),
+}
+
+
+def _apply_success_schemas(spec: dict) -> dict:
+    """Attach observed 2xx schemas, never overwriting a richer existing one."""
+    for (path, method), (properties, required) in _SUCCESS_SCHEMAS.items():
+        operation = spec.get("paths", {}).get(path, {}).get(method)
+        if not operation:
+            continue
+        success = operation.setdefault("responses", {}).setdefault(
+            "200", {"description": "Success"})
+        if "content" not in success:
+            success.update(_json_schema(properties, required))
+    return spec
+
+
+def _apply_universal_responses(spec: dict) -> dict:
+    """Attach the responses every authenticated operation can actually return.
+
+    Never overwrites an existing entry: an endpoint that documents its own
+    401 or 500 has said something more specific than this function knows.
+    """
+    methods = ("get", "post", "put", "delete", "patch")
+    for path, item in spec["paths"].items():
+        if path in _PUBLIC_PATHS:
+            continue
+        for method, operation in item.items():
+            if method not in methods:
+                continue
+            responses = operation.setdefault("responses", {})
+            responses.setdefault("401", _error_response(
+                "Missing or invalid credential. The bridge accepts a Bearer "
+                "token, an X-Arena-Token header, or (deprecated) a ?token= "
+                "query parameter."))
+            responses.setdefault("429", {
+                "description": (
+                    "Too many failed authentication attempts from this IP "
+                    "(ten within sixty seconds). Retry-After is set."),
+                "headers": {"Retry-After": {"schema": {"type": "string"}}},
+                "content": {"application/json": {"schema": _ERROR_ENVELOPE}},
+            })
+            responses.setdefault("500", _error_response(
+                "Unhandled server error. The handler wrapper converts any "
+                "uncaught exception into this envelope."))
+    return spec
+
+
 def build_openapi_spec(ctx) -> dict:
     plan_schema, react_schema, reflect_schema = _cognitive_request_schemas()
-    return {
+    spec: dict = {
         "openapi": "3.0.3",
         "info": {
             "title": "Arena Unified Bridge API",
@@ -137,7 +263,7 @@ def build_openapi_spec(ctx) -> dict:
             "/v1/extension/execute": {"post": {"summary": "Execute an Arena browser-extension payload through tool policy checks", "tags": ["Planner"], "requestBody": {"content": {"application/json": {"schema": {"type": "object"}}}, "required": True}, "responses": {"200": {"description": "Extension execute result"}}}},
             "/v1/exec/script": {"post": {"summary": "Execute a raw script body", "description": "The body is the script itself, not JSON. The interpreter is chosen with the X-Arena-Interpreter header; X-Arena-Timeout and X-Arena-Cwd override the defaults. Refused with 403 on the cautious profile: raw scripts cannot be inspected for semantics.", "tags": ["Exec"], "parameters": [{"name": "X-Arena-Interpreter", "in": "header", "schema": {"type": "string"}, "description": "Interpreter key, e.g. powershell, bash, python"}, {"name": "X-Arena-Timeout", "in": "header", "schema": {"type": "integer"}}, {"name": "X-Arena-Cwd", "in": "header", "schema": {"type": "string"}}], "requestBody": {"required": True, "content": {"text/plain": {"schema": {"type": "string"}}}}, "responses": {"200": {"description": "Script result"}, "400": {"description": "Empty body, unsupported interpreter, or interpreter unavailable on this OS"}, "403": {"description": "Refused by the active profile or the control-character gate"}, "408": {"description": "Timed out"}, "413": {"description": "Script body above the 5 MiB cap"}}}},
             "/v1/exec/stream": {"post": {"summary": "Execute a command, streaming output", "tags": ["Exec"], "requestBody": {"required": True, "content": {"application/json": {"schema": {"type": "object", "properties": {"cmd": {"type": "string"}, "timeout": {"type": "integer", "default": 30}, "cwd": {"type": "string"}}, "required": ["cmd"]}}}}, "responses": {"200": {"description": "Chunked stream of command output"}, "400": {"description": "Missing cmd"}, "403": {"description": "Refused by the active profile or the control-character gate"}}}},
-            "/v1/token/regenerate": {"post": {"summary": "Rotate the bridge bearer token", "description": "Generates a new master token, writes it to the token file, and invalidates the current one from the next request onward. No restart is required. A write failure is ALSO reported with HTTP 200 and ok=false, so the caller must inspect ok before discarding the credential it currently holds.", "tags": ["Bridge"], "responses": {"200": {"description": "Rotation outcome. ok=true carries the new token in `token`; ok=false means the token file could not be written and the CURRENT credential is still valid -- do not discard it.", "content": {"application/json": {"schema": {"type": "object", "properties": {"ok": {"type": "boolean"}, "token": {"type": "string", "description": "Present only when ok is true"}, "written_to": {"type": "array", "items": {"type": "string"}}, "previous_token_revoked": {"type": "boolean"}, "restart_required": {"type": "boolean"}, "error": {"type": "string", "description": "Present only when ok is false"}}, "required": ["ok"]}}}}, "401": {"description": "Missing or invalid bearer token"}}}},
+            "/v1/token/regenerate": {"post": {"summary": "Rotate the bridge bearer token", "description": "Generates a new master token, writes it to the token file, and invalidates the current one from the next request onward. No restart is required. A write failure is ALSO reported with HTTP 200 and ok=false, so the caller must inspect ok before discarding the credential it currently holds.", "tags": ["Bridge"], "responses": {"200": {"description": "Rotation outcome. ok=true carries the new token in `token`; ok=false means the token file could not be written and the CURRENT credential is still valid -- do not discard it.", "content": {"application/json": {"schema": {"type": "object", "properties": {"ok": {"type": "boolean"}, "token": {"type": "string", "description": "Present only when ok is true"}, "written_to": {"type": "array", "items": {"type": "string"}}, "previous_token_revoked": {"type": "boolean"}, "restart_required": {"type": "boolean"}, "error": {"type": "string", "description": "Present only when ok is false"}}, "required": ["ok"]}}}}, }}},
             "/v1/events": {"get": {"summary": "WebSocket real-time event stream", "tags": ["Events"], "responses": {"200": {"description": "WebSocket upgrade for events"}}}},
             "/gui": {"get": {"summary": "Web dashboard", "tags": ["Bridge"], "responses": {"200": {"description": "HTML dashboard"}}}},
             "/api-docs": {"get": {"summary": "OpenAPI specification", "tags": ["Bridge"], "responses": {"200": {"description": "OpenAPI JSON"}}}},
@@ -158,3 +284,4 @@ def build_openapi_spec(ctx) -> dict:
             {"name": "Events", "description": "Real-time WebSocket event stream"},
         ],
     }
+    return _apply_success_schemas(_apply_universal_responses(spec))
