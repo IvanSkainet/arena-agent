@@ -10,7 +10,7 @@ compatibility entrypoints or large catch-all files.
 - Keep `unified_bridge.py` a thin compatibility/CLI entrypoint.
 - Keep wrapper scripts in `scripts/` and `bin/` thin; real logic belongs under `arena/`.
 - Product files must stay under the modularity limit enforced by
-  `tests/test_project_modularity.py` (**currently 700 lines**). Runtime modules
+  `tests/test_project_modularity.py` (**currently 1600 lines**). Runtime modules
   under `arena/` have an additional limit in
   `tests/test_architecture_boundaries.py` (**currently 600 lines**).
   Readable code beats squeezed code — if a file is close to the limit,
@@ -187,6 +187,75 @@ signal is not a signal.
 
 Same queue as the Dashboard **Relay** tab and `bin/arena-relay`, so a
 message is visible wherever the operator happens to be.
+
+## Traps that have cost real sessions
+
+Concrete, reproducible obstacles. Each one was diagnosed the slow way at least
+once; none is guesswork.
+
+**Test suite**
+
+- Run pytest with `--no-cov` when running a subset, or it fails on
+  `Required test coverage of 46% not reached`.
+- `pytest-randomly` is enabled. Order-dependent failures are real; reproduce
+  with `-p no:randomly` before blaming your own change.
+- Do **not** run `tests/e2e/test_bridge_live.py` through the bridge: it rotates
+  the live bearer token and takes the running service down (issue #209).
+- A stale, inaccessible `%TEMP%\pytest-of-<user>` makes every `tmp_path` test
+  error out at once (2064 of them, in one observed run). Symptom is
+  `PermissionError: [WinError 5]` inside pytest's own `getbasetemp`. Work around
+  it with `--basetemp=<fresh dir>` (issue #208).
+- Compare failures by **test id**, never by count, when deciding whether a
+  branch regressed. Run the same command on the base commit and diff the sets.
+
+**Gates and tooling**
+
+- `pyrefly` and `import-linter` are not installable in every sandbox, so
+  `scripts/quality_ratchet.py` fails closed locally. Some findings (for example
+  `bad-assignment`) can only be seen in CI -- push and read the job log.
+- Never use `pytest.importorskip` for a dependency a gate relies on. If the
+  package is absent the check silently vanishes, and CI reports success while
+  verifying nothing. Pin the dependency in the right `requirements-*.in` and
+  import it plainly.
+- Locks are hash-pinned. Never hand-edit a `.lock`; regenerate with the exact
+  command in its header (`uv pip compile --universal --generate-hashes
+  --strip-extras --python-version 3.10 --output-file=<lock> <in>`), then run
+  `scripts/check_lock_freshness.py` and `scripts/lock_conflict_ratchet.py`.
+- Any new ratchet needs monkeypatched failure-branch tests. Disabling a check
+  or widening a tolerance must turn the suite red -- both mutations have slipped
+  through here before.
+
+**Merging**
+
+- `master` is protected by a **ruleset**, not classic branch protection:
+  `/branches/master/protection` returns 404, which does not mean "unprotected".
+  Read `gh api repos/{owner}/{repo}/rules/branches/master`.
+- `required_review_thread_resolution` is on, so **every** review thread -- bots
+  included -- must be resolved or the merge is refused. Resolve via GraphQL
+  `addPullRequestReviewThreadReply` then `resolveReviewThread`.
+
+**Working over the bridge (Windows host)**
+
+- `/v1/exec/script` takes a raw body; interpreter, timeout and cwd come from the
+  `X-Arena-Interpreter`, `X-Arena-Timeout` and `X-Arena-Cwd` headers. Without
+  `X-Arena-Timeout` the server applies its 60 s default and answers 408 no
+  matter how long the client waits.
+- Anything running longer than about a minute drops the TLS connection. Start it
+  detached (`Start-Process ... -RedirectStandardOutput`) and poll the log file.
+- Distinguish the failure modes before waiting: `gaierror`/`000` is DNS,
+  `Network is unreachable` is routing, `SSLEOFError` is TLS, **502 means the
+  tunnel is up and the bridge process itself is down**.
+- The host publishes several A records and rotates them, and sometimes returns
+  only AAAA. Resolve with `AF_UNSPEC`, try every address, cache the ones that
+  answer -- and always send the **hostname** as SNI even when dialling an IP, or
+  TLS closes with a bare EOF.
+- Quoting through PowerShell is a trap: `python -c "..."` with nested quotes,
+  `gh ... | python -c`, and slicing `Select-String` results all fail. Push a
+  `.py` file, run it, parse in Python.
+- `git` writes ordinary output to stderr through the bridge, raising
+  `NativeCommandError`. Check `exit_code`, not stderr.
+- `gh` output is cp1251: capture bytes and `.decode("utf-8", "replace")`, and set
+  `$env:PYTHONIOENCODING="utf-8"`.
 
 ## Verification doctrine (v4.153.3+)
 
