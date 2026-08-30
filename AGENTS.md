@@ -256,6 +256,47 @@ once; none is guesswork.
   `NativeCommandError`. Check `exit_code`, not stderr.
 - `gh` output is cp1251: capture bytes and `.decode("utf-8", "replace")`, and set
   `$env:PYTHONIOENCODING="utf-8"`.
+- **Never kill host processes by image name.** `Get-Process python | Stop-Process`
+  looks like it targets a stray test run; the bridge is itself a Python process,
+  so it kills the bridge and every subsequent request returns 502 until an
+  operator restarts it by hand and issues a new token. This has happened.
+
+  Record the PID when you launch the run and stop exactly that PID:
+
+  ```powershell
+  # launcher writes it
+  $PID | Out-File -Encoding ascii "$L\runner.pid"
+  # cleanup reads it back, and stops the tree rooted at it
+  $runner = Get-Content "$L\runner.pid"
+  Get-CimInstance Win32_Process |
+    Where-Object { $_.ProcessId -eq $runner -or $_.ParentProcessId -eq $runner } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  ```
+
+  If the PID was lost, match on the *worktree path* the run was started in and
+  explicitly exclude the bridge PID -- never on a bare `pytest` substring, which
+  matches any bridge whose command line happens to mention it:
+
+  ```powershell
+  $bridge = <the bridge PID, read from /health or recorded at startup>
+  Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+    Where-Object { $_.ProcessId -ne $bridge -and $_.CommandLine -like "*$Worktree*" } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+  ```
+
+  After any such cleanup, confirm `/health` still answers 200 before continuing.
+- Long runs must be started detached and polled through a log file. A run left
+  going keeps rewriting the worktree under you: a later `git checkout` fails with
+  "Your local changes would be overwritten", and -- worse -- you may be reading
+  output produced by **stale code** while believing it describes the new commit.
+  Always re-read `git rev-parse HEAD` in the worktree before trusting a result.
+- To restore a worktree the run dirtied, be specific about what you revert.
+  `git checkout -- .` is not "make it clean": it only restores *tracked* files,
+  leaves untracked artifacts behind, and applies to the current directory rather
+  than the whole tree -- and it will silently destroy edits someone else made
+  while the run was going. Prefer reverting the known outputs by name
+  (`git checkout -- README.md`), or run in a **dedicated worktree** that nobody
+  else is editing, where `git checkout -- :/` plus `git clean -fd` is safe.
 
 ## Verification doctrine (v4.153.3+)
 
