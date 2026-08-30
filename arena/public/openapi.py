@@ -110,6 +110,9 @@ def _error_response(description: str) -> dict:
     }
 
 
+_OPERATION_METHODS = ("get", "post", "put", "delete", "patch")
+
+
 def _json_schema(properties: dict, required: list[str]) -> dict:
     """A 2xx body description a client generator can actually consume."""
     return {"content": {"application/json": {"schema": {
@@ -132,7 +135,7 @@ _SUCCESS_SCHEMAS: dict[tuple[str, str], tuple[dict, list[str]]] = {
     ("/v1/version", "get"): (
         {"ok": {"type": "boolean"}, "version": {"type": "string"},
          "service": {"type": "string"}, "loopback_only": {"type": "boolean"},
-         "exposed_publicly": {"type": ["boolean", "null"]},
+         "exposed_publicly": {"type": "boolean", "nullable": True},
          "deployment": {"type": "object"}},
         ["ok", "version", "service", "loopback_only", "deployment"],
     ),
@@ -158,12 +161,18 @@ def _apply_universal_responses(spec: dict) -> dict:
     Never overwrites an existing entry: an endpoint that documents its own
     401 or 500 has said something more specific than this function knows.
     """
-    methods = ("get", "post", "put", "delete", "patch")
     for path, item in spec["paths"].items():
         if path in _PUBLIC_PATHS:
+            # The document declares a top-level `security` requirement, and an
+            # operation inherits it unless it opts out with an empty list.
+            # Skipping only the error responses would still leave generated
+            # clients demanding a token for /health and friends.
+            for method, operation in item.items():
+                if method in _OPERATION_METHODS:
+                    operation.setdefault("security", [])
             continue
         for method, operation in item.items():
-            if method not in methods:
+            if method not in _OPERATION_METHODS:
                 continue
             responses = operation.setdefault("responses", {})
             responses.setdefault("401", _error_response(
@@ -174,7 +183,11 @@ def _apply_universal_responses(spec: dict) -> dict:
                 "description": (
                     "Too many failed authentication attempts from this IP "
                     "(ten within sixty seconds). Retry-After is set."),
-                "headers": {"Retry-After": {"schema": {"type": "string"}}},
+                "headers": {"Retry-After": {
+                    "description": "Seconds to wait before retrying.",
+                    "required": True,
+                    "schema": {"type": "string"},
+                }},
                 "content": {"application/json": {"schema": _ERROR_ENVELOPE}},
             })
             responses.setdefault("500", _error_response(

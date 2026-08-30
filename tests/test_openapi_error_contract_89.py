@@ -79,11 +79,18 @@ def test_error_responses_carry_a_schema_not_just_prose(spec):
             assert "error" in schema["properties"], f"{m.upper()} {p} {code} lacks error"
 
 
-def test_the_429_documents_retry_after(spec):
-    """The throttle sets Retry-After; a client that cannot see it will hammer."""
+def test_the_429_documents_retry_after_as_required(spec):
+    """The throttle always sets Retry-After, so the document must not call it optional.
+
+    An optional header is one a generated client may ignore; require_auth emits
+    it on every 429, so advertising it as optional understates the contract and
+    invites clients to retry blindly.
+    """
     for p, m, o in _authenticated(spec):
-        assert "Retry-After" in o["responses"]["429"].get("headers", {}), \
-            f"{m.upper()} {p} does not document Retry-After on 429"
+        header = o["responses"]["429"].get("headers", {}).get("Retry-After")
+        assert header, f"{m.upper()} {p} does not document Retry-After on 429"
+        assert header.get("required") is True, \
+            f"{m.upper()} {p} documents Retry-After as optional, but it is always sent"
 
 
 def test_generator_never_overwrites_a_specific_response():
@@ -250,3 +257,49 @@ async def _check_success_schemas(spec, root):
         await client.close()
         await server.close()
     assert problems == [], f"documented success schemas contradict real responses: {problems}"
+
+
+# ---------------------------------------------------------------------
+# Document-level correctness. Both issues below were raised by reviewers
+# on PR #207 and confirmed here: the tests above passed while the served
+# document was rejected outright by an OpenAPI validator.
+# ---------------------------------------------------------------------
+
+def test_the_served_document_is_valid_openapi(spec):
+    """Structural assertions are not enough; the whole document must validate.
+
+    The first draft declared `{"type": ["boolean", "null"]}`, which is JSON
+    Schema / OpenAPI 3.1 syntax. This document declares 3.0.3, where a nullable
+    value is `{"type": "boolean", "nullable": true}`. Every hand-written test
+    passed while `openapi_spec_validator` rejected the document, so generated
+    clients would have broken on a spec the suite called correct.
+    """
+    validator = pytest.importorskip(
+        "openapi_spec_validator",
+        reason="openapi-spec-validator is not installed in this environment",
+    )
+    validator.validate(spec)
+
+
+def test_public_operations_opt_out_of_the_global_security_requirement(spec):
+    """Excusing a public path from 401 is only half the job.
+
+    The document sets a top-level `security` requirement, and an operation
+    inherits it unless it declares an empty one. Without the override a
+    generated client still demands a bearer token for /health, /v1/version and
+    the rest -- the document would contradict itself: no 401 documented, yet
+    authentication required.
+    """
+    assert spec.get("security"), "this test is meaningless without a global requirement"
+    missing = [f"{m.upper()} {p}" for p, m, o in _operations(spec)
+               if p in _PUBLIC_PATHS and o.get("security") != []]
+    assert missing == [], (
+        f"public operations still inherit the global auth requirement: {missing}"
+    )
+
+
+def test_authenticated_operations_keep_the_global_security_requirement(spec):
+    """The opt-out must not leak onto endpoints that really do require a token."""
+    wrong = [f"{m.upper()} {p}" for p, m, o in _authenticated(spec)
+             if o.get("security") == []]
+    assert wrong == [], f"authenticated operations wrongly marked public: {wrong}"
