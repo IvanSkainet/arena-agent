@@ -123,7 +123,7 @@ def _json_schema(properties: dict, required: list[str]) -> dict:
 # Only paths already present in `paths` above can appear here. /v2/health and
 # /v1/metrics were measured too, but they are still part of the undocumented
 # backlog tracked by the parity ratchet, so their schemas wait for the entry.
-_SUCCESS_SCHEMAS: dict[tuple[str, str], dict] = {
+_SUCCESS_SCHEMAS: dict[tuple[str, str], tuple[dict, list[str]]] = {
     ("/health", "get"): (
         {"ok": {"type": "boolean"}, "service": {"type": "string"},
          "version": {"type": "string"}, "uptime_seconds": {"type": "number"}},

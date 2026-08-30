@@ -127,10 +127,10 @@ def test_public_path_list_matches_the_enforced_auth_allow_list():
 # per-IP rate limiter cannot distort the result.
 # ---------------------------------------------------------------------
 
-def _build_app() -> web.Application:
+def _build_app(root: Path) -> web.Application:
     app = ub.make_app({
         "token": "contract-token-never-presented", "profile": "owner-shell",
-        "root": Path("/tmp"), "active_exec": 0, "max_concurrent": 3,
+        "root": root, "active_exec": 0, "max_concurrent": 3,
         "audit": "audit", "timeout": 60, "max_timeout": 3600,
         "max_output": 2000000, "allow_any_cwd": False,
         "semaphore": asyncio.Semaphore(1),
@@ -143,7 +143,7 @@ def _build_app() -> web.Application:
     return app
 
 
-def test_documented_401_is_what_the_server_actually_does(spec):
+def test_documented_401_is_what_the_server_actually_does(spec, tmp_path):
     """No operation documented as authenticated may serve data without a token.
 
     The loop is driven with asyncio.run rather than pytest.mark.asyncio: this
@@ -151,14 +151,14 @@ def test_documented_401_is_what_the_server_actually_does(spec):
     unknown marker into a collection error. Caught by running on the target
     machine -- it passed in a sandbox that happened to have the plugin.
     """
-    asyncio.run(_probe_every_authenticated_operation(spec))
+    asyncio.run(_probe_every_authenticated_operation(spec, tmp_path))
 
 
-async def _probe_every_authenticated_operation(spec):
+async def _probe_every_authenticated_operation(spec, root):
     log = logging.getLogger("arena-bridge")
     previous = log.level
     log.setLevel(logging.ERROR)  # the sweep fails auth ~60 times by design
-    server = TestServer(_build_app())
+    server = TestServer(_build_app(root))
     await server.start_server()
     client = TestClient(server)
     await client.start_server()
@@ -205,17 +205,17 @@ def test_every_success_schema_targets_a_documented_operation():
     assert orphans == [], f"success schemas that apply to no documented operation: {orphans}"
 
 
-def test_success_schemas_match_what_the_endpoints_really_return(spec):
+def test_success_schemas_match_what_the_endpoints_really_return(spec, tmp_path):
     """Every documented required key must be present, and typed, in a real response."""
-    asyncio.run(_check_success_schemas(spec))
+    asyncio.run(_check_success_schemas(spec, tmp_path))
 
 
-async def _check_success_schemas(spec):
+async def _check_success_schemas(spec, root):
     json_type = {
         "boolean": bool, "string": str, "integer": int,
         "number": (int, float), "object": dict, "array": list,
     }
-    server = TestServer(_build_app())
+    server = TestServer(_build_app(root))
     await server.start_server()
     client = TestClient(server)
     await client.start_server()
