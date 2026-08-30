@@ -274,11 +274,14 @@ def test_the_served_document_is_valid_openapi(spec):
     passed while `openapi_spec_validator` rejected the document, so generated
     clients would have broken on a spec the suite called correct.
     """
-    validator = pytest.importorskip(
-        "openapi_spec_validator",
-        reason="openapi-spec-validator is not installed in this environment",
-    )
-    validator.validate(spec)
+    # Imported at call time, not skipped. openapi-spec-validator is pinned in
+    # requirements-ci.in precisely so this cannot be skipped: importorskip
+    # turned the strongest check in this file into a no-op on any machine
+    # missing the package, CI included -- a gate that cannot detect its own
+    # absence, which is the failure mode #204 was built to prevent.
+    from openapi_spec_validator import validate
+
+    validate(spec)
 
 
 def test_public_operations_opt_out_of_the_global_security_requirement(spec):
