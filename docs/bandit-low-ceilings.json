@@ -4,12 +4,13 @@
     "30 new try_except_pass and stay under the cap by deleting 30 subprocess",
     "imports. Each test id now ratchets independently -- any of them may fall,",
     "none may rise.",
-    "B110 (try_except_pass) is the one that matters most: 244 of its 250 sites",
-    "are an undocumented `except Exception: pass`, the exact fail-open shape",
-    "this repo keeps getting bitten by. It is capped here so it cannot grow",
-    "while the cleanup happens file by file."
+    "B110 (try_except_pass) is the one that matters most: an undocumented",
+    "`except Exception: pass` is the exact fail-open shape this repo keeps",
+    "getting bitten by. It is capped here so it cannot grow while the cleanup",
+    "happens file by file. 250 -> 244: the six chmod sites that silently left",
+    "sensitive files world-readable now go through arena.fileperms.restrict."
   ],
-  "B110": 250,
+  "B110": 244,
   "B603": 91,
   "B404": 75,
   "B607": 39,
