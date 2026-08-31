@@ -86,3 +86,24 @@ def test_skipped_analysis_is_red(gate, monkeypatch):
 
 def test_skipped_not_in_pass_set(gate):
     assert "skipped" not in gate.PASS
+
+
+def test_default_timeout_exceeds_observed_codeql_duration(gate):
+    """CodeQL took >15 min on PR #216 and the gate timed out on a clean run.
+
+    The wait must stay bounded, but generous enough that a normal analysis
+    is not reported as a failure.
+    """
+    ns = gate._parse_args(["--sha", "x"])
+    assert ns.timeout >= 2700
+
+
+def test_job_timeout_outlasts_the_script_timeout():
+    """A job killed by Actions surfaces as infra noise, not a red gate."""
+    import re
+    wf = (Path(__file__).resolve().parents[1]
+          / ".github" / "workflows" / "codeql-required.yml").read_text(encoding="utf-8")
+    m = re.search(r"timeout-minutes:\s*(\d+)", wf)
+    assert m, "codeql-required.yml must set an explicit job timeout"
+    gate = _load()
+    assert int(m.group(1)) * 60 > gate._parse_args(["--sha", "x"]).timeout

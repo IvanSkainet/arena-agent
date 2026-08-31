@@ -66,9 +66,14 @@ def _checks(sha: str) -> list[dict]:
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument("--sha", required=True)
-    ap.add_argument("--timeout", type=int, default=900,
+    # Measured on PR #216: CodeQL default setup took over 15 minutes for
+    # `Analyze (python)` and `Analyze (actions)` on a normal-sized change,
+    # so the original 900s timeout failed a run whose four analyses all
+    # went on to pass. 45 minutes leaves real headroom while still being a
+    # bounded wait rather than an indefinite hang.
+    ap.add_argument("--timeout", type=int, default=2700,
                     help="seconds to wait for CodeQL to finish")
-    ap.add_argument("--poll", type=int, default=20)
+    ap.add_argument("--poll", type=int, default=30)
     return ap.parse_args(argv)
 
 

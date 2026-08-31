@@ -19,7 +19,7 @@ permissions:
 jobs:
   codeql-required:
     name: CodeQL required (all languages must pass)
-    timeout-minutes: 20
+    timeout-minutes: 55
     runs-on: ubuntu-latest
     steps:
       - name: Harden Runner (audit mode, egress visibility)
