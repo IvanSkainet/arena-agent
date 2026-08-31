@@ -93,11 +93,18 @@ def test_blocking_steps_list_their_allowed_endpoints():
     assert not missing, f"block mode without allowed-endpoints: {missing}"
 
 
+def _is_blocking(step) -> bool:
+    """True when this Harden-Runner step actually enforces its allowlist."""
+    if step is None:
+        return False
+    return (step.get("with") or {}).get("egress-policy") == "block"
+
+
 def _blocking_jobs():
     """Every (workflow, job_id, job, step) tuple running in block mode."""
     for wf_name, job_id, job in _jobs():
         step = _harden_runner_step(job)
-        if step is not None and (step.get("with") or {}).get("egress-policy") == "block":
+        if _is_blocking(step):
             yield wf_name, job_id, job, step
 
 
