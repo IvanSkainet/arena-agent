@@ -73,8 +73,31 @@ jobs:
       - name: Run poutine
         run: ./poutine analyze_local . --format json > poutine.json
 
+      # The gate script and its ceiling are read from the BASE revision, not
+      # from the pull request. On a pull_request event actions/checkout gives
+      # us the merge commit, so running the PR's own copy would let a PR edit
+      # the gate -- or simply raise the ceiling -- and wave its own findings
+      # through. Flagged by Sourcery on this PR.
+      - name: Fetch the trusted gate from the base revision
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          base="${BASE_SHA:-}"
+          if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            base="$(git rev-parse HEAD)"
+            echo "no usable base revision; falling back to $base"
+          fi
+          mkdir -p trusted
+          git show "${base}:.github/scripts/poutine_gate.py" > trusted/poutine_gate.py
+          git show "${base}:docs/poutine-ceiling.txt" > trusted/poutine-ceiling.txt
+          echo "using gate + ceiling from ${base}"
+
       - name: Ratchet on findings
-        run: python3 .github/scripts/poutine_gate.py --report poutine.json
+        run: |
+          python3 trusted/poutine_gate.py \
+            --report poutine.json \
+            --ceiling-file trusted/poutine-ceiling.txt
 
       - name: Upload poutine report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

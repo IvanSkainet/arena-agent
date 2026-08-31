@@ -29,25 +29,32 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 CEILING_FILE = ROOT / "docs" / "poutine-ceiling.txt"
 
 
-def _ceiling() -> int:
-    if not CEILING_FILE.exists():
-        print(f"error: {CEILING_FILE} is missing; the poutine ratchet has no "
-              f"baseline. A gate that cannot evaluate itself must fail.",
-              file=sys.stderr)
-        raise SystemExit(2)
+def _read_text(path: pathlib.Path) -> str:
+    """Read a committed input, treating any read failure as a broken gate."""
     try:
-        return int(CEILING_FILE.read_text(encoding="utf-8").split("#")[0].strip())
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        print(f"error: {path} is missing; the poutine ratchet has no baseline. "
+              f"A gate that cannot evaluate itself must fail.", file=sys.stderr)
+        raise SystemExit(2) from None
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"error: {path} could not be read: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+
+
+def _ceiling(ceiling_file: pathlib.Path | None = None) -> int:
+    path = ceiling_file or CEILING_FILE
+    try:
+        return int(_read_text(path).split("#")[0].strip())
     except ValueError as exc:
-        print(f"error: {CEILING_FILE} is malformed: {exc}", file=sys.stderr)
+        print(f"error: {path} is malformed: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
 
 def _findings(report_path: str) -> list[dict]:
+    raw = _read_text(pathlib.Path(report_path))
     try:
-        data = json.loads(pathlib.Path(report_path).read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        print(f"error: poutine report not found: {report_path}", file=sys.stderr)
-        raise SystemExit(2) from None
+        data = json.loads(raw)
     except json.JSONDecodeError as exc:
         print(f"error: poutine report is not valid JSON: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
@@ -55,6 +62,13 @@ def _findings(report_path: str) -> list[dict]:
         print("error: poutine report must be an object with a findings array",
               file=sys.stderr)
         raise SystemExit(2)
+    # Validate every entry: a findings array containing a non-object would
+    # otherwise blow up later with an AttributeError, which reads as a crashed
+    # job rather than the documented fail-closed exit 2.
+    for i, f in enumerate(data["findings"]):
+        if not isinstance(f, dict) or not isinstance(f.get("rule_id"), str):
+            print(f"error: poutine finding {i} is malformed: {f!r}", file=sys.stderr)
+            raise SystemExit(2)
     return data["findings"]
 
 
@@ -67,10 +81,14 @@ def _describe(findings: list[dict]) -> None:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--report", default="poutine.json")
+    ap.add_argument("--ceiling-file", default=None,
+                    help="path to the ceiling file; defaults to the one in "
+                         "this checkout. CI passes the base-revision copy so a "
+                         "pull request cannot raise its own ceiling.")
     args = ap.parse_args(argv)
 
     findings = _findings(args.report)
-    ceiling = _ceiling()
+    ceiling = _ceiling(pathlib.Path(args.ceiling_file) if args.ceiling_file else None)
     total = len(findings)
 
     print(f"poutine findings: {total} (ceiling {ceiling})")

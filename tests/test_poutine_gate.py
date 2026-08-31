@@ -111,3 +111,63 @@ def test_ceiling_may_not_drift_upward(gate):
         "the poutine ceiling may only be lowered; raising it needs a written "
         "justification in the PR that raises it"
     )
+
+
+def test_ceiling_file_can_be_overridden(gate, tmp_path):
+    """CI passes the base revision's ceiling so a PR cannot raise its own.
+
+    Sourcery caught the original design: on a pull_request the workflow ran
+    the PR's copy of both the gate and the ceiling, so a PR could set the
+    ceiling to 999 and wave its own findings through.
+    """
+    trusted = tmp_path / "trusted-ceiling.txt"
+    trusted.write_text("8\n", encoding="utf-8")
+    report = _report(tmp_path, 28)
+    assert gate.main(["--report", report, "--ceiling-file", str(trusted)]) == 1
+
+
+def test_overridden_ceiling_still_allows_a_pass(gate, tmp_path):
+    trusted = tmp_path / "trusted-ceiling.txt"
+    trusted.write_text("8\n", encoding="utf-8")
+    assert gate.main(["--report", _report(tmp_path, 8),
+                      "--ceiling-file", str(trusted)]) == 0
+
+
+def test_null_entry_in_findings_fails_closed(gate, tmp_path):
+    """A findings array with a non-object must exit 2, not crash.
+
+    Previously `{"findings": [null]}` reached _describe and raised
+    AttributeError, which reads as a broken job rather than a red gate.
+    """
+    p = tmp_path / "poutine.json"
+    p.write_text(json.dumps({"findings": [None]}), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        gate.main(["--report", str(p)])
+    assert exc.value.code == 2
+
+
+def test_finding_without_rule_id_fails_closed(gate, tmp_path):
+    p = tmp_path / "poutine.json"
+    p.write_text(json.dumps({"findings": [{"meta": {}}]}), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        gate.main(["--report", str(p)])
+    assert exc.value.code == 2
+
+
+def test_unreadable_report_fails_closed(gate, tmp_path):
+    """A directory where a file is expected raises OSError, not a traceback."""
+    d = tmp_path / "report-dir.json"
+    d.mkdir()
+    with pytest.raises(SystemExit) as exc:
+        gate.main(["--report", str(d)])
+    assert exc.value.code == 2
+
+
+def test_invalid_utf8_ceiling_fails_closed(gate, tmp_path, monkeypatch):
+    bad = tmp_path / "ceiling.txt"
+    bad.write_bytes(b"\xff\xfe not utf-8")
+    report = _report(tmp_path, 1)
+    monkeypatch.setattr(gate, "CEILING_FILE", bad)
+    with pytest.raises(SystemExit) as exc:
+        gate.main(["--report", report])
+    assert exc.value.code == 2
