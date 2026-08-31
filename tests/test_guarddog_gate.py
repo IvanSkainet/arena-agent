@@ -30,7 +30,7 @@ def _load():
     return mod
 
 
-@pytest.fixture()
+@pytest.fixture
 def gate():
     return _load()
 
@@ -132,4 +132,5 @@ def test_requirements_parsing_strips_versions_and_markers(gate):
     src = ROOT / "requirements.txt"
     names = gate._packages_from(src)
     assert "aiohttp" in names
-    assert all(c not in n for n in names for c in "><=;[#")
+    offenders = [n for n in names if any(c in n for c in "><=;[#")]
+    assert not offenders

@@ -74,35 +74,38 @@ def significant(report: dict) -> list[str]:
     )
 
 
+def _evaluate(report: dict, name: str, accepted: dict[str, dict[str, str]]) -> list[str]:
+    """Failures for one package. Empty list means it is clean."""
+    pkg = report.get("package", name)
+    if report.get("errors"):
+        return [f"{pkg}: scan did not complete ({report['errors']}). "
+                "An unscanned package is not a clean package."]
+    allowed = accepted.get(pkg, {})
+    failures = []
+    for rule in significant(report):
+        if rule in allowed:
+            print(f"  {pkg}: {rule} (accepted: {allowed[rule][:70]}...)")
+        else:
+            failures.append(f"{pkg}: {rule}")
+    return failures
+
+
+def _report(failures: list[str]) -> None:
+    print("\nFAIL: GuardDog flagged dependencies:", file=sys.stderr)
+    for line in failures:
+        print(f"    {line}", file=sys.stderr)
+    print("\n  If a finding is a false positive, add it to", file=sys.stderr)
+    print("  docs/guarddog-baseline.json with a written reason.", file=sys.stderr)
+
+
 def check(packages: list[str]) -> int:
     accepted = _load_baseline()
     failures: list[str] = []
     for name in packages:
-        report = scan(name)
-        pkg = report.get("package", name)
-
-        if report.get("errors"):
-            failures.append(
-                f"{pkg}: scan did not complete ({report['errors']}). "
-                "An unscanned package is not a clean package."
-            )
-            continue
-
-        allowed = accepted.get(pkg, {})
-        for rule in significant(report):
-            if rule in allowed:
-                print(f"  {pkg}: {rule} (accepted: {allowed[rule][:70]}...)")
-            else:
-                failures.append(f"{pkg}: {rule}")
-
+        failures.extend(_evaluate(scan(name), name, accepted))
     if failures:
-        print("\nFAIL: GuardDog flagged dependencies:", file=sys.stderr)
-        for line in failures:
-            print(f"    {line}", file=sys.stderr)
-        print("\n  If a finding is a false positive, add it to", file=sys.stderr)
-        print("  docs/guarddog-baseline.json with a written reason.", file=sys.stderr)
+        _report(failures)
         return 1
-
     print(f"OK: {len(packages)} dependencies clean of threat-* findings")
     return 0
 
