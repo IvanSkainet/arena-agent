@@ -71,7 +71,10 @@ def _bandit_low_ceiling() -> int:
 
 
 def _validate_bandit_results(results: object) -> int | None:
-    """Reject a malformed report. Returns an exit code, or None if valid."""
+    """Reject a malformed report. Returns an exit code, or None if valid.
+
+    Callers must narrow `results` themselves afterwards; see `_as_findings`.
+    """
     if not isinstance(results, list):
         print("error: bandit report must contain a results array", file=sys.stderr)
         return 2
@@ -88,7 +91,18 @@ def _validate_bandit_results(results: object) -> int | None:
     return None
 
 
-def _report_fatal(results: list, fatal: int) -> int:
+def _as_findings(results: object) -> list[dict]:
+    """Narrow an already-validated results payload for the type checker.
+
+    `_validate_bandit_results` has proved the shape at runtime, but that fact
+    does not survive into the checker, which then flags the payload as
+    non-iterable. This makes the narrowing explicit rather than silencing it.
+    """
+    assert isinstance(results, list)
+    return results
+
+
+def _report_fatal(results: list[dict], fatal: int) -> int:
     print(f"FAIL: bandit found {fatal} HIGH/MEDIUM findings")
     for r in results:
         if r.get("issue_severity") in ("HIGH", "MEDIUM"):
@@ -97,7 +111,7 @@ def _report_fatal(results: list, fatal: int) -> int:
     return 1
 
 
-def _report_low_regression(results: list, low: int, ceiling: int) -> int:
+def _report_low_regression(results: list[dict], low: int, ceiling: int) -> int:
     print(f"FAIL: bandit LOW findings rose to {low}, ceiling is {ceiling}.")
     print("  LOW is capped by a ratchet. Fix the new finding, or -- if it is")
     print("  genuinely unavoidable -- raise docs/bandit-low-ceiling.txt in the")
@@ -114,10 +128,11 @@ def _report_low_regression(results: list, low: int, ceiling: int) -> int:
 
 def check_bandit(report_path: str) -> int:
     """Fail on any HIGH or MEDIUM finding, and ratchet LOW downward."""
-    results = _load(report_path).get("results")
-    invalid = _validate_bandit_results(results)
+    raw = _load(report_path).get("results")
+    invalid = _validate_bandit_results(raw)
     if invalid is not None:
         return invalid
+    results = _as_findings(raw)
 
     by_sev: dict[str, int] = {}
     for r in results:
