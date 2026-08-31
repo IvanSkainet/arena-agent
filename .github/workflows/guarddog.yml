@@ -1,0 +1,111 @@
+# GuardDog: is this dependency malware?
+#
+# The existing scanners answer a different question. osv-scanner and
+# dependency-review look up known CVEs; grype and the SBOM jobs inventory
+# what is installed. None of them can flag a package that was uploaded
+# yesterday to typosquat a real one -- a fresh malicious package has no
+# CVE, by definition, and that is exactly the shape of the PyPI attacks
+# that keep landing.
+#
+# GuardDog runs Semgrep heuristics over package source plus PyPI metadata
+# (typosquatting distance, maintainer email domain re-registered after the
+# last release, install hooks, base64-then-exec, exfiltration patterns).
+#
+# The gate deliberately ignores GuardDog's capability-* rules: they are
+# descriptive ("this package can read files") and fire on every real
+# library, so enforcing them would be noise and the job would get
+# switched off within a week.
+name: GuardDog
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    # A dependency can turn malicious without this repository changing:
+    # maintainer account takeover, or a new release of something already
+    # depended on. A PR-only scan would never see it.
+    - cron: "0 6 * * 2"
+
+concurrency:
+  group: guarddog-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  guarddog:
+    name: Malicious dependency scan (GuardDog)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner (block mode, egress enforced)
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The gate reads its baseline from the base revision, which
+          # requires that revision to be present in the clone.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install GuardDog
+        run: |
+          set -euo pipefail
+          # Fully pinned with hashes. --require-hashes is implied by the
+          # file, so a re-uploaded or tampered artifact fails the install
+          # instead of executing inside the scanner job.
+          python -m pip install --require-hashes -r requirements-guarddog.txt
+
+      # Same protection as the poutine gate: on a pull_request event the
+      # checkout is the merge commit, so the PR's own copy of the gate and
+      # baseline would let a PR accept its own findings.
+      - name: Fetch the trusted gate from the base revision
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          base="${BASE_SHA:-}"
+          if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            base="$(git rev-parse HEAD)"
+            echo "no usable base revision; falling back to $base"
+          fi
+          mkdir -p trusted
+          # The PR that introduces this gate has no copy of it in the base
+          # revision, so `git show base:...` exits 128 and the job dies
+          # before ever scanning. Fall back to the working tree in exactly
+          # that case -- a PR cannot use the fallback to weaken anything,
+          # because once these files exist on master the base copy is
+          # always found and always wins.
+          if git cat-file -e "${base}:.github/scripts/guarddog_gate.py" 2>/dev/null; then
+            git show "${base}:.github/scripts/guarddog_gate.py" > trusted/guarddog_gate.py
+            git show "${base}:docs/guarddog-baseline.json" > trusted/guarddog-baseline.json
+            echo "using gate + baseline from ${base}"
+          else
+            cp .github/scripts/guarddog_gate.py trusted/guarddog_gate.py
+            cp docs/guarddog-baseline.json trusted/guarddog-baseline.json
+            echo "gate absent from ${base} (this PR introduces it); using the working tree"
+          fi
+
+      - name: Scan dependencies
+        run: |
+          python3 trusted/guarddog_gate.py \
+            --baseline-file trusted/guarddog-baseline.json \
+            requirements.txt
