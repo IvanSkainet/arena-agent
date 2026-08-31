@@ -32,6 +32,59 @@ def _load(path: str) -> dict:
     return data
 
 
+def _per_test_ceilings() -> dict[str, int]:
+    """Per-test-id LOW ceilings, read from a checked-in file.
+
+    A single total was gameable: 30 new try_except_pass could hide under the
+    cap by deleting 30 subprocess imports elsewhere. Each test id now
+    ratchets on its own, so a regression in the shape that actually matters
+    (B110) cannot be paid for with an unrelated improvement.
+    """
+    path = ROOT / "docs" / "bandit-low-ceilings.json"
+    if not path.exists():
+        print(f"error: {path} is missing; the per-test ratchet cannot be "
+              f"evaluated. A gate that cannot find its baseline must fail.",
+              file=sys.stderr)
+        raise SystemExit(2)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"error: {path} is malformed: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+    ceilings = {k: v for k, v in raw.items() if not k.startswith("_")}
+    if not ceilings or not all(isinstance(v, int) for v in ceilings.values()):
+        print(f"error: {path} must map test ids to integers", file=sys.stderr)
+        raise SystemExit(2)
+    return ceilings
+
+
+def _check_per_test(results: list[dict]) -> int:
+    """Fail if any single test id rose above its own ceiling."""
+    ceilings = _per_test_ceilings()
+    counts: dict[str, int] = {}
+    for r in results:
+        if r.get("issue_severity") == "LOW":
+            tid = str(r.get("test_id"))
+            counts[tid] = counts.get(tid, 0) + 1
+
+    risen = [(t, n, ceilings.get(t, 0)) for t, n in sorted(counts.items())
+             if n > ceilings.get(t, 0)]
+    if risen:
+        print("\nFAIL: these bandit tests rose above their ceilings:")
+        for t, n, c in risen:
+            print(f"    {t}: {n} > {c}")
+        print("  Fix the new findings, or raise that entry in")
+        print("  docs/bandit-low-ceilings.json with a written justification.")
+        return 1
+
+    fell = [(t, n, ceilings[t]) for t, n in sorted(counts.items())
+            if t in ceilings and n < ceilings[t]]
+    for t, n, c in fell:
+        print(f"    {t} improved: {n} < {c} -- lower it in "
+              f"docs/bandit-low-ceilings.json to lock the gain in")
+    return 0
+
+
 def _bandit_low_ceiling() -> int:
     """The agreed LOW-severity ceiling, read from a checked-in file.
 
@@ -151,4 +204,7 @@ def check_bandit(report_path: str) -> int:
     low = by_sev.get("LOW", 0)
     if low > ceiling:
         return _report_low_regression(results, low, ceiling)
+    per_test = _check_per_test(results)
+    if per_test:
+        return per_test
     return _report_low_ok(low, ceiling)
