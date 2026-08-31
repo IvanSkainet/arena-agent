@@ -19,12 +19,12 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-GATE = ROOT / "scripts" / "security_gate.py"
+GATE = ROOT / "scripts" / "bandit_gate.py"
 CEILING_FILE = ROOT / "docs" / "bandit-low-ceiling.txt"
 
 
 def _load():
-    spec = importlib.util.spec_from_file_location("security_gate", GATE)
+    spec = importlib.util.spec_from_file_location("bandit_gate", GATE)
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -56,6 +56,16 @@ def _report(tmp_path, *, low=0, medium=0, high=0):
     path = tmp_path / "bandit.json"
     path.write_text(json.dumps({"results": results}), encoding="utf-8")
     return str(path)
+
+
+def test_cli_still_exposes_check_bandit():
+    """The split must not break `python scripts/security_gate.py bandit ...`."""
+    cli = ROOT / "scripts" / "security_gate.py"
+    spec = importlib.util.spec_from_file_location("security_gate_cli", cli)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert callable(mod.check_bandit)
 
 
 def test_ceiling_file_is_committed():
