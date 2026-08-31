@@ -18,13 +18,42 @@ import yaml
 WORKFLOWS = sorted((Path(__file__).resolve().parents[1] / ".github" / "workflows").glob("*.yml"))
 
 
-def _harden_runner_steps():
+def _jobs():
     for wf in WORKFLOWS:
         data = yaml.safe_load(wf.read_text(encoding="utf-8"))
         for job_id, job in (data.get("jobs") or {}).items():
-            for step in job.get("steps") or []:
-                if "harden-runner" in str(step.get("uses", "")):
-                    yield wf.name, job_id, step
+            yield wf.name, job_id, job
+
+
+def _harden_runner_step(job):
+    """The job's Harden-Runner step, or None if it has none."""
+    for step in job.get("steps") or []:
+        if "harden-runner" in str(step.get("uses", "")):
+            return step
+    return None
+
+
+def _harden_runner_steps():
+    for wf_name, job_id, job in _jobs():
+        step = _harden_runner_step(job)
+        if step is not None:
+            yield wf_name, job_id, step
+
+
+def _installs_from_pypi(job) -> bool:
+    runs = " ".join(str(s.get("run", "")) for s in job.get("steps") or [])
+    return "pip install" in runs or "pip download" in runs
+
+
+def _allows_pypi(step) -> bool:
+    """True only if pypi.org is a whole allowlist entry.
+
+    Deliberately not a substring test: `"pypi.org" in endpoints` also matches
+    evil-pypi.org.attacker.net. CodeQL flagged exactly that as
+    py/incomplete-url-substring-sanitization.
+    """
+    endpoints = str((step.get("with") or {}).get("allowed-endpoints", "")).split()
+    return any(e.split(":")[0] == "pypi.org" for e in endpoints)
 
 
 def test_workflows_exist():
@@ -71,21 +100,13 @@ def test_pypi_endpoints_only_where_pip_is_used():
     PyPI, and a job that does not must not be handed the endpoint anyway.
     """
     wrong = []
-    for wf, job, step in _harden_runner_steps():
-        with_ = step.get("with") or {}
-        if with_.get("egress-policy") != "block":
+    for wf_name, job_id, job in _jobs():
+        step = _harden_runner_step(job)
+        if step is None or (step.get("with") or {}).get("egress-policy") != "block":
             continue
-        endpoints = str(with_.get("allowed-endpoints", ""))
-        has_pypi = "pypi.org" in endpoints
-        data = yaml.safe_load(
-            (Path(__file__).resolve().parents[1] / ".github" / "workflows" / wf).read_text(
-                encoding="utf-8"
-            )
-        )
-        runs = " ".join(str(s.get("run", "")) for s in data["jobs"][job].get("steps") or [])
-        needs_pypi = "pip install" in runs or "pip download" in runs
-        if needs_pypi and not has_pypi:
-            wrong.append(f"{wf}:{job} pip-installs but cannot reach PyPI")
-        if has_pypi and not needs_pypi:
-            wrong.append(f"{wf}:{job} is allowed PyPI but never installs anything")
+        needs, allowed = _installs_from_pypi(job), _allows_pypi(step)
+        if needs and not allowed:
+            wrong.append(f"{wf_name}:{job_id} pip-installs but cannot reach PyPI")
+        if allowed and not needs:
+            wrong.append(f"{wf_name}:{job_id} is allowed PyPI but never installs anything")
     assert not wrong, wrong
