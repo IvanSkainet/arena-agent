@@ -33,7 +33,7 @@ jobs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
       run_expensive: ${{ steps.scope.outputs.run_expensive }}
     steps:
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
@@ -331,7 +331,7 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
@@ -419,7 +419,7 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
@@ -475,7 +475,7 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
@@ -540,7 +540,7 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
@@ -605,7 +605,7 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
@@ -760,7 +760,7 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
@@ -936,7 +936,7 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
@@ -1029,7 +1029,7 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
@@ -1140,7 +1140,7 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
@@ -1187,7 +1187,7 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
@@ -1248,7 +1248,7 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
@@ -1301,7 +1301,7 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
@@ -1355,7 +1355,7 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
@@ -1399,7 +1399,7 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
@@ -1457,7 +1457,7 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
@@ -1504,7 +1504,7 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
