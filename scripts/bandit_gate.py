@@ -110,32 +110,15 @@ def _report_low_regression(results: list[dict], low: int, ceiling: int) -> int:
     return 1
 
 
-def check_bandit(report_path: str) -> int:
-    """Fail on any HIGH or MEDIUM finding, and ratchet LOW downward."""
-    raw = _load(report_path).get("results")
-    invalid = _validate_bandit_results(raw)
-    if invalid is not None:
-        return invalid
-    results = _as_findings(raw)
-
+def _count_by_severity(results: list[dict]) -> dict[str, int]:
     by_sev: dict[str, int] = {}
     for r in results:
         sev = r.get("issue_severity", "?")
         by_sev[sev] = by_sev.get(sev, 0) + 1
-    print(f"bandit findings by severity: {by_sev}")
+    return by_sev
 
-    # Validate the ratchet baseline BEFORE the fatal-severity return. If the
-    # ceiling file is missing or malformed the answer is "this gate is broken"
-    # (rc=2), and that must not be masked by an ordinary finding failure.
-    ceiling = _bandit_low_ceiling()
 
-    fatal = by_sev.get("HIGH", 0) + by_sev.get("MEDIUM", 0)
-    if fatal:
-        return _report_fatal(results, fatal)
-
-    low = by_sev.get("LOW", 0)
-    if low > ceiling:
-        return _report_low_regression(results, low, ceiling)
+def _report_low_ok(low: int, ceiling: int) -> int:
     if low < ceiling:
         print(f"OK: bandit LOW at {low}, below the ceiling of {ceiling}. "
               f"Lower docs/bandit-low-ceiling.txt to {low} to lock the gain in.")
@@ -145,3 +128,27 @@ def check_bandit(report_path: str) -> int:
     return 0
 
 
+def check_bandit(report_path: str) -> int:
+    """Fail on any HIGH or MEDIUM finding, and ratchet LOW downward."""
+    raw = _load(report_path).get("results")
+    invalid = _validate_bandit_results(raw)
+    if invalid is not None:
+        return invalid
+    results = _as_findings(raw)
+
+    by_sev = _count_by_severity(results)
+    print(f"bandit findings by severity: {by_sev}")
+
+    # Validate the ratchet baseline BEFORE the fatal-severity return: a missing
+    # or malformed ceiling means "this gate is broken" (rc=2), and that must
+    # not be masked by an ordinary finding failure.
+    ceiling = _bandit_low_ceiling()
+
+    fatal = by_sev.get("HIGH", 0) + by_sev.get("MEDIUM", 0)
+    if fatal:
+        return _report_fatal(results, fatal)
+
+    low = by_sev.get("LOW", 0)
+    if low > ceiling:
+        return _report_low_regression(results, low, ceiling)
+    return _report_low_ok(low, ceiling)
