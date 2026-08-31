@@ -32,7 +32,7 @@ def _load(path: str) -> dict:
     return data
 
 
-def _read_json_baseline(path: pathlib.Path, what: str) -> dict:
+def _read_json_baseline(path: pathlib.Path, what: str) -> dict[str, object]:
     """Load a checked-in baseline file, failing closed if it cannot be read.
 
     A gate that cannot find or parse its own baseline does not know whether
@@ -43,10 +43,14 @@ def _read_json_baseline(path: pathlib.Path, what: str) -> dict:
               file=sys.stderr)
         raise SystemExit(2)
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         print(f"error: {path} is malformed: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
+    if not isinstance(data, dict):
+        print(f"error: {path} must be a JSON object", file=sys.stderr)
+        raise SystemExit(2)
+    return data
 
 
 def _per_test_ceilings() -> dict[str, int]:
