@@ -20,7 +20,6 @@ another.
 """
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import pathlib
@@ -30,15 +29,20 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "security_alerts_check.py"
+MODULE = ROOT / "arena" / "security_alerts.py"
 
 
 def _module():
-    spec = importlib.util.spec_from_file_location("security_alerts_check", SCRIPT)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load {SCRIPT}")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    """The gate under test.
+
+    #190 moved the logic out of the `scripts/` entrypoint into
+    `arena.security_alerts`; the script is now a thin wrapper. These
+    tests follow the decisions, so they import the module rather than
+    exec'ing the file by path.
+    """
+    import arena.security_alerts as gate_module
+
+    return gate_module
 
 
 @pytest.fixture
@@ -268,3 +272,93 @@ def test_a_non_numeric_pr_number_is_refused(gate, clean_env, tmp_path, number):
     clean_env.setenv("GITHUB_EVENT_PATH", str(event))
 
     assert gate.code_scanning_ref() is None
+
+
+# --- #190: the script must stay a wrapper, not grow the gate back --------
+
+def test_the_entrypoint_stays_a_thin_wrapper() -> None:
+    """The boundary #190 exists to hold.
+
+    A qodo review on PR #189 named it: a `scripts/` file that does its
+    own networking, alert processing and severity decisions is not an
+    entrypoint, it is the application with a shebang. The logic moved to
+    `arena/security/alerts.py`; this keeps it from drifting back one
+    convenient helper at a time.
+    """
+    import ast
+
+    source = SCRIPT.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    functions = [n.name for n in tree.body
+                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    assert functions == [], (
+        f"the entrypoint defines {functions!r}; gate logic belongs in "
+        "arena/security_alerts.py"
+    )
+    assert "urllib" not in source, "the entrypoint does its own networking again"
+    assert "arena.security_alerts" in source, (
+        "the entrypoint no longer delegates to the module"
+    )
+
+
+def test_the_entrypoint_still_runs_as_a_script(tmp_path) -> None:
+    """CI, preflight and security-scan.yml all invoke it by path.
+
+    Importable-but-not-runnable would be a silent break: the module
+    tests would stay green while every pipeline that shells out to the
+    path failed on an ImportError.
+    """
+    import subprocess  # nosec B404 -- fixed argv, no shell; running the entrypoint IS the test
+    import sys
+
+    # An empty string, not a credential: the point is to clear both
+    # variables so the gate takes its no-token path. bandit's B105
+    # pattern-matches the name, not the value.
+    no_token = ""  # nosec B105 -- clears the variable, not a secret
+    # argv is [sys.executable, a repo-relative constant, two literals],
+    # and there is no shell. bandit and semgrep are separate suppression
+    # namespaces, so both markers are needed, and each has to sit on the
+    # line it applies to.
+    proc = subprocess.run(  # nosec B603  # nosemgrep: dangerous-subprocess-use-audit
+        [sys.executable, str(SCRIPT), "--max-severity", "medium"],
+        capture_output=True, text=True, timeout=120,
+        env={**os.environ, "GITHUB_TOKEN": no_token, "GH_TOKEN": no_token},
+        cwd=str(tmp_path),
+        # The exit code IS the assertion below; raising on it here would
+        # turn a legible failure into a CalledProcessError traceback.
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "SKIPPED" in proc.stdout, proc.stdout
+
+
+def test_the_gate_module_does_not_shadow_arena_security() -> None:
+    """`arena/security.py` already exists, and start-up depends on it.
+
+    The first attempt at #190 put the gate in `arena/security/alerts.py`.
+    A package of that name shadows the module, and every job in the
+    matrix died before collecting a single test:
+
+        File "arena/runtime_deps/core.py", line 160, in <module>
+            from arena.security import (
+        ImportError: cannot import name '_INPUT_INJECTION_PATTERNS'
+        from 'arena.security'
+
+    `unified_bridge` imports that through `arena.runtime_deps.core` at
+    start-up, so the failure was total and instant -- which was lucky.
+    A partial shadow would have been a subtle one. The gate is a flat
+    `arena/security_alerts.py`, alongside `security_http.py`,
+    `security_ssrf.py` and `security_input.py`.
+    """
+    import arena.security
+
+    assert not (ROOT / "arena" / "security").is_dir(), (
+        "a arena/security/ package shadows arena/security.py, which "
+        "unified_bridge imports at start-up"
+    )
+    assert hasattr(arena.security, "_INPUT_INJECTION_PATTERNS"), (
+        "arena.security no longer resolves to the module runtime_deps.core "
+        "imports from"
+    )
+    assert MODULE.is_file(), f"the gate module is missing at {MODULE}"

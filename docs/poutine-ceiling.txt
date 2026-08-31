@@ -1,0 +1,3 @@
+8  # poutine finding ceiling. Ratchet: may fall, never rise.
+   # 7x unverified-creator (all SHA-pinned), 1x untrusted_checkout_exec
+   # in boe-contract (path-filtered, pip from a pinned lock).

@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.admin.binaries import which_windows_or_path
+from arena.util import _subprocess_kwargs
 
 NGROK_STATE: dict[str, Any] = {"proc": None, "url": "", "log": []}
 
@@ -120,9 +121,11 @@ def _resolve_ngrok_with_source(root_agent: Path) -> tuple[str | None, str]:
 
 def _get_ngrok_version(bin_path: str) -> str | None:
     try:
+        kwargs = _subprocess_kwargs()
         result = subprocess.run(
             [bin_path, "--version"],
             capture_output=True, text=True, timeout=5,
+            **kwargs,
         )
         # Output: "ngrok version 3.14.0"
         match = re.search(r"version\s+([\d.]+)", result.stdout or "")
@@ -262,10 +265,12 @@ def _apply_authtoken(bin_path: str, subprocess_kwargs: Callable[[], dict[str, An
     if not token:
         return
     try:
+        kwargs = _subprocess_kwargs()
+        kwargs.update(subprocess_kwargs())
         subprocess.run(
             [bin_path, "config", "add-authtoken", token],  # nosemgrep: dangerous-subprocess-use-tainted-env-args -- command string built from a hard-coded literal or from operator-side CLI input (see bandit B602/B603 nosec on the same line)
             capture_output=True, timeout=10,
-            **subprocess_kwargs(),
+            **kwargs,
         )
     except Exception:
         pass  # Non-fatal -- ngrok will surface auth errors from `start`.
@@ -343,12 +348,14 @@ def _start_ngrok(bin_path: str, port: int, *,
         argv.extend(["--region", region])
 
     try:
+        kwargs = _subprocess_kwargs()
+        kwargs.update(subprocess_kwargs())
         NGROK_STATE["proc"] = subprocess.Popen(
             argv,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            **subprocess_kwargs(),
+            **kwargs,
         )
     except Exception as e:
         return {"ok": False, "action": "start", "error": str(e),

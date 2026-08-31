@@ -1,0 +1,3 @@
+490  # bandit LOW ceiling. Ratchet: may fall, never rise. 244 of these are
+     # B110 try_except_pass. Lower this number whenever you reduce the count.
+     # Per-test ceilings live in bandit-low-ceilings.json and must sum to this.

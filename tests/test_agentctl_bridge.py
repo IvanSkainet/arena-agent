@@ -14,10 +14,9 @@ import json
 import os
 import subprocess
 import sys
-import threading
-import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+
+from tests._stub_bridge import _StubBridge
 
 _REPO = Path(__file__).resolve().parents[1]
 _CLI = _REPO / "bin" / "agentctl"
@@ -38,71 +37,6 @@ def _bridge_module():
         sys.path.insert(0, str(_REPO))
     from arena.agentctl_cli import agentctl_bridge
     return agentctl_bridge
-
-
-# ---------------------------------------------------------------------------
-# Configurable stub. Each instance answers a fixed set of routes and
-# can inject a per-route delay to simulate latency.
-# ---------------------------------------------------------------------------
-class _StubBridge:
-    def __init__(self, responses: dict, delays: dict | None = None,
-                 health_status: int = 200):
-        self.responses = dict(responses)
-        self.delays = dict(delays or {})
-        self.health_status = health_status
-        self.received: list[tuple[str, str]] = []
-        self.server = None
-        self.thread = None
-        self.port = 0
-
-    def start(self):
-        outer = self
-
-        class _H(BaseHTTPRequestHandler):
-            def _write(self, status, body):
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json")
-                data = body if isinstance(body, bytes) else json.dumps(body).encode()
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self):
-                path = self.path.split("?")[0]
-                outer.received.append(("GET", path))
-                if path in outer.delays:
-                    time.sleep(outer.delays[path])
-                if path == "/health":
-                    self._write(outer.health_status, {"ok": True,
-                                "service": "stub", "version": "test"})
-                    return
-                resp = outer.responses.get(("GET", path))
-                if resp is None:
-                    self._write(404, {"ok": False, "error": "not found"})
-                    return
-                status, body = resp
-                self._write(status, body)
-
-            def log_message(self, *_a, **_kw):
-                pass
-
-        # Bind once and never release: picking a port, closing the socket
-        # and rebinding leaves a window in which the kernel may hand the
-        # same port to another stub (#175).
-        self.server = HTTPServer(("127.0.0.1", 0), _H)
-        self.port = self.server.server_address[1]
-        self.thread = threading.Thread(target=self.server.serve_forever,
-                                       daemon=True)
-        self.thread.start()
-        return self
-
-    def stop(self):
-        if self.server:
-            self.server.shutdown()
-            self.server.server_close()
-
-    def url(self) -> str:
-        return f"http://127.0.0.1:{self.port}"
 
 
 def _run_cli(args: list[str], bridge_url: str):

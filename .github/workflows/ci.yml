@@ -33,10 +33,18 @@ jobs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
       run_expensive: ${{ steps.scope.outputs.run_expensive }}
     steps:
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -68,10 +76,19 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # lints workflow YAML on disk.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            auth.docker.io:443
+            production.cloudflare.docker.com:443
+            registry-1.docker.io:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -349,10 +366,18 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -429,10 +454,18 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Pilot for moving off audit. This job checks out the repo and runs
+          # one script from it, so its whole legitimate egress is GitHub. Any
+          # other destination is exfiltration or a compromised action.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -477,10 +510,20 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -503,6 +546,20 @@ jobs:
         run: |
           python scripts/catalogue_harden.py --repo-root .
 
+      # v4.171: the registry declares 291 routes; the hand-written OpenAPI
+      # document described 64 of them. Both artefacts had passing tests and
+      # neither read the other, so 227 endpoints -- including
+      # POST /v1/token/regenerate, which rotates the caller's own
+      # credential -- were absent from the served spec (#204).
+      - name: OpenAPI parity ratchet (spec must not fall behind the route registry)
+        run: python scripts/openapi_parity_ratchet.py
+
+      - name: OpenAPI contract ratchet (documented operations must declare their errors)
+        run: python scripts/openapi_contract_ratchet.py
+
+      - name: README metrics are current
+        run: python scripts/render_readme_metrics.py --check
+
   # ----------------------------------------------------------------
   # Lint: ruff F821/F811 are blocking. Full rule set is
   # informational.
@@ -518,10 +575,20 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -573,10 +640,20 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -718,10 +795,20 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -884,10 +971,20 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -967,10 +1064,20 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -1068,10 +1175,18 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Pilot for moving off audit. This job checks out the repo and runs
+          # one script from it, so its whole legitimate egress is GitHub. Any
+          # other destination is exfiltration or a compromised action.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -1107,10 +1222,20 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -1158,10 +1283,20 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -1201,10 +1336,20 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -1245,10 +1390,18 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Pilot for moving off audit. This job checks out the repo and runs
+          # one script from it, so its whole legitimate egress is GitHub. Any
+          # other destination is exfiltration or a compromised action.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -1281,10 +1434,20 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -1329,10 +1492,20 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -1366,10 +1539,20 @@ jobs:
       # docs/github_apps_actions_survey.md: this workflow installs
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

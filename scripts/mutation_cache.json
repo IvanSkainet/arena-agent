@@ -191,6 +191,16 @@
    "tool": "mutmut 2.5.1",
    "total": 33
   },
+  "arena/exec/environment.py": {
+   "fingerprint": "b26f68d081f58e9d272a4f6226210cd06417fa2d05b8d443dbd2017ed462a26c",
+   "reason": "T54 (#64) exact run; 0 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_exec_env_gate.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 48
+  },
   "arena/exec/interpreters.py": {
    "fingerprint": "a879df305a9faa3f3544161d4971ada4c63ed8c7374fae82696b96f9d27ce3e4",
    "reason": "fresh run",

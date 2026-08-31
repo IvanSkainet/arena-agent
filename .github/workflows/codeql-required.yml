@@ -1,0 +1,49 @@
+# CodeQL runs via GitHub's default setup and reports four "Analyze (...)"
+# checks. None of them was required, and none was aggregated into an existing
+# required check -- so a CodeQL failure could not block a merge. This workflow
+# turns the four language analyses into one blocking signal.
+#
+# It deliberately does not re-run CodeQL: default setup already does that.
+# It reads the conclusions off the commit and fails closed.
+name: CodeQL required
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+  checks: read
+
+jobs:
+  codeql-required:
+    name: CodeQL required (all languages must pass)
+    timeout-minutes: 55
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner (block mode, egress enforced)
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        with:
+          egress-policy: block
+          # only reads check-runs via the REST API.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Wait for CodeQL analyses and fail closed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 .github/scripts/codeql_required_gate.py --sha "$SHA"

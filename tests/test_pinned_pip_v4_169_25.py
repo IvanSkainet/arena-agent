@@ -220,6 +220,13 @@ def test_alert_check_is_wired_into_ci_and_preflight() -> None:
     assert "--max-severity" in ci
     pre = (REPO_ROOT / "scripts" / "preflight.py").read_text(encoding="utf-8")
     assert "security_alerts_check.py" in pre
+    # #190: the entrypoint stayed at the same path on purpose -- three
+    # pipelines invoke it by path -- but the logic it runs now lives in
+    # the module, and that is what the pipelines are really wiring in.
+    assert (REPO_ROOT / "arena" / "security_alerts.py").exists(), (
+        "the gate module moved; ci.yml, preflight.py and security-scan.yml "
+        "still shell out to scripts/security_alerts_check.py"
+    )
 
 
 def test_severity_ranking_orders_the_levels_it_receives() -> None:
@@ -230,13 +237,7 @@ def test_severity_ranking_orders_the_levels_it_receives() -> None:
     low/medium/high/critical. Comparing them by string would put
     'critical' below 'note'.
     """
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(
-        "alerts_probe", REPO_ROOT / "scripts" / "security_alerts_check.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    import arena.security_alerts as mod
 
     assert mod._rank("critical") > mod._rank("medium") > mod._rank("note")
     assert mod._rank("error") > mod._rank("warning")
@@ -248,49 +249,54 @@ def test_secret_type_label_never_prints_a_credential() -> None:
     """CodeQL flagged the alert checker itself (high).
 
     The secret-scanning payload carries the leaked credential in
-    `a["secret"]`, one dictionary key from a line this script prints.
-    Only the type label is wanted, and the first cut scrubbed
-    punctuation out of it -- which let `ghp_AbCdEf123!@#` through as
-    `ghp_AbCdEf123`, most of a token. "Remove the bad characters" is the
-    wrong question; a display name is words, a credential is not.
+    `a["secret"]`. Even the *type label* field is treated by the
+    analyser as sensitive data, and the taint survived every sanitization
+    attempt: the value is followed out of the converter into the `print`
+    in `main`, no matter what the local allow-list returned. The fix is
+    structural -- no field read from the payload crosses into a printed
+    row at all (only the int-cast `number` does), so a credential has no
+    path to the log even in principle. A second, content-independent
+    source is the converter's own secret-shaped name; the AST test at
+    the bottom of this file pins that mechanism too.
     """
-    import importlib.util
+    import arena.security_alerts as mod
 
-    spec = importlib.util.spec_from_file_location(
-        "alerts_label", REPO_ROOT / "scripts" / "security_alerts_check.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-
-    # Real display names survive intact -- otherwise the output is useless.
-    assert mod._safe_label("GitHub Personal Access Token") == "GitHub Personal Access Token"
-    assert mod._safe_label("Amazon AWS Access Key ID") == "Amazon AWS Access Key ID"
-
-    # Anything shaped like a credential is withheld, not scrubbed.
-    #
     # Assembled from fragments on purpose. Written out whole, GitHub's
-    # push protection recognised the Slack pattern and rejected the push
+    # push protection recognises these patterns and rejects the push
     # -- correctly: it cannot know a literal in a test is fake, and a
     # scanner that trusted context would be useless. Splitting the
-    # prefix keeps the test honest without teaching the repository to
-    # ignore that shape.
+    # prefixes keeps the test honest without teaching the repository to
+    # ignore those shapes.
     credentials = (
         "ghp" + "_AbCdEf123!@#$%",
         "ghp" + "_16CharsAndMoreHere0123456789abcdef",
         "AKIA" + "IOSFODNN7EXAMPLE",
         "xoxb" + "-1234567890-abcdefghijklmnop",
     )
-    for credential in credentials:
-        out = mod._safe_label(credential)
-        assert "withheld" in out, f"a credential-shaped label was printed as {out!r}"
-        assert credential[:12] not in out
+    payload = [{
+        "number": i + 1,
+        # The credential itself and the label field both sit in the same
+        # response dict; neither may reach a printed row.
+        "secret": credential,
+        "secret_type_display_name": credential,
+        "secret_type": "credential",
+    } for i, credential in enumerate(credentials)]
 
-    assert mod._safe_label(None) == "unknown secret type"
+    rows = mod._scanning_rows(payload)
+    rendered = repr(rows)
+    for credential in credentials:
+        assert credential[:12] not in rendered, (
+            f"a credential-shaped payload reached the printed rows: {rows!r}")
+    # The rows are neutral: fixed label text, the int-cast number, and a
+    # constant severity -- nothing read from the response beyond ``number``.
+    assert [r["id"] for r in rows] == ["see the alert on GitHub"] * len(rows)
+    assert [r["number"] for r in rows] == [i + 1 for i in range(len(rows))]
+    assert all(r["severity"] == "critical" for r in rows)
 
 
 def test_alert_checker_does_not_print_the_secret_field() -> None:
     """Structural: the raw payload must not reach any print()."""
-    source = (REPO_ROOT / "scripts" / "security_alerts_check.py").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "arena" / "security_alerts.py").read_text(encoding="utf-8")
     code = "\n".join(ln for ln in source.splitlines()
                      if not ln.strip().startswith("#"))
     assert '"secret"' not in code and "['secret']" not in code, (
@@ -349,20 +355,24 @@ def test_no_blanket_devskim_disables() -> None:
 def test_secret_payload_never_reaches_the_printing_frame() -> None:
     """CodeQL kept flagging the checker after the label was sanitised.
 
-    That was the useful part of the report: the taint is on the whole
-    response, not on one key. Reading `secret_type_display_name` out of
-    a dict that also holds `secret` leaves both in the same scope, and
-    neither a reader nor an analyser can tell from the print statement
-    which one arrives there. The conversion now happens in its own
-    function whose return value contains nothing taken verbatim.
+    That was the useful part of the report: the taint is not in the
+    label's content, it is in the field's origin. Reading
+    `secret_type_display_name` out of a dict that also holds `secret`
+    leaves both in the same scope, and the analyser follows the value
+    out of the converter into the `print` in `main`, so no local
+    allow-list could clear the finding. The conversion now happens in
+    its own function whose printed rows carry nothing read from the
+    response except the int-cast `number`. The converter's NAME was a
+    second, content-independent source -- see
+    `test_no_secret_shaped_function_names_in_the_alert_gate`.
     """
     import ast
 
-    source = (REPO_ROOT / "scripts" / "security_alerts_check.py").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "arena" / "security_alerts.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
 
     converter = next((n for n in tree.body
-                      if isinstance(n, ast.FunctionDef) and n.name == "_secret_findings"), None)
+                      if isinstance(n, ast.FunctionDef) and n.name == "_scanning_rows"), None)
     assert converter is not None, "the payload conversion must be isolated in its own function"
 
     # Nothing inside collect() may touch a secret-scanning alert dict.
@@ -372,9 +382,14 @@ def test_secret_payload_never_reaches_the_printing_frame() -> None:
     assert "secret_type_display_name" not in body, (
         "collect() reads the payload again; the whole point is that it does not"
     )
-    # And the converter must not pass any raw field straight through.
+    # And the converter carries no response field into its rows except the
+    # int-cast number. The label field is not read at all: an analyser
+    # that treats it as sensitive data must have nothing to follow.
     conv = ast.unparse(converter)
-    assert "_safe_label(" in conv
+    assert "secret_type_display_name" not in conv, (
+        "the converter still reads the payload label field; the taint it "
+        "carries survives any local sanitization")
+    assert "_safe_label" not in conv
     assert "int(" in conv, "the alert number should be cast, not forwarded verbatim"
 
 
@@ -400,3 +415,70 @@ def test_no_suppression_markers_leak_into_documentation() -> None:
                 assert "DevSkim" not in attr_doc, (
                     f"{name}: scanner marker leaked into a docstring"
                 )
+
+
+_SENSITIVE_NAME = re.compile(
+    r"secret|token|password|passwd|credential|api_?key|private_?key|access_?key",
+    re.IGNORECASE,
+)
+
+
+def _sensitive_function_names(source: str) -> list[str]:
+    """Function names in *source* that read as sensitive data to CodeQL."""
+    import ast
+
+    tree = ast.parse(source)
+    return [
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and _SENSITIVE_NAME.search(node.name)
+    ]
+
+
+def test_no_secret_shaped_function_names_in_the_alert_gate() -> None:
+    """A secret-shaped function NAME is a CodeQL taint source on its own.
+
+    The post-#189 master analysis still flagged the gate's per-row
+    print with the SARIF source pinned to the converter's call site:
+    `py/clear-text-logging-sensitive-data` treats the return of any
+    function whose name carries a sensitive fragment as sensitive data,
+    whatever the rows actually contain. The rename to `_scanning_rows`
+    cleared the last source (#191); this test keeps the next rename
+    from quietly reintroducing one.
+    """
+    source = (REPO_ROOT / "arena" / "security_alerts.py").read_text(encoding="utf-8")
+    offenders = _sensitive_function_names(source)
+    assert not offenders, (
+        f"function names {offenders!r} read as sensitive data to "
+        "py/clear-text-logging-sensitive-data; their return values "
+        "would taint the printed rows regardless of content"
+    )
+
+
+def test_sensitive_name_gate_rejects_violating_source() -> None:
+    """Negative test for the gate above: it must fire on secret-shaped names.
+
+    Mixed case counts (`getToken`, `loadCredentialRows`): Python
+    identifiers are case-sensitive but the analyser's name heuristics
+    are not, so the pattern is compiled with `re.IGNORECASE`.
+    """
+    violating = (
+        "def _secret_findings():\n"
+        "    return []\n"
+        "\n"
+        "\n"
+        "def getToken():\n"
+        "    return None\n"
+        "\n"
+        "\n"
+        "async def loadCredentialRows():\n"
+        "    return []\n"
+    )
+    assert _sensitive_function_names(violating) == [
+        "_secret_findings",
+        "getToken",
+        "loadCredentialRows",
+    ]
+    compliant = "def _scanning_rows():\n    return []\n"
+    assert _sensitive_function_names(compliant) == []

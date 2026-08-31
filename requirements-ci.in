@@ -64,3 +64,9 @@ playwright==1.62.0
 
 # Windows-only pytest dependency; include explicitly so hash mode works on every CI OS.
 colorama==0.4.6
+
+# The OpenAPI validity gate (#89) must not be skippable. Without this package
+# pytest.importorskip silently skips the test that validates the served
+# document, so CI would report success while never checking it -- the exact
+# "gate that cannot detect its own absence" failure this repo guards against.
+openapi-spec-validator==0.7.2

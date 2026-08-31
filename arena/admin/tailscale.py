@@ -7,14 +7,18 @@ from collections.abc import Callable
 from typing import Any
 
 from arena.admin.binaries import which_windows_or_path
+from arena.util import _subprocess_kwargs
 
 
-def sys_funnel_status(*, subprocess_kwargs: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+def sys_funnel_status(*, subprocess_kwargs: Callable[[], dict[str, Any]] | None = None) -> dict[str, Any]:
     """Synchronous helper to check Tailscale funnel status."""
     result: dict[str, Any] = {"ok": True, "tailscale": {}, "funnel": {}}
+    sp_kwargs = _subprocess_kwargs()
+    if subprocess_kwargs is not None:
+        sp_kwargs.update(subprocess_kwargs())
 
     try:
-        out = subprocess.check_output(["tailscale", "status"], stderr=subprocess.STDOUT, text=True, **subprocess_kwargs())
+        out = subprocess.check_output(["tailscale", "status"], stderr=subprocess.STDOUT, text=True, **sp_kwargs)
         result["tailscale"]["status"] = out.strip()[:2000]
         result["tailscale"]["connected"] = bool(out.strip())
     except FileNotFoundError:
@@ -23,7 +27,7 @@ def sys_funnel_status(*, subprocess_kwargs: Callable[[], dict[str, Any]]) -> dic
         result["tailscale"]["error"] = str(e)[:500]
 
     try:
-        out = subprocess.check_output(["tailscale", "funnel", "status"], stderr=subprocess.STDOUT, text=True, **subprocess_kwargs())
+        out = subprocess.check_output(["tailscale", "funnel", "status"], stderr=subprocess.STDOUT, text=True, **sp_kwargs)
         result["funnel"]["status"] = out.strip()[:2000]
         lw = out.lower()
         result["funnel"]["active"] = (
@@ -43,7 +47,12 @@ def sys_funnel_status(*, subprocess_kwargs: Callable[[], dict[str, Any]]) -> dic
     return result
 
 
-def tailscale_funnel_action(action: str, port: int) -> dict[str, Any]:
+def tailscale_funnel_action(
+    action: str,
+    port: int,
+    *,
+    subprocess_kwargs: Callable[[], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     action = (action or "").lower()
     if action not in ("start", "stop", "status"):
         return {"ok": False, "error": "action must be start|stop|status"}
@@ -58,11 +67,16 @@ def tailscale_funnel_action(action: str, port: int) -> dict[str, Any]:
     if not ts:
         return {"ok": False, "error": "tailscale binary not found"}
 
+    sp_kwargs = _subprocess_kwargs()
+    if subprocess_kwargs is not None:
+        sp_kwargs.update(subprocess_kwargs())
+
     if action == "start":
         try:
             result = subprocess.run(
                 [ts, "funnel", "--bg", str(port)],
                 capture_output=True, text=True, timeout=15,
+                **sp_kwargs,
             )
             return {
                 "ok": result.returncode == 0,
@@ -94,7 +108,7 @@ def tailscale_funnel_action(action: str, port: int) -> dict[str, Any]:
         last_rc = -1
         for cmd in attempts:
             try:
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=15, **sp_kwargs)
                 last_stdout, last_stderr, last_rc = r.stdout, r.stderr, r.returncode
                 if r.returncode == 0:
                     return {
@@ -118,7 +132,7 @@ def tailscale_funnel_action(action: str, port: int) -> dict[str, Any]:
         }
 
     try:
-        result = subprocess.run([ts, "funnel", "status"], capture_output=True, text=True, timeout=10)
+        result = subprocess.run([ts, "funnel", "status"], capture_output=True, text=True, timeout=10, **sp_kwargs)
         out = result.stdout or ""
         return {"ok": True, "action": "status", "output": out,
                 "active": ("funnel on" in out.lower() or "proxy http" in out.lower())}

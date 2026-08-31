@@ -15,7 +15,8 @@ from pathlib import Path
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a CIM/powershell/tailscale subprocess. No-op on Linux/macOS.
-_NO_WINDOW_FLAG = 0x08000000 if sys.platform == "win32" else 0
+# Win32 CREATE_NO_WINDOW flag value (0x08000000)
+_NO_WINDOW_FLAG = 0x08000000
 
 
 def _subprocess_kwargs() -> dict:

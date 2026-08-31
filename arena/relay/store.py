@@ -34,6 +34,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from arena.relay.ordering import ordering_prefix as _ordering_prefix, sorted_mailbox as _sorted_mailbox
+
 # Cap a single message. The relay is for instructions and answers, not
 # file transfer -- there is /v1/fs for that. An unbounded field here would
 # let one message fill the operator's disk.
@@ -43,7 +45,6 @@ POLL_INTERVAL_S = 0.2
 POLL_FRESH_S = 60.0
 MESSAGE_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 LOGGER = logging.getLogger(__name__)
-
 
 def validate_message_id(value: Any) -> str:
     message_id = str(value or "").strip()
@@ -190,16 +191,20 @@ def send_message(root: Path, body: str, *, sender: str = "operator",
             f"message at {MAX_BODY_BYTES} (use /v1/fs for files)"
         )
     inbox, _claimed, _replies = _dirs(root)
+    # One clock reading for both the record and the filename, so the stored
+    # created_at can never disagree with the name it is sorted by.
+    created_ns = time.time_ns()
     msg = RelayMessage(
         id=uuid.uuid4().hex[:12],
         body=body,
         sender=sender,
-        created_at=time.time(),
+        created_at=created_ns / 1_000_000_000,
         meta=meta or {},
     )
-    # Name files by timestamp so a plain sort is FIFO. The id suffix keeps
-    # two messages in the same millisecond from colliding.
-    name = f"{msg.created_at:015.4f}-{msg.id}.json"
+    # A plain sort over these names is the delivery order (see
+    # _ordering_prefix). The id stays last so lifecycle's `*-<id>.json`
+    # lookup keeps working.
+    name = f"{_ordering_prefix(created_ns)}-{msg.id}.json"
     _write_atomic(inbox / name, msg.to_dict())
     return msg
 
@@ -244,7 +249,7 @@ def claim_next(root: Path) -> RelayMessage | None:
     property worth paying an extra syscall for.
     """
     inbox, claimed, _replies = _dirs(root)
-    for path in sorted(inbox.glob("*.json")):
+    for path in _sorted_mailbox(inbox):
         lock = claimed / (path.name + ".lock")
         try:
             fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
@@ -335,7 +340,10 @@ def post_reply(root: Path, in_reply_to: str, body: str, *,
     if len(encoded) > MAX_BODY_BYTES:
         raise ValueError(f"reply is {len(encoded)} bytes; cap is {MAX_BODY_BYTES}")
     _inbox, _claimed, replies = _dirs(root)
-    replied_at = time.time()
+    # read_replies sorts these names too, so replies need the same ordering
+    # guarantee as inbox messages -- two answers in one tick must not swap.
+    replied_ns = time.time_ns()
+    replied_at = replied_ns / 1_000_000_000
     msg = RelayMessage(
         id=uuid.uuid4().hex[:12],
         body=body,
@@ -344,7 +352,7 @@ def post_reply(root: Path, in_reply_to: str, body: str, *,
         meta={"in_reply_to": target_id},
         lifecycle="replied",
     )
-    name = f"{msg.created_at:015.4f}-{msg.id}.json"
+    name = f"{_ordering_prefix(replied_ns)}-{msg.id}.json"
     _write_atomic(replies / name, msg.to_dict())
     # The durable original remains in claimed/. Mark it replied so a fresh
     # Arena session never resumes completed work after the operator has already
@@ -411,7 +419,7 @@ def read_replies(root: Path, *, in_reply_to: str = "",
     """
     _inbox, _claimed, replies = _dirs(root)
     found: list[RelayMessage] = []
-    for path in sorted(replies.glob("*.json")):
+    for path in _sorted_mailbox(replies):
         if path.name.endswith(".taken"):
             continue
         try:

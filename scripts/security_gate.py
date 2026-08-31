@@ -12,7 +12,8 @@ Extracted from CI + Makefile so both call the same logic; means
 "passes locally" also means "passes in CI". See SECURITY.md for
 the gate thresholds:
 
-* bandit: 0 HIGH + 0 MEDIUM; LOW allowed (code hygiene noise)
+* bandit: 0 HIGH + 0 MEDIUM; LOW ratcheted against docs/bandit-low-ceiling.txt
+  (the count may fall, never rise). Implemented in scripts/bandit_gate.py.
 * semgrep: 0 findings across all 9 rule packs
 * pip-audit: 0 CVEs in runtime + full-extras deps
 
@@ -24,8 +25,13 @@ Exit codes:
 from __future__ import annotations
 
 import json
+import pathlib
 import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from pathlib import Path
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def _load(path: str) -> dict:
@@ -44,53 +50,7 @@ def _load(path: str) -> dict:
         sys.exit(2)
 
 
-def check_bandit(report_path: str) -> int:
-    """Fail on any HIGH or MEDIUM finding. LOW is code-hygiene
-    noise (try/except pass, subprocess-without-shell, partial
-    path) that we tolerate to keep the sweep focused on real
-    security issues."""
-    d = _load(report_path)
-    results = d.get("results")
-    if not isinstance(results, list):
-        print("error: bandit report must contain a results array", file=sys.stderr)
-        return 2
-    if any(not isinstance(item, dict) for item in results):
-        print("error: bandit result must be an object", file=sys.stderr)
-        return 2
-    for item in results:
-        if (
-            not isinstance(item.get("issue_severity"), str)
-            or not isinstance(item.get("filename"), str)
-            or not isinstance(item.get("line_number"), int)
-            or not isinstance(item.get("test_id"), str)
-        ):
-            print("error: bandit result has missing/invalid required fields", file=sys.stderr)
-            return 2
-    by_sev: dict[str, int] = {}
-    for r in results:
-        sev = r.get("issue_severity", "?")
-        by_sev[sev] = by_sev.get(sev, 0) + 1
-    print(f"bandit findings by severity: {by_sev}")
-    fatal = by_sev.get("HIGH", 0) + by_sev.get("MEDIUM", 0)
-    if fatal:
-        print(f"FAIL: bandit found {fatal} HIGH/MEDIUM findings")
-        for r in results:
-            if r.get("issue_severity") in ("HIGH", "MEDIUM"):
-                print(
-                    f"  {r['filename']}:{r['line_number']} "
-                    f"[{r['test_id']}] "
-                    f"{r.get('issue_text','')[:120]}"
-                )
-        print(
-            "\nEach finding needs either:\n"
-            "  - a real fix (preferred), or\n"
-            "  - a per-line `# nosec <ID> -- <specific rationale>` "
-            "annotation after verifying the line is safe.\n"
-            "See SECURITY.md for the review workflow."
-        )
-        return 1
-    print("OK: bandit clean at HIGH+MEDIUM")
-    return 0
+from bandit_gate import check_bandit  # noqa: E402  (re-export for the CLI)
 
 
 def check_semgrep(report_path: str) -> int:

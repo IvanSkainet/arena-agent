@@ -1,0 +1,108 @@
+# poutine: a second opinion on workflow security, alongside zizmor.
+#
+# These scanners disagree substantially. Published comparisons put zizmor at
+# roughly a fifth of the findings of poutine/scorecard on the same corpus,
+# largely because zizmor exempts official GitHub-owned actions from its
+# pinning rules. Running only one of them means trusting one vendor's idea of
+# what counts as a risk.
+#
+# poutine also reasons about *reachability* -- which triggers can reach a
+# dangerous step -- rather than pattern-matching YAML, so it catches things
+# like untrusted checkout followed by execution that a linter does not.
+name: poutine
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: poutine-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  poutine:
+    name: Pipeline supply-chain scan (poutine, ratcheted)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner (block mode, egress enforced)
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # The poutine *action* has single-digit stars, which is below the trust
+      # bar this repo applies to third-party actions. The CLI release is
+      # downloaded directly and checked against a pinned SHA-256 instead, so a
+      # swapped artifact fails the job rather than executing.
+      - name: Install poutine (pinned release, checksum verified)
+        env:
+          POUTINE_VERSION: 1.1.6
+          POUTINE_SHA256: abde716599a65608b023a69ed9316e5f083a7bca48612151c2720835883757ea
+        run: |
+          set -euo pipefail
+          url="https://github.com/boostsecurityio/poutine/releases/download/v${POUTINE_VERSION}/poutine_Linux_x86_64.tar.gz"
+          # --proto '=https' --tlsv1.2 pins the transport, and
+          # --proto-redir '=https' stops a redirect from downgrading the
+          # download to plain HTTP. Flagged by Sonar S6506 on this PR.
+          curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+            -o poutine.tgz "$url"
+          echo "${POUTINE_SHA256}  poutine.tgz" | sha256sum -c -
+          tar xzf poutine.tgz poutine
+          chmod +x poutine
+
+      - name: Run poutine
+        run: ./poutine analyze_local . --format json > poutine.json
+
+      # The gate script and its ceiling are read from the BASE revision, not
+      # from the pull request. On a pull_request event actions/checkout gives
+      # us the merge commit, so running the PR's own copy would let a PR edit
+      # the gate -- or simply raise the ceiling -- and wave its own findings
+      # through. Flagged by Sourcery on this PR.
+      - name: Fetch the trusted gate from the base revision
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          base="${BASE_SHA:-}"
+          if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            base="$(git rev-parse HEAD)"
+            echo "no usable base revision; falling back to $base"
+          fi
+          mkdir -p trusted
+          git show "${base}:.github/scripts/poutine_gate.py" > trusted/poutine_gate.py
+          git show "${base}:docs/poutine-ceiling.txt" > trusted/poutine-ceiling.txt
+          echo "using gate + ceiling from ${base}"
+
+      - name: Ratchet on findings
+        run: |
+          python3 trusted/poutine_gate.py \
+            --report poutine.json \
+            --ceiling-file trusted/poutine-ceiling.txt
+
+      - name: Upload poutine report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: poutine-report
+          path: poutine.json
+          retention-days: 30
