@@ -12,7 +12,8 @@ Extracted from CI + Makefile so both call the same logic; means
 "passes locally" also means "passes in CI". See SECURITY.md for
 the gate thresholds:
 
-* bandit: 0 HIGH + 0 MEDIUM; LOW allowed (code hygiene noise)
+* bandit: 0 HIGH + 0 MEDIUM; LOW ratcheted against docs/bandit-low-ceiling.txt
+  (the count may fall, never rise)
 * semgrep: 0 findings across all 9 rule packs
 * pip-audit: 0 CVEs in runtime + full-extras deps
 
@@ -96,6 +97,11 @@ def check_bandit(report_path: str) -> int:
         by_sev[sev] = by_sev.get(sev, 0) + 1
     print(f"bandit findings by severity: {by_sev}")
 
+    # Validate the ratchet baseline BEFORE the fatal-severity return. If the
+    # ceiling file is missing or malformed the answer is "this gate is broken"
+    # (rc=2), and that must not be masked by an ordinary finding failure.
+    ceiling = _bandit_low_ceiling()
+
     fatal = by_sev.get("HIGH", 0) + by_sev.get("MEDIUM", 0)
     if fatal:
         print(f"FAIL: bandit found {fatal} HIGH/MEDIUM findings")
@@ -106,7 +112,6 @@ def check_bandit(report_path: str) -> int:
         return 1
 
     low = by_sev.get("LOW", 0)
-    ceiling = _bandit_low_ceiling()
     if low > ceiling:
         print(f"FAIL: bandit LOW findings rose to {low}, ceiling is {ceiling}.")
         print("  LOW is capped by a ratchet. Fix the new finding, or -- if it is")

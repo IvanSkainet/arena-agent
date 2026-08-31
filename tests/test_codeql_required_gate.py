@@ -63,10 +63,26 @@ def test_no_checks_at_all_is_red(gate, monkeypatch):
     assert gate.main(["--sha", "deadbeef", "--timeout", "0", "--poll", "0"]) == 1
 
 
-@pytest.mark.parametrize("conclusion", ["cancelled", "timed_out", "action_required", "stale"])
+@pytest.mark.parametrize("conclusion", ["cancelled", "timed_out", "action_required", "stale", "skipped"])
 def test_non_success_conclusions_are_red(gate, monkeypatch, conclusion):
     """A cancelled or stale analysis is an unknown, and unknown is not a pass."""
     runs = _completed(gate.EXPECTED)
     runs[0]["conclusion"] = conclusion
     monkeypatch.setattr(gate, "_checks", lambda sha: runs)
     assert gate.main(["--sha", "deadbeef", "--timeout", "0", "--poll", "0"]) == 1
+
+
+def test_skipped_analysis_is_red(gate, monkeypatch):
+    """`skipped` means the analysis did not run, which is not evidence of clean.
+
+    Regression: `skipped` was originally in the PASS set, so a CodeQL analysis
+    that never executed would have reported green.
+    """
+    runs = _completed(gate.EXPECTED)
+    runs[0]["conclusion"] = "skipped"
+    monkeypatch.setattr(gate, "_checks", lambda sha: runs)
+    assert gate.main(["--sha", "deadbeef", "--timeout", "0", "--poll", "0"]) == 1
+
+
+def test_skipped_not_in_pass_set(gate):
+    assert "skipped" not in gate.PASS

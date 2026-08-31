@@ -38,7 +38,10 @@ EXPECTED = (
     "Analyze (python)",
 )
 
-PASS = {"success", "neutral", "skipped"}
+# `skipped` is deliberately NOT a pass: a skipped analysis did not run, and
+# "did not run" must never read as "clean" -- that is the whole point of this
+# gate. Caught by Sourcery on the PR that introduced it.
+PASS = {"success", "neutral"}
 
 
 def _checks(sha: str) -> list[dict]:

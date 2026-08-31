@@ -120,3 +120,16 @@ def test_ceiling_matches_reality_on_this_tree(gate):
         "the LOW ceiling may only be lowered; raising it needs a written "
         "justification in the PR that raises it"
     )
+
+
+def test_broken_ceiling_beats_high_findings(gate, tmp_path, monkeypatch):
+    """A broken gate must report rc=2 even when findings would give rc=1.
+
+    Regression: the ceiling was loaded after the HIGH/MEDIUM early return, so a
+    missing baseline was masked as an ordinary failure and the "this gate
+    cannot evaluate itself" signal was lost.
+    """
+    monkeypatch.setattr(gate, "ROOT", tmp_path / "empty-root")
+    with pytest.raises(SystemExit) as exc:
+        gate.check_bandit(_report(tmp_path, low=0, high=1))
+    assert exc.value.code == 2
