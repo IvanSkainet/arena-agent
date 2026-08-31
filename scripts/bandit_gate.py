@@ -32,25 +32,32 @@ def _load(path: str) -> dict:
     return data
 
 
+def _read_json_baseline(path: pathlib.Path, what: str) -> dict:
+    """Load a checked-in baseline file, failing closed if it cannot be read.
+
+    A gate that cannot find or parse its own baseline does not know whether
+    the code is clean, and "I do not know" must never be reported as a pass.
+    """
+    if not path.exists():
+        print(f"error: {path} is missing; the {what} cannot be evaluated.",
+              file=sys.stderr)
+        raise SystemExit(2)
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"error: {path} is malformed: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+
+
 def _per_test_ceilings() -> dict[str, int]:
     """Per-test-id LOW ceilings, read from a checked-in file.
 
     A single total was gameable: 30 new try_except_pass could hide under the
     cap by deleting 30 subprocess imports elsewhere. Each test id now
-    ratchets on its own, so a regression in the shape that actually matters
-    (B110) cannot be paid for with an unrelated improvement.
+    ratchets on its own.
     """
     path = ROOT / "docs" / "bandit-low-ceilings.json"
-    if not path.exists():
-        print(f"error: {path} is missing; the per-test ratchet cannot be "
-              f"evaluated. A gate that cannot find its baseline must fail.",
-              file=sys.stderr)
-        raise SystemExit(2)
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        print(f"error: {path} is malformed: {exc}", file=sys.stderr)
-        raise SystemExit(2) from exc
+    raw = _read_json_baseline(path, "per-test ratchet")
     ceilings = {k: v for k, v in raw.items() if not k.startswith("_")}
     if not ceilings or not all(isinstance(v, int) for v in ceilings.values()):
         print(f"error: {path} must map test ids to integers", file=sys.stderr)
