@@ -58,30 +58,42 @@ def _per_test_ceilings() -> dict[str, int]:
     return ceilings
 
 
-def _check_per_test(results: list[dict]) -> int:
-    """Fail if any single test id rose above its own ceiling."""
-    ceilings = _per_test_ceilings()
+def _low_counts_by_test(results: list[dict]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for r in results:
         if r.get("issue_severity") == "LOW":
             tid = str(r.get("test_id"))
             counts[tid] = counts.get(tid, 0) + 1
+    return counts
+
+
+def _report_risen(risen: list[tuple[str, int, int]]) -> int:
+    print("\nFAIL: these bandit tests rose above their ceilings:")
+    for tid, found, cap in risen:
+        print(f"    {tid}: {found} > {cap}")
+    print("  Fix the new findings, or raise that entry in")
+    print("  docs/bandit-low-ceilings.json with a written justification.")
+    return 1
+
+
+def _report_fallen(fallen: list[tuple[str, int, int]]) -> None:
+    for tid, found, cap in fallen:
+        print(f"    {tid} improved: {found} < {cap} -- lower it in "
+              f"docs/bandit-low-ceilings.json to lock the gain in")
+
+
+def _check_per_test(results: list[dict]) -> int:
+    """Fail if any single test id rose above its own ceiling."""
+    ceilings = _per_test_ceilings()
+    counts = _low_counts_by_test(results)
 
     risen = [(t, n, ceilings.get(t, 0)) for t, n in sorted(counts.items())
              if n > ceilings.get(t, 0)]
     if risen:
-        print("\nFAIL: these bandit tests rose above their ceilings:")
-        for t, n, c in risen:
-            print(f"    {t}: {n} > {c}")
-        print("  Fix the new findings, or raise that entry in")
-        print("  docs/bandit-low-ceilings.json with a written justification.")
-        return 1
+        return _report_risen(risen)
 
-    fell = [(t, n, ceilings[t]) for t, n in sorted(counts.items())
-            if t in ceilings and n < ceilings[t]]
-    for t, n, c in fell:
-        print(f"    {t} improved: {n} < {c} -- lower it in "
-              f"docs/bandit-low-ceilings.json to lock the gain in")
+    _report_fallen([(t, n, ceilings[t]) for t, n in sorted(counts.items())
+                    if t in ceilings and n < ceilings[t]])
     return 0
 
 
