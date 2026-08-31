@@ -29,7 +29,7 @@ def _load():
     return mod
 
 
-@pytest.fixture()
+@pytest.fixture
 def gate():
     return _load()
 
@@ -45,8 +45,11 @@ def _report(tmp_path, n, rule="github_action_from_unverified_creator_used"):
     return str(p)
 
 
-def test_gate_and_ceiling_are_committed():
+def test_gate_script_is_committed():
     assert GATE.is_file(), f"{GATE} is missing"
+
+
+def test_ceiling_file_is_committed():
     assert CEILING.is_file(), f"{CEILING} is missing; the ratchet has no baseline"
 
 
@@ -85,18 +88,20 @@ def test_report_without_findings_array_fails_closed(gate, tmp_path):
 
 
 def test_missing_ceiling_fails_closed(gate, tmp_path, monkeypatch):
+    report = _report(tmp_path, 1)
     monkeypatch.setattr(gate, "CEILING_FILE", tmp_path / "absent.txt")
     with pytest.raises(SystemExit) as exc:
-        gate.main(["--report", _report(tmp_path, 1)])
+        gate.main(["--report", report])
     assert exc.value.code == 2
 
 
 def test_malformed_ceiling_fails_closed(gate, tmp_path, monkeypatch):
     bad = tmp_path / "ceiling.txt"
     bad.write_text("eight\n", encoding="utf-8")
+    report = _report(tmp_path, 1)
     monkeypatch.setattr(gate, "CEILING_FILE", bad)
     with pytest.raises(SystemExit) as exc:
-        gate.main(["--report", _report(tmp_path, 1)])
+        gate.main(["--report", report])
     assert exc.value.code == 2
 
 

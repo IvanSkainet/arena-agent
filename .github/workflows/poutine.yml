@@ -61,7 +61,11 @@ jobs:
         run: |
           set -euo pipefail
           url="https://github.com/boostsecurityio/poutine/releases/download/v${POUTINE_VERSION}/poutine_Linux_x86_64.tar.gz"
-          curl -fsSL -o poutine.tgz "$url"
+          # --proto '=https' --tlsv1.2 pins the transport, and
+          # --proto-redir '=https' stops a redirect from downgrading the
+          # download to plain HTTP. Flagged by Sonar S6506 on this PR.
+          curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+            -o poutine.tgz "$url"
           echo "${POUTINE_SHA256}  poutine.tgz" | sha256sum -c -
           tar xzf poutine.tgz poutine
           chmod +x poutine
