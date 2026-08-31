@@ -55,7 +55,31 @@ def restrict(path: str | os.PathLike[str], mode: int, *, what: str = "") -> bool
         else:
             _log.debug("chmod failed for %s (%s)", label, exc)
         return False
-    return True
+    return _verify(target, mode, label)
+
+
+def _verify(target: Path, mode: int, label: str) -> bool:
+    """Confirm the mode actually took effect, instead of trusting chmod.
+
+    On Windows ``os.chmod`` returns successfully and changes nothing but
+    the read-only bit: a file asked to become ``0o600`` stays ``0o666``.
+    Measured on the owner's host -- ``restrict()`` reported success while
+    the file was untouched, which is precisely the lie this module exists
+    to remove. Confidentiality there comes from the directory ACL, not
+    from the mode, so this is not an error to shout about; but it is not
+    a success either, and must not be reported as one.
+    """
+    try:
+        actual = stat.S_IMODE(target.stat().st_mode)
+    except OSError:
+        return False
+    if actual == mode:
+        return True
+    _log.debug(
+        "chmod on %s reported success but the mode is %o, not %o; this "
+        "platform does not enforce POSIX modes", label, actual, mode,
+    )
+    return False
 
 
 def _leaves_file_exposed(target: Path, mode: int) -> bool:

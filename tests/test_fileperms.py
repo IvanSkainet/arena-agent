@@ -83,6 +83,18 @@ def test_group_or_world_modes_are_not_reported_as_exposure(tmp_path, caplog):
     assert caplog.text == ""
 
 
+def test_a_chmod_that_changes_nothing_is_not_success(tmp_path):
+    """Windows: os.chmod succeeds and leaves the mode at 0o666.
+
+    Measured on the owner's host -- restrict() returned True while the
+    file was still world-readable, the exact lie this module removes.
+    Simulated here so a Linux CI run cannot lose the guarantee.
+    """
+    target = _make(tmp_path, 0o666)
+    with mock.patch("os.chmod"):  # succeeds, changes nothing
+        assert restrict(target, 0o600, what="the audit log") is False
+
+
 def test_audit_log_write_still_tightens_the_file(tmp_path):
     """End to end through the real caller, not just the helper."""
     from arena.observability import audit
