@@ -28,6 +28,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -159,7 +160,12 @@ def _gitleaks() -> str | None:
     found = shutil.which("gitleaks")
     if found:
         return found
-    for candidate in (Path("/tmp/tools/bin/gitleaks"), Path("/usr/local/bin/gitleaks")):
+    # Read-only lookups of an already-installed binary, not a temp file
+    # this test creates: /tmp/tools/bin is where the CI install step puts
+    # gitleaks. Nothing is written, and a candidate is only returned if
+    # it already exists and is executable.
+    tmp_tools = Path(tempfile.gettempdir()) / "tools" / "bin" / "gitleaks"
+    for candidate in (tmp_tools, Path("/usr/local/bin/gitleaks")):
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return str(candidate)
     return None
