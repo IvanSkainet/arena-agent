@@ -93,20 +93,29 @@ def test_blocking_steps_list_their_allowed_endpoints():
     assert not missing, f"block mode without allowed-endpoints: {missing}"
 
 
-def test_pypi_endpoints_only_where_pip_is_used():
-    """An allowlist that grants more than the job needs is not an allowlist.
-
-    Checked in both directions: a job that pip-installs must be able to reach
-    PyPI, and a job that does not must not be handed the endpoint anyway.
-    """
-    wrong = []
+def _blocking_jobs():
+    """Every (workflow, job_id, job, step) tuple running in block mode."""
     for wf_name, job_id, job in _jobs():
         step = _harden_runner_step(job)
-        if step is None or (step.get("with") or {}).get("egress-policy") != "block":
-            continue
-        needs, allowed = _installs_from_pypi(job), _allows_pypi(step)
-        if needs and not allowed:
-            wrong.append(f"{wf_name}:{job_id} pip-installs but cannot reach PyPI")
-        if allowed and not needs:
-            wrong.append(f"{wf_name}:{job_id} is allowed PyPI but never installs anything")
-    assert not wrong, wrong
+        if step is not None and (step.get("with") or {}).get("egress-policy") == "block":
+            yield wf_name, job_id, job, step
+
+
+def test_pypi_allowed_wherever_pip_is_used():
+    """A blocking job that pip-installs must still be able to reach PyPI."""
+    wrong = [
+        f"{wf}:{jid}"
+        for wf, jid, job, step in _blocking_jobs()
+        if _installs_from_pypi(job) and not _allows_pypi(step)
+    ]
+    assert not wrong, f"these jobs pip-install but cannot reach PyPI: {wrong}"
+
+
+def test_pypi_not_granted_where_pip_is_unused():
+    """An allowlist that grants more than the job needs is not an allowlist."""
+    wrong = [
+        f"{wf}:{jid}"
+        for wf, jid, job, step in _blocking_jobs()
+        if _allows_pypi(step) and not _installs_from_pypi(job)
+    ]
+    assert not wrong, f"these jobs are allowed PyPI but never install: {wrong}"
