@@ -63,46 +63,67 @@ def _checks(sha: str) -> list[dict]:
     return runs
 
 
-def main(argv: list[str] | None = None) -> int:
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument("--sha", required=True)
     ap.add_argument("--timeout", type=int, default=900,
                     help="seconds to wait for CodeQL to finish")
     ap.add_argument("--poll", type=int, default=20)
-    args = ap.parse_args(argv)
+    return ap.parse_args(argv)
 
-    deadline = time.time() + args.timeout
-    seen: dict[str, dict] = {}
 
+def _analyses(sha: str) -> dict[str, dict]:
+    """Just the CodeQL `Analyze (...)` checks, keyed by name."""
+    return {r["name"]: r for r in _checks(sha) if r["name"].startswith(EXPECTED_PREFIX)}
+
+
+def _report_timeout(pending: list[str], missing: list[str]) -> int:
+    print("FAIL: timed out waiting for CodeQL.")
+    if pending:
+        print(f"  still running: {pending}")
+    if missing:
+        print(f"  never reported: {missing}")
+    print("  A gate that cannot distinguish 'clean' from 'never ran'")
+    print("  must fail. Check CodeQL default setup is enabled.")
+    return 1
+
+
+def _await_analyses(sha: str, timeout: int, poll: int) -> tuple[dict[str, dict], int | None]:
+    """Poll until every expected analysis has completed.
+
+    Returns the analyses plus an exit code, which is None while things are
+    still fine and 1 once waiting has been given up on.
+    """
+    deadline = time.time() + timeout
     while True:
-        runs = _checks(args.sha)
-        seen = {r["name"]: r for r in runs if r["name"].startswith(EXPECTED_PREFIX)}
+        seen = _analyses(sha)
         pending = [n for n, r in seen.items() if r["status"] != "completed"]
         missing = [n for n in EXPECTED if n not in seen]
-
         if not pending and not missing:
-            break
+            return seen, None
         if time.time() > deadline:
-            print("FAIL: timed out waiting for CodeQL.")
-            if pending:
-                print(f"  still running: {pending}")
-            if missing:
-                print(f"  never reported: {missing}")
-            print("  A gate that cannot distinguish 'clean' from 'never ran'")
-            print("  must fail. Check CodeQL default setup is enabled.")
-            return 1
+            return seen, _report_timeout(pending, missing)
         print(f"waiting: pending={pending or '-'} missing={missing or '-'}")
-        time.sleep(args.poll)
+        time.sleep(poll)
 
+
+def _verdict(seen: dict[str, dict]) -> int:
     failed = [f"{n}={r['conclusion']}" for n, r in sorted(seen.items())
               if r["conclusion"] not in PASS]
     if failed:
         print(f"FAIL: CodeQL reported failures: {failed}")
         return 1
-
     print(f"OK: all {len(seen)} CodeQL analyses passed "
           f"({', '.join(sorted(seen))})")
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    seen, gave_up = _await_analyses(args.sha, args.timeout, args.poll)
+    if gave_up is not None:
+        return gave_up
+    return _verdict(seen)
 
 
 if __name__ == "__main__":
