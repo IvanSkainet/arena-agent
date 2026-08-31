@@ -12,6 +12,10 @@ import json
 import pathlib
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+from bandit_per_test import check_per_test  # noqa: E402
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
@@ -151,4 +155,7 @@ def check_bandit(report_path: str) -> int:
     low = by_sev.get("LOW", 0)
     if low > ceiling:
         return _report_low_regression(results, low, ceiling)
+    per_test = check_per_test(results, ROOT)
+    if per_test:
+        return per_test
     return _report_low_ok(low, ceiling)

@@ -34,6 +34,8 @@ import threading
 from pathlib import Path
 from typing import Any, Callable
 
+from arena.fileperms import restrict
+
 request_log_lock = threading.Lock()
 DEFAULT_MAX_BYTES = 10 * 1024 * 1024
 DEFAULT_BACKUP_COUNT = 3
@@ -133,19 +135,13 @@ def log_request_response(
                         try:
                             old.rename(older)
                             # v4.44.0: re-apply 0o600 after rename.
-                            try:
-                                os.chmod(older, 0o600)
-                            except Exception:
-                                pass
+                            restrict(older, 0o600, what="a rotated request log")
                         except OSError:
                             pass
             try:
                 rotated = app_dir / "requests.jsonl.1"
                 log_file.rename(rotated)
-                try:
-                    os.chmod(rotated, 0o600)
-                except Exception:
-                    pass
+                restrict(rotated, 0o600, what="the rotated request log")
             except OSError:
                 pass
         with lock:

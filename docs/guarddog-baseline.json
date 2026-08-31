@@ -1,0 +1,28 @@
+{
+  "_comment": [
+    "Accepted GuardDog threat-* findings on our own dependencies.",
+    "",
+    "GuardDog splits its rules three ways. capability-* is descriptive ('this",
+    "package can read files') and fires on virtually every real library, so",
+    "the gate ignores it entirely -- a gate that shouts about aiohttp making",
+    "network requests would be turned off within a week. threat-* and the",
+    "metadata heuristics (typosquatting, compromised maintainer email) are",
+    "the ones that mean something, and those are what this gate enforces.",
+    "",
+    "Each entry below is a threat-* rule that fires on a package we already",
+    "depend on, with the reason it is accepted. Anything NOT listed here",
+    "fails the build. Entries may be removed, never added, without a note.",
+    "",
+    "This is a ratchet, not a mute button: the pair (package, rule) is what",
+    "is accepted, so the same rule firing on a DIFFERENT package is still a",
+    "failure."
+  ],
+  "accepted": {
+    "psutil": {
+      "threat-process-memory": "psutil's entire purpose is reading process and memory information; the rule detects exactly the API surface the library is built on."
+    },
+    "idna": {
+      "threat-runtime-obfuscation-unicode": "idna implements the international domain name standard, so its tables are full of homoglyphs and uncommon codepoints by definition."
+    }
+  }
+}

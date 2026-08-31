@@ -25,10 +25,20 @@ jobs:
     name: bandit (must be 0 HIGH / 0 MEDIUM)
     runs-on: ubuntu-latest
     steps:
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -84,10 +94,25 @@ jobs:
     name: semgrep (9 rule packs, must be 0 findings)
     runs-on: ubuntu-latest
     steps:
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          # semgrep fetches its nine rule packs from semgrep.dev at run time.
+          # metrics.semgrep.dev is deliberately NOT listed: block mode caught
+          # the scanner phoning telemetry home, and SEMGREP_SEND_METRICS=off
+          # stops it at the source.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
+            semgrep.dev:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -107,6 +132,8 @@ jobs:
         # `# nosemgrep: <rule> -- <reason>`, which each existing
         # annotation follows. New nosemgrep additions in a PR require
         # a rationale (grep-visible in code review).
+        env:
+          SEMGREP_SEND_METRICS: "off"
         run: |
           set +e
           semgrep \
@@ -144,10 +171,21 @@ jobs:
     name: trufflehog (0 secrets in git history)
     runs-on: ubuntu-latest
     steps:
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # scans history already on disk, but ships as a Docker action, so
+          # the image has to be pulled from GHCR first. Confirmed from a real
+          # run: without ghcr.io the job dies with "dial tcp ...: connection
+          # refused" before it scans anything.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0  # full history for secret scanning
@@ -165,10 +203,16 @@ jobs:
     name: gitleaks (0 secrets in commits)
     runs-on: ubuntu-latest
     steps:
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # scans commits already on disk.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -188,10 +232,18 @@ jobs:
       contents: read
       security-events: read
     steps:
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -215,10 +267,32 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # queries the OSV database, uploads SARIF.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            results-receiver.actions.githubusercontent.com:443
+            productionresultssa0.blob.core.windows.net:443
+            productionresultssa1.blob.core.windows.net:443
+            productionresultssa2.blob.core.windows.net:443
+            productionresultssa3.blob.core.windows.net:443
+            productionresultssa4.blob.core.windows.net:443
+            productionresultssa5.blob.core.windows.net:443
+            productionresultssa6.blob.core.windows.net:443
+            productionresultssa7.blob.core.windows.net:443
+            productionresultssa8.blob.core.windows.net:443
+            productionresultssa9.blob.core.windows.net:443
+            osv-vulnerabilities.storage.googleapis.com:443
+            api.osv.dev:443
+            api.deps.dev:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -341,10 +415,28 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # static linter; uploads a SARIF artifact.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            results-receiver.actions.githubusercontent.com:443
+            productionresultssa0.blob.core.windows.net:443
+            productionresultssa1.blob.core.windows.net:443
+            productionresultssa2.blob.core.windows.net:443
+            productionresultssa3.blob.core.windows.net:443
+            productionresultssa4.blob.core.windows.net:443
+            productionresultssa5.blob.core.windows.net:443
+            productionresultssa6.blob.core.windows.net:443
+            productionresultssa7.blob.core.windows.net:443
+            productionresultssa8.blob.core.windows.net:443
+            productionresultssa9.blob.core.windows.net:443
+            mcr.microsoft.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -378,10 +470,20 @@ jobs:
     name: pip-audit (0 CVE in runtime deps)
     runs-on: ubuntu-latest
     steps:
-      - name: Harden Runner (audit mode, egress visibility)
+      - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
