@@ -1,0 +1,2 @@
+496  # bandit LOW ceiling. Ratchet: may fall, never rise. 250 of these are
+     # B110 try_except_pass. Lower this number whenever you reduce the count.

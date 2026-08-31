@@ -61,9 +61,14 @@ jobs:
           python3 scripts/scanner_contract_gate.py \
             --tool bandit --exit-code "$scanner_rc" --allowed-exits 0,1
 
-      - name: Gate on HIGH + MEDIUM (LOW allowed as code hygiene)
+      - name: Gate on HIGH + MEDIUM, ratchet LOW downward
         # Delegates to the shared gate script so CI and `make
         # security-scan` locally apply the exact same threshold.
+        # HIGH/MEDIUM are zero-tolerance. LOW used to be ignored
+        # entirely, which hid 496 findings -- 250 of them B110
+        # try_except_pass, the fail-open shape this repo keeps
+        # fighting. LOW is now capped by docs/bandit-low-ceiling.txt
+        # and may only go down.
         run: python3 scripts/security_gate.py bandit bandit.json
 
       - name: Upload bandit report
