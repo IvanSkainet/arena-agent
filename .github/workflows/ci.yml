@@ -36,7 +36,15 @@ jobs:
       - name: Harden Runner (audit mode, egress visibility)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -326,7 +334,15 @@ jobs:
       - name: Harden Runner (audit mode, egress visibility)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -462,7 +478,17 @@ jobs:
       - name: Harden Runner (audit mode, egress visibility)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -517,7 +543,17 @@ jobs:
       - name: Harden Runner (audit mode, egress visibility)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -572,7 +608,17 @@ jobs:
       - name: Harden Runner (audit mode, egress visibility)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -717,7 +763,17 @@ jobs:
       - name: Harden Runner (audit mode, egress visibility)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -883,7 +939,17 @@ jobs:
       - name: Harden Runner (audit mode, egress visibility)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -966,7 +1032,17 @@ jobs:
       - name: Harden Runner (audit mode, egress visibility)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -1114,7 +1190,17 @@ jobs:
       - name: Harden Runner (audit mode, egress visibility)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -1165,7 +1251,17 @@ jobs:
       - name: Harden Runner (audit mode, egress visibility)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -1208,7 +1304,17 @@ jobs:
       - name: Harden Runner (audit mode, egress visibility)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -1296,7 +1402,17 @@ jobs:
       - name: Harden Runner (audit mode, egress visibility)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -1344,7 +1460,17 @@ jobs:
       - name: Harden Runner (audit mode, egress visibility)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -1381,7 +1507,17 @@ jobs:
       - name: Harden Runner (audit mode, egress visibility)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          # Wave 2 of moving off audit mode (#217 piloted three jobs).
+          # Anything outside this list is exfiltration or a compromised
+          # action, and is dropped rather than merely logged.
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
