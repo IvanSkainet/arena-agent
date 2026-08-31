@@ -291,6 +291,8 @@ jobs:
             osv-vulnerabilities.storage.googleapis.com:443
             api.osv.dev:443
             api.deps.dev:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -434,6 +436,7 @@ jobs:
             productionresultssa7.blob.core.windows.net:443
             productionresultssa8.blob.core.windows.net:443
             productionresultssa9.blob.core.windows.net:443
+            mcr.microsoft.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

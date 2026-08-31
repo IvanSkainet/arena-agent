@@ -126,3 +126,25 @@ def test_pypi_not_granted_where_pip_is_unused():
         if _allows_pypi(step) and not _installs_from_pypi(job)
     ]
     assert not wrong, f"these jobs are allowed PyPI but never install: {wrong}"
+
+
+def test_allowed_endpoints_are_all_host_port_pairs():
+    """Every allowlist entry must look like `host:port`.
+
+    A `>` YAML scalar folds *everything* into the string, so a `# comment`
+    written inside the block becomes allowlist entries -- `#`, `Docker`,
+    `action`, one per word. Harden-Runner then silently treats them as
+    hostnames. This was introduced twice while writing these allowlists,
+    both times invisible to actionlint and to a YAML parse.
+    """
+    bad = []
+    for wf, job, step in _harden_runner_steps():
+        raw = (step.get("with") or {}).get("allowed-endpoints", "")
+        for entry in str(raw).split():
+            host, _, port = entry.rpartition(":")
+            if not host or not port.isdigit():
+                bad.append(f"{wf}:{job} -> {entry!r}")
+    assert not bad, (
+        "allowlist entries that are not host:port (a comment folded into the "
+        f"YAML block scalar?): {bad}"
+    )
