@@ -89,15 +89,38 @@ def _describe(findings: list[dict]) -> None:
         print(f"  {n:3d}  {rule}")
 
 
-def main(argv: list[str] | None = None) -> int:
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument("--report", default="poutine.json")
     ap.add_argument("--ceiling-file", default=None,
                     help="path to the ceiling file; defaults to the one in "
                          "this checkout. CI passes the base-revision copy so a "
                          "pull request cannot raise its own ceiling.")
-    args = ap.parse_args(argv)
+    return ap.parse_args(argv)
 
+
+def _report_regression(findings: list[dict], total: int, ceiling: int) -> int:
+    print(f"\nFAIL: poutine findings rose to {total}, ceiling is {ceiling}.")
+    print("  Fix the new finding, or raise docs/poutine-ceiling.txt in the")
+    print("  same PR with a written justification.")
+    for f in findings:
+        meta = f.get("meta", {}) or {}
+        print(f"    {f.get('rule_id')} {meta.get('path')}:{meta.get('line')} "
+              f"job={meta.get('job')}")
+    return 1
+
+
+def _report_ok(total: int, ceiling: int) -> int:
+    if total < ceiling:
+        print(f"\nOK: below the ceiling. Lower docs/poutine-ceiling.txt to "
+              f"{total} to lock the gain in.")
+    else:
+        print("\nOK: at the ceiling.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
     findings = _findings(args.report)
     ceiling = _ceiling(pathlib.Path(args.ceiling_file) if args.ceiling_file else None)
     total = len(findings)
@@ -106,21 +129,8 @@ def main(argv: list[str] | None = None) -> int:
     _describe(findings)
 
     if total > ceiling:
-        print(f"\nFAIL: poutine findings rose to {total}, ceiling is {ceiling}.")
-        print("  Fix the new finding, or raise docs/poutine-ceiling.txt in the")
-        print("  same PR with a written justification.")
-        for f in findings:
-            meta = f.get("meta", {}) or {}
-            print(f"    {f.get('rule_id')} {meta.get('path')}:{meta.get('line')} "
-                  f"job={meta.get('job')}")
-        return 1
-
-    if total < ceiling:
-        print(f"\nOK: below the ceiling. Lower docs/poutine-ceiling.txt to "
-              f"{total} to lock the gain in.")
-    else:
-        print("\nOK: at the ceiling.")
-    return 0
+        return _report_regression(findings, total, ceiling)
+    return _report_ok(total, ceiling)
 
 
 if __name__ == "__main__":
