@@ -51,10 +51,9 @@ def _ceiling(ceiling_file: pathlib.Path | None = None) -> int:
         raise SystemExit(2) from exc
 
 
-def _findings(report_path: str) -> list[dict]:
-    raw = _read_text(pathlib.Path(report_path))
+def _parse_report(report_path: str) -> dict:
     try:
-        data = json.loads(raw)
+        data = json.loads(_read_text(pathlib.Path(report_path)))
     except json.JSONDecodeError as exc:
         print(f"error: poutine report is not valid JSON: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
@@ -62,14 +61,26 @@ def _findings(report_path: str) -> list[dict]:
         print("error: poutine report must be an object with a findings array",
               file=sys.stderr)
         raise SystemExit(2)
-    # Validate every entry: a findings array containing a non-object would
-    # otherwise blow up later with an AttributeError, which reads as a crashed
-    # job rather than the documented fail-closed exit 2.
-    for i, f in enumerate(data["findings"]):
+    return data
+
+
+def _validate(findings: list) -> None:
+    """Reject malformed entries up front.
+
+    A findings array containing a non-object would otherwise blow up later
+    with an AttributeError, which reads as a crashed job rather than the
+    documented fail-closed exit 2.
+    """
+    for i, f in enumerate(findings):
         if not isinstance(f, dict) or not isinstance(f.get("rule_id"), str):
             print(f"error: poutine finding {i} is malformed: {f!r}", file=sys.stderr)
             raise SystemExit(2)
-    return data["findings"]
+
+
+def _findings(report_path: str) -> list[dict]:
+    findings = _parse_report(report_path)["findings"]
+    _validate(findings)
+    return findings
 
 
 def _describe(findings: list[dict]) -> None:
