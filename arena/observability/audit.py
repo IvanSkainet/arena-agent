@@ -35,7 +35,6 @@ from __future__ import annotations
 import collections
 import hashlib
 import json
-import os
 import threading
 from pathlib import Path
 from typing import Any, Callable
@@ -48,6 +47,7 @@ from arena.constants import AUDIT_CMD_LIMIT
 # The three underscore-prefixed names below stay as thin
 # backward-compat aliases so anything that imported them from
 # arena.observability.audit keeps working.
+from arena.fileperms import restrict
 from arena.observability.redact import (
     SENSITIVE_KEY_SUBSTRINGS as _SENSITIVE_KEY_SUBSTRINGS,  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
     is_sensitive_key as _is_sensitive_key,
@@ -107,10 +107,7 @@ def write_audit_event(
     with lock:
         with audit_path.open("a", encoding="utf-8") as f:
             f.write(line)
-        try:
-            os.chmod(audit_path, 0o600)
-        except Exception:
-            pass
+        restrict(audit_path, 0o600, what="the audit log")
         try:
             if audit_path.exists() and audit_path.stat().st_size > 50 * 1024 * 1024:
                 for i in range(5, 0, -1):
@@ -125,16 +122,10 @@ def write_audit_event(
                             # rename because some filesystems reset
                             # the mode across the rename (ACL-proof
                             # discipline, same as v4.40.0 URL cache).
-                            try:
-                                os.chmod(new_name, 0o600)
-                            except Exception:
-                                pass
+                            restrict(new_name, 0o600, what="a rotated audit log")
                 rotated = app_dir / "audit.jsonl.1"
                 audit_path.rename(rotated)
-                try:
-                    os.chmod(rotated, 0o600)
-                except Exception:
-                    pass
+                restrict(rotated, 0o600, what="the rotated audit log")
         except Exception:
             pass
     return written

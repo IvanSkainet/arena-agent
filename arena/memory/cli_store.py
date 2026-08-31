@@ -1,7 +1,8 @@
 """Memory CLI storage helpers."""
 from __future__ import annotations
 
-from arena.memory.cli_paths import get_db_path, get_mem_dir, json, os, sqlite3
+from arena.fileperms import restrict
+from arena.memory.cli_paths import get_db_path, get_mem_dir, json, sqlite3
 
 
 def append(obj: dict) -> None:
@@ -52,7 +53,4 @@ def append(obj: dict) -> None:
         """, (key, value, tags, timestamp))
         conn.commit()
 
-    try:
-        os.chmod(db_path, 0o600)
-    except Exception:
-        pass
+    restrict(db_path, 0o600, what="the memory database")
