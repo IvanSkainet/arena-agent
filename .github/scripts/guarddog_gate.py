@@ -51,11 +51,32 @@ def _load_baseline() -> dict[str, dict[str, str]]:
     return raw["accepted"]
 
 
+#: Rules that resolve the maintainer's email domain over DNS/WHOIS.
+#:
+#: Harden-Runner runs this job in block mode with an allowlist of
+#: pypi.org and files.pythonhosted.org, so an arbitrary WHOIS lookup is
+#: refused and the rule reports "[Errno 111] Connection refused" -- which
+#: this gate correctly treats as "did not complete", failing every scan.
+#:
+#: Allowing arbitrary outbound DNS to make them work would defeat the
+#: egress policy for the sake of two heuristics, so they are skipped
+#: explicitly instead. The trade is recorded rather than hidden: this
+#: gate does not detect maintainer-account takeover via a re-registered
+#: email domain. `typosquatting` does not need the network and is kept.
+NETWORK_DEPENDENT_RULES = (
+    "potentially_compromised_email_domain",
+    "unclaimed_maintainer_email_domain",
+)
+
+
 def scan(package: str) -> dict:
     """Run GuardDog against one package and return its parsed report."""
+    exclude: list[str] = []
+    for rule in NETWORK_DEPENDENT_RULES:
+        exclude += ["--exclude-rules", rule]
     proc = subprocess.run(
         [sys.executable, "-m", "guarddog", "pypi", "scan", package,
-         "--output-format", "json"],
+         *exclude, "--output-format", "json"],
         capture_output=True, text=True, timeout=900,
     )
     try:

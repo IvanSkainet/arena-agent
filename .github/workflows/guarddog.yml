@@ -72,8 +72,7 @@ jobs:
           # Fully pinned with hashes. --require-hashes is implied by the
           # file, so a re-uploaded or tampered artifact fails the install
           # instead of executing inside the scanner job.
-          python -m pip install --disable-pip-version-check \
-            --require-hashes -r requirements-guarddog.txt
+          python -m pip install --require-hashes -r requirements-guarddog.txt
 
       # Same protection as the poutine gate: on a pull_request event the
       # checkout is the merge commit, so the PR's own copy of the gate and

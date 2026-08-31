@@ -128,6 +128,34 @@ def test_unusable_baseline_fails_closed(gate, tmp_path, monkeypatch, body):
     assert exc.value.code == 2
 
 
+def test_network_dependent_rules_are_excluded_explicitly(gate, monkeypatch):
+    """The two WHOIS rules must be skipped, and only those two.
+
+    Harden-Runner blocks arbitrary egress, so these rules fail with
+    "Connection refused" and the gate -- correctly -- reads that as an
+    incomplete scan, turning every run red. Allowing arbitrary outbound
+    DNS to satisfy two heuristics would defeat the egress policy, so
+    they are excluded by name. This test pins the trade so it cannot
+    quietly widen: `typosquatting` works offline and must stay on.
+    """
+    seen = {}
+
+    class _Done:
+        stdout = '{"package": "x", "issues": 0, "results": {}}'
+
+    def fake_run(cmd, **kwargs):
+        seen["cmd"] = cmd
+        return _Done()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    gate.scan("aiohttp")
+
+    excluded = [seen["cmd"][i + 1] for i, a in enumerate(seen["cmd"])
+                if a == "--exclude-rules"]
+    assert sorted(excluded) == sorted(gate.NETWORK_DEPENDENT_RULES)
+    assert "typosquatting" not in excluded
+
+
 def test_requirements_parsing_strips_versions_and_markers(gate):
     src = ROOT / "requirements.txt"
     names = gate._packages_from(src)
