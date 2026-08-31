@@ -68,6 +68,16 @@ def test_cli_still_exposes_check_bandit():
     assert callable(mod.check_bandit)
 
 
+def _ceilings(root=None):
+    """Per-test ceilings, loaded the same way the gate loads them."""
+    spec = importlib.util.spec_from_file_location(
+        "bandit_per_test", ROOT / "scripts" / "bandit_per_test.py")
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.per_test_ceilings(root or ROOT)
+
+
 def _mixed_report(tmp_path, counts: dict[str, int]):
     results = []
     for tid, n in counts.items():
@@ -95,7 +105,7 @@ def test_at_the_ceiling_is_green(gate, tmp_path):
     per-test ceilings landed, 496 B110 findings are correctly a failure even
     though the total is at the cap.
     """
-    assert gate.check_bandit(_mixed_report(tmp_path, gate._per_test_ceilings())) == 0
+    assert gate.check_bandit(_mixed_report(tmp_path, _ceilings())) == 0
 
 
 def test_one_over_the_ceiling_is_red(gate, tmp_path):
@@ -104,7 +114,7 @@ def test_one_over_the_ceiling_is_red(gate, tmp_path):
 
 
 def test_below_the_ceiling_is_green(gate, tmp_path):
-    counts = dict(gate._per_test_ceilings())
+    counts = dict(_ceilings())
     counts["B110"] = max(counts["B110"] - 50, 0)
     assert gate.check_bandit(_mixed_report(tmp_path, counts)) == 0
 
@@ -178,7 +188,7 @@ def test_per_test_ceilings_file_is_committed():
 
 def test_per_test_ceilings_sum_to_the_total_ceiling(gate):
     """The two baselines must agree, or one of them is silently dead."""
-    per_test = sum(gate._per_test_ceilings().values())
+    per_test = sum(_ceilings().values())
     assert per_test == gate._bandit_low_ceiling(), (
         f"per-test ceilings sum to {per_test} but the total ceiling is "
         f"{gate._bandit_low_ceiling()}"
@@ -187,7 +197,7 @@ def test_per_test_ceilings_sum_to_the_total_ceiling(gate):
 
 def test_swapping_one_test_for_another_is_red(gate, tmp_path):
     """The regression that motivated this: same total, worse B110."""
-    ceilings = gate._per_test_ceilings()
+    ceilings = _ceilings()
     counts = dict(ceilings)
     counts["B404"] -= 30
     counts["B110"] += 30
@@ -196,32 +206,33 @@ def test_swapping_one_test_for_another_is_red(gate, tmp_path):
 
 
 def test_each_test_at_its_ceiling_is_green(gate, tmp_path):
-    assert gate.check_bandit(_mixed_report(tmp_path, gate._per_test_ceilings())) == 0
+    assert gate.check_bandit(_mixed_report(tmp_path, _ceilings())) == 0
 
 
 def test_lowering_one_test_is_green(gate, tmp_path):
-    counts = dict(gate._per_test_ceilings())
+    counts = dict(_ceilings())
     counts["B110"] = 0
     assert gate.check_bandit(_mixed_report(tmp_path, counts)) == 0
 
 
-def test_missing_per_test_file_fails_closed(gate, tmp_path, monkeypatch):
-    monkeypatch.setattr(gate, "ROOT", tmp_path / "nope")
+def test_missing_per_test_file_fails_closed(tmp_path):
+    """No baseline means the gate cannot know: rc=2, never a silent pass."""
     with pytest.raises(SystemExit) as exc:
-        gate._per_test_ceilings()
+        _ceilings(tmp_path / "nope")
     assert exc.value.code == 2
 
 
-def test_malformed_per_test_file_fails_closed(gate, tmp_path, monkeypatch):
+@pytest.mark.parametrize("body", ["{oops", "[1, 2]", '"a string"'])
+def test_unusable_per_test_file_fails_closed(tmp_path, body):
+    """Malformed JSON *and* valid-but-wrong-shape JSON must both be rc=2."""
     root = tmp_path / "root"
     (root / "docs").mkdir(parents=True)
-    (root / "docs" / "bandit-low-ceilings.json").write_text("{oops", encoding="utf-8")
-    monkeypatch.setattr(gate, "ROOT", root)
+    (root / "docs" / "bandit-low-ceilings.json").write_text(body, encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
-        gate._per_test_ceilings()
+        _ceilings(root)
     assert exc.value.code == 2
 
 
 def test_b110_ceiling_may_only_fall(gate):
     """B110 is the fail-open shape; pin it so a PR cannot quietly raise it."""
-    assert gate._per_test_ceilings()["B110"] <= 250
+    assert _ceilings()["B110"] <= 250
