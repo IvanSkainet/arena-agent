@@ -175,12 +175,17 @@ jobs:
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: block
-          # scans the git history already on disk.
+          # scans history already on disk, but ships as a Docker action, so
+          # the image has to be pulled from GHCR first. Confirmed from a real
+          # run: without ghcr.io the job dies with "dial tcp ...: connection
+          # refused" before it scans anything.
           allowed-endpoints: >
             github.com:443
             api.github.com:443
             objects.githubusercontent.com:443
             release-assets.githubusercontent.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0  # full history for secret scanning
@@ -284,6 +289,8 @@ jobs:
             productionresultssa8.blob.core.windows.net:443
             productionresultssa9.blob.core.windows.net:443
             osv-vulnerabilities.storage.googleapis.com:443
+            api.osv.dev:443
+            api.deps.dev:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
