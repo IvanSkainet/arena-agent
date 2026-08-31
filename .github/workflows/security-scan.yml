@@ -101,6 +101,10 @@ jobs:
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
           # Anything outside this list is exfiltration or a compromised
           # action, and is dropped rather than merely logged.
+          # semgrep fetches its nine rule packs from semgrep.dev at run time.
+          # metrics.semgrep.dev is deliberately NOT listed: block mode caught
+          # the scanner phoning telemetry home, and SEMGREP_SEND_METRICS=off
+          # stops it at the source.
           allowed-endpoints: >
             github.com:443
             api.github.com:443
@@ -108,6 +112,7 @@ jobs:
             release-assets.githubusercontent.com:443
             pypi.org:443
             files.pythonhosted.org:443
+            semgrep.dev:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -127,6 +132,8 @@ jobs:
         # `# nosemgrep: <rule> -- <reason>`, which each existing
         # annotation follows. New nosemgrep additions in a PR require
         # a rationale (grep-visible in code review).
+        env:
+          SEMGREP_SEND_METRICS: "off"
         run: |
           set +e
           semgrep \
