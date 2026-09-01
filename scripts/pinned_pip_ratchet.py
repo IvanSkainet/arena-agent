@@ -29,6 +29,20 @@ Allowed:
 
 Refused: anything that names a package or a non-lock requirements file
 and lets the resolver decide.
+
+Shell line continuations are joined before matching. Reading a workflow
+line by line, as this gate first did, splits
+
+    python -m pip install \\
+      --require-hashes -r requirements-guarddog.txt
+
+into a first line that has no ``--require-hashes`` on it, and the gate
+failed a compliant install (#231: sixteen red checks in #228, all
+pointing at a command that was already correct). The reverse error is
+the dangerous one, so joining is deliberately conservative: a comment
+line is never joined into the command below it, because
+``# note \\`` followed by ``pip install evil`` would otherwise fold into
+a single line starting with ``#`` and be skipped as prose.
 """
 from __future__ import annotations
 
@@ -62,6 +76,44 @@ def _is_allowed(line: str) -> bool:
     return False
 
 
+def logical_lines(text: str) -> list[tuple[int, str]]:
+    """Yield (line number, command) with shell continuations joined.
+
+    The line number is that of the *first* physical line, so a failure
+    message points at where the command starts rather than at the
+    fragment that happened to carry the offending token.
+
+    A comment is never used as the head of a continuation. In shell a
+    ``#`` comment ends at the newline regardless of a trailing
+    backslash, so folding the next line into it would hide a real
+    command behind a ``#`` this gate skips.
+    """
+    out: list[tuple[int, str]] = []
+    pending_no: int | None = None
+    pending: list[str] = []
+    for lineno, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if pending:
+            pending.append(line.removesuffix("\\").strip() if line.endswith("\\") else line)
+            if not line.endswith("\\"):
+                out.append((pending_no or lineno, " ".join(pending)))
+                pending, pending_no = [], None
+            continue
+        if line.startswith("#"):
+            out.append((lineno, line))
+            continue
+        if line.endswith("\\"):
+            pending_no = lineno
+            pending = [line.removesuffix("\\").strip()]
+            continue
+        out.append((lineno, line))
+    if pending:
+        # Trailing backslash at end of file: keep what we have rather
+        # than dropping a command the scan would otherwise never see.
+        out.append((pending_no or len(text.splitlines()), " ".join(pending)))
+    return out
+
+
 def violations() -> tuple[list[str], int]:
     found: list[str] = []
     scanned = 0
@@ -70,8 +122,7 @@ def violations() -> tuple[list[str], int]:
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         scanned += 1
         rel = path.relative_to(REPO_ROOT).as_posix()
-        for lineno, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            line = raw.strip()
+        for lineno, line in logical_lines(path.read_text(encoding="utf-8")):
             # Comments explain the history; three releases in a row a
             # gate has flagged its own prose, so skip them explicitly.
             if line.startswith("#"):
