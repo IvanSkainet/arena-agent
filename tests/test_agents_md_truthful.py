@@ -160,6 +160,76 @@ def test_the_task_state_gate_ignores_open_tasks():
     assert _stale_citations(f"continue with {victim}") == []
 
 
+def _invoked_scripts(text: str) -> set[str]:
+    """Repo-relative script paths the document tells the reader to run."""
+    return set(re.findall(r"python3?\s+(scripts/[\w./-]+\.py)", text))
+
+
+def _missing_scripts(text: str) -> list[str]:
+    """Invoked scripts that do not exist. Shared so the negative tests
+    exercise the same decision the gate makes."""
+    return sorted(rel for rel in _invoked_scripts(text)
+                  if not (REPO_ROOT / rel).is_file())
+
+
+def test_documented_gate_scripts_exist(agents_text):
+    """Every `python scripts/X.py` the document tells you to run must exist.
+
+    AGENTS.md is the first thing a new agent reads, so a command that
+    cannot run is worse than no command: it gets copied, fails oddly,
+    and the reader concludes the whole document is stale.
+
+    This is the cheap half of the problem. The expensive half was a
+    claim that the analyzers behind `quality_ratchet.py` could not be
+    installed locally and that findings like `bad-assignment` were
+    CI-only. That was false -- measured on #239 after it had already
+    cost a push-and-wait cycle -- and no gate could have caught it,
+    because the sentence named no path and quoted no number. Prose that
+    asserts a *capability* is the residual risk here; keep such claims
+    falsifiable, and prefer a command a reader can run over an assertion
+    about what is possible.
+    """
+    invoked = _invoked_scripts(agents_text)
+    assert invoked, "AGENTS.md no longer invokes any script; update this test"
+    missing = _missing_scripts(agents_text)
+    assert not missing, (
+        f"AGENTS.md tells the reader to run scripts that do not exist: {missing}"
+    )
+
+
+def test_the_script_gate_rejects_a_command_that_cannot_run():
+    """Negative test, driven by synthetic prose.
+
+    Sabotage caught the need for this: with every real script present,
+    stubbing the check to `missing = []` was indistinguishable from the
+    genuine one and the suite stayed green. Same hole as #234 -- assert
+    on the decision, not on a repository that happens to be clean.
+    """
+    text = "run `python scripts/definitely_not_here.py` to continue"
+    assert _missing_scripts(text) == ["scripts/definitely_not_here.py"]
+
+
+def test_the_script_gate_actually_consults_the_check():
+    """The gate must object when handed prose naming a missing script.
+
+    Sharing a helper is not enough: `missing = []` inside the gate keeps
+    every other test green, because they call the helper directly while
+    the gate quietly stops using it. This drives the gate itself.
+
+    Exactly the hole found in review on #234, hit again here -- which is
+    why it is now a fixed step rather than something to remember.
+    """
+    with pytest.raises(AssertionError, match="scripts/definitely_not_here.py"):
+        test_documented_gate_scripts_exist(
+            "run `python scripts/definitely_not_here.py` first"
+        )
+
+
+def test_the_script_gate_accepts_a_command_that_can():
+    """And must not cry wolf on a script that exists."""
+    assert _missing_scripts("run `python scripts/quality_ratchet.py`") == []
+
+
 def test_agents_md_exists_and_is_substantial(agents_text):
     """A detector that reads an empty file would pass forever."""
     assert len(agents_text.splitlines()) > 100, "AGENTS.md is suspiciously short"

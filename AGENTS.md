@@ -214,9 +214,27 @@ once; none is guesswork.
 
 ### Gates and tooling
 
-- `pyrefly` and `import-linter` are not installable in every sandbox, so
-  `scripts/quality_ratchet.py` fails closed locally. Some findings (for example
-  `bad-assignment`) can only be seen in CI -- push and read the job log.
+- `scripts/quality_ratchet.py` runs locally. Install the analyzers outside
+  the snapshot root and run it before pushing:
+
+  ```bash
+  PYTHONUSERBASE=/tmp/tools pip install pyrefly import-linter vulture ruff
+  python scripts/quality_ratchet.py     # vulture + pyrefly vs the baseline
+  python -m importlinter.cli lint-imports   # the blocking contracts
+  ```
+
+  This note used to say the analyzers were "not installable in every
+  sandbox" and that findings such as `bad-assignment` could only be seen
+  in CI. That was measured and is wrong: pyrefly 1.2.0, import-linter
+  2.14 and vulture 2.16 all install with plain `pip`, the ratchet reports
+  `OK: vulture=0, pyrefly=0`, and an injected `bad-assignment` is caught
+  locally with the same message CI prints. The claim cost at least one
+  20-minute push-and-wait cycle before anyone tried it (#239).
+
+  If an analyzer genuinely will not install somewhere, the ratchet still
+  fails closed by design -- it refuses to report success from a missing
+  or broken pyrefly rather than passing silently. Treat that failure as
+  "fix the install", not "this can only be checked in CI".
 - Never use `pytest.importorskip` for a dependency a gate relies on. If the
   package is absent the check silently vanishes, and CI reports success while
   verifying nothing. Pin the dependency in the right `requirements-*.in` and
