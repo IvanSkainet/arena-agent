@@ -302,6 +302,24 @@ def _bore_monitor_thread(proc: subprocess.Popen, port: int) -> None:
             BORE_STATE["url"] = f"https://{host}:{remote_port}"
 
 
+def _start_monitor(proc: subprocess.Popen, port: int) -> threading.Thread:
+    """Start the stdout drain and keep its handle on BORE_STATE.
+
+    The handle is what makes the thread's lifetime observable.
+    ``daemon=True`` only stops it blocking interpreter exit; it does not
+    stop it running inside a test that has already returned, holding
+    stubs monkeypatch has since restored (#235).
+    """
+    thread = threading.Thread(
+        target=_bore_monitor_thread,
+        args=(proc, port),
+        daemon=True,
+    )
+    thread.start()
+    BORE_STATE["monitor"] = thread
+    return thread
+
+
 def _terminate_bore(timeout: int = 5) -> None:
     proc = BORE_STATE["proc"]
     if proc and proc.poll() is None:
@@ -387,17 +405,7 @@ def _start_bore(bin_path: str, port: int, *,
         return {"ok": False, "action": "start", "error": str(e),
                 "error_code": "spawn_failed"}
 
-    thread = threading.Thread(
-        target=_bore_monitor_thread,
-        args=(BORE_STATE["proc"], port),
-        daemon=True,
-    )
-    thread.start()
-    # Keep a handle so the thread's lifetime is observable. `daemon=True`
-    # stops it blocking interpreter exit; it does not stop it running
-    # inside a test that has already finished, still holding a patched
-    # `subprocess.Popen` (#235).
-    BORE_STATE["monitor"] = thread
+    _start_monitor(BORE_STATE["proc"], port)
 
     total_wait = _url_wait_seconds()
     deadline = time.monotonic() + total_wait
