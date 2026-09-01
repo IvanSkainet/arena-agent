@@ -22,15 +22,15 @@ psutil==7.2.2
 # and checked by scripts/held_back_deps_ratchet.py.
 websockets==16.1.1
 requests==2.34.2
-idna==3.18
+idna==3.19
 beautifulsoup4==4.15.0
 pytest==9.1.1
 pytest-cov==7.1.0
 # Workflow contract tests parse GitHub Actions YAML; this must be direct so
 # importorskip cannot silently remove the security policy suite in CI.
 PyYAML==6.0.3
-hypothesis==6.165.7
-ruff==0.16.3
+hypothesis==6.165.10
+ruff==0.16.4
 # NOTE: mypy the PACKAGE is deliberately absent. It was installed by
 # every CI job and never executed once -- type checking is pyrefly's,
 # through scripts/quality_ratchet.py. Removed in v4.169.32.
@@ -69,4 +69,4 @@ colorama==0.4.6
 # pytest.importorskip silently skips the test that validates the served
 # document, so CI would report success while never checking it -- the exact
 # "gate that cannot detect its own absence" failure this repo guards against.
-openapi-spec-validator==0.7.2
+openapi-spec-validator==0.9.0
