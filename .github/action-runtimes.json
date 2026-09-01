@@ -14,7 +14,7 @@
   "anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2": "node24",
   "android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699": "node24",
   "codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f": "composite",
-  "github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3": "node24",
+  "github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28": "node24",
   "gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e": "node24",
   "google/osv-scanner-action/osv-scanner-action@8deb546fdb875b9996d27d4950be7312dac076a1": "docker",
   "microsoft/DevSkim-Action@4b5047945a44163b94642a1cecc0d93a3f428cc6": "docker",
