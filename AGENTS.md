@@ -214,9 +214,35 @@ once; none is guesswork.
 
 ### Gates and tooling
 
-- `pyrefly` and `import-linter` are not installable in every sandbox, so
-  `scripts/quality_ratchet.py` fails closed locally. Some findings (for example
-  `bad-assignment`) can only be seen in CI -- push and read the job log.
+- `scripts/quality_ratchet.py` runs locally. Install the analyzers outside
+  the snapshot root and run it before pushing:
+
+  ```bash
+  PYTHONUSERBASE=/tmp/tools pip install pyrefly import-linter vulture ruff
+  python scripts/quality_ratchet.py     # vulture + pyrefly vs the baseline
+  python -m importlinter.cli lint-imports   # the blocking contracts
+  ```
+
+  This note used to say the analyzers were "not installable in every
+  sandbox" and that findings such as `bad-assignment` could only be seen
+  in CI. Measured on Linux (Python 3.13) and on the operator's Windows
+  host (Python 3.14): pyrefly 1.2.0, import-linter 2.14 and vulture 2.16
+  install with plain `pip` on both, `lint-imports` returns 0 on both, and
+  an injected `bad-assignment` is caught locally with the same message CI
+  prints. The claim cost a 20-minute push-and-wait cycle before anyone
+  tried it (#239).
+
+  **Run it on Linux for a clean comparison.** pyrefly analyses the whole
+  tree for the platform it is running on, so on Windows it reports
+  `missing-attribute` for POSIX-only modules -- `scripts/chat_append.py`
+  uses `fcntl`, which does not exist there. Those findings are real for
+  Windows and absent from CI's Linux baseline, so the ratchet exits 1 on
+  Windows against a baseline generated on Linux. That is a platform
+  difference, not a broken install and not new debt.
+
+  The ratchet fails closed by design: it refuses to report success from a
+  missing or broken pyrefly rather than passing silently. Treat that as
+  "fix the install", not "this can only be checked in CI".
 - Never use `pytest.importorskip` for a dependency a gate relies on. If the
   package is absent the check silently vanishes, and CI reports success while
   verifying nothing. Pin the dependency in the right `requirements-*.in` and
