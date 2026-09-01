@@ -76,6 +76,19 @@ def _cited_tasks(text: str) -> set[str]:
     return {f"T{n}" for n in re.findall(r"\bT(\d+)\b", text)}
 
 
+def _stale_citations(text: str) -> list[str]:
+    """Task ids `text` cites that the board marks complete.
+
+    The gate and its negative test share this so the test exercises the
+    real decision. Asserting only that the two parser helpers behave
+    leaves the gate itself untested: it can be reduced to `stale = []`
+    and the suite stays green. (Caught in review on #234 -- worth
+    recording, because the original sabotage pass mutated the parser and
+    missed it.)
+    """
+    return sorted(_cited_tasks(text) & _completed_tasks())
+
+
 def test_agents_md_does_not_direct_work_at_finished_tasks(agents_text):
     """The document must not send an agent at work that is already done.
 
@@ -95,7 +108,7 @@ def test_agents_md_does_not_direct_work_at_finished_tasks(agents_text):
     means nothing. Refer to `docs/TASK_BOARD.md`, which is the one place
     task state is tracked.
     """
-    stale = sorted(_cited_tasks(agents_text) & _completed_tasks())
+    stale = _stale_citations(agents_text)
     assert not stale, (
         f"AGENTS.md cites tasks the board marks complete: {stale}. "
         "Point at docs/TASK_BOARD.md instead of naming task ids."
@@ -112,7 +125,29 @@ def test_the_task_state_gate_rejects_a_citation_of_a_finished_task():
     done = _completed_tasks()
     assert done, "no completed tasks parsed from the board; the parser is broken"
     victim = sorted(done)[0]
-    assert _cited_tasks(f"first finish {victim} and then continue") & done == {victim}
+    # Drive the same function the gate calls, not just its inputs.
+    assert _stale_citations(f"first finish {victim} and then continue") == [victim]
+
+
+def test_the_gate_actually_consults_the_stale_citation_check():
+    """The gate must fail when handed prose citing finished work.
+
+    Sharing a helper is not enough: `stale = []` inside the gate leaves
+    every other test green, because they exercise the helper directly
+    while the gate quietly stops calling it. So drive the gate itself
+    with synthetic text and require it to object.
+
+    This test exists because two rounds of sabotage missed that hole --
+    the first mutated the parser, the second the helper, and neither
+    touched the gate body. It was caught in review on #234.
+    """
+    done = _completed_tasks()
+    assert done, "no completed tasks parsed from the board; the parser is broken"
+    victim = sorted(done)[0]
+    with pytest.raises(AssertionError, match=victim):
+        test_agents_md_does_not_direct_work_at_finished_tasks(
+            f"Current sequence: finish {victim} before anything else."
+        )
 
 
 def test_the_task_state_gate_ignores_open_tasks():
@@ -122,7 +157,7 @@ def test_the_task_state_gate_ignores_open_tasks():
                   if m.group(1) == " "}
     assert open_tasks, "no open tasks parsed from the board; the parser is broken"
     victim = sorted(open_tasks)[0]
-    assert not (_cited_tasks(f"continue with {victim}") & _completed_tasks())
+    assert _stale_citations(f"continue with {victim}") == []
 
 
 def test_agents_md_exists_and_is_substantial(agents_text):
