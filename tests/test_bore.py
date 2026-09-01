@@ -349,7 +349,7 @@ class TestStartBore:
     def test_start_returns_error_when_popen_raises(self, monkeypatch):
         def _boom(*_a, **_k):
             raise OSError("no exec bit")
-        monkeypatch.setattr(bore_mod.subprocess, "Popen", _boom)
+        monkeypatch.setattr(bore_mod, "_spawn", _boom)
         r = bore_mod._start_bore("/tmp/bore", 8765,
                                  subprocess_kwargs=lambda: {})
         assert r["ok"] is False
@@ -396,7 +396,7 @@ class TestArgvShape:
         monkeypatch.setenv("ARENA_BORE_SECRET", "top-secret")
         monkeypatch.setenv("ARENA_BORE_REMOTE_PORT", "31337")
         monkeypatch.setenv("ARENA_BORE_URL_WAIT_SECONDS", "5")
-        monkeypatch.setattr(bore_mod.subprocess, "Popen", _fake_popen)
+        monkeypatch.setattr(bore_mod, "_spawn", _fake_popen)
         # Skip the sleep-based poll loop -- the monitor thread will
         # publish the URL from the very first readline().
         _ = bore_mod._start_bore("/tmp/bore", 8765,
@@ -428,7 +428,7 @@ class TestArgvShape:
 
         monkeypatch.delenv("ARENA_BORE_SECRET", raising=False)
         monkeypatch.setenv("ARENA_BORE_URL_WAIT_SECONDS", "5")
-        monkeypatch.setattr(bore_mod.subprocess, "Popen", _fake_popen)
+        monkeypatch.setattr(bore_mod, "_spawn", _fake_popen)
         _ = bore_mod._start_bore("/tmp/bore", 8765,
                                  subprocess_kwargs=lambda: {})
         argv = captured["argv"]
