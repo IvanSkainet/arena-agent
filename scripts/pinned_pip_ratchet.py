@@ -76,41 +76,45 @@ def _is_allowed(line: str) -> bool:
     return False
 
 
+def _continues(line: str) -> bool:
+    """True if this line hands the command to the next one.
+
+    A comment is excluded on purpose: in shell a ``#`` runs to the end
+    of the line whatever trails it, so treating ``# note \\`` as a
+    continuation head would fold the command below into a string
+    starting with ``#`` and this gate would skip it as prose.
+    """
+    return line.endswith("\\") and not line.startswith("#")
+
+
 def logical_lines(text: str) -> list[tuple[int, str]]:
     """Yield (line number, command) with shell continuations joined.
 
     The line number is that of the *first* physical line, so a failure
-    message points at where the command starts rather than at the
-    fragment that happened to carry the offending token.
-
-    A comment is never used as the head of a continuation. In shell a
-    ``#`` comment ends at the newline regardless of a trailing
-    backslash, so folding the next line into it would hide a real
-    command behind a ``#`` this gate skips.
+    points at where the command starts rather than at whichever
+    fragment happened to carry the offending token.
     """
     out: list[tuple[int, str]] = []
-    pending_no: int | None = None
-    pending: list[str] = []
+    start: int | None = None
+    parts: list[str] = []
     for lineno, raw in enumerate(text.splitlines(), 1):
         line = raw.strip()
-        if pending:
-            pending.append(line.removesuffix("\\").strip() if line.endswith("\\") else line)
-            if not line.endswith("\\"):
-                out.append((pending_no or lineno, " ".join(pending)))
-                pending, pending_no = [], None
+        joining = _continues(line)
+        if joining:
+            if start is None:
+                start = lineno
+            parts.append(line.removesuffix("\\").strip())
             continue
-        if line.startswith("#"):
-            out.append((lineno, line))
-            continue
-        if line.endswith("\\"):
-            pending_no = lineno
-            pending = [line.removesuffix("\\").strip()]
+        if start is not None:
+            parts.append(line)
+            out.append((start, " ".join(parts)))
+            start, parts = None, []
             continue
         out.append((lineno, line))
-    if pending:
-        # Trailing backslash at end of file: keep what we have rather
+    if start is not None:
+        # Trailing backslash at end of file: emit what we have rather
         # than dropping a command the scan would otherwise never see.
-        out.append((pending_no or len(text.splitlines()), " ".join(pending)))
+        out.append((start, " ".join(parts)))
     return out
 
 
