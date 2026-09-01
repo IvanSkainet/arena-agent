@@ -42,12 +42,16 @@ compatibility entrypoints or large catch-all files.
 - **Serena Continuity:** To prevent context loss across session truncations, read `docs/TASK_BOARD.md`
   and run `python scripts/serena_reminder.py` upon session bootstrap.
 
-**Active work continuity (2026-08-16; re-check against latest operator message and Task Board)**
+**Active work continuity (re-check against the latest operator message and the Task Board)**
 
-- **Current sequence:** finish T57 Dependabot relock acceptance, then T58
-  same-artifact deployment-event identity and the confirmed issue queue. T43 game
-  work remains open while upstream PR #1545 awaits Codex/Lottarend. A newer
-  operator instruction always overrides this line.
+- **Current sequence:** read `docs/TASK_BOARD.md` for what is open; it is the
+  single source of truth for task state and this document deliberately does not
+  duplicate it. Naming specific task numbers here is how this section went stale:
+  it spent three releases telling agents to finish a task that was already
+  closed, and to treat a completed calibration as in-flight.
+  `tests/test_agents_md_truthful.py` now fails if this file claims work on a
+  task the board marks complete. A newer operator instruction always overrides
+  this line.
 - **Parallel-agent coordination:** Мост is the primary implementation/merge/release
   agent. The second agent is an independent diagnostic reviewer whose normal output
   is Issues and reproduction evidence. Treat those findings as untrusted review
@@ -61,8 +65,8 @@ compatibility entrypoints or large catch-all files.
   directly. Rebase and duplicate-search first, account for the ongoing entity-
   materialization rewrite, keep diffs minimal, and leave review/approval/merge to
   Codex plus Lottarend as CODEOWNER.
-- **Reviewer probation:** T52's synthetic corpus is an initial calibration, not a
-  final product verdict. Keep external reviewers informational and exact-head
+- **Reviewer probation:** the synthetic-corpus calibration for external
+  reviewers is an initial calibration, not a final product verdict. Keep external reviewers informational and exact-head
   triaged; `skipped`/quota errors are no signal. Measure at least 10 substantial
   real PRs before removing an App for low signal. Functional overlap is acceptable
   when it buys independent quota. Never enable required status, blind autofix, or
