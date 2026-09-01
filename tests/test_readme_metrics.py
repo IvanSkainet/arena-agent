@@ -7,6 +7,7 @@ cannot report staleness is decoration.
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,66 @@ def _load():
 @pytest.fixture()
 def renderer():
     return _load()
+
+
+READMES = (REPO_ROOT / "README.md", REPO_ROOT / "README.ru.md")
+
+
+def _slug(heading: str) -> str:
+    """GitHub's anchor slug: lowercase, drop punctuation, spaces to hyphens.
+
+    Unicode-aware on purpose -- README.ru.md's headings are Cyrillic and
+    GitHub slugs them rather than dropping them.
+    """
+    s = heading.strip().lower()
+    s = re.sub(r"[^\w\s-]", "", s, flags=re.U)
+    return re.sub(r"\s+", "-", s)
+
+
+def _broken_anchors(text: str) -> list[str]:
+    headings = {_slug(m.group(1))
+                for m in re.finditer(r"^#{1,6}\s+(.*)$", text, re.M)}
+    links = re.findall(r"\[[^\]]+\]\(#([^)]+)\)", text)
+    return sorted({link for link in links if link not in headings})
+
+
+@pytest.mark.parametrize("readme", READMES, ids=lambda p: p.name)
+def test_table_of_contents_links_point_at_real_headings(readme):
+    """A renamed heading leaves its link behind, and nothing complains.
+
+    Both READMEs shipped `#why-arena-unified-bridge` long after the
+    heading became "Why Skainet Bridge?" -- the rename touched the
+    visible text and missed the target. The link still renders as a
+    link; clicking it just does nothing, so the failure is invisible to
+    everyone except the reader trying to navigate.
+
+    This matters more than a normal typo here: the project is mid-rename
+    (see the naming issue), so every future rename pass will step on
+    exactly this rake.
+    """
+    broken = _broken_anchors(readme.read_text(encoding="utf-8"))
+    assert not broken, (
+        f"{readme.name} links to headings that do not exist: {broken}. "
+        "Renaming a heading means updating its anchor too."
+    )
+
+
+def test_the_anchor_gate_rejects_a_dangling_link():
+    """Negative test: the failure branch must actually fire."""
+    text = "## Real Heading\n\n- [nope](#not-a-heading)\n"
+    assert _broken_anchors(text) == ["not-a-heading"]
+
+
+def test_the_anchor_gate_accepts_a_matching_link():
+    """And must not cry wolf on a link that resolves."""
+    text = "## Why Skainet Bridge?\n\n- [go](#why-skainet-bridge)\n"
+    assert _broken_anchors(text) == []
+
+
+def test_the_anchor_gate_handles_cyrillic_headings():
+    """README.ru.md is Cyrillic; a byte-oriented slug would drop it."""
+    text = "## Зачем Skainet Bridge?\n\n- [go](#зачем-skainet-bridge)\n"
+    assert _broken_anchors(text) == []
 
 
 def test_script_exists():

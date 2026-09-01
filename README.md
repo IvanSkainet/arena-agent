@@ -26,9 +26,9 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 
 | Metric | Value |
 | --- | --- |
-| Runtime code | **110,941** lines across 806 files |
-| Test code | **104,638** lines across 563 files |
-| Test-to-code ratio | **0.94×** |
+| Runtime code | **111,015** lines across 806 files |
+| Test code | **105,131** lines across 563 files |
+| Test-to-code ratio | **0.95×** |
 | CI workflows | **14** |
 | Quality gates (ratchets) | **19** |
 
@@ -42,7 +42,7 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 
 - [North star](#north-star)
 - [Mission: the flight computer](#mission-the-flight-computer)
-- [Why Skainet Bridge?](#why-arena-unified-bridge)
+- [Why Skainet Bridge?](#why-skainet-bridge)
 - [How it works](#how-it-works)
 - [What it can do](#what-it-can-do)
 - [Quick start](#quick-start)
