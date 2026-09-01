@@ -619,6 +619,15 @@ jobs:
       - name: Lint debt ratchet (blocking)
         run: python scripts/lint_ratchet.py
 
+      # Global-patch ratchet (blocking): a test must not patch a stdlib
+      # module through a production alias. `mod.subprocess` IS the global
+      # subprocess module, so the substitution escapes process-wide and
+      # concurrent code observes it -- the cause of #230 and #235, both
+      # of which surfaced as Windows-only intermittent failures far from
+      # the test responsible. Count may fall, never rise.
+      - name: Global patch ratchet (blocking)
+        run: python scripts/global_patch_ratchet.py
+
       - name: Full lint (informational)
         run: ruff check . --statistics || true
 
