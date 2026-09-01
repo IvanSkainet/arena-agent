@@ -57,7 +57,8 @@ State shape kept identical to the earlier siblings so downstream
 snapshot code (``tunnels._bore_snapshot``) doesn't need any
 transport-specific special-casing:
 
-    BORE_STATE = {"proc": Popen | None, "url": str, "log": [str]}
+    BORE_STATE = {"proc": Popen | None, "url": str, "log": [str],
+                  "monitor": Thread | None}
 """
 from __future__ import annotations
 
@@ -74,7 +75,7 @@ from typing import Any
 from arena.admin.binaries import which_windows_or_path
 from arena.util import _subprocess_kwargs
 
-BORE_STATE: dict[str, Any] = {"proc": None, "url": "", "log": []}
+BORE_STATE: dict[str, Any] = {"proc": None, "url": "", "log": [], "monitor": None}
 
 # ---------------------------------------------------------------------------
 # Wait-timeout tunable (same 1--300s clamp as cloudflared / ngrok)
@@ -253,6 +254,28 @@ _LISTEN_RE = re.compile(
 )
 
 
+def _spawn(argv: list[str], **kwargs: Any) -> subprocess.Popen:
+    """Spawn the bore child, as a patchable seam.
+
+    Tests need to intercept the spawn, and the obvious way --
+    monkeypatching ``bore_mod.subprocess.Popen`` -- does not do what it
+    looks like. ``bore_mod.subprocess`` is not a module-local alias, it
+    *is* the global ``subprocess`` module, so patching it replaces
+    ``Popen`` for the entire process. Every other thread's spawn then
+    lands in the test's stub.
+
+    That is not hypothetical: ``arena/workbench/runtimes.py`` probes
+    ``go version`` / ``zig version`` through ``subprocess.run``, which
+    calls ``Popen`` internally. When such a probe overlapped this test,
+    the recorded argv became ``[..., 'version']`` and the assertion
+    failed on the Windows matrix for reasons nothing in bore explained
+    (#235).
+
+    Patching this function keeps the substitution inside this module.
+    """
+    return subprocess.Popen(argv, **kwargs)
+
+
 def _bore_monitor_thread(proc: subprocess.Popen, port: int) -> None:
     """Drain the child stdout so the pipe doesn't fill, and
     capture the negotiated remote port from the first
@@ -277,6 +300,24 @@ def _bore_monitor_thread(proc: subprocess.Popen, port: int) -> None:
             # HTTPS on the loopback port, so the outward-facing URL is
             # https://<server>:<remote_port>.
             BORE_STATE["url"] = f"https://{host}:{remote_port}"
+
+
+def _start_monitor(proc: subprocess.Popen, port: int) -> threading.Thread:
+    """Start the stdout drain and keep its handle on BORE_STATE.
+
+    The handle is what makes the thread's lifetime observable.
+    ``daemon=True`` only stops it blocking interpreter exit; it does not
+    stop it running inside a test that has already returned, holding
+    stubs monkeypatch has since restored (#235).
+    """
+    thread = threading.Thread(
+        target=_bore_monitor_thread,
+        args=(proc, port),
+        daemon=True,
+    )
+    thread.start()
+    BORE_STATE["monitor"] = thread
+    return thread
 
 
 def _terminate_bore(timeout: int = 5) -> None:
@@ -353,7 +394,7 @@ def _start_bore(bin_path: str, port: int, *,
         argv.extend(["--secret", secret])
 
     try:
-        BORE_STATE["proc"] = subprocess.Popen(
+        BORE_STATE["proc"] = _spawn(
             argv,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -364,12 +405,7 @@ def _start_bore(bin_path: str, port: int, *,
         return {"ok": False, "action": "start", "error": str(e),
                 "error_code": "spawn_failed"}
 
-    thread = threading.Thread(
-        target=_bore_monitor_thread,
-        args=(BORE_STATE["proc"], port),
-        daemon=True,
-    )
-    thread.start()
+    _start_monitor(BORE_STATE["proc"], port)
 
     total_wait = _url_wait_seconds()
     deadline = time.monotonic() + total_wait

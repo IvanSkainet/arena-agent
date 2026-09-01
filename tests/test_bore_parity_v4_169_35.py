@@ -104,10 +104,34 @@ def _reset_bore_state():
     bore_mod.BORE_STATE["proc"] = None
     bore_mod.BORE_STATE["url"] = ""
     bore_mod.BORE_STATE["log"] = []
+    bore_mod.BORE_STATE["monitor"] = None
     yield
+    # Await the stdout-draining thread before declaring the test over.
+    #
+    # #235: `daemon=True` only means "do not block interpreter exit". A
+    # monitor thread from a finished test keeps running, and monkeypatch
+    # has already restored the stubs it captured -- so it writes into
+    # whatever the *next* test installed. That is how a bore test came
+    # to record `[..., 'version']`: a concurrent runtime probe.
+    #
+    # Failing here rather than warning is deliberate. A leaked thread
+    # produces a failure in some unrelated test later, which is far more
+    # expensive to diagnose than a red mark on the test that leaked it.
+    monitor = bore_mod.BORE_STATE.get("monitor")
+    if monitor is not None:
+        monitor.join(timeout=5)
+        still_running = monitor.is_alive()
+    else:
+        still_running = False
     bore_mod.BORE_STATE["proc"] = None
     bore_mod.BORE_STATE["url"] = ""
     bore_mod.BORE_STATE["log"] = []
+    bore_mod.BORE_STATE["monitor"] = None
+    assert not still_running, (
+        "the bore monitor thread outlived its test. It will run against "
+        "the next test's patched subprocess/state (#235). Make the fake "
+        "stdout terminate so _bore_monitor_thread returns."
+    )
 
 
 class _FakeStdout:
@@ -150,11 +174,27 @@ class _FakePopen:
 # 1. State and Constants Parity
 # ---------------------------------------------------------------------------
 def test_bore_state_shape():
-    assert set(bore_mod.BORE_STATE.keys()) == {"proc", "url", "log"}
+    # "monitor" holds the stdout-draining thread so its lifetime is
+    # observable. daemon=True keeps it from blocking interpreter exit,
+    # but says nothing about it still running inside a test that has
+    # already returned -- which is what #235 was.
+    # Read the declaration, not the live dict: the autouse fixture
+    # assigns every key before each test, so a key deleted from the
+    # module-level literal would be silently reinstated and this
+    # assertion would pass against state the module never defines.
+    source = Path(bore_mod.__file__).read_text(encoding="utf-8")
+    declaration = next(line for line in source.splitlines()
+                       if line.startswith("BORE_STATE: dict[str, Any] = "))
+    for key in ("proc", "url", "log", "monitor"):
+        assert f'"{key}"' in declaration, (
+            f'BORE_STATE no longer declares "{key}" at module level: {declaration}'
+        )
+    assert set(bore_mod.BORE_STATE.keys()) == {"proc", "url", "log", "monitor"}
     assert bore_mod.BORE_STATE["proc"] is None
     assert bore_mod.BORE_STATE["url"] == ""
     assert isinstance(bore_mod.BORE_STATE["url"], str)
     assert bore_mod.BORE_STATE["log"] == []
+    assert bore_mod.BORE_STATE["monitor"] is None
 
 
 def test_constants_pinned():
@@ -600,7 +640,7 @@ def test_start_bore_spawn_failed(monkeypatch):
     def _raise_popen(*a, **k):
         raise OSError("exec format error")
 
-    monkeypatch.setattr(bore_mod.subprocess, "Popen", _raise_popen)
+    monkeypatch.setattr(bore_mod, "_spawn", _raise_popen)
 
     res = bore_mod._start_bore("/bin/bore", 8765, subprocess_kwargs=lambda: {})
     assert res == {
@@ -628,7 +668,7 @@ def test_start_bore_argv_thread_daemon_and_success(monkeypatch):
             super().__init__(*args, **kwargs)
             created_threads.append(self)
 
-    monkeypatch.setattr(bore_mod.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(bore_mod, "_spawn", _fake_popen)
     monkeypatch.setattr(bore_mod.threading, "Thread", _TrackingThread)
     monkeypatch.setenv("ARENA_BORE_SERVER", "custom.bore.org")
     monkeypatch.setenv("ARENA_BORE_LOCAL_HOST", "127.0.0.1")
@@ -690,7 +730,7 @@ def test_start_bore_process_died_early(monkeypatch):
         poll_return=1,  # process died
     )
 
-    monkeypatch.setattr(bore_mod.subprocess, "Popen", lambda *a, **k: fake_proc)
+    monkeypatch.setattr(bore_mod, "_spawn", lambda *a, **k: fake_proc)
 
     # Set dirty state prior to start to verify it is reset to empty string
     bore_mod.BORE_STATE["url"] = "dirty-stale-url"
@@ -741,7 +781,7 @@ def test_start_bore_timeout(monkeypatch):
         poll_return=None,  # still running
     )
 
-    monkeypatch.setattr(bore_mod.subprocess, "Popen", lambda *a, **k: fake_proc)
+    monkeypatch.setattr(bore_mod, "_spawn", lambda *a, **k: fake_proc)
 
     res = bore_mod._start_bore("/bin/bore", 8765, subprocess_kwargs=lambda: {})
     assert res["ok"] is False
