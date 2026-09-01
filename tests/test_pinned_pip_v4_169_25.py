@@ -116,6 +116,123 @@ def test_legitimate_forms_are_not_flagged() -> None:
     assert proc.returncode == 0, proc.stdout
 
 
+def test_multi_line_install_with_hashes_is_not_flagged() -> None:
+    """#231: the gate used to fail a compliant install it had split.
+
+    Reading line by line, ``python -m pip install \\`` carries no
+    ``--require-hashes`` -- the flag is on the next physical line. In
+    #228 that reported a violation against correct code and turned all
+    fifteen Tests jobs plus CI required red, sixteen checks whose
+    message pointed at a command that was already right.
+    """
+    probe = WORKFLOWS / "_pinned_cont_ok_probe.yml"
+    probe.write_text(
+        "name: p\non: workflow_dispatch\npermissions:\n  contents: read\n"
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - run: |\n"
+        "          python -m pip install \\\n"
+        "            --require-hashes -r requirements-ci.lock\n",
+        encoding="utf-8")
+    try:
+        proc = _run_ratchet()
+    finally:
+        probe.unlink(missing_ok=True)
+    assert proc.returncode == 0, proc.stdout
+
+
+def test_joining_continuations_does_not_hide_an_unpinned_install() -> None:
+    """The other half of #231, and the one that would actually hurt.
+
+    Fixing a false positive by joining lines is only safe if the join
+    cannot swallow a real violation. A resolver-driven install spread
+    across two lines must still be refused.
+    """
+    probe = WORKFLOWS / "_pinned_cont_bad_probe.yml"
+    probe.write_text(
+        "name: p\non: workflow_dispatch\npermissions:\n  contents: read\n"
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - run: |\n"
+        "          python -m pip install \\\n"
+        "            some-unpinned-package\n",
+        encoding="utf-8")
+    try:
+        proc = _run_ratchet()
+    finally:
+        probe.unlink(missing_ok=True)
+    assert proc.returncode == 1, proc.stdout
+    assert "some-unpinned-package" in proc.stdout
+
+
+def test_a_commented_backslash_cannot_swallow_the_command_below_it() -> None:
+    """A comment ends at the newline, backslash or not.
+
+    If the joiner treated ``# note \\`` as a continuation head, the
+    install below would fold into a line starting with ``#`` and be
+    skipped as prose -- turning the comment character into a way to
+    smuggle an unpinned install past the gate.
+    """
+    probe = WORKFLOWS / "_pinned_comment_probe.yml"
+    probe.write_text(
+        "name: p\non: workflow_dispatch\npermissions:\n  contents: read\n"
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - run: |\n"
+        "          # a trailing backslash in prose \\\n"
+        "          python -m pip install smuggled-package\n",
+        encoding="utf-8")
+    try:
+        proc = _run_ratchet()
+    finally:
+        probe.unlink(missing_ok=True)
+    assert proc.returncode == 1, proc.stdout
+    assert "smuggled-package" in proc.stdout
+
+
+def test_violation_points_at_the_line_the_command_starts_on() -> None:
+    """A joined command must report where it begins, not where it ends."""
+    probe = WORKFLOWS / "_pinned_lineno_probe.yml"
+    probe.write_text(
+        "name: p\non: workflow_dispatch\npermissions:\n  contents: read\n"
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - run: |\n"
+        "          python -m pip install \\\n"
+        "            badpkg\n",
+        encoding="utf-8")
+    try:
+        proc = _run_ratchet()
+    finally:
+        probe.unlink(missing_ok=True)
+    assert proc.returncode == 1, proc.stdout
+    # `python -m pip install \` is physical line 10 of the probe above.
+    assert "_pinned_lineno_probe.yml:10:" in proc.stdout, proc.stdout
+
+
+def test_a_backslash_in_the_command_does_not_grant_an_exemption() -> None:
+    """Sabotage found this one: joining is not the same as excusing.
+
+    A tempting shortcut when teaching the gate about continuations is to
+    treat any line containing a backslash as "probably a joined command,
+    leave it alone". Joining strips the trailing backslashes, but plenty
+    of surviving commands legitimately contain one -- regex character
+    classes, ``\\n`` in a printf, escaped backticks. Fourteen such
+    logical lines exist in this repo's workflows today, so that shortcut
+    would hand every one of them a free pass, and an unpinned install
+    sharing a line with a ``\\n`` would sail through.
+    """
+    probe = WORKFLOWS / "_pinned_backslash_probe.yml"
+    probe.write_text(
+        "name: p\non: workflow_dispatch\npermissions:\n  contents: read\n"
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - run: |\n"
+        "          python -m pip install sneaky-pkg && printf 'done\\n'\n",
+        encoding="utf-8")
+    try:
+        proc = _run_ratchet()
+    finally:
+        probe.unlink(missing_ok=True)
+    assert proc.returncode == 1, proc.stdout
+    assert "sneaky-pkg" in proc.stdout
+
+
 def test_ratchet_refuses_a_truncated_scan() -> None:
     """A gate that scans nothing reports OK forever."""
     source = RATCHET.read_text(encoding="utf-8")
