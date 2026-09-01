@@ -131,6 +131,13 @@ def _arena_aliases(tree: ast.AST) -> dict[str, str]:
     return out
 
 
+def _is_setattr_call(node: ast.Call) -> bool:
+    """True for `<anything>.setattr(<target>, ...)` with at least one arg."""
+    return (isinstance(node.func, ast.Attribute)
+            and node.func.attr == "setattr"
+            and bool(node.args))
+
+
 def _patched_stdlib_alias(node: ast.Call) -> tuple[str, str] | None:
     """(alias, stdlib name) if `node` is `setattr(alias.stdlib, ...)`.
 
@@ -138,15 +145,15 @@ def _patched_stdlib_alias(node: ast.Call) -> tuple[str, str] | None:
     itself is the seam this gate recommends, and flagging it would make
     the advice unfollowable.
     """
-    if not (isinstance(node.func, ast.Attribute)
-            and node.func.attr == "setattr"
-            and node.args):
+    if not _is_setattr_call(node):
         return None
     target = node.args[0]
-    if not (isinstance(target, ast.Attribute)
-            and isinstance(target.value, ast.Name)
-            and target.attr in STDLIB_NAMES):
-        return None
+    if not isinstance(target, ast.Attribute):
+        return None            # setattr(mod, "_spawn", ...) -- the seam
+    if not isinstance(target.value, ast.Name):
+        return None            # setattr(a.b.c, ...) -- not an alias patch
+    if target.attr not in STDLIB_NAMES:
+        return None            # patching a non-stdlib attribute is fine
     return target.value.id, target.attr
 
 
