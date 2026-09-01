@@ -44,7 +44,7 @@ def clock(monkeypatch):
     now = {"t": 1_000_000.0}
     counters = {"net": 1_000_000, "disk": 2_000_000}
 
-    monkeypatch.setattr(lm.time, "time", lambda: now["t"])
+    monkeypatch.setattr(lm, "_now", lambda: now["t"])
     monkeypatch.setattr(lm, "_HAS_PSUTIL", True)
     monkeypatch.setattr(lm, "psutil", types.SimpleNamespace(
         net_io_counters=lambda: types.SimpleNamespace(
@@ -229,7 +229,7 @@ def test_a_stale_snapshot_does_not_alias_the_cache(monkeypatch):
     import arena.observability.live_metrics as lm
 
     now = {"t": 1000.0}
-    monkeypatch.setattr(lm.time, "time", lambda: now["t"])
+    monkeypatch.setattr(lm, "_now", lambda: now["t"])
     monkeypatch.setattr(lm, "_LAST_SAMPLE", {}, raising=False)
     first = lm.live_metrics_snapshot()
     now["t"] += 0.001
@@ -266,7 +266,7 @@ def test_totals_stay_live_while_rates_are_suppressed(monkeypatch):
     # Drive the clock instead of hoping: the interval is now a fact of the
     # test, not a property of the runner.
     now = [10_000.0]
-    monkeypatch.setattr(lm.time, "time", lambda: now[0])
+    monkeypatch.setattr(lm, "_now", lambda: now[0])
     lm._LAST_SAMPLE.clear()
 
     first = lm.live_metrics_snapshot()
@@ -321,7 +321,7 @@ def test_stale_snapshot_deep_copies_nested_values(monkeypatch):
         "gpu": {"available": True, "devices": [{"name": "card"}]},
         "net": {"available": False},
     }
-    monkeypatch.setattr(lm.time, "time", lambda: 1000.001)
+    monkeypatch.setattr(lm, "_now", lambda: 1000.001)
     monkeypatch.setattr(lm, "_HAS_PSUTIL", False)
     monkeypatch.setattr(
         lm,
@@ -346,7 +346,7 @@ def test_fresh_snapshot_does_not_alias_the_cache(monkeypatch):
     import arena.observability.live_metrics as lm
 
     now = [1000.0]
-    monkeypatch.setattr(lm.time, "time", lambda: now[0])
+    monkeypatch.setattr(lm, "_now", lambda: now[0])
     monkeypatch.setattr(lm, "_HAS_PSUTIL", False)
     monkeypatch.setattr(lm, "_LAST_SAMPLE", {}, raising=False)
     monkeypatch.setattr(lm, "_collect_cpu", lambda: {"available": True, "percent": 1.0})
@@ -430,7 +430,7 @@ def test_a_zero_interval_is_suppressed_not_divided_by(monkeypatch):
     """
     import arena.observability.live_metrics as lm
 
-    monkeypatch.setattr(lm.time, "time", lambda: 1000.0)
+    monkeypatch.setattr(lm, "_now", lambda: 1000.0)
     lm._LAST_SAMPLE.clear()
     first = lm.live_metrics_snapshot()
     assert first["stale"] is False
@@ -447,7 +447,7 @@ def test_a_backwards_clock_is_not_a_valid_time_base(monkeypatch):
     import arena.observability.live_metrics as lm
 
     now = [1000.0]
-    monkeypatch.setattr(lm.time, "time", lambda: now[0])
+    monkeypatch.setattr(lm, "_now", lambda: now[0])
     lm._LAST_SAMPLE.clear()
     lm.live_metrics_snapshot()
     now[0] = 990.0
@@ -461,7 +461,7 @@ def test_a_real_interval_is_still_reported_fresh(monkeypatch):
     import arena.observability.live_metrics as lm
 
     now = [1000.0]
-    monkeypatch.setattr(lm.time, "time", lambda: now[0])
+    monkeypatch.setattr(lm, "_now", lambda: now[0])
     lm._LAST_SAMPLE.clear()
     lm.live_metrics_snapshot()
     now[0] = 1000.0 + lm._MIN_SAMPLE_INTERVAL + 0.01

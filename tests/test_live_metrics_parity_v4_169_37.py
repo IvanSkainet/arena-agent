@@ -534,13 +534,71 @@ def test_collect_gpu_caches_under_2_seconds(monkeypatch):
 # --------------------------------------------------------------------
 # 7. live_metrics_snapshot fresh vs stale lifecycle
 # --------------------------------------------------------------------
+def test_no_test_patches_the_global_clock_module():
+    """#230: patching `lm.time.time` swaps the clock process-wide.
+
+    `lm.time` is the global `time` module, not a module-local alias
+    (`lm.time is time` is True). A test that patches it hands its
+    fixture to every thread in the process -- the WS push loop in
+    live_metrics_handler, the daemon threads in arena/admin, anything
+    asyncio is still draining -- and a finite fixture gets consumed by
+    strangers. That produced an intermittent Windows-only failure on
+    two different Python versions before anyone looked at it.
+
+    The seam is `lm._now`. This test exists because the broken form is
+    the one that reads naturally.
+    """
+    # Assembled at runtime so this detector does not match its own
+    # source and report itself.
+    bad = "setattr(" + "lm.time"
+    offenders = []
+    for path in sorted(Path(__file__).parent.glob("test_live_metrics*.py")):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if bad in line and "bad = " not in line:
+                offenders.append(f"{path.name}:{lineno}: {line.strip()}")
+    assert not offenders, (
+        "patch lm._now instead of the global time module:\n  "
+        + "\n  ".join(offenders))
+
+
+def test_an_exhausted_clock_fixture_fails_loudly(monkeypatch):
+    """A sentinel fallback turns a broken fixture into a wrong number.
+
+    The original timeline returned 102.0 once it ran dry. With one
+    stray read the test saw 101.0 -- plausible, and silently wrong. The
+    assertion only caught it at two stray reads. Running dry is a bug in
+    the test setup and should say so.
+    """
+    timeline = [100.0]
+
+    def _fake_time():
+        if not timeline:
+            raise AssertionError("clock fixture exhausted")
+        return timeline.pop(0)
+
+    monkeypatch.setattr(lm, "_now", _fake_time)
+    lm.live_metrics_snapshot()          # consumes the only entry
+    with pytest.raises(AssertionError, match="exhausted"):
+        lm.live_metrics_snapshot()
+
+
 def test_live_metrics_snapshot_fresh_and_stale(monkeypatch):
+    # #230: patch this module's clock seam, not `lm.time.time`. The
+    # latter is the global time module, so the substitution escaped into
+    # every other thread in the process and they drained this timeline.
+    # An exhausted timeline now raises instead of returning a sentinel:
+    # a wrong-but-plausible timestamp is how this hid as a flake for two
+    # releases.
     timeline = [100.0, 100.1, 101.0]
 
     def _fake_time():
-        return timeline.pop(0) if timeline else 102.0
+        if not timeline:
+            raise AssertionError(
+                "the clock was read more times than this test set up; "
+                "a caller outside live_metrics_snapshot() is reading it")
+        return timeline.pop(0)
 
-    monkeypatch.setattr(lm.time, "time", _fake_time)
+    monkeypatch.setattr(lm, "_now", _fake_time)
 
     # 1. First snapshot at 100.0s
     snap1 = lm.live_metrics_snapshot()
@@ -567,9 +625,12 @@ def test_live_metrics_snapshot_negative_dt_clock_step(monkeypatch):
     timeline = [100.0, 95.0]
 
     def _fake_time():
-        return timeline.pop(0) if timeline else 100.0
+        if not timeline:
+            raise AssertionError(
+                "the clock was read more times than this test set up")
+        return timeline.pop(0)
 
-    monkeypatch.setattr(lm.time, "time", _fake_time)
+    monkeypatch.setattr(lm, "_now", _fake_time)
 
     snap1 = lm.live_metrics_snapshot()
     assert snap1["stale"] is False

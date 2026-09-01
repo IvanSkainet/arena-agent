@@ -362,6 +362,25 @@ def _collect_disk(now: float, dt: float) -> dict[str, Any]:
     }
 
 
+def _now() -> float:
+    """The clock this module reads, as a patchable seam.
+
+    Tests need to control time, and the obvious way -- monkeypatching
+    ``lm.time.time`` -- does not do what it looks like: ``lm.time`` is
+    not a module-local alias, it *is* the global ``time`` module, so
+    patching it swaps the clock for the whole process. Any concurrent
+    caller then draws from the test's fixture. When that fixture is a
+    finite list, a background thread can consume the entries the test
+    was relying on and the assertion fails somewhere unrelated (#230:
+    the Windows matrix, intermittently, on two different Python
+    versions).
+
+    Patching this function instead keeps the substitution inside this
+    module, where the test can reason about who calls it.
+    """
+    return time.time()
+
+
 def _collect_gpu(now: float) -> dict[str, Any]:
     """Cache GPU results for 2s -- nvidia-smi/rocm-smi are slow
     and rate-limiting them keeps 1Hz sampling cheap."""
@@ -429,7 +448,7 @@ def live_metrics_snapshot() -> dict[str, Any]:
     so via `stale: true`. Counter totals stay live because they are
     absolute readings, not deltas.
     """
-    now = time.time()
+    now = _now()
     with _LOCK:
         prev_ts = _LAST_SAMPLE.get("timestamp")
         dt = (now - prev_ts) if isinstance(prev_ts, (int, float)) else 0.0
