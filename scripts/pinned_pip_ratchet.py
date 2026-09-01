@@ -29,6 +29,20 @@ Allowed:
 
 Refused: anything that names a package or a non-lock requirements file
 and lets the resolver decide.
+
+Shell line continuations are joined before matching. Reading a workflow
+line by line, as this gate first did, splits
+
+    python -m pip install \\
+      --require-hashes -r requirements-guarddog.txt
+
+into a first line that has no ``--require-hashes`` on it, and the gate
+failed a compliant install (#231: sixteen red checks in #228, all
+pointing at a command that was already correct). The reverse error is
+the dangerous one, so joining is deliberately conservative: a comment
+line is never joined into the command below it, because
+``# note \\`` followed by ``pip install evil`` would otherwise fold into
+a single line starting with ``#`` and be skipped as prose.
 """
 from __future__ import annotations
 
@@ -62,6 +76,48 @@ def _is_allowed(line: str) -> bool:
     return False
 
 
+def _continues(line: str) -> bool:
+    """True if this line hands the command to the next one.
+
+    A comment is excluded on purpose: in shell a ``#`` runs to the end
+    of the line whatever trails it, so treating ``# note \\`` as a
+    continuation head would fold the command below into a string
+    starting with ``#`` and this gate would skip it as prose.
+    """
+    return line.endswith("\\") and not line.startswith("#")
+
+
+def logical_lines(text: str) -> list[tuple[int, str]]:
+    """Yield (line number, command) with shell continuations joined.
+
+    The line number is that of the *first* physical line, so a failure
+    points at where the command starts rather than at whichever
+    fragment happened to carry the offending token.
+    """
+    out: list[tuple[int, str]] = []
+    start: int | None = None
+    parts: list[str] = []
+    for lineno, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        joining = _continues(line)
+        if joining:
+            if start is None:
+                start = lineno
+            parts.append(line.removesuffix("\\").strip())
+            continue
+        if start is not None:
+            parts.append(line)
+            out.append((start, " ".join(parts)))
+            start, parts = None, []
+            continue
+        out.append((lineno, line))
+    if start is not None:
+        # Trailing backslash at end of file: emit what we have rather
+        # than dropping a command the scan would otherwise never see.
+        out.append((start, " ".join(parts)))
+    return out
+
+
 def violations() -> tuple[list[str], int]:
     found: list[str] = []
     scanned = 0
@@ -70,8 +126,7 @@ def violations() -> tuple[list[str], int]:
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         scanned += 1
         rel = path.relative_to(REPO_ROOT).as_posix()
-        for lineno, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            line = raw.strip()
+        for lineno, line in logical_lines(path.read_text(encoding="utf-8")):
             # Comments explain the history; three releases in a row a
             # gate has flagged its own prose, so skip them explicitly.
             if line.startswith("#"):
