@@ -64,6 +64,18 @@ _CONCURRENCY = re.compile(
 MIN_TEST_FILES = 50
 
 
+def _imported_by_any(stem: str, starters: set[str],
+                     sources: dict[str, str]) -> bool:
+    """True if any thread-starting module imports `stem`.
+
+    Then `stem`'s globals can be reached from a concurrent context even
+    though it starts nothing itself -- which is exactly #230.
+    """
+    pattern = (rf"\bimport\s+{re.escape(stem)}\b|"
+               rf"\bfrom\s+[\w.]*\b{re.escape(stem)}\s+import\b")
+    return any(re.search(pattern, sources[starter]) for starter in starters)
+
+
 def concurrent_modules() -> set[str]:
     """Modules whose code can run while another test holds a patch.
 
@@ -87,19 +99,25 @@ def concurrent_modules() -> set[str]:
         if _CONCURRENCY.search(text):
             starters.add(path.stem)
 
-    reachable = set(starters)
-    for stem, text in sources.items():
-        if stem in reachable:
-            continue
-        # Imported by something that runs concurrently? Then this
-        # module's globals can be touched from that context.
-        for starter in starters:
-            if re.search(rf"\bimport\s+{re.escape(stem)}\b|"
-                         rf"\bfrom\s+[\w.]*\b{re.escape(stem)}\s+import\b",
-                         sources[starter]):
-                reachable.add(stem)
-                break
-    return reachable
+    return starters | {
+        stem for stem in sources
+        if stem not in starters
+        and _imported_by_any(stem, starters, sources)
+    }
+
+
+def _plain_import_aliases(node: ast.Import) -> dict[str, str]:
+    """`import arena.admin.bore as bore_mod` -> {bore_mod: arena.admin.bore}."""
+    return {a.asname or a.name.split(".")[0]: a.name
+            for a in node.names if a.name.startswith("arena")}
+
+
+def _from_import_aliases(node: ast.ImportFrom) -> dict[str, str]:
+    """`from arena.admin import bore` -> {bore: arena.admin.bore}."""
+    module = node.module or ""
+    if not module.startswith("arena"):
+        return {}
+    return {a.asname or a.name: f"{module}.{a.name}" for a in node.names}
 
 
 def _arena_aliases(tree: ast.AST) -> dict[str, str]:
@@ -107,26 +125,20 @@ def _arena_aliases(tree: ast.AST) -> dict[str, str]:
     out: dict[str, str] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            for a in node.names:
-                if a.name.startswith("arena"):
-                    out[a.asname or a.name.split(".")[0]] = a.name
+            out.update(_plain_import_aliases(node))
         elif isinstance(node, ast.ImportFrom):
-            mod = node.module or ""
-            if mod.startswith("arena"):
-                for a in node.names:
-                    out[a.asname or a.name] = f"{mod}.{a.name}"
+            out.update(_from_import_aliases(node))
     return out
 
 
-def _patched_stdlib_alias(node: ast.AST) -> tuple[str, str] | None:
+def _patched_stdlib_alias(node: ast.Call) -> tuple[str, str] | None:
     """(alias, stdlib name) if `node` is `setattr(alias.stdlib, ...)`.
 
     Returns None for `setattr(mod, "_spawn", ...)` -- patching the module
     itself is the seam this gate recommends, and flagging it would make
     the advice unfollowable.
     """
-    if not (isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
+    if not (isinstance(node.func, ast.Attribute)
             and node.func.attr == "setattr"
             and node.args):
         return None
@@ -150,6 +162,8 @@ def _file_findings(path: Path, concurrent: set[str]) -> list[str]:
     rel = path.relative_to(REPO_ROOT).as_posix()
     out: list[str] = []
     for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
         found = _patched_stdlib_alias(node)
         if found is None:
             continue
