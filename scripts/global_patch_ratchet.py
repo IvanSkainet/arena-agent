@@ -29,9 +29,10 @@ gate flags the intersection: an aliased-stdlib patch in a test whose
 production module starts a thread, a task, or a pool. That is the
 population where the next #235 comes from.
 
-It is a ratchet, not a ban. 67 such sites exist today and rewriting them
-all in one change would be a large, risky diff touching tests unrelated
-to any live defect. The count may fall and must never rise: a new one is
+It is a ratchet, not a ban. The current count lives in
+`scripts/global_patch_baseline.json`; rewriting every site in one change
+would be a large, risky diff touching tests unrelated to any live
+defect. The count may fall and must never rise: a new one is
 a new latent flake, and the fix is a module-local seam (`_spawn()`,
 `_now()`) that a test can patch without reaching outside the module.
 """
@@ -117,6 +118,49 @@ def _arena_aliases(tree: ast.AST) -> dict[str, str]:
     return out
 
 
+def _patched_stdlib_alias(node: ast.AST) -> tuple[str, str] | None:
+    """(alias, stdlib name) if `node` is `setattr(alias.stdlib, ...)`.
+
+    Returns None for `setattr(mod, "_spawn", ...)` -- patching the module
+    itself is the seam this gate recommends, and flagging it would make
+    the advice unfollowable.
+    """
+    if not (isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "setattr"
+            and node.args):
+        return None
+    target = node.args[0]
+    if not (isinstance(target, ast.Attribute)
+            and isinstance(target.value, ast.Name)
+            and target.attr in STDLIB_NAMES):
+        return None
+    return target.value.id, target.attr
+
+
+def _file_findings(path: Path, concurrent: set[str]) -> list[str]:
+    """Escaping patches in one test file, aimed at exposed modules."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:
+        # A test that will not parse is pytest's problem to report, not a
+        # reason for this gate to call the file clean.
+        return []
+    aliases = _arena_aliases(tree)
+    rel = path.relative_to(REPO_ROOT).as_posix()
+    out: list[str] = []
+    for node in ast.walk(tree):
+        found = _patched_stdlib_alias(node)
+        if found is None:
+            continue
+        alias, stdlib_name = found
+        module = aliases.get(alias)
+        if not module or module.rsplit(".", 1)[-1] not in concurrent:
+            continue
+        out.append(f"{rel}:{node.lineno}: {alias}.{stdlib_name} -> {module}")
+    return out
+
+
 def findings() -> tuple[list[str], int]:
     """Every aliased-stdlib patch aimed at a module that runs concurrently."""
     concurrent = concurrent_modules()
@@ -124,32 +168,7 @@ def findings() -> tuple[list[str], int]:
     scanned = 0
     for path in sorted(TESTS.rglob("test_*.py")):
         scanned += 1
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
-        except SyntaxError:
-            # A test that will not parse is pytest's problem to report,
-            # not a reason for this gate to claim the file is clean.
-            continue
-        aliases = _arena_aliases(tree)
-        for node in ast.walk(tree):
-            if not (isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Attribute)
-                    and node.func.attr == "setattr"
-                    and node.args):
-                continue
-            target = node.args[0]
-            if not (isinstance(target, ast.Attribute)
-                    and isinstance(target.value, ast.Name)
-                    and target.attr in STDLIB_NAMES):
-                continue
-            module = aliases.get(target.value.id)
-            if not module:
-                continue
-            if module.rsplit(".", 1)[-1] not in concurrent:
-                continue
-            rel = path.relative_to(REPO_ROOT).as_posix()
-            hits.append(f"{rel}:{node.lineno}: "
-                        f"{target.value.id}.{target.attr} -> {module}")
+        hits.extend(_file_findings(path, concurrent))
     return hits, scanned
 
 
