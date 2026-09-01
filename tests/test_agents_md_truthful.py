@@ -62,6 +62,104 @@ def _missing_paths(text: str) -> list[str]:
     return missing
 
 
+TASK_BOARD = REPO_ROOT / "docs" / "TASK_BOARD.md"
+
+
+def _completed_tasks() -> set[str]:
+    """Task ids the board marks done, as `- [x] **T57 ...`."""
+    text = TASK_BOARD.read_text(encoding="utf-8")
+    return {m.group(2) for m in re.finditer(r"^- \[([ x])\] \*\*(T\d+)\b", text, re.M)
+            if m.group(1) == "x"}
+
+
+def _cited_tasks(text: str) -> set[str]:
+    return {f"T{n}" for n in re.findall(r"\bT(\d+)\b", text)}
+
+
+def _stale_citations(text: str) -> list[str]:
+    """Task ids `text` cites that the board marks complete.
+
+    The gate and its negative test share this so the test exercises the
+    real decision. Asserting only that the two parser helpers behave
+    leaves the gate itself untested: it can be reduced to `stale = []`
+    and the suite stays green. (Caught in review on #234 -- worth
+    recording, because the original sabotage pass mutated the parser and
+    missed it.)
+    """
+    return sorted(_cited_tasks(text) & _completed_tasks())
+
+
+def test_agents_md_does_not_direct_work_at_finished_tasks(agents_text):
+    """The document must not send an agent at work that is already done.
+
+    This is the failure the numeric gates could not see. AGENTS.md opened
+    with "finish T57 Dependabot relock acceptance, then T58", and T57 had
+    been closed on the board for three releases. Every path it cited
+    existed and every limit it quoted was right, so the suite stayed
+    green while the first instruction a new agent read was false.
+
+    Wrong prose is worse than missing prose here: an agent that cannot
+    find guidance asks, while an agent handed a confident stale
+    instruction goes and does it.
+
+    The rule is deliberately blunt -- do not name a completed task id at
+    all, not even historically. An "it's only a historical mention"
+    exemption is exactly the sort of carve-out that grows until the gate
+    means nothing. Refer to `docs/TASK_BOARD.md`, which is the one place
+    task state is tracked.
+    """
+    stale = _stale_citations(agents_text)
+    assert not stale, (
+        f"AGENTS.md cites tasks the board marks complete: {stale}. "
+        "Point at docs/TASK_BOARD.md instead of naming task ids."
+    )
+
+
+def test_the_task_state_gate_rejects_a_citation_of_a_finished_task():
+    """Negative test: the failure branch must actually fire.
+
+    Uses a task the board really does mark done, so the test fails if
+    the parser stops recognising the board's format -- a silent no-op
+    would otherwise look identical to a clean repository.
+    """
+    done = _completed_tasks()
+    assert done, "no completed tasks parsed from the board; the parser is broken"
+    victim = sorted(done)[0]
+    # Drive the same function the gate calls, not just its inputs.
+    assert _stale_citations(f"first finish {victim} and then continue") == [victim]
+
+
+def test_the_gate_actually_consults_the_stale_citation_check():
+    """The gate must fail when handed prose citing finished work.
+
+    Sharing a helper is not enough: `stale = []` inside the gate leaves
+    every other test green, because they exercise the helper directly
+    while the gate quietly stops calling it. So drive the gate itself
+    with synthetic text and require it to object.
+
+    This test exists because two rounds of sabotage missed that hole --
+    the first mutated the parser, the second the helper, and neither
+    touched the gate body. It was caught in review on #234.
+    """
+    done = _completed_tasks()
+    assert done, "no completed tasks parsed from the board; the parser is broken"
+    victim = sorted(done)[0]
+    with pytest.raises(AssertionError, match=victim):
+        test_agents_md_does_not_direct_work_at_finished_tasks(
+            f"Current sequence: finish {victim} before anything else."
+        )
+
+
+def test_the_task_state_gate_ignores_open_tasks():
+    """Naming work that is still open is legitimate and must stay allowed."""
+    text = TASK_BOARD.read_text(encoding="utf-8")
+    open_tasks = {m.group(2) for m in re.finditer(r"^- \[([ x])\] \*\*(T\d+)\b", text, re.M)
+                  if m.group(1) == " "}
+    assert open_tasks, "no open tasks parsed from the board; the parser is broken"
+    victim = sorted(open_tasks)[0]
+    assert _stale_citations(f"continue with {victim}") == []
+
+
 def test_agents_md_exists_and_is_substantial(agents_text):
     """A detector that reads an empty file would pass forever."""
     assert len(agents_text.splitlines()) > 100, "AGENTS.md is suspiciously short"
