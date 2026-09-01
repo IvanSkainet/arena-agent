@@ -5,28 +5,44 @@ title = "gitleaks config"
 useDefault = true
 
 [allowlist]
-description = "Allowlisted test fixtures, RFC examples, and retired historical paths"
-paths = [
-  '''tests/test_observability_redact\.py''',
-  '''tests/test_audit_value_redaction\.py''',
-  '''tests/test_redaction.*\.py''',
-  '''arena/observability/redact\.py''',
-  # Scheduled full-history scan (2026-08-13 #31676936942) flagged these
-  # as generic-api-key / curl-auth-header. They are fixtures, an RFC 6455
-  # example nonce, or files that no longer exist on HEAD.
-  '''tests/test_handlers_update_parity_v4_169_39\.py''',
-  '''tests/_mcp_description_fingerprint\.json''',
-  '''arena/browser/cdp_client/sync_browser\.py''',
-  '''scripts/cdp_browser_modules/sync_browser\.py''',
-  '''docs/AI_SYSTEM_PROMPT\.md''',
-  '''stress-test-v2\.sh''',
-  '''memory/facts\.jsonl''',
-  '''scripts/cdp_browser\.py''',
-  '''tools/superpowers/tests/brainstorm-server/ws-protocol\.test\.js''',
-]
+description = "RFC examples and narrowly-scoped fixtures"
+# Deliberately NOT a path allowlist. A `paths` entry disables *every*
+# gitleaks rule for that file, so a real credential committed there is
+# ignored silently -- and neither of the other two scanners covers the
+# gap: trufflehog runs --only-verified (an unverified PAT is dropped) and
+# semgrep's p/secrets/p/gitleaks packs have no plain github-pat rule.
+# Measured in #177: a planted PAT in three allowlisted paths produced
+# zero findings from all three scanners.
 regexes = [
   # RFC 6455 section 1.3 example Sec-WebSocket-Key, not a credential.
+  # Covers arena/browser/cdp_client/sync_browser.py (and any other file
+  # quoting the RFC) without blinding the file to other rules.
   # Do not globally allowlist GitHub/Slack token shapes: that would hide
-  # a real secret anywhere in history. Redaction fixtures are covered by path.
+  # a real secret anywhere in history.
   '''dGhlIHNhbXBsZSBub25jZQ==''',
+  # Retired paths still reachable by the scheduled full-history scan.
+  # Value-scoped, not path-scoped: a real credential committed to any of
+  # these files at any point in history is still reported.
+  # docs/AI_SYSTEM_PROMPT.md and stress-test-v2.sh -- documentation and
+  # test placeholders. These regexes match the *secret* gitleaks extracts,
+  # which is the placeholder word itself.
+  '''^YOUR_TOKEN$''',
+  '''^WRONG_TOKEN$''',
+  # memory/facts.jsonl -- stress-run record keys, not credentials.
+  '''^stress_[0-9]+$''',
+  # tests/test_handlers_update_parity_v4_169_39.py -- the fixture is built
+  # by concatenation and is an obvious placeholder, not a real PAT. Pinned
+  # to the literal so a genuine token in that file is still caught.
+  '''ghp_secret123''',
 ]
+
+# Rule-scoped, not file-scoped. `generic-api-key` fires on
+# tests/_mcp_description_fingerprint.json because a tool is *named*
+# "mobile.key" -- the value is a 16-hex digest of a tool description, not
+# a credential. Exempting the one rule for the one file keeps every other
+# rule (github-pat, aws, slack...) active on that file.
+[[rules]]
+id = "generic-api-key"
+  [rules.allowlist]
+  description = "MCP tool-description digests keyed by tool name (see #177)"
+  paths = ['''tests/_mcp_description_fingerprint\.json''']
