@@ -47,10 +47,10 @@ from arena.exec.control_gate import control_injection_response
 from arena.exec.environment import filter_caller_env
 from arena.exec.interpreters import (
     _INTERPRETERS,
-    _quote_path,
     _resolve_interpreter,
     _which_interpreter,
     interpreter_command,
+    interpreter_path_arg,
     interpreter_runs_here,
 )
 from arena.exec.runner import run_shell_command_stream
@@ -317,7 +317,8 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             # split the path into two shell words --
             # `bash: /tmp/root: No such file or directory` for any root
             # like `C:\Users\Ivan Petrov`. See _quote_path.
-            full_cmd = interpreter_command(interp_cfg).format(path=_quote_path(tmp_path))
+            full_cmd = interpreter_command(interp_cfg).format(
+                path=interpreter_path_arg(interp_cfg, tmp_path))
 
             # Same blocklist that /v1/exec uses — but applied to the
             # interpreter cmdline, not the script body. Script bodies
