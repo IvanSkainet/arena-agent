@@ -83,6 +83,42 @@ def safe_probe_url(raw: str) -> str | None:
     return candidate
 
 
+def _probe_public_url(report: dict[str, Any], timeout: float) -> None:
+    """Probe the tunnel URL the bridge reported, if it is safe to fetch.
+
+    Split out of probe_bridge() because CodeScene flagged that function
+    as a Complex Method once this validation landed, and it was right:
+    the probe is a self-contained step with its own failure modes.
+
+    Mutates `report` in place, matching the four numbered steps above it.
+    """
+    raw = report["public_url"]
+    p_url = safe_probe_url(raw)
+    if raw and p_url is None:
+        report["errors"].append(
+            f"refusing to probe public_url {raw!r}: "
+            f"only http/https URLs with a host are probed (#245)"
+        )
+        return
+    if not p_url:
+        return
+    try:
+        probe_req = urllib.request.Request(
+            f"{p_url}/v1/version",
+            headers={"User-Agent": "arena-doctor-probe"},
+        )
+        with urllib.request.urlopen(  # nosec B310 -- scheme/host validated by safe_probe_url()
+            probe_req,
+            context=build_ssl_context(p_url),
+            timeout=timeout + 2,
+        ) as p_resp:
+            p_data = json.loads(p_resp.read().decode("utf-8", "ignore"))
+            if p_data.get("ok"):
+                report["public_reachable"] = True
+    except Exception as e:
+        report["errors"].append(f"Public tunnel URL {p_url} failed probe: {e}")
+
+
 def probe_bridge(
     port: int = 8765,
     token: str = "",
@@ -175,28 +211,7 @@ def probe_bridge(
             pass
 
     # 5. Real external probe of the public tunnel URL
-    p_url = safe_probe_url(report["public_url"])
-    if report["public_url"] and p_url is None:
-        report["errors"].append(
-            f"refusing to probe public_url {report['public_url']!r}: "
-            f"only http/https URLs with a host are probed (#245)"
-        )
-    if p_url:
-        try:
-            probe_req = urllib.request.Request(
-                f"{p_url}/v1/version",
-                headers={"User-Agent": "arena-doctor-probe"},
-            )
-            with urllib.request.urlopen(  # nosec B310 -- scheme/host validated by safe_probe_url()
-                probe_req,
-                context=build_ssl_context(p_url),
-                timeout=timeout + 2,
-            ) as p_resp:
-                p_data = json.loads(p_resp.read().decode("utf-8", "ignore"))
-                if p_data.get("ok"):
-                    report["public_reachable"] = True
-        except Exception as e:
-            report["errors"].append(f"Public tunnel URL {p_url} failed probe: {e}")
+    _probe_public_url(report, timeout)
 
     report["ok"] = report["local_online"] and report["auth_ok"] and (report["public_reachable"] or not report["public_url"])
     return report
