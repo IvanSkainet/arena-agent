@@ -205,6 +205,36 @@ def safe_extract_zip(
             zf.extract(info, dest)
 
 
+def _reject_unsafe_tar_member(member: tarfile.TarInfo,
+                              max_member_bytes: int) -> None:
+    """Raise if a single tar member is unfit to extract.
+
+    Split out of ``safe_extract_tar`` so the traversal, link, device and
+    size rules read as four named refusals rather than a stack of
+    conditions inside the scanning loop. Each carries the offending
+    member name, because a legitimate archive that trips one of these by
+    accident is otherwise miserable to diagnose.
+    """
+    if _member_is_traversal(member.name):
+        raise UnsafeArchiveError(
+            f"archive contains path-traversal member: {member.name!r}"
+        )
+    if member.issym() or member.islnk():
+        raise UnsafeArchiveError(
+            f"archive contains a link member: {member.name!r} "
+            f"-> {member.linkname!r}"
+        )
+    if member.isdev() or member.isfifo():
+        raise UnsafeArchiveError(
+            f"archive contains a device/FIFO member: {member.name!r}"
+        )
+    if member.size > max_member_bytes:
+        raise UnsafeArchiveError(
+            f"archive member {member.name!r} declares {member.size} "
+            f"bytes, exceeding per-member cap of {max_member_bytes}"
+        )
+
+
 def safe_extract_tar(
     tar_path: Path | str,
     dest_dir: Path | str,
@@ -275,27 +305,7 @@ def safe_extract_tar(
                     f"refusing to enumerate further"
                 )
             members.append(member)
-            if _member_is_traversal(member.name):
-                raise UnsafeArchiveError(
-                    f"archive contains path-traversal member: "
-                    f"{member.name!r}"
-                )
-            if member.issym() or member.islnk():
-                raise UnsafeArchiveError(
-                    f"archive contains a link member: {member.name!r} "
-                    f"-> {member.linkname!r}"
-                )
-            if member.isdev() or member.isfifo():
-                raise UnsafeArchiveError(
-                    f"archive contains a device/FIFO member: "
-                    f"{member.name!r}"
-                )
-            if member.size > max_member_bytes:
-                raise UnsafeArchiveError(
-                    f"archive member {member.name!r} declares "
-                    f"{member.size} bytes, exceeding per-member cap "
-                    f"of {max_member_bytes}"
-                )
+            _reject_unsafe_tar_member(member, max_member_bytes)
             total_size += member.size
             if total_size > max_uncompressed_bytes:
                 raise UnsafeArchiveError(
