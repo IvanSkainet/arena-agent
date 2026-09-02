@@ -1,3 +1,7 @@
-490  # bandit LOW ceiling. Ratchet: may fall, never rise. 244 of these are
-     # B110 try_except_pass. Lower this number whenever you reduce the count.
-     # Per-test ceilings live in bandit-low-ceilings.json and must sum to this.
+630  # bandit LOW ceiling. Ratchet: may fall, never rise. 263 of these are
+     # B110 try_except_pass. Scope is arena/ + scripts/ + bin/ + skills/ --
+     # everything make_release_zip.py ships. It was arena/ only until #242,
+     # which found 7 HIGH and 22 MEDIUM across the unscanned trees. The
+     # 490 -> 630 rise is that scope change, not new debt. Lower this whenever
+     # you reduce the count. Per-test ceilings live in
+     # bandit-low-ceilings.json and must sum to this number.

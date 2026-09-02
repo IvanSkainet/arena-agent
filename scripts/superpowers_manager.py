@@ -31,7 +31,7 @@ if cmd == "sync":
         zip_url = "https://github.com/obra/superpowers/archive/refs/heads/main.zip"
         try:
             req = urllib.request.Request(zip_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req) as response:  # nosec B310 -- fixed https URL literal (obra/superpowers main branch archive)
                 zip_data = response.read()
             with zipfile.ZipFile(io.BytesIO(zip_data)) as zip_ref:
                 temp_extract = REPO_DIR.parent / "superpowers_temp"

@@ -83,7 +83,7 @@ def parse_coverage_xml(xml_path: Path) -> Dict[str, Any]:
     """
     if not xml_path.exists():
         raise FileNotFoundError(f"coverage.xml not found at {xml_path}")
-    tree = ET.parse(str(xml_path))
+    tree = ET.parse(str(xml_path))  # nosec B314 -- parses coverage.xml produced by our own pytest run; stdlib ElementTree rejects external entities (verified)
     root = tree.getroot()
     # coverage.py uses line-rate/branch-rate as fractions in [0, 1].
     line_rate = float(root.attrib.get("line-rate", "0"))

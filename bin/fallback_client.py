@@ -18,7 +18,7 @@ def parse(b):
     return (r.get('stdout','') or '') + (r.get('stderr','') or '') if r.get('ok', True) else 'ERR: '+str(r.get('error') or r)
 def ureq(url,tok,cmd):
     req=urllib.request.Request(url.rstrip()+'/v1/exec',data=payload(cmd),headers={'Authorization':'Bearer '+tok,'Content-Type':'application/json'},method='POST')
-    with urllib.request.urlopen(req,timeout=120) as r:
+    with urllib.request.urlopen(req,timeout=120) as r:  # nosec B310 -- operator-configured bridge base URL, http(s) only
         return parse(r.read())
 def reqs(url,tok,cmd):
     import requests

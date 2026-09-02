@@ -60,7 +60,7 @@ def _http_raw(method: str, path: str,
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 -- local bridge URL from operator config, http only
             raw = resp.read()
             ctype = resp.headers.get("Content-Type", "").lower()
             hdrs = {k: v for k, v in resp.headers.items()}
@@ -252,7 +252,7 @@ def smoke_apk_prepare() -> None:
         _check("bundled APK exists (SKIP)", False,
                detail="run from bridge host with /assets/apks present")
         return
-    staging = Path("/tmp/arena-apk-staging")
+    staging = Path("/tmp/arena-apk-staging")  # nosec B108 -- staging dir for a local smoke test artefact
     staging.mkdir(exist_ok=True)
     dst = staging / "smoke-adbkeyboard.apk"
     shutil.copy(src, dst)
@@ -344,7 +344,7 @@ def smoke_apk_upload() -> None:
         headers={"Authorization": f"Bearer {TOKEN}",
                  "Content-Type": "application/octet-stream"})
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:  # nosec B310 -- local bridge URL from operator config, http only
             r = json.loads(resp.read())
             status = resp.status
     except urllib.error.HTTPError as e:

@@ -65,7 +65,7 @@ jobs:
         # rejected).
         run: |
           set +e
-          bandit -r arena/ --skip B101 -f json -o bandit.json
+          bandit -r arena/ scripts/ bin/ skills/ --skip B101 -f json -o bandit.json
           scanner_rc=$?
           set -e
           python3 scripts/scanner_contract_gate.py \

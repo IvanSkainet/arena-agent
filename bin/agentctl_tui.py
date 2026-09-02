@@ -109,7 +109,7 @@ def run_shell(cmd: str) -> int:
     """Запуск команды локально с streaming-выводом."""
     t0 = time.time()
     try:
-        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,  # nosec B602 -- the tool's purpose is running the operator's own shell command
                              text=True, bufsize=1)
         # `.stdout` is Optional in the stubs (it is None when stdout was not
         # piped); asserting states the branch this call always takes instead

@@ -36,7 +36,7 @@ class Bridge:
         return json.dumps(d, ensure_ascii=False).encode()
     def health(self):
         try:
-            with urllib.request.urlopen(self.url + '/health', timeout=10) as r:
+            with urllib.request.urlopen(self.url + '/health', timeout=10) as r:  # nosec B310 -- operator-configured bridge base URL from --url/ARENA_URL, http(s) only
                 return json.loads(r.read().decode())
         except Exception:
             return self._curl('/health', None, auth=False)
@@ -48,7 +48,7 @@ class Bridge:
                 req = urllib.request.Request(self.url + '/v1/exec', data=data,
                                               headers={'Authorization': 'Bearer ' + self.token,
                                                        'Content-Type': 'application/json'}, method='POST')
-                with urllib.request.urlopen(req, timeout=timeout + 20) as r:
+                with urllib.request.urlopen(req, timeout=timeout + 20) as r:  # nosec B310 -- operator-configured bridge base URL from --url/ARENA_URL, http(s) only
                     return json.loads(r.read().decode())
             except Exception as e:
                 sys.stderr.write(f'[ai_client] urllib failed: {e}; trying curl…\n')

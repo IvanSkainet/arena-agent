@@ -68,7 +68,7 @@ def spawn(args) -> int:
         # синхронно с таймаутом
         with open(out_path, "w") as fout, open(err_path, "w") as ferr:
             try:
-                p = subprocess.run(args.cmd, shell=True, env=env, stdout=fout, stderr=ferr,
+                p = subprocess.run(args.cmd, shell=True, env=env, stdout=fout, stderr=ferr,  # nosec B602 -- subagent runs the command the operator passed on argv
                                    timeout=args.timeout, cwd=str(ROOT))
                 rc = p.returncode
                 status = "ok" if rc == 0 else "fail"
@@ -78,7 +78,7 @@ def spawn(args) -> int:
     else:
         # фоном через nohup; subagent сам пишет в свои файлы
         with open(out_path, "w") as fout, open(err_path, "w") as ferr:
-            p = subprocess.Popen(args.cmd, shell=True, env=env,
+            p = subprocess.Popen(args.cmd, shell=True, env=env,  # nosec B602 -- subagent runs the command the operator passed on argv
                                  stdout=fout, stderr=ferr, cwd=str(ROOT),
                                  start_new_session=True)
         rc = None

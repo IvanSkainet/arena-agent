@@ -38,7 +38,7 @@ def _fetch(url: str, timeout: float = 5.0) -> tuple[int, str]:
     """Return (http_status, body_or_error)."""
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "arena-recon-ip/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:  # nosec B310 -- URL comes from the hardcoded PROVIDERS list, all https
             return r.status, r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         return e.code, f"HTTP {e.code}"

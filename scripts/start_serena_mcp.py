@@ -25,7 +25,7 @@ def check_status(port: int = 8100) -> dict[str, bool | str | int]:
     url = f"http://127.0.0.1:{port}/health"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "serena-probe"})
-        with urllib.request.urlopen(req, timeout=2.0) as resp:
+        with urllib.request.urlopen(req, timeout=2.0) as resp:  # nosec B310 -- fixed local Serena MCP endpoint
             data = resp.read()
             return {"ok": True, "status": "running", "port": port, "response": data[:100].decode("utf-8", errors="replace")}
     except Exception as e:

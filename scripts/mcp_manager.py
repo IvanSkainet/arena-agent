@@ -24,7 +24,7 @@ def save_config(cfg): CONFIG.write_text(json.dumps(cfg, indent=2))
 def http_json(path, payload=None, headers=None, timeout=20):
     data = json.dumps(payload).encode() if payload is not None else None
     req=urllib.request.Request(STREAM+path, data=data, headers={'Content-Type':'application/json','Accept':'application/json, text/event-stream', **(headers or {})}, method='POST' if payload is not None else 'GET')
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with urllib.request.urlopen(req, timeout=timeout) as r:  # nosec B310 -- local bridge MCP stream endpoint from operator config
         return r.status, dict(r.headers), r.read().decode('utf-8','replace')
 async def run_mcp_client(server_name, action, tool_name=None, tool_args=None):
     from mcp.client.stdio import stdio_client
@@ -65,7 +65,7 @@ def stream_call(name, args='{}'):
     print(b)
 def stream_sse_probe():
     req=urllib.request.Request(STREAM+'/mcp', headers={'Accept':'text/event-stream'})
-    with urllib.request.urlopen(req, timeout=5) as r:
+    with urllib.request.urlopen(req, timeout=5) as r:  # nosec B310 -- local bridge MCP stream endpoint from operator config
         data=r.read(400).decode('utf-8','replace')
         print(data)
 def run():

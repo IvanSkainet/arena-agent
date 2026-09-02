@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -60,13 +61,31 @@ def _post_mcp(payload: dict, timeout: int = 60) -> dict:
     req = urllib.request.Request(MCP_URL, data=json.dumps(payload).encode(),
                                   headers={"Content-Type": "application/json",
                                            "Authorization": f"Bearer {TOKEN}"}, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with urllib.request.urlopen(req, timeout=timeout) as r:  # nosec B310 -- operator-configured bridge base URL, http(s) only
         return json.loads(r.read().decode())
 
 
 def _run_shell(cmd: str, timeout: int = 60) -> dict:
+    """Run one whitelisted command, without a shell.
+
+    This used to pass shell=True. The layered defence made that safe in
+    practice -- fail-closed auth, a prefix whitelist, and a rejection of
+    every shell metacharacter (`; & | $ ` < > \n \r`), so no argument
+    reaching here can start a second command. CodeQL still flagged it
+    critical (py/command-line-injection), and it was right to: the
+    guarantee lived in a validator three functions away, and anyone
+    loosening SHELL_CONTROL_CHARS would silently re-open a shell.
+
+    shlex.split() removes the interpreter instead of arguing about it.
+    The whitelist already requires exactly one command, so there is no
+    shell syntax left to lose -- and the finding disappears because the
+    hazard does, not because it was suppressed.
+    """
     try:
-        p = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+        argv = shlex.split(cmd)
+        if not argv:
+            return {"ok": False, "exit": -2, "stdout": "", "stderr": "empty command"}
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
         return {"ok": p.returncode == 0, "exit": p.returncode,
                 "stdout": p.stdout[-20000:], "stderr": p.stderr[-3000:]}
     except subprocess.TimeoutExpired:
