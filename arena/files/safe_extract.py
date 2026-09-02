@@ -232,11 +232,21 @@ def safe_extract_tar(
       right and needs the same traversal check as ``name``; checking
       only the member name leaves the hole half-open.
 
-    ``filter="data"`` (PEP 706) covers much of this on Python 3.12+,
-    but the floor here is 3.10 (``requires-python = ">=3.10"``), where
-    the argument does not exist. Explicit validation works on every
-    supported version and, unlike the filter, fails loudly with the
-    offending member named.
+    Version behaviour, measured rather than assumed:
+
+    * **3.10-3.13** -- ``extractall()`` does not filter. The escape is
+      live. Verified on 3.13: a ``../`` member landed outside the
+      destination.
+    * **3.14+** -- PEP 706 makes ``filter="data"`` the default, so the
+      stdlib already refuses it. Verified on the operator's 3.14 host:
+      master's unpatched code declined the same archive.
+
+    So this helper is what protects four of the five interpreters the
+    project supports (``requires-python = ">=3.10"``), and on 3.14 it
+    duplicates a stdlib guarantee. It is still worth being explicit: the
+    floor is not moving to 3.14 soon, and an explicit check fails loudly
+    with the offending member named rather than raising a generic filter
+    error.
 
     Raises ``UnsafeArchiveError`` on rejection. Does NOT roll back
     partial writes -- pass a destination you are prepared to delete.
