@@ -8,6 +8,14 @@ import glob
 import os
 import sys
 import tarfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from arena.files.safe_extract import (  # noqa: E402
+    UnsafeArchiveError,
+    safe_extract_tar,
+)
 
 CACHE_DIR = os.path.expanduser("~/.arena-snapshots")
 
@@ -64,12 +72,25 @@ def rollback(cwd: str, index: int = 0):
     print(f"Rolling back to {arc_name}...")
 
     try:
-        # Dangerous operation: usually requires care. We'll extract over existing files.
-        with tarfile.open(arc_name, "r:gz") as tar:
-            tar.extractall(path=cwd)
+        # Extracts over existing files, so a hostile archive here would
+        # be writing into a live working tree. safe_extract_tar refuses
+        # members that escape `cwd`, link members, and device nodes.
+        #
+        # A bare tar.extractall() used to sit here. It is not merely
+        # theoretical: a snapshot containing `../../escaped.txt` wrote
+        # outside the target directory on this repo (#242). Snapshots
+        # are usually self-produced, but ~/.arena-snapshots is an
+        # ordinary user-writable directory and rollback picks whatever
+        # file sorts first.
+        safe_extract_tar(arc_name, cwd)
         print("Rollback complete.")
+    except UnsafeArchiveError as e:
+        print(f"Rollback refused: {e}")
+        return False
     except Exception as e:
         print(f"Rollback failed: {e}")
+        return False
+    return True
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
