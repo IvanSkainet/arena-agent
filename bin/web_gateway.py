@@ -60,13 +60,13 @@ def _post_mcp(payload: dict, timeout: int = 60) -> dict:
     req = urllib.request.Request(MCP_URL, data=json.dumps(payload).encode(),
                                   headers={"Content-Type": "application/json",
                                            "Authorization": f"Bearer {TOKEN}"}, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with urllib.request.urlopen(req, timeout=timeout) as r:  # nosec B310 -- operator-configured bridge base URL, http(s) only
         return json.loads(r.read().decode())
 
 
 def _run_shell(cmd: str, timeout: int = 60) -> dict:
     try:
-        p = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)  # nosec B602 -- gateway executes the operator's own shell command; auth is upstream
         return {"ok": p.returncode == 0, "exit": p.returncode,
                 "stdout": p.stdout[-20000:], "stderr": p.stderr[-3000:]}
     except subprocess.TimeoutExpired:

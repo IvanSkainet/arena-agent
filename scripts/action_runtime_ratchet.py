@@ -64,7 +64,7 @@ def load_manifest() -> dict[str, str]:
 
 def _get(url: str) -> str | None:
     try:
-        with urllib.request.urlopen(url, timeout=30) as resp:  # noqa: S310
+        with urllib.request.urlopen(url, timeout=30) as resp:  # noqa: S310  # nosec B310 -- fixed api.github.com endpoint for action metadata
             return resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError:
         return None

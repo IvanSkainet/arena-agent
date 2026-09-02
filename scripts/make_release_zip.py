@@ -277,7 +277,7 @@ def release_provenance(version: str) -> bytes:
 
 def main(argv: list[str]) -> int:
     version = argv[1] if len(argv) > 1 else detect_version()
-    out = Path(argv[2]) if len(argv) > 2 else Path(f"/tmp/arena-agent-v{version}.zip")
+    out = Path(argv[2]) if len(argv) > 2 else Path(f"/tmp/arena-agent-v{version}.zip")  # nosec B108 -- default output path only; overridable via argv[2]
 
     stray = [f for f in untracked_files() if not should_exclude(f)]
     if stray and "--allow-untracked" not in argv:

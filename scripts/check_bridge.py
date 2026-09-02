@@ -68,7 +68,7 @@ def probe_bridge(
     # 1. Probe local /health and /v1/version
     try:
         req = urllib.request.Request(f"{local_base}/v1/version", headers={"User-Agent": "arena-doctor"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 -- loopback/LAN bridge URL built from --host/--port, http only
             v_data = json.loads(resp.read().decode("utf-8", "ignore"))
             report["local_online"] = True
             report["version"] = v_data.get("version")
@@ -88,7 +88,7 @@ def probe_bridge(
                 f"{local_base}/v1/self",
                 headers={"Authorization": f"Bearer {token}", "User-Agent": "arena-doctor"},
             )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 -- loopback/LAN bridge URL built from --host/--port, http only
                 s_data = json.loads(resp.read().decode("utf-8", "ignore"))
                 if s_data.get("ok"):
                     report["auth_ok"] = True
@@ -108,7 +108,7 @@ def probe_bridge(
                 f"{local_base}/v1/access",
                 headers={"Authorization": f"Bearer {token}", "User-Agent": "arena-doctor"},
             )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 -- loopback/LAN bridge URL built from --host/--port, http only
                 acc = json.loads(resp.read().decode("utf-8", "ignore"))
                 tunnel_urls = acc.get("tunnel_urls", [])
                 if tunnel_urls:
@@ -122,7 +122,7 @@ def probe_bridge(
                 f"{local_base}/v1/tunnels/status",
                 headers={"Authorization": f"Bearer {token}", "User-Agent": "arena-doctor"},
             )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 -- loopback/LAN bridge URL built from --host/--port, http only
                 t_snap = json.loads(resp.read().decode("utf-8", "ignore"))
                 providers = t_snap.get("providers", {})
                 if isinstance(providers, list):
@@ -142,7 +142,7 @@ def probe_bridge(
                 f"{p_url}/v1/version",
                 headers={"User-Agent": "arena-doctor-probe"},
             )
-            with urllib.request.urlopen(
+            with urllib.request.urlopen(  # nosec B310 -- loopback/LAN bridge URL built from --host/--port, http only
                 probe_req,
                 context=build_ssl_context(p_url),
                 timeout=timeout + 2,

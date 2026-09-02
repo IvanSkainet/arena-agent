@@ -81,7 +81,7 @@ TIMEOUT_S = 60
 
 def _fetch(url: str) -> dict:
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
-    with urllib.request.urlopen(request, timeout=TIMEOUT_S) as response:
+    with urllib.request.urlopen(request, timeout=TIMEOUT_S) as response:  # nosec B310 -- fixed pypi.org JSON API endpoint
         return json.load(response)
 
 

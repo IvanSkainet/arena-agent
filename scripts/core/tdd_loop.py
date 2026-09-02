@@ -7,7 +7,6 @@ Automates the TDD cycle:
 3. Stubs implementation
 4. Prompts agent (simulated here for framework) to fix it.
 """
-import os
 import subprocess
 import sys
 import time
@@ -82,6 +81,13 @@ if __name__ == "__main__":
         import pytest  # noqa: F401  # presence check: the except below installs it
     except ImportError:
         print("Installing pytest for TDD Loop...")
-        os.system(sys.executable + " -m pip install -q pytest")
+        # argv form, not os.system(). Concatenating sys.executable into a
+        # shell string breaks on any interpreter path containing a space:
+        # `C:\Program Files\Python310\python.exe -m pip ...` is parsed by
+        # the shell as the command `C:\Program`. That is the default layout
+        # on Windows, so the "helpful" auto-install silently failed exactly
+        # where a user is least able to diagnose it (B605, #242).
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "pytest"],
+                       check=False)
 
     run_tdd(sys.argv[1])
