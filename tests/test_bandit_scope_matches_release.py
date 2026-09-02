@@ -15,7 +15,9 @@ These tests pin the scope itself.
 """
 from __future__ import annotations
 
+import importlib.util
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -24,10 +26,35 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "security-scan.yml"
 
-# The Python trees shipped by scripts/make_release_zip.py. Kept explicit
-# rather than derived: deriving it from the same source the gate reads
-# would make both wrong together.
-SHIPPED_PYTHON_TREES = ("arena", "scripts", "bin")
+def _shipped_python_trees() -> set[str]:
+    """Top-level trees containing Python that the release actually ships.
+
+    Derived from `make_release_zip.should_exclude`, not hand-listed.
+    Review on #244 was right that a second manual list drifts: mine said
+    `arena, scripts, bin`, and asking the release script turned up
+    `skills/` too -- 20 LOW and 1 MEDIUM that nothing had ever scanned.
+
+    This is not circular. The release script decides what ships; the
+    workflow decides what is scanned; this compares the two. Both would
+    have to break in the same direction for the check to pass wrongly.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "make_release_zip", REPO_ROOT / "scripts" / "make_release_zip.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=REPO_ROOT,
+        capture_output=True, text=True, check=True, timeout=120).stdout
+    trees = set()
+    for rel in tracked.splitlines():
+        if not rel.endswith(".py") or "/" not in rel:
+            continue
+        if module.should_exclude(rel):
+            continue
+        trees.add(rel.split("/")[0])
+    return trees
 
 
 def _bandit_command() -> str:
@@ -42,15 +69,35 @@ def _bandit_command() -> str:
 
 
 def _scanned_targets(command: str) -> set[str]:
+    """Trees bandit is pointed at, minus anything it is told to exclude.
+
+    Subtracting the exclusions is not pedantry: `bandit -r arena/ scripts/
+    bin/ --exclude bin/` names every shipped tree while scanning two of
+    them. Parsing only the positional targets would call that compliant,
+    which is the same "looks covered, isn't" failure as #242 itself.
+    (Raised in review on #244.)
+    """
     match = re.search(r"bandit -r ([^\n|]+?)(?:--|\n|$)", command)
     assert match, f"could not parse bandit targets from: {command!r}"
-    return {t.strip().rstrip("/") for t in match.group(1).split() if t.strip()}
+    targets = {t.strip().rstrip("/") for t in match.group(1).split() if t.strip()}
+    return targets - _excluded_paths(command)
+
+
+def _excluded_paths(command: str) -> set[str]:
+    """Paths removed from the scan via --exclude / -x."""
+    excluded: set[str] = set()
+    for match in re.finditer(r"(?:--exclude|-x)[ =]([^\s\\]+)", command):
+        for part in match.group(1).split(","):
+            part = part.strip().rstrip("/").lstrip("./")
+            if part:
+                excluded.add(part)
+    return excluded
 
 
 def test_bandit_scans_every_shipped_python_tree():
     """The gate's promise is only as wide as its scan."""
     scanned = _scanned_targets(_bandit_command())
-    missing = sorted(set(SHIPPED_PYTHON_TREES) - scanned)
+    missing = sorted(set(_shipped_python_trees()) - scanned)
     assert not missing, (
         f"bandit does not scan {missing}, but make_release_zip.py ships "
         f"them. A gate advertising '0 HIGH / 0 MEDIUM' must look at "
@@ -60,9 +107,9 @@ def test_bandit_scans_every_shipped_python_tree():
 
 def test_the_shipped_trees_exist_and_contain_python():
     """A tree that vanished would make the check above vacuous."""
-    for tree in SHIPPED_PYTHON_TREES:
+    for tree in _shipped_python_trees():
         path = REPO_ROOT / tree
-        assert path.is_dir(), f"{tree}/ is missing; update SHIPPED_PYTHON_TREES"
+        assert path.is_dir(), f"{tree}/ is missing; update _shipped_python_trees()"
         assert any(path.rglob("*.py")), f"{tree}/ contains no Python to scan"
 
 
@@ -74,13 +121,38 @@ def test_the_scope_gate_rejects_a_narrowed_scan():
     already wrong.
     """
     narrowed = _scanned_targets("bandit -r arena/ --skip B101 -f json")
-    assert sorted(set(SHIPPED_PYTHON_TREES) - narrowed) == ["bin", "scripts"]
+    missing = set(_shipped_python_trees()) - narrowed
+    assert missing, "narrowing to arena/ must leave shipped trees unscanned"
+    assert "arena" not in missing
+
+
+def test_an_exclude_cannot_smuggle_a_shipped_tree_out_of_the_scan():
+    """`--exclude bin/` must not read as "bin/ is scanned".
+
+    Verified against the real behaviour: bandit supports --exclude, so a
+    command naming all three trees can still skip one. Before this, the
+    gate parsed positional targets only and passed such a command.
+    """
+    smuggled = _scanned_targets(
+        "bandit -r arena/ scripts/ bin/ --exclude bin/ --skip B101")
+    assert "bin" not in smuggled
+    assert "bin" in set(_shipped_python_trees()) - smuggled
+
+
+def test_exclude_parsing_handles_the_forms_bandit_accepts():
+    """-x, --exclude, `=` form, and comma-separated lists."""
+    for variant in ("-x bin/", "--exclude bin/", "--exclude=bin/",
+                    "--exclude scripts/,bin/"):
+        cmd = f"bandit -r arena/ scripts/ bin/ {variant} --skip B101"
+        assert "bin" not in _scanned_targets(cmd), variant
 
 
 def test_the_scope_gate_accepts_the_full_scan():
     """And must not cry wolf on a correct invocation."""
-    full = _scanned_targets("bandit -r arena/ scripts/ bin/ --skip B101 -f json")
-    assert not set(SHIPPED_PYTHON_TREES) - full
+    trees = sorted(_shipped_python_trees())
+    full = _scanned_targets(
+        "bandit -r " + " ".join(f"{t}/" for t in trees) + " --skip B101 -f json")
+    assert not set(trees) - full
 
 
 @pytest.mark.parametrize("ceiling_file", [

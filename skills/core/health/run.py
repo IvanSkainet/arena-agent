@@ -21,7 +21,7 @@ def add(ok: bool, name: str, detail: str = "", *, critical: bool = True) -> None
 
 def check_http() -> None:
     try:
-        with urllib.request.urlopen("http://127.0.0.1:8765/health", timeout=3) as r:
+        with urllib.request.urlopen("http://127.0.0.1:8765/health", timeout=3) as r:  # nosec B310 -- hardcoded loopback health endpoint
             add(r.status == 200, "bridge_http", f"HTTP {r.status}")
     except Exception as e:
         add(False, "bridge_http", f"{type(e).__name__}: {e}")
