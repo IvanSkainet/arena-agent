@@ -23,6 +23,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests._git_budget import git_timeout
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "security-scan.yml"
 
@@ -46,7 +48,8 @@ def _shipped_python_trees() -> set[str]:
 
     tracked = subprocess.run(
         ["git", "ls-files"], cwd=REPO_ROOT,
-        capture_output=True, text=True, check=True, timeout=120).stdout
+        capture_output=True, text=True, check=True,
+        timeout=git_timeout()).stdout
     trees = set()
     for rel in tracked.splitlines():
         if not rel.endswith(".py") or "/" not in rel:

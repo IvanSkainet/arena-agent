@@ -33,6 +33,9 @@ GIT_MODULES = (
     "test_gitleaks_allowlist_v4_169_42.py",
     "test_failopen_ratchet.py",
     "test_mutation_sweep_fails_closed.py",
+    # Asks git which files are tracked, to derive the trees the release
+    # ships and compare them with what bandit scans (#242/#244).
+    "test_bandit_scope_matches_release.py",
 )
 
 # Modules that invoke git without any timeout at all. Listed rather than
