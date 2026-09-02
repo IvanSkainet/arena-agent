@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+import arena.files.safe_extract as safe_extract_module
 from arena.files.safe_extract import (
     TarLimits,
     UnsafeArchiveError,
@@ -348,20 +349,28 @@ def test_tar_member_cap_fires_before_exhausting_the_archive(tmp_path):
     )
 
 
-def test_tar_resolve_check_catches_a_write_through_a_planted_symlink(tmp_path):
-    """The second pass must be load-bearing, not decoration.
+def test_tar_resolve_check_is_load_bearing_on_the_supported_floor(
+        tmp_path, monkeypatch):
+    """resolve() is the only guard on 3.10/3.11, so test it there.
 
-    Sabotage exposed this: disabling the resolve() check left the suite
-    green, because every crafted *name* is already rejected in the first
-    pass. So the second pass had no test at all.
+    Sabotage kept passing with the check disabled, and the honest reason
+    is that on 3.12+ ``filter="data"`` catches this case first. That
+    makes resolve() redundant on a modern interpreter -- but not on the
+    floor this project declares (``requires-python = ">=3.10"``), where
+    the filter argument does not exist.
 
-    The case it exists for uses an innocent member name. If the
-    destination already contains a symlinked subdirectory pointing
-    elsewhere -- planted by an earlier run, a shared build directory, or
-    a previous archive -- then `sub/file.txt` writes outside `dest` while
-    passing every string check. Only comparing the *resolved* target can
-    see it.
+    So the coverage has to name the condition. Emulating the floor by
+    dropping the PEP 706 kwargs, and measured both ways:
+
+        floor + resolve()      -> refused
+        floor, resolve removed -> ESCAPED
+
+    Without this, the check has no test that fails when it is deleted,
+    and the next person to tidy it up would be removing the only
+    protection four of the five supported interpreters have.
     """
+    monkeypatch.setattr(safe_extract_module, "_pep706_kwargs", dict)
+
     outside = tmp_path / "outside"
     outside.mkdir()
     dest = tmp_path / "dest"
@@ -377,6 +386,18 @@ def test_tar_resolve_check_catches_a_write_through_a_planted_symlink(tmp_path):
     assert not (outside / "file.txt").exists(), (
         "a member escaped through a pre-existing symlink in the destination"
     )
+
+
+def test_pep706_filter_is_applied_where_available():
+    """Defence in depth must actually be in place on 3.12+."""
+    import sys as _sys
+    kwargs = safe_extract_module._pep706_kwargs()
+    if _sys.version_info >= (3, 12):
+        assert kwargs == {"filter": "data"}, (
+            "PEP 706 filtering is available but not being requested"
+        )
+    else:
+        assert kwargs == {}, "filter= is not accepted before 3.12"
 
 
 def test_time_machine_uses_the_safe_helper():
