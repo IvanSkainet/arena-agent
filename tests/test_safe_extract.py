@@ -15,6 +15,7 @@ Covers CVE-2007-4559 / PEP 706 concerns for zip:
 """
 from __future__ import annotations
 
+import inspect
 import io
 import tarfile
 import zipfile
@@ -369,7 +370,12 @@ def test_tar_resolve_check_is_load_bearing_on_the_supported_floor(
     and the next person to tidy it up would be removing the only
     protection four of the five supported interpreters have.
     """
-    monkeypatch.setattr(safe_extract_module, "_pep706_kwargs", dict)
+    # Emulate the 3.10/3.11 floor: extract without PEP 706 filtering, so
+    # resolve() is the only guard left standing.
+    def _unfiltered(tf, member, dest):
+        tf.extract(member, dest)
+
+    monkeypatch.setattr(safe_extract_module, "_extract_one", _unfiltered)
 
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -388,16 +394,25 @@ def test_tar_resolve_check_is_load_bearing_on_the_supported_floor(
     )
 
 
-def test_pep706_filter_is_applied_where_available():
-    """Defence in depth must actually be in place on 3.12+."""
+def test_pep706_filter_is_requested_where_available():
+    """Defence in depth must actually be in place on 3.12+.
+
+    Reads the source rather than the call, because the filter is passed
+    through a getattr() indirection that exists to satisfy two analysers
+    (see _extract_one). An assertion on behaviour would not distinguish
+    "filtered" from "our checks happened to catch it first".
+    """
     import sys as _sys
-    kwargs = safe_extract_module._pep706_kwargs()
+
+    source = inspect.getsource(safe_extract_module._extract_one)
+    assert 'filter="data"' in source, (
+        "PEP 706 filtering is no longer requested"
+    )
+    assert "sys.version_info >= (3, 12)" in source, (
+        "the version guard is gone; filter= does not exist on the 3.10 floor"
+    )
     if _sys.version_info >= (3, 12):
-        assert kwargs == {"filter": "data"}, (
-            "PEP 706 filtering is available but not being requested"
-        )
-    else:
-        assert kwargs == {}, "filter= is not accepted before 3.12"
+        assert "extract(member, dest, filter=" in source
 
 
 def test_time_machine_uses_the_safe_helper():

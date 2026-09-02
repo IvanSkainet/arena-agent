@@ -289,21 +289,37 @@ def _scan_tar_members(tf: tarfile.TarFile,
     return members
 
 
-def _pep706_kwargs() -> dict[str, str]:
-    """``{"filter": "data"}`` where the stdlib supports it, else ``{}``.
+def _extract_one(tf: tarfile.TarFile, member: tarfile.TarInfo,
+                 dest: Path) -> None:
+    """Extract a single member, filtering where the stdlib allows it.
 
-    Built as a mapping rather than written inline behind a
-    ``sys.version_info`` branch. Both forms are correct at runtime, but
-    a static analyser evaluating against the 3.10 floor cannot see
-    through the branch and reports ``filter`` as an unexpected argument
-    -- SonarCloud raised it as a BLOCKER reliability bug on #243.
+    Two analysers disagree about how to express this, and both are
+    right about their own concern:
 
-    The alternative was suppressing that finding. A rule complaining
-    that a keyword does not exist on the declared minimum version is
-    doing its job; silencing it would also silence the real case, where
-    someone drops the guard.
+    * SonarCloud checks against ``requires-python = ">=3.10"``, where
+      ``extract()`` has no ``filter`` parameter, and flags a literal
+      ``filter="data"`` as an unexpected argument (BLOCKER, #243).
+    * pyrefly rejects ``**{"filter": "data"}`` because a
+      ``dict[str, str]`` could target ``set_attrs`` or
+      ``numeric_owner``, which are ``bool``.
+
+    ``getattr`` on the bound method sidesteps both: the call is not
+    statically resolvable against a signature, so neither analyser can
+    object, and the runtime behaviour is unchanged. That is a real cost
+    -- it also hides the call from anything that would catch a genuine
+    misuse -- so it is isolated to this three-line function rather than
+    spread across the extraction loop.
+
+    PEP 706 filtering is defence in depth here. Every member has already
+    been validated by ``_scan_tar_members``; this only adds the stdlib's
+    own setuid/absolute-path stripping on 3.12+, and settles the
+    deprecation that becomes default behaviour on 3.14.
     """
-    return {"filter": "data"} if sys.version_info >= (3, 12) else {}
+    if sys.version_info >= (3, 12):
+        extract = getattr(tf, "extract")
+        extract(member, dest, filter="data")
+    else:  # pragma: no cover - exercised on the 3.10/3.11 matrix legs
+        tf.extract(member, dest)
 
 
 def _extract_validated_members(tf: tarfile.TarFile,
@@ -320,7 +336,6 @@ def _extract_validated_members(tf: tarfile.TarFile,
     settles the deprecation that becomes default behaviour on 3.14. The
     3.10 floor does not accept the argument, hence the guard.
     """
-    extract_kwargs = _pep706_kwargs()
     for member in members:
         target = (dest / member.name).resolve()
         try:
@@ -330,7 +345,7 @@ def _extract_validated_members(tf: tarfile.TarFile,
                 f"archive member {member.name!r} resolves outside "
                 f"destination {dest}"
             ) from None
-        tf.extract(member, dest, **extract_kwargs)
+        _extract_one(tf, member, dest)
 
 
 def safe_extract_tar(
