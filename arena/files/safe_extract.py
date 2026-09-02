@@ -41,10 +41,13 @@ project-wide answer.
 Public API::
 
     safe_extract_zip(zip_path, dest_dir, *, max_uncompressed_bytes=...)
+    safe_extract_tar(tar_path, dest_dir, *, max_uncompressed_bytes=...)
     read_zip_member_safe(zf, member_name, *, max_bytes=...)
 """
 from __future__ import annotations
 
+import sys
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -193,6 +196,110 @@ def safe_extract_zip(
                     f"outside destination {dest}"
                 )
             zf.extract(info, dest)
+
+
+def safe_extract_tar(
+    tar_path: Path | str,
+    dest_dir: Path | str,
+    *,
+    max_uncompressed_bytes: int = DEFAULT_MAX_UNCOMPRESSED,
+    max_member_bytes: int = DEFAULT_MAX_MEMBER,
+) -> None:
+    """Extract a tar archive safely, rejecting escapes and bombs.
+
+    The tar half of this module's promise. The docstring above has
+    claimed since v4.42.2 that this file is "the project-wide answer"
+    to CVE-2007-4559, but only the zip path existed -- so
+    ``scripts/core/time_machine.py`` reached for a bare
+    ``tar.extractall()`` and could be made to write anywhere the
+    process could reach (#242, demonstrated: a member named
+    ``../../escaped.txt`` landed outside the destination).
+
+    Member-name validation is shared with the zip path
+    (``_member_is_traversal``), because the attack is identical and two
+    copies of a security check drift.
+
+    Tar carries three risks zip does not:
+
+    * **Symlink and hardlink members.** Tar stores them natively. A
+      symlink to ``/etc`` followed by a write through it plants a file
+      anywhere. Hardlinks can alias a file outside the destination.
+      Both are refused rather than resolved -- a rollback archive of a
+      source tree has no legitimate need for either.
+    * **Device and FIFO members.** Never legitimate in an archive this
+      project produces, and creating them is a privileged side effect.
+    * **Link targets that escape.** ``linkname`` is a path in its own
+      right and needs the same traversal check as ``name``; checking
+      only the member name leaves the hole half-open.
+
+    ``filter="data"`` (PEP 706) covers much of this on Python 3.12+,
+    but the floor here is 3.10 (``requires-python = ">=3.10"``), where
+    the argument does not exist. Explicit validation works on every
+    supported version and, unlike the filter, fails loudly with the
+    offending member named.
+
+    Raises ``UnsafeArchiveError`` on rejection. Does NOT roll back
+    partial writes -- pass a destination you are prepared to delete.
+    """
+    dest = Path(dest_dir).resolve()
+    dest.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(tar_path) as tf:
+        members = tf.getmembers()
+        # First pass: reject the whole archive before writing a byte,
+        # so a hostile member cannot take effect through the mkdir
+        # side effects of a partial extraction.
+        total_size = 0
+        for member in members:
+            if _member_is_traversal(member.name):
+                raise UnsafeArchiveError(
+                    f"archive contains path-traversal member: "
+                    f"{member.name!r}"
+                )
+            if member.issym() or member.islnk():
+                raise UnsafeArchiveError(
+                    f"archive contains a link member: {member.name!r} "
+                    f"-> {member.linkname!r}"
+                )
+            if member.isdev() or member.isfifo():
+                raise UnsafeArchiveError(
+                    f"archive contains a device/FIFO member: "
+                    f"{member.name!r}"
+                )
+            if member.size > max_member_bytes:
+                raise UnsafeArchiveError(
+                    f"archive member {member.name!r} declares "
+                    f"{member.size} bytes, exceeding per-member cap "
+                    f"of {max_member_bytes}"
+                )
+            total_size += member.size
+            if total_size > max_uncompressed_bytes:
+                raise UnsafeArchiveError(
+                    f"archive declares {total_size} uncompressed "
+                    f"bytes, exceeding cap of {max_uncompressed_bytes}"
+                )
+        # Second pass: resolve() is ground truth, for the same reason
+        # as the zip path -- case-insensitive filesystems and unicode
+        # normalisation can defeat a pure string check.
+        for member in members:
+            target = (dest / member.name).resolve()
+            try:
+                target.relative_to(dest)
+            except ValueError:
+                raise UnsafeArchiveError(
+                    f"archive member {member.name!r} resolves "
+                    f"outside destination {dest}"
+                ) from None
+            # filter="data" is PEP 706's own hardening: it strips setuid
+            # bits, absolute paths and links. Our checks above already
+            # rejected those, so this is defence in depth rather than the
+            # primary control -- and it silences the 3.12+ deprecation
+            # that becomes the default in 3.14, where an unfiltered
+            # extract starts behaving differently. Not available on the
+            # 3.10 floor, hence the guard.
+            if sys.version_info >= (3, 12):
+                tf.extract(member, dest, filter="data")
+            else:
+                tf.extract(member, dest)
 
 
 def read_zip_member_safe(
