@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 from arena.files.safe_extract import (
+    TarLimits,
     UnsafeArchiveError,
     read_zip_member_safe,
     safe_extract_tar,
@@ -275,14 +276,14 @@ def test_tar_device_member_rejected(tmp_path):
 def test_tar_per_member_size_cap(tmp_path):
     src = _make_tar(tmp_path / "big.tar.gz", [("f", "x" * 4096)])
     with pytest.raises(UnsafeArchiveError, match="per-member cap"):
-        safe_extract_tar(src, tmp_path / "out", max_member_bytes=100)
+        safe_extract_tar(src, tmp_path / "out", limits=TarLimits(max_member_bytes=100))
 
 
 def test_tar_total_size_cap(tmp_path):
     src = _make_tar(tmp_path / "many.tar.gz",
                     [(f"f{i}", "x" * 500) for i in range(10)])
     with pytest.raises(UnsafeArchiveError, match="exceeding cap"):
-        safe_extract_tar(src, tmp_path / "out", max_uncompressed_bytes=1000)
+        safe_extract_tar(src, tmp_path / "out", limits=TarLimits(max_uncompressed_bytes=1000))
 
 
 def test_tar_rejection_is_atomic_no_partial_write(tmp_path):
@@ -314,7 +315,7 @@ def test_tar_member_count_cap(tmp_path):
     src = _make_tar(tmp_path / "many.tar.gz",
                     [(f"f{i}", "") for i in range(50)])
     with pytest.raises(UnsafeArchiveError, match="more than 10 members"):
-        safe_extract_tar(src, tmp_path / "out", max_members=10)
+        safe_extract_tar(src, tmp_path / "out", limits=TarLimits(max_members=10))
 
 
 def test_tar_member_cap_fires_before_exhausting_the_archive(tmp_path):
@@ -338,12 +339,43 @@ def test_tar_member_cap_fires_before_exhausting_the_archive(tmp_path):
         tf.__class__.next = counting_next
         try:
             with pytest.raises(UnsafeArchiveError):
-                safe_extract_tar(src, tmp_path / "out", max_members=5)
+                safe_extract_tar(src, tmp_path / "out", limits=TarLimits(max_members=5))
         finally:
             tf.__class__.next = original
     assert len(seen) < 200, (
         f"enumerated {len(seen)} members despite a cap of 5; the cap "
         f"is not stopping the scan"
+    )
+
+
+def test_tar_resolve_check_catches_a_write_through_a_planted_symlink(tmp_path):
+    """The second pass must be load-bearing, not decoration.
+
+    Sabotage exposed this: disabling the resolve() check left the suite
+    green, because every crafted *name* is already rejected in the first
+    pass. So the second pass had no test at all.
+
+    The case it exists for uses an innocent member name. If the
+    destination already contains a symlinked subdirectory pointing
+    elsewhere -- planted by an earlier run, a shared build directory, or
+    a previous archive -- then `sub/file.txt` writes outside `dest` while
+    passing every string check. Only comparing the *resolved* target can
+    see it.
+    """
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    try:
+        (dest / "sub").symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):  # pragma: no cover
+        pytest.skip("symlink creation not permitted here")
+
+    src = _make_tar(tmp_path / "innocent.tar.gz", [("sub/file.txt", "pwned")])
+    with pytest.raises(UnsafeArchiveError, match="resolves outside"):
+        safe_extract_tar(src, dest)
+    assert not (outside / "file.txt").exists(), (
+        "a member escaped through a pre-existing symlink in the destination"
     )
 
 
