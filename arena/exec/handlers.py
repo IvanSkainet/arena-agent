@@ -50,6 +50,8 @@ from arena.exec.interpreters import (
     _quote_path,
     _resolve_interpreter,
     _which_interpreter,
+    interpreter_command,
+    interpreter_runs_here,
 )
 from arena.exec.runner import run_shell_command_stream
 from arena.handler_context import ExecHandlerContext
@@ -228,22 +230,20 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             )
         interp_key, interp_cfg = resolved
 
-        # Refuse to run a Unix-only interpreter on Windows and vice-versa
-        # so a clear 400 comes back instead of a mysterious shell error.
-        if os.name == "nt" and interp_cfg["unix"]:
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(
-                ctx, f"interpreter {interp_key!r} not available on Windows",
-                status=400, request_id=request_id,
-            )
-        if os.name != "nt" and not interp_cfg["unix"]:
+        # Refuse a shell the OS genuinely cannot run, so a clear 400 comes
+        # back instead of a mysterious shell error. Interpreters that exist
+        # on both platforms (python, node, pwsh) fall through to the PATH
+        # check below, which is the honest test of availability -- the
+        # table used to claim python was Unix-only and refused it on
+        # Windows machines that had it installed (#247).
+        if not interpreter_runs_here(interp_cfg):
             ctx.record_request(is_error=True, count_request=False)
             return err_json(
                 ctx, f"interpreter {interp_key!r} not available on this OS",
                 status=400, request_id=request_id,
             )
 
-        if not _which_interpreter(str(interp_cfg["cmd"])):
+        if not _which_interpreter(interpreter_command(interp_cfg)):
             ctx.record_request(is_error=True, count_request=False)
             return err_json(
                 ctx, f"interpreter {interp_key!r} not installed / not on PATH",
@@ -317,7 +317,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             # split the path into two shell words --
             # `bash: /tmp/root: No such file or directory` for any root
             # like `C:\Users\Ivan Petrov`. See _quote_path.
-            full_cmd = str(interp_cfg["cmd"]).format(path=_quote_path(tmp_path))
+            full_cmd = interpreter_command(interp_cfg).format(path=_quote_path(tmp_path))
 
             # Same blocklist that /v1/exec uses — but applied to the
             # interpreter cmdline, not the script body. Script bodies

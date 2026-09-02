@@ -21,13 +21,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import arena.exec.interpreters as interp  # noqa: E402
 
 EXPECTED_INTERPRETERS = {
-    "bash": {"cmd": "bash -euo pipefail {path}", "suffix": ".sh", "unix": True},
-    "sh": {"cmd": "sh -eu {path}", "suffix": ".sh", "unix": True},
-    "python": {"cmd": "python3 {path}", "suffix": ".py", "unix": True},
-    "python3": {"cmd": "python3 {path}", "suffix": ".py", "unix": True},
-    "node": {"cmd": "node {path}", "suffix": ".js", "unix": True},
-    "pwsh": {"cmd": "pwsh -NoProfile -File {path}", "suffix": ".ps1", "unix": False},
-    "powershell": {"cmd": "powershell -NoProfile -File {path}", "suffix": ".ps1", "unix": False},
+    "bash": {"cmd": "bash -euo pipefail {path}", "suffix": ".sh", "platform": "unix"},
+    "sh": {"cmd": "sh -eu {path}", "suffix": ".sh", "platform": "unix"},
+    "python": {"cmd": "python3 {path}", "suffix": ".py", "platform": "any",
+               "cmd_win": "python {path}"},
+    "python3": {"cmd": "python3 {path}", "suffix": ".py", "platform": "any",
+                "cmd_win": "python {path}"},
+    "node": {"cmd": "node {path}", "suffix": ".js", "platform": "any"},
+    "pwsh": {"cmd": "pwsh -NoProfile -File {path}", "suffix": ".ps1", "platform": "any"},
+    "powershell": {"cmd": "powershell -NoProfile -File {path}", "suffix": ".ps1",
+                   "platform": "win"},
 }
 
 
@@ -40,7 +43,9 @@ def test_interpreters_table_exact_parity():
         assert interp._INTERPRETERS[name] == config
         assert "{path}" in config["cmd"]
         assert isinstance(config["suffix"], str)
-        assert isinstance(config["unix"], bool)
+        assert config["platform"] in ("unix", "win", "any")
+        if "cmd_win" in config:
+            assert "{path}" in config["cmd_win"]
 
 
 def test_default_constants():
@@ -113,3 +118,60 @@ def test_which_interpreter_resolves_first_token(monkeypatch):
 def test_which_interpreter_missing(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda binary: None)
     assert interp._which_interpreter("nonexistent_binary --flag {path}") is None
+
+
+# --------------------------------------------------------------------
+# Cross-platform availability (#247)
+#
+# python/python3/node were marked unix-only, so the bridge answered
+# `400 interpreter 'python' not available on Windows` on hosts where
+# python, python3, py and node are all on PATH. Refusing an installed
+# interpreter is bad on its own; refusing *this* one pushed every script
+# through PowerShell, whose quoting traps AGENTS.md documents at length.
+# --------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["python", "python3", "node", "pwsh"])
+def test_cross_platform_interpreters_run_on_both(name, monkeypatch):
+    """Availability is decided by PATH, not by a hardcoded OS claim."""
+    cfg = interp._INTERPRETERS[name]
+    for os_name in ("nt", "posix"):
+        monkeypatch.setattr(interp.os, "name", os_name)
+        assert interp.interpreter_runs_here(cfg), (
+            f"{name} is installed on both platforms; the table must not "
+            f"refuse it on {os_name}"
+        )
+
+
+def test_posix_shells_are_still_refused_on_windows(monkeypatch):
+    """The check must keep doing its real job."""
+    monkeypatch.setattr(interp.os, "name", "nt")
+    for name in ("bash", "sh"):
+        assert not interp.interpreter_runs_here(interp._INTERPRETERS[name])
+
+
+def test_powershell_is_still_refused_on_posix(monkeypatch):
+    monkeypatch.setattr(interp.os, "name", "posix")
+    assert not interp.interpreter_runs_here(interp._INTERPRETERS["powershell"])
+
+
+def test_windows_python_does_not_invoke_python3(monkeypatch):
+    """`python3` on Windows is an App Execution Alias, not the interpreter.
+
+    A standard install puts a `python3.exe` stub in WindowsApps that can
+    open the Microsoft Store instead of running the script. Windows must
+    use `python`.
+    """
+    monkeypatch.setattr(interp.os, "name", "nt")
+    for name in ("python", "python3"):
+        cmd = interp.interpreter_command(interp._INTERPRETERS[name])
+        assert cmd.startswith("python "), cmd
+        assert "python3" not in cmd
+
+
+def test_posix_python_still_uses_python3(monkeypatch):
+    """On POSIX `python` may be absent or Python 2; python3 is correct."""
+    monkeypatch.setattr(interp.os, "name", "posix")
+    for name in ("python", "python3"):
+        assert interp.interpreter_command(
+            interp._INTERPRETERS[name]).startswith("python3 ")
