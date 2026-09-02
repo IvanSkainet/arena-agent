@@ -302,6 +302,51 @@ def test_tar_rejection_is_atomic_no_partial_write(tmp_path):
     )
 
 
+def test_tar_member_count_cap(tmp_path):
+    """Byte caps alone do not bound a tar (found in review on #243).
+
+    `getmembers()` materialises every member before any size check can
+    run, so an archive of zero-byte entries costs memory proportional to
+    its member count while passing every byte limit. Measured before the
+    fix: 400k members, 2.4 MB on disk, ~170 MB RSS, and extraction was
+    ALLOWED against a 1000-byte cap.
+    """
+    src = _make_tar(tmp_path / "many.tar.gz",
+                    [(f"f{i}", "") for i in range(50)])
+    with pytest.raises(UnsafeArchiveError, match="more than 10 members"):
+        safe_extract_tar(src, tmp_path / "out", max_members=10)
+
+
+def test_tar_member_cap_fires_before_exhausting_the_archive(tmp_path):
+    """The cap must stop enumeration, not just report afterwards.
+
+    A check that runs after the whole member list is built prevents the
+    extraction but not the memory cost, which is the actual attack.
+    """
+    src = _make_tar(tmp_path / "lots.tar.gz",
+                    [(f"f{i}", "") for i in range(200)])
+    with tarfile.open(src) as tf:
+        seen = []
+        original = tf.__class__.next
+
+        def counting_next(self):
+            member = original(self)
+            if member is not None:
+                seen.append(member.name)
+            return member
+
+        tf.__class__.next = counting_next
+        try:
+            with pytest.raises(UnsafeArchiveError):
+                safe_extract_tar(src, tmp_path / "out", max_members=5)
+        finally:
+            tf.__class__.next = original
+    assert len(seen) < 200, (
+        f"enumerated {len(seen)} members despite a cap of 5; the cap "
+        f"is not stopping the scan"
+    )
+
+
 def test_time_machine_uses_the_safe_helper():
     """The caller that motivated this must not regress to extractall().
 

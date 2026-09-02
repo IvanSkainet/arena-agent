@@ -62,6 +62,13 @@ DEFAULT_MAX_UNCOMPRESSED = 4 * 1024 * 1024 * 1024
 # 1 GiB is plenty for anything reasonable.
 DEFAULT_MAX_MEMBER = 1024 * 1024 * 1024
 
+# A cap on member *count*, not bytes. Byte limits alone do not bound a
+# tar: 400k zero-byte members compress to 2.4 MB and cost ~170 MB of RSS
+# before any size check can fire, because the member list is built first.
+# Measured, not theorised (#243 review). No archive this project produces
+# comes close -- a full source snapshot is a few thousand entries.
+DEFAULT_MAX_MEMBERS = 100_000
+
 
 class UnsafeArchiveError(ValueError):
     """Raised when an archive is rejected as unsafe.
@@ -204,6 +211,7 @@ def safe_extract_tar(
     *,
     max_uncompressed_bytes: int = DEFAULT_MAX_UNCOMPRESSED,
     max_member_bytes: int = DEFAULT_MAX_MEMBER,
+    max_members: int = DEFAULT_MAX_MEMBERS,
 ) -> None:
     """Extract a tar archive safely, rejecting escapes and bombs.
 
@@ -254,12 +262,19 @@ def safe_extract_tar(
     dest = Path(dest_dir).resolve()
     dest.mkdir(parents=True, exist_ok=True)
     with tarfile.open(tar_path) as tf:
-        members = tf.getmembers()
-        # First pass: reject the whole archive before writing a byte,
-        # so a hostile member cannot take effect through the mkdir
-        # side effects of a partial extraction.
+        # Stream the header scan instead of calling getmembers(), which
+        # materialises every member first -- so a count-based bomb costs
+        # its memory before any check runs. Iterating lets the count cap
+        # fire on entry 100_001 rather than after all 400_000 are in RAM.
+        members = []
         total_size = 0
-        for member in members:
+        for member in tf:
+            if len(members) >= max_members:
+                raise UnsafeArchiveError(
+                    f"archive declares more than {max_members} members; "
+                    f"refusing to enumerate further"
+                )
+            members.append(member)
             if _member_is_traversal(member.name):
                 raise UnsafeArchiveError(
                     f"archive contains path-traversal member: "
