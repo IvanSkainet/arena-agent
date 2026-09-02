@@ -222,8 +222,12 @@ def test_non_powershell_interpreters_still_get_shell_quoting():
     for name in ("bash", "sh", "python", "python3", "node"):
         cfg = interp._INTERPRETERS[name]
         assert cfg.get("quote") is not False, name
-        arg = interp.interpreter_path_arg(cfg, "/tmp/a b/s.py")
-        assert arg != "/tmp/a b/s.py", f"{name} lost its quoting"
+        # Not under /tmp: the literal is only fed to the quoting
+        # helper, never created, and a hardcoded temp path trips
+        # bandit B108 for no benefit.
+        spaced = "/srv/a b/s.py"
+        arg = interp.interpreter_path_arg(cfg, spaced)
+        assert arg != spaced, f"{name} lost its quoting"
 
 
 def test_which_interpreter_still_resolves_the_executable():
@@ -231,3 +235,37 @@ def test_which_interpreter_still_resolves_the_executable():
     for name, exe in (("powershell", "powershell"), ("pwsh", "pwsh"),
                       ("bash", "bash"), ("node", "node")):
         assert interp._INTERPRETERS[name]["cmd"].split()[0] == exe
+
+
+@pytest.mark.parametrize("name", ["powershell", "pwsh"])
+def test_apostrophe_in_path_is_escaped_by_doubling(name):
+    """`pwsh` runs on POSIX, where `/srv/O'Brien` is an ordinary path.
+
+    My first version reasoned "a Windows path cannot contain a single
+    quote" and stopped there. True for `powershell`; wrong for `pwsh`,
+    which is cross-platform. An unescaped apostrophe closes the quoted
+    string early and the -Command payload becomes malformed. Caught in
+    review on #249.
+    """
+    cfg = interp._INTERPRETERS[name]
+    rendered = cfg["cmd"].format(
+        path=interp.interpreter_path_arg(cfg, "/srv/O'Brien/scr.ps1"))
+    assert "'/srv/O''Brien/scr.ps1'" in rendered, rendered
+    assert rendered.count("'") % 2 == 0, (
+        f"unbalanced quotes -- the shell would misparse: {rendered}"
+    )
+
+
+def test_apostrophe_escaping_does_not_touch_ordinary_paths():
+    """The escape must be a no-op when there is nothing to escape."""
+    cfg = interp._INTERPRETERS["pwsh"]
+    assert interp.interpreter_path_arg(cfg, "/plain/scr.ps1") == "/plain/scr.ps1"
+
+
+def test_shell_quoted_interpreters_are_unaffected_by_the_escape():
+    """bash/python paths go through _quote_path, not the doubling rule."""
+    cfg = interp._INTERPRETERS["bash"]
+    arg = interp.interpreter_path_arg(cfg, "/srv/O'Brien/s.sh")
+    assert "''" not in arg or arg.startswith("'"), arg
+    import shlex
+    assert shlex.split(f"bash {arg}")[1] == "/srv/O'Brien/s.sh"

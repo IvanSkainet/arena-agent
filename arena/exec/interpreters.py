@@ -74,7 +74,7 @@ _INTERPRETERS: dict[str, dict[str, object]] = {
     # on the operator's host: -File -> 0, -Command + exit -> 3, and a
     # failure mid-script followed by a successful command still yields 0,
     # which matches bash-without-`-e` semantics.
-    "pwsh":       {"cmd": PS_COMMAND_TEMPLATE.format(exe="pwsh"),
+    "pwsh": {"cmd": PS_COMMAND_TEMPLATE.format(exe="pwsh"),
                    "suffix": ".ps1", "platform": "any", "quote": False},
     "powershell": {"cmd": PS_COMMAND_TEMPLATE.format(exe="powershell"),
                    "suffix": ".ps1", "platform": "win", "quote": False},
@@ -147,7 +147,15 @@ def interpreter_path_arg(cfg: dict[str, object], path: str) -> str:
     PowerShell entries embed the path in single quotes inside a
     `-Command` string, so double-quoting it again would produce
     `"& "C:\\..."; exit ..."` and break the parse.
+
+    An apostrophe in the path is escaped by doubling it, which is how
+    PowerShell escapes inside a single-quoted string. My original note
+    said a path "cannot contain a single quote" -- true on Windows, and
+    wrong for `pwsh`, which also runs on POSIX where `/srv/O'Brien` is a
+    perfectly ordinary directory. Without the doubling the apostrophe
+    closes the string early and the command is malformed (caught in
+    review on #249).
     """
     if cfg.get("quote") is False:
-        return path
+        return path.replace("'", "''")
     return _quote_path(path)
