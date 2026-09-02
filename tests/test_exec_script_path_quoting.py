@@ -93,7 +93,7 @@ def test_the_template_is_filled_with_a_quoted_path():
     """A ratchet: the bug was a bare `.format(path=tmp_path)`."""
     source = Path(handlers.__file__).read_text(encoding="utf-8")
 
-    assert "format(path=_quote_path(tmp_path))" in source, (
+    assert "path=interpreter_path_arg(interp_cfg, tmp_path)" in source, (
         "the interpreter template is being filled with an unquoted path "
         "again; a root containing a space will break every script run"
     )
@@ -101,16 +101,31 @@ def test_the_template_is_filled_with_a_quoted_path():
 
 @pytest.mark.parametrize("interpreter", sorted(interpreters._INTERPRETERS))
 def test_every_interpreter_template_takes_the_path_as_one_word(interpreter):
-    """Each template must end with a single `{path}` placeholder.
+    """Each template must substitute the path exactly once, quoted.
 
-    A template that embedded the path mid-string, or twice, would need
-    different handling than a single quoted substitution.
+    This used to also require the template to *end* with `{path}`. That
+    stopped being true when the PowerShell entries moved to
+    `-Command "& '{path}'; exit $LASTEXITCODE"` so a failing native
+    command's exit code survives (#247) -- the path is now mid-string by
+    necessity.
+
+    The property that actually matters is unchanged and still checked
+    here: one placeholder, and the rendered path is quoted so a space
+    cannot split it into two shell words (bug #52). Where the
+    placeholder sits is an implementation detail; whether the path
+    survives word splitting is not.
     """
-    template = str(interpreters._INTERPRETERS[interpreter]["cmd"])
+    cfg = interpreters._INTERPRETERS[interpreter]
+    template = str(cfg["cmd"])
     assert template.count("{path}") == 1
-    assert template.endswith("{path}"), (
-        f"{interpreter}: the path must be the final argument so quoting it "
-        "is sufficient"
+
+    spaced = "C:\\root with space\\scr" if os.name == "nt" else "/root with space/scr"
+    rendered = template.format(path=interpreters.interpreter_path_arg(cfg, spaced))
+    assert spaced in rendered
+    quoted = f'"{spaced}"' in rendered or f"'{spaced}'" in rendered
+    assert quoted, (
+        f"{interpreter}: the path is unquoted in {rendered!r}; a space "
+        f"would split it into two words (bug #52)"
     )
 
 

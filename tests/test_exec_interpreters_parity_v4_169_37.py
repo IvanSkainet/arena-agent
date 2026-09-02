@@ -28,9 +28,10 @@ EXPECTED_INTERPRETERS = {
     "python3": {"cmd": "python3 {path}", "suffix": ".py", "platform": "any",
                 "cmd_win": "python {path}"},
     "node": {"cmd": "node {path}", "suffix": ".js", "platform": "any"},
-    "pwsh": {"cmd": "pwsh -NoProfile -File {path}", "suffix": ".ps1", "platform": "any"},
-    "powershell": {"cmd": "powershell -NoProfile -File {path}", "suffix": ".ps1",
-                   "platform": "win"},
+    "pwsh": {"cmd": "pwsh -NoProfile -Command \"& '{path}'; exit $LASTEXITCODE\"",
+             "suffix": ".ps1", "platform": "any", "quote": False},
+    "powershell": {"cmd": "powershell -NoProfile -Command \"& '{path}'; exit $LASTEXITCODE\"",
+                   "suffix": ".ps1", "platform": "win", "quote": False},
 }
 
 
@@ -175,3 +176,96 @@ def test_posix_python_still_uses_python3(monkeypatch):
     for name in ("python", "python3"):
         assert interp.interpreter_command(
             interp._INTERPRETERS[name]).startswith("python3 ")
+
+
+# --------------------------------------------------------------------
+# Native exit codes must survive PowerShell (#247)
+#
+# `powershell -File script.ps1` exits 0 unless the script itself calls
+# `exit`, so a failing native command inside the script was reported as
+# exit_code=0, ok=true -- a failed script indistinguishable from a
+# successful one. Measured on the operator's Windows host:
+#     -File                   -> 0   (wrong)
+#     -Command + exit $LASTEXITCODE -> 3   (correct)
+# bash never had this: it returns the last command's status, and `-e`
+# aborts on the first failure.
+# --------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["powershell", "pwsh"])
+def test_powershell_propagates_native_exit_codes(name):
+    cmd = interp._INTERPRETERS[name]["cmd"]
+    assert "-Command" in cmd, "-File swallows the child's exit code"
+    assert "exit $LASTEXITCODE" in cmd, (
+        "without an explicit exit, a failing native command reports success"
+    )
+
+
+@pytest.mark.parametrize("name", ["powershell", "pwsh"])
+def test_powershell_path_is_single_quoted_and_not_double_quoted(name):
+    r"""`-Command "..."` cannot contain unescaped double quotes.
+
+    _quote_path wraps in `"` on Windows; doing that inside the -Command
+    string would produce `"& "C:\path"; exit ..."` and break the parse.
+    These entries opt out and single-quote the path themselves -- literal
+    in PowerShell, and a Windows path cannot contain a single quote.
+    """
+    cfg = interp._INTERPRETERS[name]
+    assert cfg.get("quote") is False
+    rendered = cfg["cmd"].format(path=interp.interpreter_path_arg(cfg, "C:\\x\\s.ps1"))
+    assert "'C:\\x\\s.ps1'" in rendered
+    assert '"C:' not in rendered, f"path was double-quoted inside -Command: {rendered}"
+
+
+def test_non_powershell_interpreters_still_get_shell_quoting():
+    """The opt-out must be narrow: everything else still needs quoting."""
+    for name in ("bash", "sh", "python", "python3", "node"):
+        cfg = interp._INTERPRETERS[name]
+        assert cfg.get("quote") is not False, name
+        # Not under /tmp: the literal is only fed to the quoting
+        # helper, never created, and a hardcoded temp path trips
+        # bandit B108 for no benefit.
+        spaced = "/srv/a b/s.py"
+        arg = interp.interpreter_path_arg(cfg, spaced)
+        assert arg != spaced, f"{name} lost its quoting"
+
+
+def test_which_interpreter_still_resolves_the_executable():
+    """The PATH check reads the first token; -Command must not break it."""
+    for name, exe in (("powershell", "powershell"), ("pwsh", "pwsh"),
+                      ("bash", "bash"), ("node", "node")):
+        assert interp._INTERPRETERS[name]["cmd"].split()[0] == exe
+
+
+@pytest.mark.parametrize("name", ["powershell", "pwsh"])
+def test_apostrophe_in_path_is_escaped_by_doubling(name):
+    """`pwsh` runs on POSIX, where `/srv/O'Brien` is an ordinary path.
+
+    My first version reasoned "a Windows path cannot contain a single
+    quote" and stopped there. True for `powershell`; wrong for `pwsh`,
+    which is cross-platform. An unescaped apostrophe closes the quoted
+    string early and the -Command payload becomes malformed. Caught in
+    review on #249.
+    """
+    cfg = interp._INTERPRETERS[name]
+    rendered = cfg["cmd"].format(
+        path=interp.interpreter_path_arg(cfg, "/srv/O'Brien/scr.ps1"))
+    assert "'/srv/O''Brien/scr.ps1'" in rendered, rendered
+    assert rendered.count("'") % 2 == 0, (
+        f"unbalanced quotes -- the shell would misparse: {rendered}"
+    )
+
+
+def test_apostrophe_escaping_does_not_touch_ordinary_paths():
+    """The escape must be a no-op when there is nothing to escape."""
+    cfg = interp._INTERPRETERS["pwsh"]
+    assert interp.interpreter_path_arg(cfg, "/plain/scr.ps1") == "/plain/scr.ps1"
+
+
+def test_shell_quoted_interpreters_are_unaffected_by_the_escape():
+    """bash/python paths go through _quote_path, not the doubling rule."""
+    cfg = interp._INTERPRETERS["bash"]
+    arg = interp.interpreter_path_arg(cfg, "/srv/O'Brien/s.sh")
+    assert "''" not in arg or arg.startswith("'"), arg
+    import shlex
+    assert shlex.split(f"bash {arg}")[1] == "/srv/O'Brien/s.sh"

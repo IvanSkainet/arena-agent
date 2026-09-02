@@ -43,6 +43,18 @@ import shutil
 # executable in a standard Windows install (the WindowsApps stub is an
 # App-Execution-Alias that can silently open the Store), so Windows uses
 # `python` for both keys.
+# PowerShell needs an explicit `exit` to surface a native command's
+# status; see the note on the powershell entry below. `{{path}}` is
+# substituted by the caller after quoting, so it stays doubled here.
+# The path is wrapped in SINGLE quotes here and the template opts out of
+# `_quote_path`'s double quotes (see `quote` below): nesting `"` inside
+# `-Command "..."` breaks the parse. Single quotes are literal in
+# PowerShell, and a Windows path cannot contain one, so there is nothing
+# to escape.
+PS_COMMAND_TEMPLATE = (
+    "{exe} -NoProfile -Command \"& '{{path}}'; exit $LASTEXITCODE\""
+)
+
 _INTERPRETERS: dict[str, dict[str, object]] = {
     "bash":       {"cmd": "bash -euo pipefail {path}",         "suffix": ".sh",  "platform": "unix"},
     "sh":         {"cmd": "sh -eu {path}",                     "suffix": ".sh",  "platform": "unix"},
@@ -51,8 +63,21 @@ _INTERPRETERS: dict[str, dict[str, object]] = {
     "python3":    {"cmd": "python3 {path}",                    "suffix": ".py",  "platform": "any",
                    "cmd_win": "python {path}"},
     "node":       {"cmd": "node {path}",                       "suffix": ".js",  "platform": "any"},
-    "pwsh":       {"cmd": "pwsh -NoProfile -File {path}",      "suffix": ".ps1", "platform": "any"},
-    "powershell": {"cmd": "powershell -NoProfile -File {path}","suffix": ".ps1", "platform": "win"},
+    # `-File` swallows a failing native command's exit code: PowerShell
+    # exits 0 unless the *script itself* calls `exit`. So
+    #     python -c "import sys; sys.exit(3)"
+    # came back as exit_code=0, ok=true -- a failed script reported as a
+    # success (#247). bash does not have this problem: it returns the
+    # last command's status, and `-e` aborts on the first failure.
+    #
+    # `-Command "& 'script'; exit $LASTEXITCODE"` propagates it. Measured
+    # on the operator's host: -File -> 0, -Command + exit -> 3, and a
+    # failure mid-script followed by a successful command still yields 0,
+    # which matches bash-without-`-e` semantics.
+    "pwsh": {"cmd": PS_COMMAND_TEMPLATE.format(exe="pwsh"),
+                   "suffix": ".ps1", "platform": "any", "quote": False},
+    "powershell": {"cmd": PS_COMMAND_TEMPLATE.format(exe="powershell"),
+                   "suffix": ".ps1", "platform": "win", "quote": False},
 }
 
 
@@ -113,3 +138,24 @@ def _which_interpreter(cmdline_template: str) -> str | None:
     installed' comes back as a clear 400, not a shell error."""
     first = cmdline_template.split()[0]
     return shutil.which(first)
+
+
+def interpreter_path_arg(cfg: dict[str, object], path: str) -> str:
+    """The `{path}` substitution for this interpreter.
+
+    Most interpreters take a bare path and want shell quoting. The
+    PowerShell entries embed the path in single quotes inside a
+    `-Command` string, so double-quoting it again would produce
+    `"& "C:\\..."; exit ..."` and break the parse.
+
+    An apostrophe in the path is escaped by doubling it, which is how
+    PowerShell escapes inside a single-quoted string. My original note
+    said a path "cannot contain a single quote" -- true on Windows, and
+    wrong for `pwsh`, which also runs on POSIX where `/srv/O'Brien` is a
+    perfectly ordinary directory. Without the doubling the apostrophe
+    closes the string early and the command is malformed (caught in
+    review on #249).
+    """
+    if cfg.get("quote") is False:
+        return path.replace("'", "''")
+    return _quote_path(path)
