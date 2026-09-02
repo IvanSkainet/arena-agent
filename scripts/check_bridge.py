@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,81 @@ def _read_token(token_file: Path | str | None = None) -> str:
             except Exception:
                 pass
     return os.environ.get("ARENA_BRIDGE_TOKEN", "")
+
+
+def safe_probe_url(raw: str) -> str | None:
+    """Return a fetchable probe URL, or None if `raw` must not be fetched.
+
+    `public_url` is not operator input like `--host/--port`. It is echoed
+    back by the bridge's own tunnel status, so a compromised or merely
+    misconfigured bridge chooses where this diagnostic connects. Only
+    `.rstrip("/")` was applied before, and `urlopen` happily accepts
+    `file:`, `ftp:` and friends.
+
+    Demonstrated on #245 with a fake bridge reporting
+    `file:///etc/hostname`: the tool opened
+    `file:///etc/hostname/v1/version`. No exploit chain needed -- the
+    scheme alone reads local files, and an `http://attacker/` value turns
+    a local diagnostic into an outbound request the operator never made.
+
+    Two rules, deliberately narrow:
+
+    * scheme must be http or https -- nothing else is a tunnel;
+    * a host must be present -- `http:///v1/version` has none, and
+      urlopen would resolve that against something surprising.
+
+    Not attempting to allowlist tunnel provider domains: the bridge
+    supports Cloudflare, ngrok, bore, Tailscale and ZeroTier, and a list
+    that goes stale silently rejects a working tunnel. Scheme plus host
+    removes the class of bug without inventing a maintenance burden.
+    """
+    if not raw or not isinstance(raw, str):
+        return None
+    candidate = raw.strip().rstrip("/")
+    if not candidate:
+        return None
+    parsed = urllib.parse.urlparse(candidate)
+    if parsed.scheme not in ("http", "https"):
+        return None
+    if not parsed.hostname:
+        return None
+    return candidate
+
+
+def _probe_public_url(report: dict[str, Any], timeout: float) -> None:
+    """Probe the tunnel URL the bridge reported, if it is safe to fetch.
+
+    Split out of probe_bridge() because CodeScene flagged that function
+    as a Complex Method once this validation landed, and it was right:
+    the probe is a self-contained step with its own failure modes.
+
+    Mutates `report` in place, matching the four numbered steps above it.
+    """
+    raw = report["public_url"]
+    p_url = safe_probe_url(raw)
+    if raw and p_url is None:
+        report["errors"].append(
+            f"refusing to probe public_url {raw!r}: "
+            f"only http/https URLs with a host are probed (#245)"
+        )
+        return
+    if not p_url:
+        return
+    try:
+        probe_req = urllib.request.Request(
+            f"{p_url}/v1/version",
+            headers={"User-Agent": "arena-doctor-probe"},
+        )
+        with urllib.request.urlopen(  # nosec B310 -- scheme/host validated by safe_probe_url()
+            probe_req,
+            context=build_ssl_context(p_url),
+            timeout=timeout + 2,
+        ) as p_resp:
+            p_data = json.loads(p_resp.read().decode("utf-8", "ignore"))
+            if p_data.get("ok"):
+                report["public_reachable"] = True
+    except Exception as e:
+        report["errors"].append(f"Public tunnel URL {p_url} failed probe: {e}")
 
 
 def probe_bridge(
@@ -135,23 +211,7 @@ def probe_bridge(
             pass
 
     # 5. Real external probe of the public tunnel URL
-    if report["public_url"]:
-        p_url = report["public_url"].rstrip("/")
-        try:
-            probe_req = urllib.request.Request(
-                f"{p_url}/v1/version",
-                headers={"User-Agent": "arena-doctor-probe"},
-            )
-            with urllib.request.urlopen(  # nosec B310 -- tunnel URL echoed by the local bridge; diagnostic-only, see #245
-                probe_req,
-                context=build_ssl_context(p_url),
-                timeout=timeout + 2,
-            ) as p_resp:
-                p_data = json.loads(p_resp.read().decode("utf-8", "ignore"))
-                if p_data.get("ok"):
-                    report["public_reachable"] = True
-        except Exception as e:
-            report["errors"].append(f"Public tunnel URL {p_url} failed probe: {e}")
+    _probe_public_url(report, timeout)
 
     report["ok"] = report["local_online"] and report["auth_ok"] and (report["public_reachable"] or not report["public_url"])
     return report
