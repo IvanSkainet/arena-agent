@@ -142,7 +142,7 @@ def probe_bridge(
                 f"{p_url}/v1/version",
                 headers={"User-Agent": "arena-doctor-probe"},
             )
-            with urllib.request.urlopen(  # nosec B310 -- loopback/LAN bridge URL built from --host/--port, http only
+            with urllib.request.urlopen(  # nosec B310 -- tunnel URL echoed by the local bridge; diagnostic-only, see #245
                 probe_req,
                 context=build_ssl_context(p_url),
                 timeout=timeout + 2,
