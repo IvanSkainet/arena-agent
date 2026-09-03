@@ -83,8 +83,9 @@ agents to finish a task closed three releases earlier, and claimed the
 type analyzers could not be installed locally, which cost a
 20-minute push-and-wait cycle for an error catchable in 12 seconds.
 
-**Harden-Runner egress enforcement 29 → 31 jobs (#217, #218, #221,
-#241),** decided from measured audit logs rather than guesswork. Jobs
+**Harden-Runner egress enforcement 29 → 31 jobs**
+(#217, #218, #221, #241), decided from measured audit logs rather than
+guesswork. Jobs
 reaching 15–17 rotating domains were deliberately left in audit: an
 allowlist built from one sample would fail on the next run, and a
 control that causes flakes gets switched off permanently.
