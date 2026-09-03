@@ -81,12 +81,38 @@ def tags_without_releases() -> list[str]:
     return [t.strip() for t in out.stdout.splitlines() if t.strip()]
 
 
+# A minor/major bump cannot be counted in patch releases -- 4.170.0 is
+# "one release" after 4.169.50 in intent, but 4.169.50 -> 4.170.0 has no
+# patch distance at all. Score it as a single step so the ordinary
+# release flow is not mistaken for a pile-up.
+_MINOR_JUMP_GAP = 1
+
+
 def _gap(tree: tuple[int, ...], published: tuple[int, ...]) -> int:
-    """How many releases the tree is ahead, counted crudely on the patch level."""
+    """How many releases the tree is ahead.
+
+    Counted on the patch level within one minor line. A minor or major
+    bump is one step, not an emergency: RELEASE.md has the version
+    committed to master *before* the release is cut, so the tree is
+    legitimately one ahead for the length of the release PR.
+
+    This used to return 99 for any minor jump, which produced two
+    problems at once. The message read "99 unpublished releases have
+    piled up" -- a number that is not a count of anything and sent me
+    looking for 99 drafts that did not exist (there were two). And
+    because 99 > allowed_gap even in the non-strict path, the check went
+    red on the release PR itself, while `Version sync` is a required
+    context: a minor release could not be merged at all without
+    bypassing the ruleset. A patch release never hit this, which is why
+    it survived to v4.170.0.
+
+    `--strict` still demands the release actually exist, so a tag that
+    was never published is caught with the gap set to zero.
+    """
     if not tree or not published:
         return 0
     if tree[:2] != published[:2]:
-        return 99  # a minor/major jump: always worth a look
+        return _MINOR_JUMP_GAP
     return max(0, (tree[2] if len(tree) > 2 else 0) - (published[2] if len(published) > 2 else 0))
 
 
