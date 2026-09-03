@@ -3,7 +3,7 @@
   "name": "The Book of Eternity: Reborn",
   "repository": "StanislavSmetaninSSM/The-Book-of-Eternity-Reborn",
   "defaultBranch": "main",
-  "commit": "385979a01c08863cf3018b399aad7799b58b8929",
+  "commit": "db39d863c9c05050291b67d1f42f9a4ef6c020f2",
   "protocolRevision": "boe-gm-terminal-relay-v1",
   "bridgeProject": "BookOfEternityGMBridge/BookOfEternityGMBridge.csproj",
   "controlScript": "BookOfEternityClient/Launcher/bookofeternity.ps1",
