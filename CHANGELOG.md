@@ -1,3 +1,101 @@
+## v4.170.0 — 2026-09-03
+
+48 commits since v4.169.50. The theme is not new features: it is that
+several gates and one live code path were reporting success when they
+should not have been. Four of the security fixes below were found by
+running the real thing on the operator's machine, not by a test going
+red.
+
+Minor rather than patch because the bridge's own behaviour changed:
+`python` now works as an interpreter on Windows, and a failing
+PowerShell script now reports failure. Anything that parsed
+`exit_code` from `/v1/exec/script` on Windows was being told the wrong
+answer before this release.
+
+### Bridge behaviour
+
+**A failing PowerShell script no longer reports success (#249).**
+`powershell -File script.ps1` exits 0 unless the script itself calls
+`exit`. So a script whose command failed came back as
+`exit_code: 0, ok: true` — on Windows, a failed script was
+indistinguishable from a successful one. bash never had this: it
+returns the last command's status. Measured on the operator's host:
+`-File` → 0, `-Command "& 'script'; exit $LASTEXITCODE"` → 3.
+
+**`python` and `node` are no longer refused on Windows (#248).** The
+interpreter table marked them Unix-only, so `X-Arena-Interpreter:
+python` answered `400 not available on Windows` on a host where
+`python`, `python3`, `py` and `node` are all on PATH. Availability is
+now decided by the PATH check that already existed three lines below.
+Windows also maps to `python` rather than `python3`, because the latter
+resolves to a WindowsApps alias that can open the Microsoft Store
+instead of running the script.
+
+### Security
+
+**Path traversal in rollback (#243).** `scripts/core/time_machine.py`
+called `tar.extractall()` with no member validation. Demonstrated, not
+argued: a snapshot containing `../../escaped.txt` wrote outside the
+destination, and driving the real CLI put a file in `/tmp`.
+`safe_extract_tar()` now refuses traversal, link and device members,
+and caps member count — 400k zero-byte entries cost 2.4 MB on disk and
+170 MB of RAM while passing every byte limit. Live on 3.10–3.13; 3.14
+already refuses it via PEP 706.
+
+**SSRF-shaped probe in the diagnostic (#246).** `check_bridge.py`
+fetched the `public_url` the bridge reported, with only `rstrip("/")`
+applied. A bridge reporting `file:///etc/hostname` made the tool read a
+local file. Scheme and host are now validated, and a rejected URL is
+reported rather than skipped silently.
+
+**gitleaks stopped being blind to live source files (#178).** The
+allowlist disabled *every* rule for the listed paths, so a real
+committed token passed unnoticed. Verified behaviourally: a planted PAT
+scored 0 findings under the old config and 3 under the new one.
+
+**bandit now scans what we ship (#242, #244).** The job is named
+"must be 0 HIGH / 0 MEDIUM" and scanned only `arena/`, while the
+release zip also ships `scripts/`, `bin/` and `skills/`. Those held
+7 HIGH and 22 MEDIUM findings the gate had never seen. Fixed the real
+one (an `os.system` that broke on any Python path containing a space),
+annotated the deliberate ones, then widened the scope — in that order,
+because the reverse turns the job red on intentional code and invites a
+blanket `--skip`.
+
+**A `shell=True` removed rather than annotated (#244).** CodeQL raised
+a critical alert on `bin/web_gateway.py`. The layered defence did hold,
+but the guarantee lived in a validator three functions away, so
+`shlex.split()` removes the hazard instead of documenting it.
+
+### CI and test infrastructure
+
+**Two flake classes closed, then ratcheted (#233, #238, #239).**
+`lm.time` and `bore_mod.subprocess` are not module-local aliases — they
+are the global modules, so patching them replaced the clock and
+`Popen` process-wide and concurrent code drew from the test's fixture.
+Both now have module-local seams. A new ratchet blocks the class:
+79 sites are grandfathered, none may be added.
+
+**Gates that lied (#232, #234, #240).** The pinned-pip ratchet read
+workflows line by line and failed a compliant multi-line install —
+16 red checks on correct code in #228. AGENTS.md opened by telling
+agents to finish a task closed three releases earlier, and claimed the
+type analyzers could not be installed locally, which cost a
+20-minute push-and-wait cycle for an error catchable in 12 seconds.
+
+**Harden-Runner egress enforcement 29 → 31 jobs**
+(#217, #218, #221, #241), decided from measured audit logs rather than
+guesswork. Jobs
+reaching 15–17 rotating domains were deliberately left in audit: an
+allowlist built from one sample would fail on the next run, and a
+control that causes flakes gets switched off permanently.
+
+**Also:** GuardDog scans dependencies for malware rather than only for
+known CVEs (#228); per-test-id bandit LOW ceilings so a regression
+cannot be paid for by deleting unrelated findings (#222); poutine as a
+second workflow scanner (#219); OpenAPI ratcheted against the route
+registry (#204, #89).
+
 ## v4.169.50 — 2026-08-22
 
 ### Windows auto-update could not install a release (#158)

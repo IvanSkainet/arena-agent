@@ -81,13 +81,50 @@ def tags_without_releases() -> list[str]:
     return [t.strip() for t in out.stdout.splitlines() if t.strip()]
 
 
+# A minor/major bump cannot be counted in patch releases -- 4.170.0 is
+# "one release" after 4.169.50 in intent, but there is no patch distance
+# between them at all.
+_ADJACENT = 1
+_FAR_AHEAD = 99
+
+
 def _gap(tree: tuple[int, ...], published: tuple[int, ...]) -> int:
-    """How many releases the tree is ahead, counted crudely on the patch level."""
+    """How many releases the tree is ahead.
+
+    Within one minor line this is the patch distance. Across lines it is
+    a judgement: an *adjacent* minor or major bump is one step, because
+    RELEASE.md step 3 commits the version to master before the release
+    is cut, so the tree is legitimately one ahead for the length of the
+    release PR. Anything further is still treated as a pile-up.
+
+    This used to return 99 for every minor jump, which caused two
+    problems. The message read "99 unpublished releases have piled up",
+    a number that counts nothing -- I went looking for 99 drafts and
+    found two. And 99 exceeds the lead the non-strict path allows, so
+    `Version sync` -- a required check -- went red on the release PR
+    itself, making a minor release unmergeable without bypassing the
+    ruleset. Patch releases scored 1 and passed, which is why this
+    survived to v4.170.0.
+
+    The first fix was too broad: scoring *any* cross-line bump as one
+    step let a tree three majors ahead of the published release through,
+    which `test_release_check_distinguishes_no_answer_from_no_problem`
+    caught (it asserts a v1.0.0 release against a 4.x tree still fails).
+    Adjacency is the property that matters, not merely "the line
+    changed".
+    """
     if not tree or not published:
         return 0
-    if tree[:2] != published[:2]:
-        return 99  # a minor/major jump: always worth a look
-    return max(0, (tree[2] if len(tree) > 2 else 0) - (published[2] if len(published) > 2 else 0))
+    if tree[:2] == published[:2]:
+        return max(0, (tree[2] if len(tree) > 2 else 0)
+                   - (published[2] if len(published) > 2 else 0))
+    # Same major, next minor: 4.169.x -> 4.170.0
+    if tree[0] == published[0] and tree[1] == published[1] + 1:
+        return _ADJACENT
+    # Next major, reset minor: 4.x -> 5.0
+    if tree[0] == published[0] + 1 and tree[1] == 0:
+        return _ADJACENT
+    return _FAR_AHEAD
 
 
 def main(argv: list[str]) -> int:
