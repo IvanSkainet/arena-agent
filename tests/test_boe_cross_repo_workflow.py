@@ -62,8 +62,13 @@ def test_compatibility_manifest_is_exact_and_commit_pinned() -> None:
     assert value["name"] == "The Book of Eternity: Reborn"
     assert value["repository"] == "StanislavSmetaninSSM/The-Book-of-Eternity-Reborn"
     assert value["defaultBranch"] == "main"
+    # Shape, not value. The pin necessarily moves whenever the game does,
+    # and boe-contract already enforces the property that matters: the
+    # pinned commit must equal upstream main at release time, checked
+    # against the live repository. Duplicating the SHA here added no
+    # guarantee and turned every legitimate pin refresh into 15 red
+    # matrix jobs -- which is what happened on #251.
     assert re.fullmatch(r"[0-9a-f]{40}", value["commit"])
-    assert value["commit"] == "385979a01c08863cf3018b399aad7799b58b8929"
     assert value["protocolRevision"] == "boe-gm-terminal-relay-v1"
 
 
