@@ -51,8 +51,25 @@ def test_a_minor_bump_is_one_step_not_a_pile_up(gate):
     assert gate._gap((4, 170, 0), (4, 169, 50)) == 1
 
 
-def test_a_major_bump_is_also_one_step(gate):
+def test_an_adjacent_major_bump_is_also_one_step(gate):
     assert gate._gap((5, 0, 0), (4, 170, 0)) == 1
+
+
+def test_a_tree_far_ahead_is_still_a_pile_up(gate):
+    """My first fix was too broad and this is the case that caught it.
+
+    Scoring *any* cross-line bump as one step let a 4.x tree pass
+    against a published v1.0.0 -- three majors behind. The existing
+    test_release_check_distinguishes_no_answer_from_no_problem asserts
+    exactly that must fail, and it went red across all 15 matrix jobs.
+    Adjacency is the property, not "the line changed".
+    """
+    assert gate._gap((4, 170, 0), (1, 0, 0)) == 99
+
+
+def test_skipping_a_minor_line_is_a_pile_up(gate):
+    """4.169.50 -> 4.171.0 means 4.170 was never shipped."""
+    assert gate._gap((4, 171, 0), (4, 169, 50)) == 99
 
 
 def test_a_patch_lead_of_one_is_still_one(gate):

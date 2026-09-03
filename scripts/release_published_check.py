@@ -82,38 +82,49 @@ def tags_without_releases() -> list[str]:
 
 
 # A minor/major bump cannot be counted in patch releases -- 4.170.0 is
-# "one release" after 4.169.50 in intent, but 4.169.50 -> 4.170.0 has no
-# patch distance at all. Score it as a single step so the ordinary
-# release flow is not mistaken for a pile-up.
-_MINOR_JUMP_GAP = 1
+# "one release" after 4.169.50 in intent, but there is no patch distance
+# between them at all.
+_ADJACENT = 1
+_FAR_AHEAD = 99
 
 
 def _gap(tree: tuple[int, ...], published: tuple[int, ...]) -> int:
     """How many releases the tree is ahead.
 
-    Counted on the patch level within one minor line. A minor or major
-    bump is one step, not an emergency: RELEASE.md has the version
-    committed to master *before* the release is cut, so the tree is
-    legitimately one ahead for the length of the release PR.
+    Within one minor line this is the patch distance. Across lines it is
+    a judgement: an *adjacent* minor or major bump is one step, because
+    RELEASE.md step 3 commits the version to master before the release
+    is cut, so the tree is legitimately one ahead for the length of the
+    release PR. Anything further is still treated as a pile-up.
 
-    This used to return 99 for any minor jump, which produced two
-    problems at once. The message read "99 unpublished releases have
-    piled up" -- a number that is not a count of anything and sent me
-    looking for 99 drafts that did not exist (there were two). And
-    because 99 > allowed_gap even in the non-strict path, the check went
-    red on the release PR itself, while `Version sync` is a required
-    context: a minor release could not be merged at all without
-    bypassing the ruleset. A patch release never hit this, which is why
-    it survived to v4.170.0.
+    This used to return 99 for every minor jump, which caused two
+    problems. The message read "99 unpublished releases have piled up",
+    a number that counts nothing -- I went looking for 99 drafts and
+    found two. And 99 exceeds the lead the non-strict path allows, so
+    `Version sync` -- a required check -- went red on the release PR
+    itself, making a minor release unmergeable without bypassing the
+    ruleset. Patch releases scored 1 and passed, which is why this
+    survived to v4.170.0.
 
-    `--strict` still demands the release actually exist, so a tag that
-    was never published is caught with the gap set to zero.
+    The first fix was too broad: scoring *any* cross-line bump as one
+    step let a tree three majors ahead of the published release through,
+    which `test_release_check_distinguishes_no_answer_from_no_problem`
+    caught (it asserts a v1.0.0 release against a 4.x tree still fails).
+    Adjacency is the property that matters, not merely "the line
+    changed".
     """
     if not tree or not published:
         return 0
-    if tree[:2] != published[:2]:
-        return _MINOR_JUMP_GAP
-    return max(0, (tree[2] if len(tree) > 2 else 0) - (published[2] if len(published) > 2 else 0))
+    if tree[:2] == published[:2]:
+        return max(0, (tree[2] if len(tree) > 2 else 0)
+                   - (published[2] if len(published) > 2 else 0))
+    # Same major, next minor: 4.169.x -> 4.170.0
+    if tree[0] == published[0] and tree[1] == published[1] + 1:
+        return _ADJACENT
+    # Next major, reset minor: 4.x -> 5.0
+    if tree[0] == published[0] + 1 and tree[1] == 0:
+        return _ADJACENT
+    return _FAR_AHEAD
 
 
 def main(argv: list[str]) -> int:
