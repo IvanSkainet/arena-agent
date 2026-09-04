@@ -39,7 +39,7 @@ jobs:
             release-assets.githubusercontent.com:443
 
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # zizmor artipacked: checkout leaves the token in .git/config,
           # where anything later in the job -- including an uploaded
