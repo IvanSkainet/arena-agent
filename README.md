@@ -36,6 +36,12 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 
 <!-- END GENERATED METRICS -->
 
+<!-- BEGIN TRAFFIC BADGE -->
+![Unique clones (14 days)](https://img.shields.io/badge/unique%20clones%20(14d)-696-brightgreen)
+
+<sub>696 unique cloners over the 14 days to 2026-09-04 (39545 clones total). Refreshed daily by `.github/workflows/traffic-badge.yml`; GitHub only keeps a 14-day window. Deliberately not a release-download count — v4.169.50 showed 349 downloads of one asset against 3 of the byte-identical copy, so that number measures automation, not people.</sub>
+<!-- END TRAFFIC BADGE -->
+
 ---
 
 ## Contents

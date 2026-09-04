@@ -1,0 +1,99 @@
+{
+  "operation": "GET /v1/desktop/screenshot",
+  "method": "GET",
+  "path_template": "/v1/desktop/screenshot",
+  "fingerprint": "2c5b8bbc",
+  "case_id": "I03xyB",
+  "code_sample": "curl -X GET -H 'Authorization: [Filtered]' 'http://127.0.0.1:8803/v1/desktop/screenshot?format=base64&display=&max_width=0&quality=80'",
+  "sequence": [
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:8803/v1/desktop/screenshot?format=base64&display=&max_width=0&quality=80",
+      "url_template": "http://127.0.0.1:8803/v1/desktop/screenshot",
+      "headers": {
+        "User-Agent": "schemathesis/4.25.2",
+        "Accept-Encoding": "gzip, deflate",
+        "Accept": "*/*",
+        "Connection": "keep-alive",
+        "Authorization": "[Filtered]",
+        "X-Schemathesis-TestCaseId": "I03xyB"
+      },
+      "response": {
+        "status_code": 500,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+          "access-control-allow-headers": "Content-Type, Authorization, X-Arena-Token, Mcp-Session-Id",
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "7577f102",
+          "content-length": "87",
+          "date": "Fri, 04 Sep 2026 23:02:29 GMT",
+          "server": "Python/3.13 aiohttp/3.14.1"
+        },
+        "body": "{\"ok\": false, \"error\": \"No screenshot tool available (need spectacle, grim, or scrot)\"}"
+      },
+      "link": null,
+      "checks": [
+        {
+          "name": "not_a_server_error",
+          "status": "failure",
+          "message": "Server error"
+        }
+      ],
+      "meta": {
+        "generation": {
+          "time": 9.740999757923419e-06,
+          "mode": "positive"
+        },
+        "components": {
+          "HEADER": "positive",
+          "QUERY": "positive"
+        },
+        "phase": {
+          "name": "coverage",
+          "data": {
+            "type": "CoveragePhaseData",
+            "description": "All required and 4 optional properties",
+            "location": null,
+            "parameter": null,
+            "parameter_location": "QUERY",
+            "scenario": "object_required_and_optional"
+          }
+        },
+        "pool_draws": [],
+        "pool_misses": [],
+        "semantic_draws": [],
+        "dictionary_draws": [],
+        "constants_draws": [],
+        "raw_containers": {
+          "HEADER": {
+            "Authorization": "Bearer "
+          },
+          "QUERY": {
+            "format": "base64",
+            "display": "",
+            "max_width": 0,
+            "quality": 80
+          }
+        }
+      },
+      "path": "/v1/desktop/screenshot",
+      "path_parameters": {},
+      "query": {
+        "format": "base64",
+        "display": "",
+        "max_width": "0",
+        "quality": "80"
+      },
+      "case_headers": {
+        "Authorization": "[Filtered]"
+      },
+      "cookies": {},
+      "case_body": {
+        "encoding": "none"
+      },
+      "media_type": null,
+      "parent_index": null
+    }
+  ]
+}

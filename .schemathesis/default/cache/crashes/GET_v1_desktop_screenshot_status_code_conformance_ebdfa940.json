@@ -1,0 +1,107 @@
+{
+  "operation": "GET /v1/desktop/screenshot",
+  "method": "GET",
+  "path_template": "/v1/desktop/screenshot",
+  "fingerprint": "ebdfa940",
+  "case_id": "OgTeL3",
+  "code_sample": "curl -X GET -H 'Authorization: [Filtered]' 'http://127.0.0.1:8801/v1/desktop/screenshot?format=base64&display=&region_x=0&region_y=0&region_width=0&region_height=0&max_width=0&quality=80'",
+  "sequence": [
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:8801/v1/desktop/screenshot?format=base64&display=&region_x=0&region_y=0&region_width=0&region_height=0&max_width=0&quality=80",
+      "url_template": "http://127.0.0.1:8801/v1/desktop/screenshot",
+      "headers": {
+        "User-Agent": "schemathesis/4.25.2",
+        "Accept-Encoding": "gzip, deflate",
+        "Accept": "*/*",
+        "Connection": "keep-alive",
+        "Authorization": "[Filtered]",
+        "X-Schemathesis-TestCaseId": "OgTeL3"
+      },
+      "response": {
+        "status_code": 400,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+          "access-control-allow-headers": "Content-Type, Authorization, X-Arena-Token, Mcp-Session-Id",
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "73f593ca",
+          "content-length": "127",
+          "date": "Fri, 04 Sep 2026 23:00:58 GMT",
+          "server": "Python/3.13 aiohttp/3.14.1"
+        },
+        "body": "{\"ok\": false, \"error\": \"explicit screenshot crop requires integer region_x, region_y, region_width > 0, and region_height > 0\"}"
+      },
+      "link": null,
+      "checks": [
+        {
+          "name": "status_code_conformance",
+          "status": "failure",
+          "message": "Undocumented HTTP status code\n\nReceived: 400\nDocumented: 200, 401, 429, 500"
+        }
+      ],
+      "meta": {
+        "generation": {
+          "time": 1.0641999779181788e-05,
+          "mode": "positive"
+        },
+        "components": {
+          "HEADER": "positive",
+          "QUERY": "positive"
+        },
+        "phase": {
+          "name": "coverage",
+          "data": {
+            "type": "CoveragePhaseData",
+            "description": "All required and 8 optional properties",
+            "location": null,
+            "parameter": null,
+            "parameter_location": "QUERY",
+            "scenario": "object_required_and_optional"
+          }
+        },
+        "pool_draws": [],
+        "pool_misses": [],
+        "semantic_draws": [],
+        "dictionary_draws": [],
+        "constants_draws": [],
+        "raw_containers": {
+          "HEADER": {
+            "Authorization": "Bearer "
+          },
+          "QUERY": {
+            "format": "base64",
+            "display": "",
+            "region_x": 0,
+            "region_y": 0,
+            "region_width": 0,
+            "region_height": 0,
+            "max_width": 0,
+            "quality": 80
+          }
+        }
+      },
+      "path": "/v1/desktop/screenshot",
+      "path_parameters": {},
+      "query": {
+        "format": "base64",
+        "display": "",
+        "region_x": "0",
+        "region_y": "0",
+        "region_width": "0",
+        "region_height": "0",
+        "max_width": "0",
+        "quality": "80"
+      },
+      "case_headers": {
+        "Authorization": "[Filtered]"
+      },
+      "cookies": {},
+      "case_body": {
+        "encoding": "none"
+      },
+      "media_type": null,
+      "parent_index": null
+    }
+  ]
+}
