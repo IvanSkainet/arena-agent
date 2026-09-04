@@ -175,16 +175,24 @@ def test_it_refuses_to_sign_an_immutable_release_with_a_clear_message(raw):
     code -- otherwise the next person reads "upload failed" and retries,
     which cannot work.
     """
-    # Assert on the guard, not on prose. Sabotage caught this: deleting
-    # the actual API call left the word "immutable" in a comment and the
-    # test stayed green.
-    assert 'immutable=$(gh api' in raw, (
-        "nothing queries the release's immutable flag before uploading"
+    # Assert on the guard and on the distinctive message, not on prose.
+    # Sabotage caught the first version: deleting the API call left the
+    # word "immutable" in a comment and the test stayed green. Review
+    # caught the second: `"draft" in raw.lower()` matches the manual
+    # trigger and the skip condition, so the guidance could vanish
+    # unnoticed.
+    assert "immutable=$(printf" in raw or "immutable=$(gh api" in raw, (
+        "nothing reads the release's immutable flag"
     )
-    assert 'if [ "$immutable" = "true" ]' in raw, (
-        "the immutable flag is read but never acted on"
+    assert "steps.state.outputs.writable" in raw, (
+        "the writable state is computed but never gates anything"
     )
-    assert "draft" in raw.lower(), "the error must point at draft signing"
+    assert "signatures cannot be attached after publication" in raw, (
+        "the failure must state why it cannot be repaired here"
+    )
+    assert "RELEASE.md step 9" in raw, (
+        "the failure must point at the procedure that avoids it"
+    )
 
 
 def test_the_public_download_check_is_skipped_for_a_draft(raw):
@@ -193,7 +201,7 @@ def test_the_public_download_check_is_skipped_for_a_draft(raw):
     Skipped deliberately rather than deleted: it still runs on the
     published release via the release:published trigger.
     """
-    assert "steps.draft.outputs.draft != 'true'" in raw, (
+    assert "steps.state.outputs.draft != 'true'" in raw, (
         "the anonymous download step must be conditional; a draft has no "
         "public download URL and the step would fail every draft signing"
     )
@@ -216,3 +224,40 @@ def test_release_docs_put_signing_before_publication():
         "is immutable and can never receive its signatures (#252)"
     )
     assert "immutable" in doc, "the reason for the order is not recorded"
+
+
+def test_publication_does_not_fail_a_release_that_was_signed_as_a_draft(raw):
+    """The published trigger must verify, not re-attach.
+
+    Caught in review on #253: my first version put the immutable guard
+    before every later step, so publishing a correctly-signed draft
+    started the job again, hit the guard, exited 1, and skipped the
+    anonymous download check that only makes sense once published. Every
+    release would have ended on a red workflow run.
+
+    Attaching is now gated on the release being writable, and the
+    published path checks that signatures are present instead of trying
+    to upload them again.
+    """
+    assert "if: steps.state.outputs.writable == 'true'" in raw, (
+        "attaching is not gated: it will run against an immutable release"
+    )
+    assert "if: steps.state.outputs.writable != 'true'" in raw, (
+        "nothing verifies that a published release actually carries "
+        "signatures"
+    )
+    attach = raw.index("Attach signatures to the release")
+    anon = raw.index("Anonymous end-to-end download")
+    assert attach < anon, "the anonymous check must remain the last step"
+
+
+def test_release_docs_state_the_real_asset_count():
+    """`gh release view | wc -l` is the check; the number must be right.
+
+    Review caught this: three binaries plus SHA256SUMS plus a .sig and a
+    .pem for each of those four is 12, not the 9 my first draft implied.
+    A verification step with the wrong expected value teaches people to
+    ignore it.
+    """
+    doc = (REPO / "RELEASE.md").read_text(encoding="utf-8")
+    assert "12 assets" in doc, "the expected asset count is missing or wrong"

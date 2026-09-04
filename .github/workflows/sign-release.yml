@@ -212,49 +212,77 @@ jobs:
           done
           echo "all signatures verified"
 
-      - name: Attach signatures to the release
+      - name: Can this release still receive assets?
+        id: state
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          # An immutable release freezes its asset list at publication, so
-          # signatures can never be attached afterwards. v4.170.0 shipped
-          # unsigned that way: the signatures were produced and verified,
-          # then the upload failed with
+          # A published release is immutable: GitHub freezes its asset
+          # list, so signatures can never be attached afterwards.
+          # v4.170.0 shipped unsigned exactly that way -- the signatures
+          # were produced and verified, then the upload failed with
           #   HTTP 422: Cannot upload assets to an immutable release
-          # and `PATCH {"immutable": false}` returns 200 without changing
-          # anything. Say so plainly instead of leaving a bare 422 (#252).
-          immutable=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" \
-            --jq '.immutable // false')
-          if [ "$immutable" = "true" ]; then
-            echo "::error::release $TAG is immutable; signatures cannot be" \
-                 "attached after publication. Sign while the release is a" \
-                 "draft -- see RELEASE.md steps 8-9."
-            exit 1
-          fi
+          # and `PATCH {"immutable": false}` answers 200 without changing
+          # anything (#252).
+          #
+          # This job runs from two triggers with opposite jobs to do:
+          #   workflow_dispatch on a draft -> sign and attach
+          #   release: published          -> verify the public download
+          # so the state is resolved once here and each half is gated on
+          # it, rather than failing the run for being in the wrong phase.
+          json=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}")
+          draft=$(printf '%s' "$json" | jq -r '.draft // false')
+          immutable=$(printf '%s' "$json" | jq -r '.immutable // false')
+          writable=false
+          if [ "$immutable" != "true" ]; then writable=true; fi
+          {
+            echo "draft=$draft"
+            echo "immutable=$immutable"
+            echo "writable=$writable"
+          } >> "$GITHUB_OUTPUT"
+          echo "release $TAG draft=$draft immutable=$immutable writable=$writable"
+
+      - name: Attach signatures to the release
+        if: steps.state.outputs.writable == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
           cd dist
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             ./*.sig ./*.pem "SHA256SUMS-${TAG}.txt"
 
-      - name: Is the release still a draft?
-        id: draft
+      - name: Refuse to leave a published release unsigned
+        if: steps.state.outputs.writable != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          draft=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" \
-            --jq '.draft // false' 2>/dev/null || echo "unknown")
-          echo "draft=$draft" >> "$GITHUB_OUTPUT"
-          echo "release $TAG draft=$draft"
+          # Already published and already signed is the normal path: the
+          # draft was signed first, publication only re-verifies. Missing
+          # signatures here means the ordering was skipped, and that
+          # cannot be repaired on this release -- say which it is.
+          have=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" \
+            --jq '[.assets[].name | select(endswith(".sig"))] | length')
+          if [ "$have" -eq 0 ]; then
+            echo "::error::release $TAG is immutable and carries no" \
+                 "signatures. They cannot be attached after publication;" \
+                 "signatures cannot be attached after publication." \
+                 "Sign the draft before publishing -- RELEASE.md step 9."
+            exit 1
+          fi
+          echo "release $TAG already carries $have signature files"
 
       - name: Anonymous end-to-end download & smoke verification
         # A draft has no public download URL, so this cannot run before
         # publication. Skipped rather than failed: signing a draft is now
         # the supported path, and the same check runs on the published
         # release from the release:published trigger.
-        if: steps.draft.outputs.draft != 'true'
+        if: steps.state.outputs.draft != 'true'
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |

@@ -124,7 +124,8 @@ gh workflow run sign-release.yml -f tag=vX.Y.Z
 # produces SHA256SUMS and Sigstore signatures, and attaches them.
 
 gh release view vX.Y.Z --json assets --jq '.assets[].name'
-# Expect 4 artifacts + 4 .sig + 4 .pem + SHA256SUMS before continuing.
+# Expect 12 assets before continuing: 3 binaries (two ZIPs + APK),
+# SHA256SUMS-vX.Y.Z.txt, and a .sig + .pem for each of those four.
 
 gh release edit vX.Y.Z --draft=false --latest
 
