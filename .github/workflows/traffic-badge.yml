@@ -40,6 +40,12 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          # zizmor artipacked: checkout leaves the token in .git/config,
+          # where anything later in the job -- including an uploaded
+          # artifact -- can carry it out. This job pushes, so it sets the
+          # credential explicitly on the remote instead.
+          persist-credentials: false
 
       - name: Read traffic and update the badge
         env:

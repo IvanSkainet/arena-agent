@@ -134,3 +134,22 @@ def test_the_workflow_pins_and_hardens_like_the_others():
             assert "@" in ref and len(ref.split("@")[1].split()[0]) == 40, (
                 f"action not pinned to a commit sha: {ref}"
             )
+
+
+def test_checkout_does_not_persist_the_token():
+    """zizmor artipacked, caught before this shipped.
+
+    `actions/checkout` writes the job token into `.git/config` by
+    default. This job holds `contents: write` and runs on a schedule, so
+    a later step -- or an uploaded artifact -- could carry a push-capable
+    credential out of the runner. The push supplies the token explicitly
+    instead.
+    """
+    raw = WORKFLOW.read_text(encoding="utf-8")
+    assert "persist-credentials: false" in raw, (
+        "checkout leaves a push-capable token in .git/config"
+    )
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "x-access-token" in script, (
+        "credentials are not persisted, so the push must carry the token"
+    )

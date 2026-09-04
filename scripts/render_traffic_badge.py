@@ -164,10 +164,17 @@ def main(argv: list[str] | None = None) -> int:
         ["git", "commit", "-m",
          f"chore: refresh unique-clones badge ({uniques} over 14d)"],
         cwd=REPO_ROOT, check=True)
+    # checkout runs with persist-credentials: false (zizmor artipacked),
+    # so the token is supplied here and never written to .git/config.
+    remote = f"https://x-access-token:{_token()}@github.com/{REPO}.git"
+    branch = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=REPO_ROOT,
+        capture_output=True, text=True, check=True).stdout.strip()
     # Rebase first: the badge job races anything else pushing to master.
-    subprocess.run(["git", "pull", "--rebase", "--autostash"],
+    subprocess.run(["git", "pull", "--rebase", "--autostash", remote, branch],
                    cwd=REPO_ROOT, check=True)
-    subprocess.run(["git", "push"], cwd=REPO_ROOT, check=True)
+    subprocess.run(["git", "push", remote, f"HEAD:{branch}"],
+                   cwd=REPO_ROOT, check=True)
     return 0
 
 
