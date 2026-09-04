@@ -218,11 +218,43 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
+          # An immutable release freezes its asset list at publication, so
+          # signatures can never be attached afterwards. v4.170.0 shipped
+          # unsigned that way: the signatures were produced and verified,
+          # then the upload failed with
+          #   HTTP 422: Cannot upload assets to an immutable release
+          # and `PATCH {"immutable": false}` returns 200 without changing
+          # anything. Say so plainly instead of leaving a bare 422 (#252).
+          immutable=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" \
+            --jq '.immutable // false')
+          if [ "$immutable" = "true" ]; then
+            echo "::error::release $TAG is immutable; signatures cannot be" \
+                 "attached after publication. Sign while the release is a" \
+                 "draft -- see RELEASE.md steps 8-9."
+            exit 1
+          fi
           cd dist
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             ./*.sig ./*.pem "SHA256SUMS-${TAG}.txt"
 
+      - name: Is the release still a draft?
+        id: draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          draft=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" \
+            --jq '.draft // false' 2>/dev/null || echo "unknown")
+          echo "draft=$draft" >> "$GITHUB_OUTPUT"
+          echo "release $TAG draft=$draft"
+
       - name: Anonymous end-to-end download & smoke verification
+        # A draft has no public download URL, so this cannot run before
+        # publication. Skipped rather than failed: signing a draft is now
+        # the supported path, and the same check runs on the published
+        # release from the release:published trigger.
+        if: steps.draft.outputs.draft != 'true'
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |

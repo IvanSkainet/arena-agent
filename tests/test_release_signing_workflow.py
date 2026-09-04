@@ -136,3 +136,83 @@ def test_release_docs_tell_the_user_how_to_verify():
     assert "cosign verify-blob" in release_md, (
         "RELEASE.md must show the verification command; an unverifiable "
         "signature is decoration")
+
+
+# ---------------------------------------------------------------------
+# Signing must happen before publication (#252)
+#
+# v4.170.0 shipped with no .sig/.pem at all. The signatures were produced
+# and verified, then the upload failed:
+#     HTTP 422: Cannot upload assets to an immutable release
+# A published release freezes its asset list, and
+# `PATCH {"immutable": false}` returns 200 without changing anything, so
+# it cannot be repaired after the fact.
+#
+# Measured against the v4.169.38 draft: asset download HTTP 200, upload
+# HTTP 201, delete HTTP 204. Drafts are writable, published releases are
+# not -- so the draft is the only window in which signing can work.
+# ---------------------------------------------------------------------
+
+
+def test_the_workflow_can_be_run_on_demand_for_a_tag(wf):
+    """Signing a draft requires a manual trigger.
+
+    `release: published` fires only after the freeze, so it can never
+    attach anything to an immutable release. workflow_dispatch with a tag
+    is what makes draft signing possible.
+    """
+    on = wf.get("on") or wf.get(True)
+    assert "workflow_dispatch" in on, "no manual trigger: a draft cannot be signed"
+    inputs = on["workflow_dispatch"]["inputs"]
+    assert "tag" in inputs, "the manual trigger must accept the tag to sign"
+    assert inputs["tag"]["required"] is True
+
+
+def test_it_refuses_to_sign_an_immutable_release_with_a_clear_message(raw):
+    """A bare HTTP 422 sent me looking in the wrong place for an hour.
+
+    The failure must name the cause and the fix, not just the status
+    code -- otherwise the next person reads "upload failed" and retries,
+    which cannot work.
+    """
+    # Assert on the guard, not on prose. Sabotage caught this: deleting
+    # the actual API call left the word "immutable" in a comment and the
+    # test stayed green.
+    assert 'immutable=$(gh api' in raw, (
+        "nothing queries the release's immutable flag before uploading"
+    )
+    assert 'if [ "$immutable" = "true" ]' in raw, (
+        "the immutable flag is read but never acted on"
+    )
+    assert "draft" in raw.lower(), "the error must point at draft signing"
+
+
+def test_the_public_download_check_is_skipped_for_a_draft(raw):
+    """A draft has no public URL, so that check must not fail the run.
+
+    Skipped deliberately rather than deleted: it still runs on the
+    published release via the release:published trigger.
+    """
+    assert "steps.draft.outputs.draft != 'true'" in raw, (
+        "the anonymous download step must be conditional; a draft has no "
+        "public download URL and the step would fail every draft signing"
+    )
+
+
+def test_release_docs_put_signing_before_publication():
+    """RELEASE.md must lead to the working order, not the broken one.
+
+    The old step 8 ended with `--draft=false` immediately after creating
+    the draft, so signing could only ever run post-freeze. The document
+    is what an agent follows; leaving it stale reproduces the bug.
+    """
+    doc = (REPO / "RELEASE.md").read_text(encoding="utf-8")
+    sign_at = doc.find("gh workflow run sign-release.yml")
+    publish_at = doc.find("gh release edit vX.Y.Z --draft=false")
+    assert sign_at != -1, "RELEASE.md never triggers signing"
+    assert publish_at != -1, "RELEASE.md never publishes the draft"
+    assert sign_at < publish_at, (
+        "RELEASE.md still publishes before signing; a published release "
+        "is immutable and can never receive its signatures (#252)"
+    )
+    assert "immutable" in doc, "the reason for the order is not recorded"
