@@ -95,8 +95,7 @@ test "$(git rev-parse HEAD)" = "<full-master-sha>"
 git tag -a vX.Y.Z -m "vX.Y.Z: <short release summary>"
 git push origin vX.Y.Z
 
-# 8) Stage a DRAFT release with the already-attested ZIPs and APK. Draft first
-#    so release:published signing can never race an incomplete asset upload.
+# 8) Stage a DRAFT release with the already-attested ZIPs and APK.
 gh release create vX.Y.Z \
     /tmp/arena-release-candidate/arena-agent-vX.Y.Z.zip \
     /tmp/arena-release-candidate/arena-agent.zip \
@@ -104,10 +103,31 @@ gh release create vX.Y.Z \
     --draft \
     --title "vX.Y.Z — <summary>" \
     --notes-file <path-to-release-notes.md>
-gh release edit vX.Y.Z --draft=false --latest
 
-# 9) Wait for sign-release. It re-verifies candidate provenance + SBOM before
-#    producing SHA256SUMS and Sigstore signatures.
+# 9) Sign WHILE IT IS STILL A DRAFT, then publish. Order matters.
+#
+#    A published release is immutable: GitHub freezes its asset list, and
+#    every later upload fails with
+#        HTTP 422: Cannot upload assets to an immutable release
+#    `PATCH {"immutable": false}` answers 200 and changes nothing, so it
+#    cannot be repaired afterwards. v4.170.0 shipped with no .sig/.pem at
+#    all because it was published first (#252).
+#
+#    The old note here said draft-first prevents signing from racing an
+#    incomplete upload. True, and not enough: it predates immutable
+#    releases, so it guarded the upload race while leaving this one open.
+#
+#    Drafts accept both download and upload -- verified against the
+#    v4.169.38 draft: asset download HTTP 200, upload HTTP 201.
+gh workflow run sign-release.yml -f tag=vX.Y.Z
+# Wait for it to succeed. It re-verifies candidate provenance + SBOM,
+# produces SHA256SUMS and Sigstore signatures, and attaches them.
+
+gh release view vX.Y.Z --json assets --jq '.assets[].name'
+# Expect 12 assets before continuing: 3 binaries (two ZIPs + APK),
+# SHA256SUMS-vX.Y.Z.txt, and a .sig + .pem for each of those four.
+
+gh release edit vX.Y.Z --draft=false --latest
 
 # 10) Download the PUBLIC artifact anonymously, verify it, install it again on
 #     Windows, and repeat installed-artifact timeout/restart/live smoke.
