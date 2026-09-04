@@ -18,16 +18,22 @@
     "make_release_zip.py ships, derived from its own should_exclude() rather",
     "than hand-listed (#242, #244). It was arena/ only, hiding 7 HIGH and 22",
     "MEDIUM. The rise is scope, not new debt: every finding predates the",
-    "change and was simply never looked at."
+    "change and was simply never looked at.",
+    "v4.170.x: +17 from scripts/render_traffic_badge.py -- the badge job runs",
+    "git via subprocess (add/commit/pull/push), which is B404/B603/B607 by",
+    "construction. Every call uses a fixed argv list with no shell and no",
+    "user input; the only interpolated value is the repo slug from",
+    "GITHUB_REPOSITORY. Raised because the scope grew, not because a rule",
+    "was relaxed."
   ],
   "B105": 8,
   "B107": 2,
   "B110": 263,
   "B112": 34,
   "B311": 1,
-  "B404": 112,
+  "B404": 113,
   "B405": 2,
-  "B603": 149,
+  "B603": 157,
   "B605": 1,
-  "B607": 58
+  "B607": 66
 }
