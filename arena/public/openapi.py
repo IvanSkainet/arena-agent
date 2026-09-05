@@ -103,10 +103,26 @@ _ERROR_ENVELOPE = {
 }
 
 
-def _error_response(description: str) -> dict:
+# The parse-failure 400 carries one field the universal envelope does not:
+# the name of the parameter that failed. A generated client can highlight
+# that field; a client reading only `error` has to parse English.
+_QUERY_PARAM_ERROR_ENVELOPE = {
+    "type": "object",
+    "properties": {
+        **_ERROR_ENVELOPE["properties"],
+        "param": {
+            "type": "string",
+            "description": "Name of the query parameter that failed to parse.",
+        },
+    },
+    "required": ["ok", "error", "param"],
+}
+
+
+def _error_response(description: str, schema: dict | None = None) -> dict:
     return {
         "description": description,
-        "content": {"application/json": {"schema": _ERROR_ENVELOPE}},
+        "content": {"application/json": {"schema": schema or _ERROR_ENVELOPE}},
     }
 
 
@@ -202,7 +218,8 @@ def _apply_universal_responses(spec: dict) -> dict:
                 # status code).
                 responses.setdefault("400", _error_response(
                     "A query parameter could not be parsed as an integer. "
-                    "The body names it in `param`."))
+                    "The body names it in `param`.",
+                    _QUERY_PARAM_ERROR_ENVELOPE))
             responses.setdefault("401", _error_response(
                 "Missing or invalid credential. The bridge accepts a Bearer "
                 "token, an X-Arena-Token header, or (deprecated) a ?token= "

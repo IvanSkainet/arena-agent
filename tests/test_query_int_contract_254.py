@@ -434,3 +434,28 @@ def test_the_generated_400_lands_exactly_on_the_integer_operations(spec):
         f"claimed but does not parse an integer: {sorted(claimed - expected)}; "
         f"parses an integer but does not claim: {sorted(expected - claimed)}"
     )
+
+
+def test_the_documented_400_schema_declares_the_param_field(spec):
+    """A field only the prose mentions is not part of the contract.
+
+    The refusal carries `param` so a client can point at the offending
+    input without parsing English out of `error`. If the schema omits it,
+    every generated client drops it on deserialisation and the field might
+    as well not exist.
+    """
+    for path, _name in _integer_query_parameters(spec):
+        schema = (spec["paths"][path]["get"]["responses"]["400"]
+                  ["content"]["application/json"]["schema"])
+        assert "param" in schema["properties"], path
+        assert "param" in schema["required"], path
+        assert schema["properties"]["param"]["type"] == "string", path
+
+
+def test_the_other_generated_errors_do_not_claim_a_param(spec):
+    """401/429/500 carry no parameter name, and must not promise one."""
+    for path, _name in _integer_query_parameters(spec):
+        for code in ("401", "429", "500"):
+            schema = (spec["paths"][path]["get"]["responses"][code]
+                      ["content"]["application/json"]["schema"])
+            assert "param" not in schema.get("properties", {}), f"{path} {code}"
