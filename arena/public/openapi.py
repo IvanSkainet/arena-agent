@@ -103,10 +103,26 @@ _ERROR_ENVELOPE = {
 }
 
 
-def _error_response(description: str) -> dict:
+# The parse-failure 400 carries one field the universal envelope does not:
+# the name of the parameter that failed. A generated client can highlight
+# that field; a client reading only `error` has to parse English.
+_QUERY_PARAM_ERROR_ENVELOPE = {
+    "type": "object",
+    "properties": {
+        **_ERROR_ENVELOPE["properties"],
+        "param": {
+            "type": "string",
+            "description": "Name of the query parameter that failed to parse.",
+        },
+    },
+    "required": ["ok", "error", "param"],
+}
+
+
+def _error_response(description: str, schema: dict | None = None) -> dict:
     return {
         "description": description,
-        "content": {"application/json": {"schema": _ERROR_ENVELOPE}},
+        "content": {"application/json": {"schema": schema or _ERROR_ENVELOPE}},
     }
 
 
@@ -155,6 +171,24 @@ def _apply_success_schemas(spec: dict) -> dict:
     return spec
 
 
+def _has_integer_query_parameter(operation: dict) -> bool:
+    """True when the operation declares a query parameter parsed as an integer.
+
+    Only integers, deliberately. A `type: string` parameter accepts whatever
+    arrives and cannot cause a parse failure; `number` and `boolean` ones are
+    still read by handlers that fall back to a default rather than refusing.
+    Documenting a 400 there would claim a refusal that never happens, which
+    is the same kind of untruth in the other direction. Integers are the set
+    where `query_int` makes the claim true, and the behavioural sweep in
+    tests/test_query_int_contract_254.py holds it to that.
+    """
+    return any(
+        parameter.get("schema", {}).get("type") == "integer"
+        for parameter in operation.get("parameters", [])
+        if parameter.get("in") == "query"
+    )
+
+
 def _apply_universal_responses(spec: dict) -> dict:
     """Attach the responses every authenticated operation can actually return.
 
@@ -175,6 +209,17 @@ def _apply_universal_responses(spec: dict) -> dict:
             if method not in _OPERATION_METHODS:
                 continue
             responses = operation.setdefault("responses", {})
+            if _has_integer_query_parameter(operation):
+                # An operation with an integer query parameter can be handed
+                # a value that is not one. Since #254 the handler wrappers
+                # answer that with 400 instead of 500, so the document has
+                # to say 400 exists -- otherwise fixing one lie (a 500 for a
+                # caller's typo) would tell a new one (an undocumented
+                # status code).
+                responses.setdefault("400", _error_response(
+                    "A query parameter could not be parsed as an integer. "
+                    "The body names it in `param`.",
+                    _QUERY_PARAM_ERROR_ENVELOPE))
             responses.setdefault("401", _error_response(
                 "Missing or invalid credential. The bridge accepts a Bearer "
                 "token, an X-Arena-Token header, or (deprecated) a ?token= "

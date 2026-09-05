@@ -8,7 +8,7 @@ from aiohttp import web
 
 from arena.desktop.displays import get_displays, match_display
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import authed
+from arena.handler_helpers import authed, query_int
 
 
 def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
@@ -23,15 +23,6 @@ def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
                 return None
             try:
                 return float(raw)
-            except (TypeError, ValueError):
-                return None
-
-        def _qs_int(name: str) -> int | None:
-            raw = qs.get(name, [None])[0]
-            if raw is None or raw == "":
-                return None
-            try:
-                return int(raw)
             except (TypeError, ValueError):
                 return None
 
@@ -51,10 +42,10 @@ def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
             crop_region = display.get("geometry")
         elif region_requested:
             crop_region = {
-                "x": _qs_int("region_x"),
-                "y": _qs_int("region_y"),
-                "width": _qs_int("region_width"),
-                "height": _qs_int("region_height"),
+                "x": query_int(request, "region_x", default=None),
+                "y": query_int(request, "region_y", default=None),
+                "width": query_int(request, "region_width", default=None),
+                "height": query_int(request, "region_height", default=None),
             }
             if None in crop_region.values() or int(crop_region.get("width") or 0) <= 0 or int(crop_region.get("height") or 0) <= 0:
                 ctx.record_request(is_error=True, count_request=False)
@@ -62,8 +53,10 @@ def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
         shot = await ctx.capture_screenshot(
             fmt=fmt,
             scale=_qs_float("scale"),
-            max_width=_qs_int("max_width"),
-            quality=_qs_int("quality") or 80,
+            max_width=query_int(request, "max_width", default=None),
+            # `or 80` is kept, not tidied away: quality=0 has always meant
+            # "use the default", and this fix changes rejected values only.
+            quality=query_int(request, "quality", default=80) or 80,
             region_x=(crop_region or {}).get("x"),
             region_y=(crop_region or {}).get("y"),
             region_width=(crop_region or {}).get("width"),

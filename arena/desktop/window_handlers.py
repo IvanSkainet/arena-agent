@@ -6,7 +6,7 @@ from aiohttp import web
 from arena.desktop.text_window_target import resolve_text_window_target
 from arena.desktop.window_catalog import list_desktop_windows, resolve_window_target, window_candidates
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import authed, controlled
+from arena.handler_helpers import authed, controlled, query_int
 
 
 def _truthy(value: str | None) -> bool:
@@ -24,7 +24,9 @@ def make_desktop_window_handlers(ctx: DesktopHandlerContext):
             class_contains=request.query.get("class", ""),
             desktop_file=request.query.get("desktop_file", ""),
             resource_name=request.query.get("resource_name", ""),
-            pid=int(request.query["pid"]) if request.query.get("pid", "").isdigit() else None,
+            # .isdigit() used to drop ?pid=abc on the floor and answer 200 with
+            # every window, as though no filter had been asked for (#254).
+            pid=query_int(request, "pid", default=None),
             display=request.query.get("display", ""),
             active_only=_truthy(request.query.get("active_only")),
         )

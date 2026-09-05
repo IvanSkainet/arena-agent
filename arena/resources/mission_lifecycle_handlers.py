@@ -10,7 +10,7 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.handler_context import MissionLifecycleHandlerContext
-from arena.handler_helpers import authed
+from arena.handler_helpers import authed, query_int
 from arena.resources.mission_identifier import (
     IDENTIFIER_KEYS,
     parse_mission_identifier,
@@ -68,7 +68,9 @@ def make_mission_lifecycle_handlers(ctx: MissionLifecycleHandlerContext) -> Miss
             query = parse_qs(request.query_string)
             payload = {
                 "action": query.get("action", [""])[0],
-                "limit": int(query.get("limit", [100])[0] or 100),
+                # query_int, not int(): ?limit=null used to reach int()
+                # and come back as a 500 blaming ValueError (#254).
+                "limit": query_int(request, "limit", default=100),
                 "due_only": _query_bool(query.get("due_only", [""])[0]) is True,
             }
             enabled = _query_bool(query.get("enabled", [""])[0])
