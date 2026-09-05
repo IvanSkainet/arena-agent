@@ -61,6 +61,8 @@ TOKEN = "json-body-contract-token"
 # `null` is in the list on purpose. It is the one value a "did the parse
 # work?" check cannot distinguish from failure if the helper uses None as a
 # sentinel -- which is why the helper uses a private object() instead.
+ABSENT_WATCH = "no-such-watch-259"
+
 BAD_BODIES: tuple[tuple[str, str], ...] = (
     ("false", "boolean"),
     ("[]", "array"),
@@ -310,23 +312,36 @@ async def _check_the_measured_endpoint(root):
 def test_a_valid_body_still_works(tmp_path):
     """The refusal path is worthless if it also refuses good input.
 
-    `/v1/memory` is the check: it takes an object, needs no hardware, and
-    both of its methods were among the twenty-four.
+    Both arms are deliberately state-free. Two earlier drafts used
+    `/v1/memory` and both failed on CI with `OperationalError: no such
+    table: memory_facts`, green locally only because this sandbox had run a
+    real bridge and left `./memory/facts.db` behind. The fact store is
+    created by a startup hook the harness clears on purpose, so those
+    drafts were asserting that a database happened to exist.
+
+    `/v1/mission/compose` composes a draft from the request alone, and the
+    404 from `/v1/watch/files` is the stronger proof of the pair: to answer
+    "watch not found" the handler had to read the object *and* use the
+    field inside it. The watcher registry is in memory, so neither arm
+    depends on anything a runner might not have.
     """
     asyncio.run(_check_happy_path(tmp_path))
 
 
 async def _check_happy_path(root):
     async with _running_client(root) as client:
-        written = await client.post(
-            "/v1/memory", data=json.dumps({"key": "k", "value": "v"}),
+        composed = await client.post(
+            "/v1/mission/compose", data=json.dumps({"goal": "x"}),
             headers=_auth())
-        assert written.status == 200, await written.text()
-        assert (await written.json())["ok"] is True
+        assert composed.status == 200, await composed.text()
+        assert (await composed.json())["ok"] is True
 
-        removed = await client.delete(
-            "/v1/memory", data=json.dumps({"key": "k"}), headers=_auth())
-        assert removed.status == 200, await removed.text()
+        looked_up = await client.delete(
+            "/v1/watch/files", data=json.dumps({"id": ABSENT_WATCH}),
+            headers=_auth())
+        payload = await looked_up.json()
+        assert looked_up.status == 404, payload
+        assert payload["error"] == "watch not found", payload
 
 
 def test_an_endpoint_with_no_required_field_still_accepts_no_body_at_all(tmp_path):

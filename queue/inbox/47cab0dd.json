@@ -1,0 +1,12 @@
+{
+  "id": "47cab0dd",
+  "cmd": "echo hi",
+  "title": "echo hi",
+  "description": "",
+  "priority": "normal",
+  "cwd": "/tmp/tmp.sZZcoh7CqR",
+  "timeout": 3600,
+  "env": {},
+  "state": "inbox",
+  "created_at": "2026-09-05T05:58:54+00:00"
+}
