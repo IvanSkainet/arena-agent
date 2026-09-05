@@ -60,6 +60,40 @@ _LOG = logging.getLogger(__name__)
 HandlerFn = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
 
+class QueryParamError(ValueError):
+    """A query parameter was present but could not be parsed (#254).
+
+    Raised by :func:`query_int`. The handler decorators in this module
+    translate it into a 400 naming the parameter, instead of letting it
+    reach the generic ``except Exception`` and become a 500.
+
+    Carries the parameter *name*, not the offending value: the name is the
+    part of the pair the caller has to fix, and echoing an attacker-supplied
+    value back into a response body turns a JSON error envelope into a
+    reflection gadget.
+    """
+
+    def __init__(self, param: str) -> None:
+        self.param = param
+        super().__init__(f"query parameter {param!r} must be an integer")
+
+
+def _query_param_refusal(ctx: Any, error: "QueryParamError") -> web.Response:
+    """Turn a :class:`QueryParamError` into the 400 the caller deserves.
+
+    400, not 500: the request was malformed, and a 500 tells a retrying
+    client that waiting might help. No ``error_type``: every other 400 in
+    this codebase omits it, and the field has only ever carried a Python
+    class name, which is an implementation detail the caller cannot act on.
+    ``param`` is machine-readable so a client can highlight the field.
+
+    Deliberately does *not* call ``record_request(is_error=True)``. The
+    error counter feeds the health snapshot, and a caller sending
+    ``?limit=null`` is not the bridge being unhealthy.
+    """
+    return err_json(ctx, str(error), status=400, param=error.param)
+
+
 def authed(
     ctx: Any,
     *,
@@ -106,6 +140,8 @@ def authed(
             except web.HTTPException:
                 # aiohttp routing errors — let them through unchanged.
                 raise
+            except QueryParamError as e:
+                return _query_param_refusal(ctx, e)
             except Exception as e:  # noqa: BLE001
                 try:
                     ctx.record_request(is_error=True, count_request=False)
@@ -157,6 +193,8 @@ def controlled(ctx: Any) -> Callable[[HandlerFn], HandlerFn]:
                 return await fn(request)
             except web.HTTPException:
                 raise
+            except QueryParamError as e:
+                return _query_param_refusal(ctx, e)
             except Exception as e:  # noqa: BLE001
                 try:
                     ctx.record_request(is_error=True, count_request=False)
@@ -185,6 +223,8 @@ def public(ctx: Any) -> Callable[[HandlerFn], HandlerFn]:
                 return await fn(request)
             except web.HTTPException:
                 raise
+            except QueryParamError as e:
+                return _query_param_refusal(ctx, e)
             except Exception as e:  # noqa: BLE001
                 try:
                     ctx.record_request(is_error=True, count_request=False)
@@ -388,3 +428,46 @@ def safe_int(
             raise ValueError(f"above maximum {maximum}: {x}")
         return int(maximum)
     return x
+
+
+def query_int(request: web.Request, name: str, *, default: int) -> int:
+    """Read an integer query parameter, or refuse the request with a 400.
+
+    ``safe_int`` (v4.44.0) already did the parsing. What it could not decide
+    is what a *handler* should do with a bad value, and both of the answers
+    it offers are wrong on their own:
+
+    * ``safe_int(raw, default=50)`` swallows the mistake. A client sending
+      ``?limit=fifty`` gets 200 and the first fifty rows, and goes on sending
+      ``fifty`` forever because nothing ever told it otherwise.
+    * ``safe_int(raw)`` raises ``ValueError``, which the wrappers above turn
+      into ``500 {"error": "ValueError: invalid literal for int() ...",
+      "error_type": "ValueError"}`` -- the bridge blaming itself for the
+      caller's typo, and naming an internal Python class while doing it.
+      That is #254, measured live on the operator's bridge at v4.170.0.
+
+    So: parse strictly, and re-raise the failure as :class:`QueryParamError`,
+    which the decorators answer with 400.
+
+    A missing or empty parameter is not an error. ``?offset=`` means
+    "unspecified" and yields ``default``, which is what it did before -- the
+    old ``int(query.get("offset", [0])[0] or 0)`` reached ``int()`` only for
+    a non-empty value too. Only the parse verdict changes, never the value
+    of a request that already worked.
+
+    Deliberately no ``minimum``/``maximum``: every current caller passes its
+    bad values on to a layer that already clamps them (``?limit=-1`` answers
+    200 with ``limit: 1`` today), and turning those into refusals would be a
+    behaviour change riding along with a bug fix. ``safe_int`` still has the
+    bounds for callers that genuinely need them.
+
+    Raises:
+      QueryParamError: the parameter was supplied and does not parse.
+    """
+    raw = request.query.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return safe_int(raw)
+    except (TypeError, ValueError):
+        raise QueryParamError(name) from None

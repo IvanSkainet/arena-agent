@@ -155,6 +155,21 @@ def _apply_success_schemas(spec: dict) -> dict:
     return spec
 
 
+def _has_typed_query_parameter(operation: dict) -> bool:
+    """True when the operation declares a query parameter that must parse.
+
+    A `type: string` parameter accepts whatever arrives, so it cannot be the
+    reason for a 400. Anything else -- integer, number, boolean -- has values
+    that are not valid instances of it, and the handler has to refuse them.
+    """
+    for parameter in operation.get("parameters", []):
+        if parameter.get("in") != "query":
+            continue
+        if parameter.get("schema", {}).get("type") not in (None, "string"):
+            return True
+    return False
+
+
 def _apply_universal_responses(spec: dict) -> dict:
     """Attach the responses every authenticated operation can actually return.
 
@@ -175,6 +190,16 @@ def _apply_universal_responses(spec: dict) -> dict:
             if method not in _OPERATION_METHODS:
                 continue
             responses = operation.setdefault("responses", {})
+            if _has_typed_query_parameter(operation):
+                # An operation that declares a non-string query parameter can
+                # be handed a value that does not parse. Since #254 the
+                # handler wrappers answer that with 400 instead of 500, so
+                # the document has to say 400 exists -- otherwise fixing one
+                # lie (a 500 for a caller's typo) would tell a new one (an
+                # undocumented status code).
+                responses.setdefault("400", _error_response(
+                    "A query parameter could not be parsed as the type "
+                    "declared above. The body names it in `param`."))
             responses.setdefault("401", _error_response(
                 "Missing or invalid credential. The bridge accepts a Bearer "
                 "token, an X-Arena-Token header, or (deprecated) a ?token= "

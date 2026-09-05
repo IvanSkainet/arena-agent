@@ -10,7 +10,7 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.handler_context import ResourceHandlerContext
-from arena.handler_helpers import authed
+from arena.handler_helpers import authed, query_int
 from arena.resources.mission_identifier import (
     IDENTIFIER_KEYS,
     parse_mission_identifier,
@@ -148,8 +148,10 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
             "state": query.get("state", [""])[0],
             "template": query.get("template", [""])[0],
             "query": query.get("q", [""])[0],
-            "limit": int(query.get("limit", [50])[0] or 50),
-            "offset": int(query.get("offset", [0])[0] or 0),
+            # query_int, not int(): ?limit=null used to reach int() and
+            # come back as a 500 blaming ValueError (#254).
+            "limit": query_int(request, "limit", default=50),
+            "offset": query_int(request, "offset", default=0),
         }
         has_report = _query_bool(query.get("has_report", [""])[0])
         if has_report is not None:
