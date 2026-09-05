@@ -228,6 +228,64 @@ def _reads_a_json_object_body(operation: dict) -> bool:
     return "application/json" in content
 
 
+def _attach_refusal_400(operation: dict, responses: dict) -> None:
+    """Document the 400 an operation can now answer, if it can answer one.
+
+    `setdefault`, not assignment: an operation that documents its own 400 has
+    said something more specific than this function knows.
+    """
+    if _has_integer_query_parameter(operation):
+        # An operation with an integer query parameter can be handed a value
+        # that is not one. Since #254 the handler wrappers answer that with
+        # 400 instead of 500, so the document has to say 400 exists --
+        # otherwise fixing one lie (a 500 for a caller's typo) would tell a
+        # new one (an undocumented status code).
+        responses.setdefault("400", _error_response(
+            "A query parameter could not be parsed as an integer. "
+            "The body names it in `param`.",
+            _QUERY_PARAM_ERROR_ENVELOPE))
+    if _reads_a_json_object_body(operation):
+        # `false`, `[]`, `"x"`, `null` and `1` are all valid JSON and all
+        # legal HTTP. Before #259 twenty-four of these operations answered
+        # them with a 500 naming a Python AttributeError. They now answer
+        # 400, and an answer the document does not mention is its own
+        # defect (#89).
+        responses.setdefault("400", _error_response(
+            "The request body is not a JSON object, or is not JSON at all. "
+            "`received` names the JSON type that arrived, when there was one.",
+            _JSON_BODY_ERROR_ENVELOPE))
+
+
+def _attach_authentication_responses(responses: dict) -> None:
+    """The 401/429/500 every authenticated operation can return."""
+    responses.setdefault("401", _error_response(
+        "Missing or invalid credential. The bridge accepts a Bearer "
+        "token, an X-Arena-Token header, or (deprecated) a ?token= "
+        "query parameter."))
+    responses.setdefault("429", {
+        "description": (
+            "Too many failed authentication attempts from this IP "
+            "(ten within sixty seconds). Retry-After is set."),
+        "headers": {"Retry-After": {
+            "description": "Seconds to wait before retrying.",
+            "required": True,
+            "schema": {"type": "string"},
+        }},
+        "content": {"application/json": {"schema": _ERROR_ENVELOPE}},
+    })
+    responses.setdefault("500", _error_response(
+        "Unhandled server error. The handler wrapper converts any "
+        "uncaught exception into this envelope."))
+
+
+def _operations_of(item: dict):
+    """The (method, operation) pairs of a path item, skipping $ref and friends."""
+    return [
+        (method, operation) for method, operation in item.items()
+        if method in _OPERATION_METHODS
+    ]
+
+
 def _apply_universal_responses(spec: dict) -> dict:
     """Attach the responses every authenticated operation can actually return.
 
@@ -240,54 +298,13 @@ def _apply_universal_responses(spec: dict) -> dict:
             # operation inherits it unless it opts out with an empty list.
             # Skipping only the error responses would still leave generated
             # clients demanding a token for /health and friends.
-            for method, operation in item.items():
-                if method in _OPERATION_METHODS:
-                    operation.setdefault("security", [])
+            for _method, operation in _operations_of(item):
+                operation.setdefault("security", [])
             continue
-        for method, operation in item.items():
-            if method not in _OPERATION_METHODS:
-                continue
+        for _method, operation in _operations_of(item):
             responses = operation.setdefault("responses", {})
-            if _has_integer_query_parameter(operation):
-                # An operation with an integer query parameter can be handed
-                # a value that is not one. Since #254 the handler wrappers
-                # answer that with 400 instead of 500, so the document has
-                # to say 400 exists -- otherwise fixing one lie (a 500 for a
-                # caller's typo) would tell a new one (an undocumented
-                # status code).
-                responses.setdefault("400", _error_response(
-                    "A query parameter could not be parsed as an integer. "
-                    "The body names it in `param`.",
-                    _QUERY_PARAM_ERROR_ENVELOPE))
-            if _reads_a_json_object_body(operation):
-                # `false`, `[]`, `"x"`, `null` and `1` are all valid JSON and
-                # all legal HTTP. Before #259 twenty-four of these operations
-                # answered them with a 500 naming a Python AttributeError.
-                # They now answer 400, and an answer the document does not
-                # mention is its own defect (#89).
-                responses.setdefault("400", _error_response(
-                    "The request body is not a JSON object, or is not JSON "
-                    "at all. `received` names the JSON type that arrived, "
-                    "when there was one.",
-                    _JSON_BODY_ERROR_ENVELOPE))
-            responses.setdefault("401", _error_response(
-                "Missing or invalid credential. The bridge accepts a Bearer "
-                "token, an X-Arena-Token header, or (deprecated) a ?token= "
-                "query parameter."))
-            responses.setdefault("429", {
-                "description": (
-                    "Too many failed authentication attempts from this IP "
-                    "(ten within sixty seconds). Retry-After is set."),
-                "headers": {"Retry-After": {
-                    "description": "Seconds to wait before retrying.",
-                    "required": True,
-                    "schema": {"type": "string"},
-                }},
-                "content": {"application/json": {"schema": _ERROR_ENVELOPE}},
-            })
-            responses.setdefault("500", _error_response(
-                "Unhandled server error. The handler wrapper converts any "
-                "uncaught exception into this envelope."))
+            _attach_refusal_400(operation, responses)
+            _attach_authentication_responses(responses)
     return spec
 
 

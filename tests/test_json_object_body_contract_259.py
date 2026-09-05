@@ -31,24 +31,27 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import re
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from aiohttp import web
-from aiohttp.test_utils import TestClient, TestServer
+from aiohttp.test_utils import TestClient
 
-import unified_bridge as ub
 from arena.handler_helpers import (
     BadRequest,
     JsonBodyError,
     json_object_body,
 )
 from arena.public.openapi import build_openapi_spec
+from tests._live_bridge import (
+    auth_header,
+    error_type_of,
+    json_payload,
+    running_client,
+)
 
 TOKEN = "json-body-contract-token"
 
@@ -77,25 +80,27 @@ def spec() -> dict:
 _WRITE_METHODS = ("post", "put", "patch", "delete")
 
 
-def _json_body_operations(spec: dict) -> Iterator[tuple[str, str, dict]]:
+def _reads_a_json_body(operation: dict) -> bool:
+    """The media type, not the mere presence of a body.
+
+    `POST /v1/exec/script` takes `text/plain`, where a bare `false` is a
+    perfectly good script and must not be refused.
+    """
+    return "application/json" in operation.get("requestBody", {}).get("content", {})
+
+
+def _json_body_operations(spec: dict) -> list[tuple[str, str, dict]]:
     """Every documented operation whose handler reads a JSON object body.
 
     Templated paths are skipped: they need an id that exists on the machine
     running the test, which is a different problem from reading a body.
-
-    The media type is checked rather than the mere presence of a body:
-    `POST /v1/exec/script` takes `text/plain`, where a bare `false` is a
-    perfectly good script and must not be refused.
     """
-    for path, item in spec["paths"].items():
-        if "{" in path:
-            continue
-        for method, operation in item.items():
-            if method not in _WRITE_METHODS:
-                continue
-            content = operation.get("requestBody", {}).get("content", {})
-            if "application/json" in content:
-                yield path, method, operation
+    return [
+        (path, method, operation)
+        for path, item in spec["paths"].items() if "{" not in path
+        for method, operation in item.items() if method in _WRITE_METHODS
+        if _reads_a_json_body(operation)
+    ]
 
 
 # --- the helper in isolation -------------------------------------------
@@ -212,57 +217,14 @@ def test_json_body_error_is_a_bad_request_and_a_valueerror():
 
 # --- the behaviour, through the real server ----------------------------
 
-def _build_app(root: Path) -> web.Application:
-    app = ub.make_app({
-        "token": TOKEN, "profile": "owner-shell", "root": root,
-        "active_exec": 0, "max_concurrent": 3, "audit": "audit",
-        "timeout": 60, "max_timeout": 3600, "max_output": 2000000,
-        "allow_any_cwd": False, "semaphore": asyncio.Semaphore(1),
-    })
-    # Lifecycle hooks tear down the shared executor and poison later tests;
-    # routing and parsing do not need the background workers.
-    app.on_startup.clear()
-    app.on_cleanup.clear()
-    app.on_shutdown.clear()
-    return app
+def _auth() -> dict[str, str]:
+    return {**auth_header(TOKEN), "Content-Type": "application/json"}
 
 
 @asynccontextmanager
 async def _running_client(root: Path) -> AsyncIterator[TestClient]:
-    log = logging.getLogger("arena-bridge")
-    previous = log.level
-    log.setLevel(logging.CRITICAL)  # a regression here logs a traceback
-    server = TestServer(_build_app(root))
-    await server.start_server()
-    client = TestClient(server)
-    await client.start_server()
-    try:
+    async with running_client(root, TOKEN) as client:
         yield client
-    finally:
-        await client.close()
-        await server.close()
-        log.setLevel(previous)
-        store = getattr(ub, "_rate_limit_store", None)
-        if isinstance(store, dict):
-            store.clear()
-
-
-def _auth() -> dict[str, str]:
-    return {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
-
-
-async def _payload(response) -> dict:
-    if response.content_type != "application/json":
-        return {}
-    try:
-        body = json.loads(await response.text())
-    except ValueError:
-        return {}
-    return body if isinstance(body, dict) else {}
-
-
-def _error_type_of(payload: dict) -> str | None:
-    return payload.get("error_type")
 
 
 def test_the_leak_detector_would_actually_notice_a_leak():
@@ -272,9 +234,9 @@ def test_the_leak_detector_would_actually_notice_a_leak():
     sweep's leak arm never fires on green code. Pin it directly, or the arm
     could be broken and the sweep would go on passing.
     """
-    assert _error_type_of({"ok": False, "error_type": "AttributeError"}) == "AttributeError"
-    assert _error_type_of({"ok": False, "error": "request body must be"}) is None
-    assert _error_type_of({}) is None
+    assert error_type_of({"ok": False, "error_type": "AttributeError"}) == "AttributeError"
+    assert error_type_of({"ok": False, "error": "request body must be"}) is None
+    assert error_type_of({}) is None
 
 
 def test_no_documented_json_endpoint_answers_5xx_to_a_body_of_the_wrong_shape(
@@ -294,7 +256,7 @@ def test_no_documented_json_endpoint_answers_5xx_to_a_body_of_the_wrong_shape(
 
 
 async def _sweep(spec, root):
-    targets = list(_json_body_operations(spec))
+    targets = _json_body_operations(spec)
     assert targets, "the document declares no JSON request bodies -- sweep is vacuous"
 
     wrong: list[str] = []
@@ -303,7 +265,7 @@ async def _sweep(spec, root):
             for body, expected_type in BAD_BODIES:
                 response = await client.request(
                     method.upper(), path, data=body, headers=_auth())
-                payload = await _payload(response)
+                payload = await json_payload(response)
                 where = f"{method.upper()} {path} -d {body}"
                 # The status alone is not the whole contract. A 400 that
                 # says "missing cmd" would pass a status-only check while
@@ -312,8 +274,8 @@ async def _sweep(spec, root):
                     wrong.append(f"{where} -> {response.status} {payload or '(no json)'}")
                 elif payload.get("received") != expected_type:
                     wrong.append(f"{where} -> 400 but received={payload.get('received')!r}")
-                elif _error_type_of(payload) is not None:
-                    wrong.append(f"{where} -> leaks error_type={_error_type_of(payload)}")
+                elif error_type_of(payload) is not None:
+                    wrong.append(f"{where} -> leaks error_type={error_type_of(payload)}")
                 elif payload.get("ok") is not False:
                     wrong.append(f"{where} -> 400 without ok:false: {payload}")
 
@@ -384,7 +346,7 @@ async def _check_bodyless_request(root):
         response = await client.post(
             "/v1/desktop/ocr",
             headers={"Authorization": f"Bearer {TOKEN}"})
-        payload = await _payload(response)
+        payload = await json_payload(response)
         assert "received" not in payload, payload
         assert "JSON object" not in payload.get("error", ""), payload
 
