@@ -8,17 +8,13 @@ from arena.desktop.window_action import perform_window_action
 from arena.desktop.window_action_plans import plan_window_action_geometry
 from arena.desktop.window_catalog import resolve_window_target
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import controlled
+from arena.handler_helpers import controlled, json_object_body
 
 
 def make_desktop_window_action_handler(ctx: DesktopHandlerContext):
     @controlled(ctx)
     async def handle_v1_desktop_window_action(request: web.Request) -> web.Response:
-        try:
-            body = await request.json()
-        except Exception:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+        body = await json_object_body(request)
         action = str(body.get("action", "") or "").strip().lower()
         if action not in {"minimize", "restore", "maximize", "unmaximize", "fullscreen", "unfullscreen", "close", "move", "resize", "move_resize", "center", "move_to_display", "snap_left", "snap_right", "snap_top", "snap_bottom", "snap_top_left", "snap_top_right", "snap_bottom_left", "snap_bottom_right"}:
             ctx.record_request(is_error=True, count_request=False)

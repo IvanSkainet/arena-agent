@@ -10,7 +10,7 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.handler_context import MemoryHandlerContext
-from arena.handler_helpers import authed, query_int
+from arena.handler_helpers import authed, json_object_body, query_int
 from arena.memory.profiles import (
     DEFAULT_MEMORY_PROFILE,
     normalize_memory_profile,
@@ -74,11 +74,7 @@ def make_memory_handlers(ctx: MemoryHandlerContext) -> MemoryHandlers:
 
     @authed(ctx)
     async def handle_v1_memory_set(request: web.Request) -> web.Response:
-        try:
-            data = await request.json()
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+        data = await json_object_body(request)
         key = str(data.get("key", "")).strip()
         value = str(data.get("value", "")).strip()
         profile_err = validate_memory_profile(data.get("profile"))
@@ -102,11 +98,7 @@ def make_memory_handlers(ctx: MemoryHandlerContext) -> MemoryHandlers:
 
     @authed(ctx)
     async def handle_v1_memory_delete(request: web.Request) -> web.Response:
-        try:
-            data = await request.json()
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+        data = await json_object_body(request)
         key = str(data.get("key", "")).strip()
         profile_err = validate_memory_profile(data.get("profile"))
         if profile_err:

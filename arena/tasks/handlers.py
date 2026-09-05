@@ -9,7 +9,7 @@ from typing import Any
 from aiohttp import web
 
 from arena.handler_context import TaskHandlerContext
-from arena.handler_helpers import authed
+from arena.handler_helpers import authed, json_object_body
 
 
 @dataclass(frozen=True)
@@ -35,11 +35,7 @@ def make_task_handlers(ctx: TaskHandlerContext) -> TaskHandlers:
     @authed(ctx)
     async def handle_v1_tasks_post(request: web.Request) -> web.Response:
         """POST /v1/tasks — Submit task. Body: {cmd, title?, description?, priority?, cwd?, timeout?, env?}."""
-        try:
-            data = await request.json()
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+        data = await json_object_body(request)
         cmd = data.get("cmd", "")
         title = data.get("title", "")
         if not cmd and not title:

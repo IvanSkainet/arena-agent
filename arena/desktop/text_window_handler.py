@@ -5,17 +5,13 @@ from aiohttp import web
 
 from arena.desktop.text_window_target import resolve_text_window_target
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import authed
+from arena.handler_helpers import authed, json_object_body
 
 
 def make_desktop_text_window_handler(ctx: DesktopHandlerContext):
     @authed(ctx)
     async def handle_v1_desktop_resolve_text_target(request: web.Request) -> web.Response:
-        try:
-            body = await request.json()
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+        body = await json_object_body(request)
         result = await resolve_text_window_target(
             query=str(body.get("query", "") or ""),
             display=str(body.get("display", "") or ""),

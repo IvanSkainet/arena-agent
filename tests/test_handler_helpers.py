@@ -213,7 +213,9 @@ def test_parse_json_body_rejects_invalid_json():
     assert data is None
     assert err is not None
     assert err.status == 400
-    assert "invalid JSON" in err.text
+    # #259: parse_json_body now delegates to json_object_body, so this
+    # is the same refusal every other endpoint gives.
+    assert "request body must be valid JSON" in err.text
 
 
 # --- @authed(auto_record=False) — v3.94.0 -------------------------------

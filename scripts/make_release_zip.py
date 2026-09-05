@@ -54,6 +54,12 @@ EXCLUDE_FILES = {
 # cutting v4.83.0: a tracked requests.jsonl.2 leaked into the release zip.)
 EXCLUDE_LOG_PREFIXES = ("requests.jsonl", "audit.jsonl", "bridge.log")
 EXCLUDE_PATH_PATTERNS = (
+    # inbox was missing from this list while the other three queue states
+    # were on it. A task file that reached the zip is one the runner
+    # executes on the machine that unpacks it -- with the `cwd` of whoever
+    # created it. Found by a reviewer on #261, where exactly such a file
+    # had ridden into a commit.
+    "queue/inbox/",
     "queue/running/", "queue/done/", "queue/failed/",
     "memory/sessions/", "memory/facts.jsonl", "memory/history.jsonl",
 )

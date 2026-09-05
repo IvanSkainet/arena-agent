@@ -32,19 +32,22 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from aiohttp import web
-from aiohttp.test_utils import TestClient, TestServer
+from aiohttp.test_utils import TestClient
 
-import unified_bridge as ub
 from arena.handler_helpers import QueryParamError, query_int
 from arena.public.openapi import build_openapi_spec
+from tests._live_bridge import (
+    auth_header,
+    error_type_of,
+    json_payload,
+    running_client,
+)
 
 TOKEN = "query-int-contract-token"
 
@@ -155,49 +158,14 @@ def test_query_param_error_is_a_valueerror():
 
 # --- the behaviour, through the real server ----------------------------
 
-def _build_app(root: Path) -> web.Application:
-    app = ub.make_app({
-        "token": TOKEN, "profile": "owner-shell", "root": root,
-        "active_exec": 0, "max_concurrent": 3, "audit": "audit",
-        "timeout": 60, "max_timeout": 3600, "max_output": 2000000,
-        "allow_any_cwd": False, "semaphore": asyncio.Semaphore(1),
-    })
-    # Lifecycle hooks tear down the shared executor and poison later tests;
-    # routing and parsing do not need the background workers.
-    app.on_startup.clear()
-    app.on_cleanup.clear()
-    app.on_shutdown.clear()
-    return app
+def _auth() -> dict[str, str]:
+    return auth_header(TOKEN)
 
 
 @asynccontextmanager
 async def _running_client(root: Path) -> AsyncIterator[TestClient]:
-    """A live in-process bridge, torn down whatever happens.
-
-    Three tests need one, and the teardown has three obligations that are
-    each easy to forget: close the server, restore the logger, and empty the
-    per-IP rate-limit store so the next test is not throttled by this one.
-    """
-    log = logging.getLogger("arena-bridge")
-    previous = log.level
-    log.setLevel(logging.CRITICAL)  # a deliberate 500 logs a traceback
-    server = TestServer(_build_app(root))
-    await server.start_server()
-    client = TestClient(server)
-    await client.start_server()
-    try:
+    async with running_client(root, TOKEN) as client:
         yield client
-    finally:
-        await client.close()
-        await server.close()
-        log.setLevel(previous)
-        store = getattr(ub, "_rate_limit_store", None)
-        if isinstance(store, dict):
-            store.clear()
-
-
-def _auth() -> dict[str, str]:
-    return {"Authorization": f"Bearer {TOKEN}"}
 
 
 def test_no_documented_endpoint_answers_5xx_to_a_bad_query_int(spec, tmp_path):
@@ -226,7 +194,7 @@ async def _environment_failure(client: TestClient, path: str) -> str | None:
     control = await client.get(path, headers=_auth())
     if control.status < 500:
         return None
-    return (await _payload(control)).get("error", "")
+    return (await json_payload(control)).get("error", "")
 
 
 async def _bad_value_faults(
@@ -236,14 +204,14 @@ async def _bad_value_faults(
     crashed, leaked = [], []
     for bad in BAD_INTS:
         response = await client.get(path, params={name: bad}, headers=_auth())
-        payload = await _payload(response)
+        payload = await json_payload(response)
         where = f"GET {path}?{name}={bad!r}"
         if response.status >= 500:
             if _is_excused(payload, excused):
                 continue  # the same thing the box cannot do with no query at all
             crashed.append(f"{where} -> {response.status} {payload or '(no json)'}")
-        elif _error_type_of(payload) is not None:
-            leaked.append(f"{where} -> {_error_type_of(payload)}")
+        elif error_type_of(payload) is not None:
+            leaked.append(f"{where} -> {error_type_of(payload)}")
     return crashed, leaked
 
 
@@ -256,20 +224,6 @@ def _is_excused(payload: dict, excused: str | None) -> bool:
     return excused is not None and payload.get("error", "") == excused
 
 
-async def _payload(response) -> dict:
-    if response.content_type != "application/json":
-        return {}
-    try:
-        body = json.loads(await response.text())
-    except ValueError:
-        return {}
-    return body if isinstance(body, dict) else {}
-
-
-def _error_type_of(payload: dict) -> str | None:
-    return payload.get("error_type")
-
-
 def test_the_leak_detector_would_actually_notice_a_leak():
     """A detector nothing currently trips is a detector nobody has tested.
 
@@ -277,9 +231,9 @@ def test_the_leak_detector_would_actually_notice_a_leak():
     the sweep's leak arm never fires on green code. Pin it directly, or the
     arm could be broken and the sweep would go on passing.
     """
-    assert _error_type_of({"ok": False, "error_type": "ValueError"}) == "ValueError"
-    assert _error_type_of({"ok": False, "error": "query parameter 'x'"}) is None
-    assert _error_type_of({}) is None
+    assert error_type_of({"ok": False, "error_type": "ValueError"}) == "ValueError"
+    assert error_type_of({"ok": False, "error": "query parameter 'x'"}) is None
+    assert error_type_of({}) is None
 
 
 async def _sweep(spec, root):
@@ -337,7 +291,7 @@ async def _check_documented_400s(spec, root):
             # before it tries to do anything the box might not support --
             # so even the headless screenshot endpoint owes a 400.
             response = await client.get(path, params={name: "abc"}, headers=_auth())
-            payload = await _payload(response)
+            payload = await json_payload(response)
             # The status alone is not enough. /v1/recall answers 400 for a
             # missing `q` too, so a handler that went back to swallowing a
             # bad `top` would still look right here. The refusal has to be

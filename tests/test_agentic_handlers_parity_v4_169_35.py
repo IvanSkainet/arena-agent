@@ -107,7 +107,9 @@ def test_react_invalid_json():
     assert resp.status == 400
     data = json.loads(resp.text)
     assert data["ok"] is False
-    assert data["error"].startswith("invalid json: ")
+    # #259 unified the wording and stopped appending the parser's own
+    # message, which carried offsets from the caller's body.
+    assert data["error"] == "request body must be valid JSON"
 
 
 @pytest.mark.parametrize("bad_goal", ["", "   ", None])
@@ -213,7 +215,9 @@ def test_reflect_invalid_json():
     assert resp.status == 400
     data = json.loads(resp.text)
     assert data["ok"] is False
-    assert data["error"].startswith("invalid json: ")
+    # #259 unified the wording and stopped appending the parser's own
+    # message, which carried offsets from the caller's body.
+    assert data["error"] == "request body must be valid JSON"
 
 
 def test_reflect_happy_path_custom_params():

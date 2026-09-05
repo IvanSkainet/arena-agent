@@ -10,7 +10,7 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.handler_context import ResourceHandlerContext
-from arena.handler_helpers import authed, query_int
+from arena.handler_helpers import BadRequest, authed, bad_request_refusal, json_object_body, query_int
 from arena.resources.mission_identifier import (
     IDENTIFIER_KEYS,
     parse_mission_identifier,
@@ -165,11 +165,12 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         if r:
             return r
         ctx.record_request()
+        # _post_json rolls its own auth instead of wearing @authed, so there
+        # is no wrapper above it to turn a BadRequest into the 400.
         try:
-            data = await request.json()
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+            data = await json_object_body(request)
+        except BadRequest as e:
+            return bad_request_refusal(ctx, e)
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, sync_fn, data)
         status = int(result.pop("status", 200 if result.get("ok") else 400))
@@ -205,11 +206,7 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
 
     @authed(ctx)
     async def handle_v1_subagents_spawn(request: web.Request) -> web.Response:
-        try:
-            data = await request.json()
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+        data = await json_object_body(request)
         cmd = data.get("cmd", "")
         if not cmd:
             ctx.record_request(is_error=True, count_request=False)

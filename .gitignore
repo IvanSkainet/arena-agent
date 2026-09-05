@@ -94,6 +94,10 @@ reports/recordings/*.mp4
 # Queue data (runtime state, not source code)
 queue/done/*.json
 queue/failed/*.json
+# inbox was missing from this list, and a task created while testing by hand
+# rode into a commit on #261 before a reviewer caught it
+queue/inbox/*.json
+!queue/inbox/.gitkeep
 queue/tasks-archive-*.tgz
 
 # Generated

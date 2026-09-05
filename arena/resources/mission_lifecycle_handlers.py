@@ -10,7 +10,7 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.handler_context import MissionLifecycleHandlerContext
-from arena.handler_helpers import authed, query_int
+from arena.handler_helpers import authed, json_object_body, query_int
 from arena.resources.mission_identifier import (
     IDENTIFIER_KEYS,
     parse_mission_identifier,
@@ -78,11 +78,7 @@ def make_mission_lifecycle_handlers(ctx: MissionLifecycleHandlerContext) -> Miss
                 payload["enabled"] = enabled
             result = await loop.run_in_executor(ctx.executor, ctx.mission_schedules_sync, payload)
             return ctx.cors_json_response(result, status=200 if result.get("ok") else int(result.get("status", 400)))
-        try:
-            data = await request.json()
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+        data = await json_object_body(request)
         sync_fn = ctx.mission_schedule_save_sync if request.method == "POST" else ctx.mission_schedule_delete_sync
         result = await loop.run_in_executor(ctx.executor, sync_fn, data)
         status = int(result.pop("status", 200 if result.get("ok") else 400))
@@ -96,11 +92,7 @@ def make_mission_lifecycle_handlers(ctx: MissionLifecycleHandlerContext) -> Miss
 
     @authed(ctx)
     async def handle_v1_mission_schedules_tick(request: web.Request) -> web.Response:
-        try:
-            data = await request.json()
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+        data = await json_object_body(request)
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, ctx.mission_schedule_tick_sync, data)
         status = int(result.pop("status", 200 if result.get("ok") else 400))
