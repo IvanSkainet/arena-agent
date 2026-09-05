@@ -5,6 +5,7 @@ import shutil
 
 from aiohttp import web
 
+from arena.desktop.availability import builder_refusal, failure_status
 from arena.desktop.displays import get_displays, match_display
 from arena.desktop.input import build_click_command
 from arena.handler_context import DesktopHandlerContext
@@ -101,8 +102,13 @@ def make_desktop_ocr_handlers(ctx: DesktopHandlerContext) -> DesktopOcrHandlers:
             audit_fn=ctx.audit,
         )
         if not result.get("ok"):
-            ctx.record_request(is_error=True, count_request=False)
-            return None, ctx.cors_json_response(result, status=500)
+            status = failure_status(result)
+            if status != 503:
+                # A missing tool is not this bridge failing, so it does not
+                # count as an error: /v1/status must not read "unhealthy" on a
+                # box that simply has no tesseract installed (#260).
+                ctx.record_request(is_error=True, count_request=False)
+            return None, ctx.cors_json_response(result, status=status)
         if display_info:
             result["display"] = display_info
         return result, None
@@ -161,7 +167,8 @@ def make_desktop_ocr_handlers(ctx: DesktopHandlerContext) -> DesktopOcrHandlers:
             has_kdotool=shutil.which("kdotool") is not None,
         )
         if err:
-            return ctx.cors_json_response({"ok": False, "error": err}, status=500)
+            body_, status = builder_refusal(err)
+            return ctx.cors_json_response(body_, status=status)
         exec_result = await ctx.desktop_exec(cmd, timeout=10)
         if not exec_result.get("ok"):
             ctx.record_request(is_error=True, count_request=False)

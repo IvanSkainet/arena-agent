@@ -6,6 +6,7 @@ import shutil
 
 from aiohttp import web
 
+from arena.desktop.availability import builder_refusal
 from arena.desktop.input import build_click_command, build_key_command, build_mouse_command, build_type_command
 from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import controlled, json_object_body
@@ -72,7 +73,8 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
             has_kdotool=shutil.which("kdotool") is not None,
         )
         if err:
-            return ctx.cors_json_response({"ok": False, "error": err}, status=500)
+            body_, status = builder_refusal(err)
+            return ctx.cors_json_response(body_, status=status)
         result = await ctx.desktop_exec(cmd, timeout=10)
         if not result.get("ok"):
             ctx.record_request(is_error=True, count_request=False)
@@ -120,7 +122,8 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
                 layout_switched = False
         cmd, tool, err = build_type_command(env=env, text=text, delay=delay, clear=clear)
         if err:
-            return ctx.cors_json_response({"ok": False, "error": err}, status=500)
+            body_, status = builder_refusal(err)
+            return ctx.cors_json_response(body_, status=status)
         result = await ctx.desktop_exec(cmd, timeout=15)
         if not result.get("ok"):
             ctx.record_request(is_error=True, count_request=False)
@@ -170,7 +173,8 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
 
         cmd, tool, err, key_label = build_key_command(env=env, key=key, keys=keys)
         if err:
-            return ctx.cors_json_response({"ok": False, "error": err}, status=500)
+            body_, status = builder_refusal(err)
+            return ctx.cors_json_response(body_, status=status)
         result = await ctx.desktop_exec(cmd, timeout=10)
         if not result.get("ok"):
             ctx.record_request(is_error=True, count_request=False)
@@ -204,7 +208,8 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
 
         cmd, tool, err = build_mouse_command(env=env, x=int(x), y=int(y), absolute=body.get("absolute", True))
         if err:
-            return ctx.cors_json_response({"ok": False, "error": err}, status=500)
+            body_, status = builder_refusal(err)
+            return ctx.cors_json_response(body_, status=status)
         result = await ctx.desktop_exec(cmd, timeout=10)
         return ctx.cors_json_response({"ok": result.get("ok"), "x": int(x), "y": int(y), "absolute": body.get("absolute", True), "tool": tool})
 

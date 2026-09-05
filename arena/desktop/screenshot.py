@@ -7,6 +7,8 @@ import tempfile
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
+from arena.desktop.availability import MissingTool, unavailable_result
+
 
 class DesktopExec(Protocol):
     """Shape of :func:`arena.desktop.exec._desktop_exec`.
@@ -132,7 +134,9 @@ async def capture_desktop_screenshot(
     elif env.get("has_scrot") and env.get("x11"):
         cmd = f'DISPLAY={os.environ.get("DISPLAY", ":0")} scrot -o {tmp_path}'
     else:
-        return {"ok": False, "error": "No screenshot tool available (need spectacle, grim, or scrot)"}
+        return unavailable_result(MissingTool(
+            "No screenshot tool available (need spectacle, grim, or scrot)",
+            ("spectacle", "grim", "scrot")))
 
     result = await desktop_exec(cmd, timeout=15)
     if not result.get("ok") or not os.path.exists(tmp_path):

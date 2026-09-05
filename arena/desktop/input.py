@@ -10,6 +10,8 @@ import re
 import shlex
 from typing import Any
 
+from arena.desktop.availability import MissingTool
+
 YDOTOOL_BUTTONS = {"left": "0x110", "middle": "0x112", "right": "0x111"}
 
 # The only shape `ydotool key` accepts beyond a name we already map:
@@ -46,7 +48,11 @@ def display_env() -> str:
     return f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
 
 
-def build_click_command(*, env: dict[str, Any], x: int, y: int, button: str = "left", double: bool = False, activate: bool = True, has_kdotool: bool = False) -> tuple[str | None, str, str | None]:
+# The error element of these tuples is a MissingTool, not a bare str: it is
+# always "no tool here", and the handler needs the list to answer 503 (#260).
+# MissingTool subclasses str, so anything comparing it to a message is
+# unaffected. `build_key_command` is the exception -- see its own note.
+def build_click_command(*, env: dict[str, Any], x: int, y: int, button: str = "left", double: bool = False, activate: bool = True, has_kdotool: bool = False) -> tuple[str | None, str, MissingTool | None]:
     """Return (command, tool, error)."""
     btn_code = YDOTOOL_BUTTONS.get(button, "0x110")
     disp = display_env()
@@ -75,10 +81,11 @@ def build_click_command(*, env: dict[str, Any], x: int, y: int, button: str = "l
         click_opt = "--repeat 2" if double else ""
         parts.append(f'{disp} xdotool click {click_opt} {click_type}')
         return " && ".join(parts), "xdotool", None
-    return None, "none", "No click tool available (need ydotool or xdotool)"
+    return None, "none", MissingTool(
+        "No click tool available (need ydotool or xdotool)", ("ydotool", "xdotool"))
 
 
-def build_type_command(*, env: dict[str, Any], text: str, delay: int | float = 50, clear: bool = False) -> tuple[str | None, str, str | None]:
+def build_type_command(*, env: dict[str, Any], text: str, delay: int | float = 50, clear: bool = False) -> tuple[str | None, str, MissingTool | None]:
     escaped_text = shlex.quote(text)
     disp = display_env()
     if env.get("has_ydotool"):
@@ -91,7 +98,9 @@ def build_type_command(*, env: dict[str, Any], text: str, delay: int | float = 5
         cmd = f'{disp} xdotool type --delay {delay} {escaped_text}'
         tool = "xdotool"
     else:
-        return None, "none", "No type tool available (need ydotool, wtype, or xdotool)"
+        return None, "none", MissingTool(
+            "No type tool available (need ydotool, wtype, or xdotool)",
+            ("ydotool", "wtype", "xdotool"))
 
     if clear:
         if env.get("has_ydotool"):
@@ -110,6 +119,9 @@ def _ydotool_code_for_key(part: str) -> str | None:
     return code
 
 
+# The one builder whose error is not always a MissingTool: an unrecognised
+# key name is the caller's mistake, not the box's shape, so its annotation
+# stays `str | None` and `builder_refusal` sorts the two apart.
 def build_key_command(*, env: dict[str, Any], key: str | None = None, keys: list[str] | None = None) -> tuple[str | None, str, str | None, str]:
     disp = display_env()
     key_label = key or ("+".join(keys or []))
@@ -152,14 +164,17 @@ def build_key_command(*, env: dict[str, Any], key: str | None = None, keys: list
             return f'ydotool key {" ".join(press + release)}', "ydotool", None, key_label
     if env.get("has_xdotool"):
         return f'{disp} xdotool key {shlex.quote(key_label)}', "xdotool", None, key_label
-    return None, "none", "No key tool available (need ydotool or xdotool)", key_label
+    return None, "none", MissingTool(
+        "No key tool available (need ydotool or xdotool)",
+        ("ydotool", "xdotool")), key_label
 
 
-def build_mouse_command(*, env: dict[str, Any], x: int, y: int, absolute: bool = True) -> tuple[str | None, str, str | None]:
+def build_mouse_command(*, env: dict[str, Any], x: int, y: int, absolute: bool = True) -> tuple[str | None, str, MissingTool | None]:
     disp = display_env()
     if env.get("has_ydotool"):
         abs_flag = "--absolute" if absolute else ""
         return f'ydotool mousemove {abs_flag} {int(x)} {int(y)}', "ydotool", None
     if env.get("has_xdotool"):
         return f'{disp} xdotool mousemove {int(x)} {int(y)}', "xdotool", None
-    return None, "none", "No mouse tool available (need ydotool or xdotool)"
+    return None, "none", MissingTool(
+        "No mouse tool available (need ydotool or xdotool)", ("ydotool", "xdotool"))

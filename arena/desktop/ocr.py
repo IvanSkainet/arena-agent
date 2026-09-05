@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from arena.desktop.availability import MissingTool, unavailable_result
 from arena.desktop.text_matching import build_ocr_text, find_text_matches, line_groups
 
 
@@ -68,7 +69,10 @@ async def ocr_desktop(
     audit_fn=None,
 ) -> dict[str, Any]:
     if shutil.which("tesseract") is None:
-        return {"ok": False, "error": "tesseract is not installed"}
+        # Marked, not just worded: the handler turns this into a 503 rather
+        # than a 500, because no amount of retrying installs tesseract (#260).
+        return unavailable_result(
+            MissingTool("tesseract is not installed", ("tesseract",)))
     shot = await capture_screenshot(
         fmt="png",
         scale=scale,

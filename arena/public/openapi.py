@@ -144,6 +144,41 @@ _JSON_BODY_ERROR_ENVELOPE = {
 }
 
 
+# The third refusal that names its cause, and the only 5xx that does: the
+# machine has no tool for this. `unavailable` lists what to install -- any
+# one of them is enough -- so a client can say "install tesseract" instead of
+# reading the sentence (#260).
+_UNAVAILABLE_ENVELOPE = {
+    "type": "object",
+    "properties": {
+        **_ERROR_ENVELOPE["properties"],
+        "unavailable": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+            "description": (
+                "Tools that would make this call work, in the order the "
+                "bridge prefers them. Any one of them is enough."),
+        },
+    },
+    "required": ["ok", "error", "unavailable"],
+}
+
+
+# The operations that run something the host may simply not have. Written
+# out rather than detected: "which endpoints shell out to a desktop tool" is
+# not visible in the document, and a wrong guess here would either promise a
+# 503 that never comes or hide one that does. A test walks this list against
+# the handlers in both directions.
+_NEEDS_LOCAL_TOOL = {
+    ("get", "/v1/desktop/screenshot"): ("spectacle", "grim", "scrot"),
+    ("post", "/v1/desktop/ocr"): ("tesseract",),
+    ("post", "/v1/desktop/find_text"): ("tesseract",),
+    ("post", "/v1/desktop/click_text"): ("tesseract",),
+    ("post", "/v1/desktop/resolve_text_target"): ("tesseract",),
+}
+
+
 def _error_response(description: str, schema: dict | None = None) -> dict:
     return {
         "description": description,
@@ -341,6 +376,25 @@ def _attach_authentication_responses(responses: dict) -> None:
         "uncaught exception into this envelope."))
 
 
+def _attach_unavailable_503(method: str, path: str, responses: dict) -> None:
+    """Document the 503 for an operation that needs a tool on the host.
+
+    Only these four. Sprayed wider it would promise a status the endpoint
+    cannot produce, which is the same defect as #259 pointing the other way:
+    the document has to match what the handler does, in both directions.
+    """
+    needs = _NEEDS_LOCAL_TOOL.get((method, path))
+    if not needs:
+        return
+    responses.setdefault("503", _error_response(
+        "The host has none of the tools this needs ("
+        + ", ".join(needs)
+        + "). The request is valid and the same call succeeds once one of "
+        "them is installed, so this is not a failure of the bridge and no "
+        "retry will help. `unavailable` lists them.",
+        _UNAVAILABLE_ENVELOPE))
+
+
 def _operations_of(item: dict):
     """The (method, operation) pairs of a path item, skipping $ref and friends."""
     return [
@@ -364,9 +418,10 @@ def _apply_universal_responses(spec: dict) -> dict:
             for _method, operation in _operations_of(item):
                 operation.setdefault("security", [])
             continue
-        for _method, operation in _operations_of(item):
+        for method, operation in _operations_of(item):
             responses = operation.setdefault("responses", {})
             _attach_refusal_400(operation, responses)
+            _attach_unavailable_503(method, path, responses)
             _attach_authentication_responses(responses)
     return spec
 
