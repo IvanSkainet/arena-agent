@@ -1,6 +1,8 @@
 """OpenAPI specification builder for public docs endpoints."""
 from __future__ import annotations
 
+from typing import NamedTuple
+
 
 def _text_schema(*, required: bool = False) -> dict:
     schema: dict = {"type": "string"}
@@ -120,7 +122,7 @@ _QUERY_PARAM_ERROR_ENVELOPE = {
 
 
 # The other refusal that names its cause: a body that parsed as JSON but is
-# not an object. `received` carries the JSON type that arrived -- one of six
+# not an object. `received` carries the JSON type that arrived -- one of five
 # fixed words, never the value the caller sent.
 _JSON_BODY_ERROR_ENVELOPE = {
     "type": "object",
@@ -231,62 +233,90 @@ def _reads_a_json_object_body(operation: dict) -> bool:
 def _attach_refusal_400(operation: dict, responses: dict) -> None:
     """Document the 400 an operation can now answer, if it can answer one.
 
-    `setdefault`, not assignment: an operation that documents its own 400 has
-    said something more specific than this function knows.
+    Two independent reasons, and an operation can have both: an integer
+    query parameter handed something that is not one (#254), and a body that
+    is valid JSON but not an object (#259). When both apply the response has
+    to describe both, with a schema carrying `param` *and* `received` --
+    a reviewer on #261 pointed out that attaching them one after another
+    silently kept whichever arrived first.
     """
+    reasons = []
     if _has_integer_query_parameter(operation):
-        # An operation with an integer query parameter can be handed a value
-        # that is not one. Since #254 the handler wrappers answer that with
-        # 400 instead of 500, so the document has to say 400 exists --
-        # otherwise fixing one lie (a 500 for a caller's typo) would tell a
-        # new one (an undocumented status code).
-        responses.setdefault("400", _error_response(
-            "A query parameter could not be parsed as an integer. "
-            "The body names it in `param`.",
-            _QUERY_PARAM_ERROR_ENVELOPE))
+        reasons.append(_QUERY_PARAM_400)
     if _reads_a_json_object_body(operation):
-        # `false`, `[]`, `"x"`, `null` and `1` are all valid JSON and all
-        # legal HTTP. Before #259 twenty-four of these operations answered
-        # them with a 500 naming a Python AttributeError. They now answer
-        # 400, and an answer the document does not mention is its own
-        # defect (#89).
-        _merge_json_body_400(responses)
+        reasons.append(_JSON_BODY_400)
+    if reasons:
+        _merge_400(responses, reasons)
 
 
-_JSON_BODY_400 = (
-    "The request body is not a JSON object, or is not JSON at all. "
-    "`received` names the JSON type that arrived, when there was one.")
+class _Refusal400(NamedTuple):
+    """One reason an operation can answer 400, and how to say so."""
+
+    summary: str          # what went wrong, in a sentence
+    field_note: str       # the machine-readable field the body adds
+    already_said: str     # phrase that means a hand-written description covers `summary`
+    envelope: dict        # the response schema this reason needs
 
 
-def _merge_json_body_400(responses: dict) -> None:
-    """Add the body-shape 400, or complete one the operation wrote itself.
+_QUERY_PARAM_400 = _Refusal400(
+    summary="A query parameter could not be parsed as an integer.",
+    field_note="The body names it in `param`.",
+    already_said="query parameter",
+    envelope=_QUERY_PARAM_ERROR_ENVELOPE,
+)
+
+_JSON_BODY_400 = _Refusal400(
+    summary="The request body is not a JSON object, or is not JSON at all.",
+    field_note="`received` names the JSON type that arrived, when there was one.",
+    already_said="JSON object",
+    envelope=_JSON_BODY_ERROR_ENVELOPE,
+)
+
+
+def _merge_400(responses: dict, reasons: list) -> None:
+    """Write the 400, completing one the operation declared itself.
 
     `setdefault` alone was not enough, as three reviewers pointed out on the
-    #259 PR. `POST /v1/exec/stream` declares a 400 of its own
-    with a description and no schema at all; leaving it be meant the runtime returned
-    `received` there while the document never mentioned it, so every
+    #259 PR: `POST /v1/exec/stream` declares a 400 of its own with a
+    description and no schema, so leaving it be meant the runtime returned
+    `received` there while the document never mentioned it, and every
     generated client would drop the field on deserialisation.
 
-    A hand-written *description* is still more specific than this function
-    knows and is kept -- with one sentence appended, because the endpoint
-    can now refuse for a second reason. A hand-written *schema* is left
-    entirely alone: that is an author saying something deliberate.
+    A hand-written *description* is more specific than this function knows
+    and is kept, with whatever it does not already say appended. A
+    hand-written *schema* is left entirely alone: that is an author saying
+    something deliberate.
     """
-    existing = responses.get("400")
-    if existing is None:
-        responses["400"] = _error_response(_JSON_BODY_400, _JSON_BODY_ERROR_ENVELOPE)
-        return
-    if existing.get("content"):
-        return
-    description = existing.get("description", "").rstrip(". ")
-    if "JSON object" not in description:
-        description = f"{description}. {_JSON_BODY_400}".lstrip(". ")
-    else:
-        # Already says it in the author's own words; only the schema was
-        # missing. `/v1/exec/stream` is this case.
-        description = f"{description}. `received` names the JSON type that arrived, when there was one."
-    existing["description"] = description
-    existing["content"] = {"application/json": {"schema": _JSON_BODY_ERROR_ENVELOPE}}
+    existing = responses.setdefault("400", {})
+    sentences = [s for s in [existing.get("description", "").strip()] if s]
+    for reason in reasons:
+        written = " ".join(sentences)
+        if reason.already_said not in written:
+            sentences.append(reason.summary)
+        if reason.field_note not in written:
+            sentences.append(reason.field_note)
+    existing["description"] = ". ".join(s.rstrip(". ") for s in sentences) + "."
+    if not existing.get("content"):
+        existing["content"] = {
+            "application/json": {"schema": _union_envelope([r.envelope for r in reasons])}}
+
+
+def _union_envelope(envelopes: list) -> dict:
+    """One schema describing a response that can carry either reason's field.
+
+    `param` and `received` are each optional here even though the
+    single-reason envelope requires `param`: a body that answers the other
+    reason will not have it.
+    """
+    if len(envelopes) == 1:
+        return envelopes[0]
+    properties: dict = {}
+    for envelope in envelopes:
+        properties.update(envelope["properties"])
+    required = set(envelopes[0]["required"])
+    for envelope in envelopes[1:]:
+        required &= set(envelope["required"])
+    return {"type": "object", "properties": properties, "required": sorted(required)}
 
 
 def _attach_authentication_responses(responses: dict) -> None:

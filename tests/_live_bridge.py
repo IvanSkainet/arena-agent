@@ -52,10 +52,14 @@ async def running_client(root: Path, token: str) -> AsyncIterator[TestClient]:
     previous = log.level
     log.setLevel(logging.CRITICAL)  # a regression here logs a traceback
     server = TestServer(build_app(root, token))
-    await server.start_server()
     client = TestClient(server)
-    await client.start_server()
     try:
+        # Inside the try: if either start_server() raises, the docstring's
+        # "whatever happens" has to still hold, or the logger stays silenced
+        # and the rate-limit store stays full for every later test in the
+        # process -- a failure that hides the next failure.
+        await server.start_server()
+        await client.start_server()
         yield client
     finally:
         await client.close()

@@ -45,7 +45,8 @@ from __future__ import annotations
 
 import functools
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
+from types import MappingProxyType
 from typing import Any
 
 from aiohttp import web
@@ -77,8 +78,10 @@ class BadRequest(ValueError):
     today when it adopts one of these helpers.
     """
 
-    #: Extra machine-readable fields for the error envelope.
-    details: dict[str, Any] = {}
+    #: Extra machine-readable fields for the envelope. Read-only: a bare
+    #: `{}` is one dict shared by every instance that does not set its own,
+    #: so an in-place write would leak into the next request.
+    details: Mapping[str, Any] = MappingProxyType({})
 
 
 class QueryParamError(BadRequest):
@@ -585,6 +588,11 @@ async def json_object_body(
         return {}
     try:
         data = await request.json()
+    except web.HTTPException:
+        # aiohttp raises 413 here when the body is over `client_max_size`.
+        # Flattening that into a 400 tells the caller to fix syntax when the
+        # answer is to send less. All nineteen copies got this wrong too.
+        raise
     except Exception:
         raise JsonBodyError() from None
     if not isinstance(data, dict):

@@ -173,7 +173,7 @@ def test_a_value_outside_the_five_types_is_refused_without_inventing_one():
 
 
 def test_the_message_names_the_type_and_never_the_value():
-    """`received` is one of six fixed words, so nothing reflects back out.
+    """`received` is one of five fixed words, so nothing reflects back out.
 
     An error that echoed the body would put attacker-controlled text into
     logs and dashboards. The type name cannot: it comes from a lookup table,
@@ -415,6 +415,73 @@ def test_a_hand_written_400_description_survives_the_generator(spec):
     assert "received" in description
 
 
+def test_a_body_over_the_size_limit_stays_a_413():
+    """The one exception that must travel through untouched.
+
+    aiohttp raises `HTTPRequestEntityTooLarge` out of `request.json()` when
+    the body is over `client_max_size`. A bare `except Exception` turns that
+    into "request body must be valid JSON" -- advice to fix a syntax error
+    that is not there, for a caller whose only fix is to send less. All
+    nineteen copies this helper replaced got it wrong the same way; a
+    reviewer on #261 noticed that consolidating them was the moment to stop.
+    """
+    from aiohttp import web
+    from aiohttp.test_utils import TestClient, TestServer
+
+    async def handler(request):
+        try:
+            await json_object_body(request)
+        except JsonBodyError as error:
+            return web.json_response({"flattened_into": str(error)}, status=400)
+        return web.json_response({"ok": True})
+
+    async def probe():
+        app = web.Application(client_max_size=1024)
+        app.router.add_post("/x", handler)
+        server = TestServer(app)
+        client = TestClient(server)
+        await server.start_server()
+        await client.start_server()
+        try:
+            response = await client.post(
+                "/x", data=b'{"a":"' + b"A" * 4000 + b'"}',
+                headers={"Content-Type": "application/json"})
+            return response.status, await response.text()
+        finally:
+            await client.close()
+
+    status, body = asyncio.run(probe())
+    assert status == 413, body
+
+
+def test_both_refusal_reasons_fit_in_one_400():
+    """An operation can fail on the query string *and* on the body.
+
+    Attaching the two 400s one after another kept whichever came first, so
+    the second reason's field vanished from the document while the handler
+    kept sending it. No operation is in that state today, which is exactly
+    why it needs a test rather than a look: the next one to grow an integer
+    parameter would be documented wrong and nothing would say so.
+    """
+    from arena.public.openapi import (
+        _JSON_BODY_400,
+        _QUERY_PARAM_400,
+        _merge_400,
+    )
+
+    responses: dict = {}
+    _merge_400(responses, [_QUERY_PARAM_400, _JSON_BODY_400])
+    response = responses["400"]
+    schema = response["content"]["application/json"]["schema"]
+    assert "param" in schema["properties"]
+    assert "received" in schema["properties"]
+    # Neither is required now: a body answering one reason has no field for
+    # the other. `param` alone was required when it was the only reason.
+    assert schema["required"] == ["error", "ok"]
+    assert "query parameter" in response["description"]
+    assert "JSON object" in response["description"]
+
+
 def test_the_documented_types_are_exactly_the_ones_the_helper_can_report(spec):
     """The enum and the lookup table have to be one fact, not two.
 
@@ -470,12 +537,19 @@ def test_the_number_of_hand_rolled_body_reads_only_goes_down():
     array: JSON-RPC batches are arrays by specification. If you have a
     genuine need for another one, raise the number here and say why.
     """
+    package = Path(__file__).resolve().parents[1] / "arena"
+    # Anchored on this file, not on the working directory. `Path("arena")`
+    # matches nothing when pytest runs from anywhere else, and a ratchet that
+    # counts zero passes silently forever -- the one failure mode a ratchet
+    # cannot have.
+    assert package.is_dir(), package
     remaining = sorted(
         (path, len(_HAND_ROLLED.findall(path.read_text(encoding="utf-8"))))
-        for path in Path("arena").rglob("*.py")
+        for path in package.rglob("*.py")
         if _HAND_ROLLED.search(path.read_text(encoding="utf-8"))
     )
     total = sum(count for _path, count in remaining)
+    assert total > 0, "counted nothing at all, so this ratchet is not looking at the code"
     assert total <= 67, (
         f"{total} hand-rolled `await request.json()` reads, was 67. "
         "Use json_object_body(request) instead: it refuses a non-object body "
