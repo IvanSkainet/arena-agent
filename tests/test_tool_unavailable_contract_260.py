@@ -287,10 +287,12 @@ async def _call(client, method, path, body):
     return await client.request(method, path, headers=headers, data=data)
 
 
-@pytest.mark.parametrize("method,path,body,needs", TOOL_DEPENDENT_CALLS,
+@pytest.mark.parametrize("call", TOOL_DEPENDENT_CALLS,
                          ids=[f"{m} {p}" for m, p, _b, _n in TOOL_DEPENDENT_CALLS])
-def test_every_tool_dependent_endpoint_answers_503_with_its_tool_list(
-        tmp_path, method, path, body, needs):
+def test_every_tool_dependent_endpoint_answers_503_with_its_tool_list(tmp_path, call):
+    # One `call` tuple rather than four unpacked parameters: CodeScene counts
+    # arguments, and a row of the table is one thing anyway.
+    method, path, body, needs = call
     from tests._live_bridge import json_payload, running_client
 
     async def scenario():

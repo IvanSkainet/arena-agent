@@ -6,7 +6,7 @@ from urllib.parse import parse_qs
 
 from aiohttp import web
 
-from arena.desktop.availability import UNAVAILABLE, failure_status
+from arena.desktop.availability import failure_response
 from arena.desktop.displays import get_displays, match_display
 from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import authed, query_int
@@ -67,15 +67,7 @@ def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
             audit_fn=ctx.audit,
         )
         if not shot.get("ok"):
-            status = failure_status(shot)
-            if status != 503:
-                # See ocr_handler: an uninstalled tool is the box's shape, not
-                # an error of this bridge, and must not move the counter (#260).
-                ctx.record_request(is_error=True, count_request=False)
-            refusal = {"ok": False, "error": shot.get("error", "Screenshot failed")}
-            if status == 503:
-                refusal[UNAVAILABLE] = shot[UNAVAILABLE]
-            return ctx.cors_json_response(refusal, status=status)
+            return failure_response(ctx, shot, "Screenshot failed")
         img_bytes = shot["bytes"]
         out_format = shot["encoding"]
         if fmt == "base64":

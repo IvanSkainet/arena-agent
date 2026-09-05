@@ -38,6 +38,7 @@ __all__ = [
     "UNAVAILABLE",
     "MissingTool",
     "builder_refusal",
+    "failure_response",
     "failure_status",
     "unavailable_result",
 ]
@@ -94,3 +95,28 @@ def failure_status(result: Mapping[str, Any]) -> int:
     perform.
     """
     return 503 if result.get(UNAVAILABLE) else 500
+
+
+def failure_response(ctx, result: dict[str, Any], fallback: str = "operation failed"):
+    """The response for a producer's failed result, whatever kind of failure it is.
+
+    Three handlers had the same four lines -- pick a status, decide whether
+    it counts as an error, keep the message -- and three copies of a rule
+    are three chances to fix it in two places. It lives here because the
+    rule *is* the contract: a missing tool never counts, everything else
+    always does.
+
+    A result may also carry its own `status` (the text-target handler's 404
+    for "nothing matched"); that wins over the 500 default and still counts.
+    """
+    status = 503 if result.get(UNAVAILABLE) else int(result.pop("status", 500) or 500)
+    result.pop("status", None)
+    if status != 503:
+        # A missing tool is not this bridge failing. Counting it would make
+        # a headless box -- behaving exactly as configured -- report itself
+        # unhealthy the moment a client asks it for a screenshot (#260).
+        ctx.record_request(is_error=True, count_request=False)
+    body = dict(result)
+    body["ok"] = False
+    body["error"] = str(body.get("error") or fallback)
+    return ctx.cors_json_response(body, status=status)
