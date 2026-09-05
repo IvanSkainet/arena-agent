@@ -8,7 +8,7 @@ from aiohttp import web
 from arena.desktop.displays import get_displays, match_display
 from arena.desktop.input import build_click_command
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import authed, controlled
+from arena.handler_helpers import authed, controlled, json_object_body
 
 
 class DesktopOcrHandlers(tuple):
@@ -109,21 +109,13 @@ def make_desktop_ocr_handlers(ctx: DesktopHandlerContext) -> DesktopOcrHandlers:
 
     @authed(ctx)
     async def handle_v1_desktop_ocr(request: web.Request) -> web.Response:
-        try:
-            data = await request.json() if request.can_read_body else {}
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+        data = await json_object_body(request, allow_empty=True)
         result, error = await _run_ocr(data, query_required=False)
         return error or ctx.cors_json_response(result)
 
     @authed(ctx)
     async def handle_v1_desktop_find_text(request: web.Request) -> web.Response:
-        try:
-            data = await request.json()
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+        data = await json_object_body(request)
         result, error = await _run_ocr(data, query_required=True)
         if error:
             return error
@@ -135,11 +127,7 @@ def make_desktop_ocr_handlers(ctx: DesktopHandlerContext) -> DesktopOcrHandlers:
 
     @controlled(ctx)
     async def handle_v1_desktop_click_text(request: web.Request) -> web.Response:
-        try:
-            data = await request.json()
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+        data = await json_object_body(request)
         data = {"prefer_active_window": True, **data}
         result, error = await _run_ocr(data, query_required=True)
         if error:

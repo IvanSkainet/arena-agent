@@ -8,7 +8,7 @@ from aiohttp import web
 
 from arena.desktop.input import build_click_command, build_key_command, build_mouse_command, build_type_command
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import controlled
+from arena.handler_helpers import controlled, json_object_body
 
 
 def make_desktop_input_handlers(ctx: DesktopHandlerContext):
@@ -33,11 +33,7 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
 
     @controlled(ctx)
     async def handle_v1_desktop_click(request: web.Request) -> web.Response:
-        try:
-            body = await request.json()
-        except Exception:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+        body = await json_object_body(request)
         x = body.get("x")
         y = body.get("y")
         if x is None or y is None:
@@ -85,11 +81,7 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
 
     @controlled(ctx)
     async def handle_v1_desktop_type(request: web.Request) -> web.Response:
-        try:
-            body = await request.json()
-        except Exception:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+        body = await json_object_body(request)
         guard = await _check_required_title(body)
         if guard:
             return guard
@@ -137,11 +129,7 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
 
     @controlled(ctx)
     async def handle_v1_desktop_key(request: web.Request) -> web.Response:
-        try:
-            body = await request.json()
-        except Exception:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+        body = await json_object_body(request)
         guard = await _check_required_title(body)
         if guard:
             return guard
@@ -192,11 +180,7 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
     @controlled(ctx)
     async def handle_v1_desktop_mouse(request: web.Request) -> web.Response:
         ctx.control_record_agent_action()
-        try:
-            body = await request.json()
-        except Exception:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+        body = await json_object_body(request)
         x = body.get("x")
         y = body.get("y")
         if x is None or y is None:

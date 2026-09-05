@@ -9,7 +9,7 @@ from typing import Any
 from aiohttp import web
 
 from arena.handler_context import ExtensionBridgeHandlerContext
-from arena.handler_helpers import authed
+from arena.handler_helpers import BadRequest, authed, bad_request_refusal, json_object_body
 
 
 @dataclass(frozen=True)
@@ -27,11 +27,12 @@ def make_extension_bridge_handlers(ctx: ExtensionBridgeHandlerContext) -> Extens
         if r:
             return r
         ctx.record_request()
+        # _post_json rolls its own auth instead of wearing @authed, so there
+        # is no wrapper above it to turn a BadRequest into the 400.
         try:
-            data = await request.json()
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+            data = await json_object_body(request)
+        except BadRequest as e:
+            return bad_request_refusal(ctx, e)
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, sync_fn, data)
         status = int(result.pop("status", 200 if result.get("ok") else 400))

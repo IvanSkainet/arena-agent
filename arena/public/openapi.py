@@ -119,6 +119,29 @@ _QUERY_PARAM_ERROR_ENVELOPE = {
 }
 
 
+# The other refusal that names its cause: a body that parsed as JSON but is
+# not an object. `received` carries the JSON type that arrived -- one of six
+# fixed words, never the value the caller sent.
+_JSON_BODY_ERROR_ENVELOPE = {
+    "type": "object",
+    "properties": {
+        **_ERROR_ENVELOPE["properties"],
+        "received": {
+            "type": "string",
+            "enum": ["null", "boolean", "number", "string", "array"],
+            "description": (
+                "The JSON type of the body that arrived. Absent when the "
+                "body did not parse as JSON at all, since then there is no "
+                "type to name."),
+        },
+    },
+    # `received` is deliberately not required: the same 400 also answers a
+    # body that is not JSON at all, and promising a field that arrives only
+    # sometimes is the same untruth as omitting one that always does.
+    "required": ["ok", "error"],
+}
+
+
 def _error_response(description: str, schema: dict | None = None) -> dict:
     return {
         "description": description,
@@ -189,6 +212,22 @@ def _has_integer_query_parameter(operation: dict) -> bool:
     )
 
 
+def _reads_a_json_object_body(operation: dict) -> bool:
+    """True when the operation takes a JSON body its handler reads as an object.
+
+    Every such handler goes through ``json_object_body`` since #259, so the
+    400 documented below is one it will actually give -- checked end to end
+    by the sweep in tests/test_json_object_body_contract_259.py rather than
+    asserted here.
+
+    ``text/plain`` bodies are excluded by looking for the JSON media type
+    specifically: ``POST /v1/exec/script`` takes a raw script, where a bare
+    ``false`` is a perfectly good body.
+    """
+    content = operation.get("requestBody", {}).get("content", {})
+    return "application/json" in content
+
+
 def _apply_universal_responses(spec: dict) -> dict:
     """Attach the responses every authenticated operation can actually return.
 
@@ -220,6 +259,17 @@ def _apply_universal_responses(spec: dict) -> dict:
                     "A query parameter could not be parsed as an integer. "
                     "The body names it in `param`.",
                     _QUERY_PARAM_ERROR_ENVELOPE))
+            if _reads_a_json_object_body(operation):
+                # `false`, `[]`, `"x"`, `null` and `1` are all valid JSON and
+                # all legal HTTP. Before #259 twenty-four of these operations
+                # answered them with a 500 naming a Python AttributeError.
+                # They now answer 400, and an answer the document does not
+                # mention is its own defect (#89).
+                responses.setdefault("400", _error_response(
+                    "The request body is not a JSON object, or is not JSON "
+                    "at all. `received` names the JSON type that arrived, "
+                    "when there was one.",
+                    _JSON_BODY_ERROR_ENVELOPE))
             responses.setdefault("401", _error_response(
                 "Missing or invalid credential. The bridge accepts a Bearer "
                 "token, an X-Arena-Token header, or (deprecated) a ?token= "
@@ -320,7 +370,7 @@ def build_openapi_spec(ctx) -> dict:
             "/v1/extension/preview": {"post": {"summary": "Validate and preview an Arena browser-extension execution payload", "tags": ["Planner"], "requestBody": {"content": {"application/json": {"schema": {"type": "object"}}}, "required": True}, "responses": {"200": {"description": "Extension preview result"}}}},
             "/v1/extension/execute": {"post": {"summary": "Execute an Arena browser-extension payload through tool policy checks", "tags": ["Planner"], "requestBody": {"content": {"application/json": {"schema": {"type": "object"}}}, "required": True}, "responses": {"200": {"description": "Extension execute result"}}}},
             "/v1/exec/script": {"post": {"summary": "Execute a raw script body", "description": "The body is the script itself, not JSON. The interpreter is chosen with the X-Arena-Interpreter header; X-Arena-Timeout and X-Arena-Cwd override the defaults. Refused with 403 on the cautious profile: raw scripts cannot be inspected for semantics.", "tags": ["Exec"], "parameters": [{"name": "X-Arena-Interpreter", "in": "header", "schema": {"type": "string"}, "description": "Interpreter key, e.g. powershell, bash, python"}, {"name": "X-Arena-Timeout", "in": "header", "schema": {"type": "integer"}}, {"name": "X-Arena-Cwd", "in": "header", "schema": {"type": "string"}}], "requestBody": {"required": True, "content": {"text/plain": {"schema": {"type": "string"}}}}, "responses": {"200": {"description": "Script result"}, "400": {"description": "Empty body, unsupported interpreter, or interpreter unavailable on this OS"}, "403": {"description": "Refused by the active profile or the control-character gate"}, "408": {"description": "Timed out"}, "413": {"description": "Script body above the 5 MiB cap"}}}},
-            "/v1/exec/stream": {"post": {"summary": "Execute a command, streaming output", "tags": ["Exec"], "requestBody": {"required": True, "content": {"application/json": {"schema": {"type": "object", "properties": {"cmd": {"type": "string"}, "timeout": {"type": "integer", "default": 30}, "cwd": {"type": "string"}}, "required": ["cmd"]}}}}, "responses": {"200": {"description": "Chunked stream of command output"}, "400": {"description": "Missing cmd"}, "403": {"description": "Refused by the active profile or the control-character gate"}}}},
+            "/v1/exec/stream": {"post": {"summary": "Execute a command, streaming output", "tags": ["Exec"], "requestBody": {"required": True, "content": {"application/json": {"schema": {"type": "object", "properties": {"cmd": {"type": "string"}, "timeout": {"type": "integer", "default": 30}, "cwd": {"type": "string"}}, "required": ["cmd"]}}}}, "responses": {"200": {"description": "Chunked stream of command output"}, "400": {"description": "Missing cmd, or a body that is not a JSON object"}, "403": {"description": "Refused by the active profile or the control-character gate"}}}},
             "/v1/token/regenerate": {"post": {"summary": "Rotate the bridge bearer token", "description": "Generates a new master token, writes it to the token file, and invalidates the current one from the next request onward. No restart is required. A write failure is ALSO reported with HTTP 200 and ok=false, so the caller must inspect ok before discarding the credential it currently holds.", "tags": ["Bridge"], "responses": {"200": {"description": "Rotation outcome. ok=true carries the new token in `token`; ok=false means the token file could not be written and the CURRENT credential is still valid -- do not discard it.", "content": {"application/json": {"schema": {"type": "object", "properties": {"ok": {"type": "boolean"}, "token": {"type": "string", "description": "Present only when ok is true"}, "written_to": {"type": "array", "items": {"type": "string"}}, "previous_token_revoked": {"type": "boolean"}, "restart_required": {"type": "boolean"}, "error": {"type": "string", "description": "Present only when ok is false"}}, "required": ["ok"]}}}}, }}},
             "/v1/events": {"get": {"summary": "WebSocket real-time event stream", "tags": ["Events"], "responses": {"200": {"description": "WebSocket upgrade for events"}}}},
             "/gui": {"get": {"summary": "Web dashboard", "tags": ["Bridge"], "responses": {"200": {"description": "HTML dashboard"}}}},

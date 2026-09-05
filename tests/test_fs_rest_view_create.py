@@ -317,7 +317,8 @@ def test_handler_fs_view_invalid_json(tmp_path):
     req.app[APP_CFG] = {"root": "/tmp"}
     resp = asyncio.run(handlers.view(req))
     assert resp.status == 400, resp._data
-    assert "invalid JSON" in resp._data["error"]
+    # #259: one wording for every endpoint that reads a JSON body.
+    assert resp._data["error"] == "request body must be valid JSON"
 
 
 # ============================================================

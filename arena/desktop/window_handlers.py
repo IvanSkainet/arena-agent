@@ -6,7 +6,7 @@ from aiohttp import web
 from arena.desktop.text_window_target import resolve_text_window_target
 from arena.desktop.window_catalog import list_desktop_windows, resolve_window_target, window_candidates
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import authed, controlled, query_int
+from arena.handler_helpers import authed, controlled, json_object_body, query_int
 
 
 def _truthy(value: str | None) -> bool:
@@ -50,11 +50,7 @@ def make_desktop_window_handlers(ctx: DesktopHandlerContext):
 
     @controlled(ctx)
     async def handle_v1_desktop_focus(request: web.Request) -> web.Response:
-        try:
-            body = await request.json()
-        except Exception:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+        body = await json_object_body(request)
 
         window_id = body.get("id")
         query = str(body.get("query", "") or "")
