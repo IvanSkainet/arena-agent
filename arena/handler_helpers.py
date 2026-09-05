@@ -45,7 +45,8 @@ from __future__ import annotations
 
 import functools
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
+from types import MappingProxyType
 from typing import Any
 
 from aiohttp import web
@@ -59,8 +60,31 @@ _LOG = logging.getLogger(__name__)
 # not Response. Narrowing this alias to Response rejected those handlers.
 HandlerFn = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
+# "the body could not be read as JSON at all", distinct from any JSON value
+# a caller might legitimately have sent -- including None.
+_UNREADABLE = object()
 
-class QueryParamError(ValueError):
+
+class BadRequest(ValueError):
+    """Base for the caller mistakes the decorators below answer with a 400.
+
+    A handler raises one of these instead of returning a response, so the
+    refusal is written once, in the wrapper, rather than copy-pasted at every
+    call site -- which is how the copies drifted apart in the first place
+    (#254, #259).
+
+    Subclassing ``ValueError`` is deliberate: a handler that already wrote
+    ``except ValueError:`` around its own parsing keeps the behaviour it has
+    today when it adopts one of these helpers.
+    """
+
+    #: Extra machine-readable fields for the envelope. Read-only: a bare
+    #: `{}` is one dict shared by every instance that does not set its own,
+    #: so an in-place write would leak into the next request.
+    details: Mapping[str, Any] = MappingProxyType({})
+
+
+class QueryParamError(BadRequest):
     """A query parameter was present but could not be parsed (#254).
 
     Raised by :func:`query_int`. The handler decorators in this module
@@ -75,23 +99,64 @@ class QueryParamError(ValueError):
 
     def __init__(self, param: str) -> None:
         self.param = param
+        self.details = {"param": param}
         super().__init__(f"query parameter {param!r} must be an integer")
 
 
-def _query_param_refusal(ctx: Any, error: "QueryParamError") -> web.Response:
-    """Turn a :class:`QueryParamError` into the 400 the caller deserves.
+# Every JSON type `json.loads` can produce except the object we wanted.
+# The document repeats this list as an enum, and a test compares the two.
+_JSON_TYPE_NAMES: dict[type, str] = {
+    type(None): "null", bool: "boolean", int: "number",
+    float: "number", str: "string", list: "array",
+}
+
+
+class JsonBodyError(BadRequest):
+    """The request body is not the JSON object this endpoint reads (#259).
+
+    Names the JSON *type* that arrived, never the value. The type is one of
+    five fixed words and tells the caller exactly what to change; the value
+    is attacker-controlled text that has no business being reflected back
+    out of an error envelope, into a log line or onto a dashboard.
+
+    `received` is absent in two cases, which is why the document marks it
+    optional: when nothing parsed at all -- there is no JSON type to name,
+    and inventing `null` would tell a client the body was JSON null when it
+    was truncated bytes -- and when a custom decoder produced something
+    outside the five. The second is unreachable through `json.loads` and is
+    handled rather than asserted, because a 500 from an error path is a
+    poor way to find out otherwise.
+    """
+
+    def __init__(self, received: object = _UNREADABLE) -> None:
+        if received is _UNREADABLE:
+            self.received = None
+            super().__init__("request body must be valid JSON")
+            return
+        self.received = _JSON_TYPE_NAMES.get(type(received))
+        if self.received is None:
+            super().__init__("request body must be a JSON object")
+            return
+        self.details = {"received": self.received}
+        super().__init__(
+            f"request body must be a JSON object, received {self.received}")
+
+
+def bad_request_refusal(ctx: Any, error: BadRequest) -> web.Response:
+    """Turn a :class:`BadRequest` into the 400 the caller deserves.
 
     400, not 500: the request was malformed, and a 500 tells a retrying
     client that waiting might help. No ``error_type``: every other 400 in
     this codebase omits it, and the field has only ever carried a Python
     class name, which is an implementation detail the caller cannot act on.
-    ``param`` is machine-readable so a client can highlight the field.
+    ``details`` carries the machine-readable part -- which parameter, which
+    JSON type -- so a client does not have to parse English.
 
     Deliberately does *not* call ``record_request(is_error=True)``. The
     error counter feeds the health snapshot, and a caller sending
     ``?limit=null`` is not the bridge being unhealthy.
     """
-    return err_json(ctx, str(error), status=400, param=error.param)
+    return err_json(ctx, str(error), status=400, **error.details)
 
 
 def authed(
@@ -140,8 +205,8 @@ def authed(
             except web.HTTPException:
                 # aiohttp routing errors — let them through unchanged.
                 raise
-            except QueryParamError as e:
-                return _query_param_refusal(ctx, e)
+            except BadRequest as e:
+                return bad_request_refusal(ctx, e)
             except Exception as e:  # noqa: BLE001
                 try:
                     ctx.record_request(is_error=True, count_request=False)
@@ -193,8 +258,8 @@ def controlled(ctx: Any) -> Callable[[HandlerFn], HandlerFn]:
                 return await fn(request)
             except web.HTTPException:
                 raise
-            except QueryParamError as e:
-                return _query_param_refusal(ctx, e)
+            except BadRequest as e:
+                return bad_request_refusal(ctx, e)
             except Exception as e:  # noqa: BLE001
                 try:
                     ctx.record_request(is_error=True, count_request=False)
@@ -223,8 +288,8 @@ def public(ctx: Any) -> Callable[[HandlerFn], HandlerFn]:
                 return await fn(request)
             except web.HTTPException:
                 raise
-            except QueryParamError as e:
-                return _query_param_refusal(ctx, e)
+            except BadRequest as e:
+                return bad_request_refusal(ctx, e)
             except Exception as e:  # noqa: BLE001
                 try:
                     ctx.record_request(is_error=True, count_request=False)
@@ -302,14 +367,17 @@ async def parse_json_body(
         if err:
             return err
         value = data.get("thing")
+
+    Since #259 this is a thin adapter over :func:`json_object_body`, which
+    is where the check now lives, so both spellings refuse a non-object body
+    in exactly the same words. New handlers should raise rather than unpack:
+    the decorator turns it into the response and the call site stays one
+    line. This form remains for the ~49 handlers already written against it.
     """
     try:
-        data = await request.json()
-        if not isinstance(data, dict):
-            return None, err_json(ctx, "JSON body must be an object", status=400)
-        return data, None
-    except Exception:
-        return None, err_json(ctx, "invalid JSON body", status=400)
+        return await json_object_body(request), None
+    except BadRequest as e:
+        return None, bad_request_refusal(ctx, e)
 
 
 # ---------------------------------------------------------------------------
@@ -480,3 +548,53 @@ def query_int(
         return safe_int(raw)
     except (TypeError, ValueError):
         raise QueryParamError(name) from None
+
+
+async def json_object_body(
+    request: web.Request, *, allow_empty: bool = False,
+) -> dict:
+    """Read the request body as a JSON object, or refuse the request with 400.
+
+    ``parse_json_body`` already existed and already made the isinstance
+    check. Twenty-four documented write operations did not call it; each had
+    hand-written::
+
+        try:
+            data = await request.json()
+        except Exception as e:
+            return ...400...
+
+    which catches a *parse* failure and then hands a ``bool`` straight to
+    ``data.get`` -- ``500 {"error": "AttributeError: 'bool' object has no
+    attribute 'get'", "error_type": "AttributeError"}``. That is #259, and it
+    is the same shape as #254: the helper exists, the call sites predate it.
+
+    Raising rather than returning ``(value, error)`` is what makes adoption a
+    one-line change instead of a four-line one, and it is why the copies
+    cannot drift again: the refusal lives in the decorator.
+
+    Args:
+      request: the live aiohttp request.
+      allow_empty: treat *no body at all* as ``{}``. For endpoints where
+        every field is optional, so ``POST`` with no body is a real request
+        rather than a mistake. An empty body is still not a JSON object,
+        so this has to be asked for explicitly.
+
+    Raises:
+      JsonBodyError: the body is not readable as JSON, or is JSON but not an
+        object.
+    """
+    if allow_empty and not request.can_read_body:
+        return {}
+    try:
+        data = await request.json()
+    except web.HTTPException:
+        # aiohttp raises 413 here when the body is over `client_max_size`.
+        # Flattening that into a 400 tells the caller to fix syntax when the
+        # answer is to send less. All nineteen copies got this wrong too.
+        raise
+    except Exception:
+        raise JsonBodyError() from None
+    if not isinstance(data, dict):
+        raise JsonBodyError(data)
+    return data

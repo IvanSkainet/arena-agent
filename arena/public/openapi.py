@@ -1,6 +1,8 @@
 """OpenAPI specification builder for public docs endpoints."""
 from __future__ import annotations
 
+from typing import NamedTuple
+
 
 def _text_schema(*, required: bool = False) -> dict:
     schema: dict = {"type": "string"}
@@ -119,6 +121,29 @@ _QUERY_PARAM_ERROR_ENVELOPE = {
 }
 
 
+# The other refusal that names its cause: a body that parsed as JSON but is
+# not an object. `received` carries the JSON type that arrived -- one of five
+# fixed words, never the value the caller sent.
+_JSON_BODY_ERROR_ENVELOPE = {
+    "type": "object",
+    "properties": {
+        **_ERROR_ENVELOPE["properties"],
+        "received": {
+            "type": "string",
+            "enum": ["null", "boolean", "number", "string", "array"],
+            "description": (
+                "The JSON type of the body that arrived. Absent when the "
+                "body did not parse as JSON at all, since then there is no "
+                "type to name."),
+        },
+    },
+    # `received` is deliberately not required: the same 400 also answers a
+    # body that is not JSON at all, and promising a field that arrives only
+    # sometimes is the same untruth as omitting one that always does.
+    "required": ["ok", "error"],
+}
+
+
 def _error_response(description: str, schema: dict | None = None) -> dict:
     return {
         "description": description,
@@ -189,6 +214,141 @@ def _has_integer_query_parameter(operation: dict) -> bool:
     )
 
 
+def _reads_a_json_object_body(operation: dict) -> bool:
+    """True when the operation takes a JSON body its handler reads as an object.
+
+    Every such handler goes through ``json_object_body`` since #259, so the
+    400 documented below is one it will actually give -- checked end to end
+    by the sweep in tests/test_json_object_body_contract_259.py rather than
+    asserted here.
+
+    ``text/plain`` bodies are excluded by looking for the JSON media type
+    specifically: ``POST /v1/exec/script`` takes a raw script, where a bare
+    ``false`` is a perfectly good body.
+    """
+    content = operation.get("requestBody", {}).get("content", {})
+    return "application/json" in content
+
+
+def _attach_refusal_400(operation: dict, responses: dict) -> None:
+    """Document the 400 an operation can now answer, if it can answer one.
+
+    Two independent reasons, and an operation can have both: an integer
+    query parameter handed something that is not one (#254), and a body that
+    is valid JSON but not an object (#259). When both apply the response has
+    to describe both, with a schema carrying `param` *and* `received` --
+    a reviewer on #261 pointed out that attaching them one after another
+    silently kept whichever arrived first.
+    """
+    reasons = []
+    if _has_integer_query_parameter(operation):
+        reasons.append(_QUERY_PARAM_400)
+    if _reads_a_json_object_body(operation):
+        reasons.append(_JSON_BODY_400)
+    if reasons:
+        _merge_400(responses, reasons)
+
+
+class _Refusal400(NamedTuple):
+    """One reason an operation can answer 400, and how to say so."""
+
+    summary: str          # what went wrong, in a sentence
+    field_note: str       # the machine-readable field the body adds
+    already_said: str     # phrase that means a hand-written description covers `summary`
+    envelope: dict        # the response schema this reason needs
+
+
+_QUERY_PARAM_400 = _Refusal400(
+    summary="A query parameter could not be parsed as an integer.",
+    field_note="The body names it in `param`.",
+    already_said="query parameter",
+    envelope=_QUERY_PARAM_ERROR_ENVELOPE,
+)
+
+_JSON_BODY_400 = _Refusal400(
+    summary="The request body is not a JSON object, or is not JSON at all.",
+    field_note="`received` names the JSON type that arrived, when there was one.",
+    already_said="JSON object",
+    envelope=_JSON_BODY_ERROR_ENVELOPE,
+)
+
+
+def _merge_400(responses: dict, reasons: list) -> None:
+    """Write the 400, completing one the operation declared itself.
+
+    `setdefault` alone was not enough, as three reviewers pointed out on the
+    #259 PR: `POST /v1/exec/stream` declares a 400 of its own with a
+    description and no schema, so leaving it be meant the runtime returned
+    `received` there while the document never mentioned it, and every
+    generated client would drop the field on deserialisation.
+
+    A hand-written *description* is more specific than this function knows
+    and is kept, with whatever it does not already say appended. A
+    hand-written *schema* is left entirely alone: that is an author saying
+    something deliberate.
+    """
+    existing = responses.setdefault("400", {})
+    sentences = [s for s in [existing.get("description", "").strip()] if s]
+    for reason in reasons:
+        written = " ".join(sentences)
+        if reason.already_said not in written:
+            sentences.append(reason.summary)
+        if reason.field_note not in written:
+            sentences.append(reason.field_note)
+    existing["description"] = ". ".join(s.rstrip(". ") for s in sentences) + "."
+    if not existing.get("content"):
+        existing["content"] = {
+            "application/json": {"schema": _union_envelope([r.envelope for r in reasons])}}
+
+
+def _union_envelope(envelopes: list) -> dict:
+    """One schema describing a response that can carry either reason's field.
+
+    `param` and `received` are each optional here even though the
+    single-reason envelope requires `param`: a body that answers the other
+    reason will not have it.
+    """
+    if len(envelopes) == 1:
+        return envelopes[0]
+    properties: dict = {}
+    for envelope in envelopes:
+        properties.update(envelope["properties"])
+    required = set(envelopes[0]["required"])
+    for envelope in envelopes[1:]:
+        required &= set(envelope["required"])
+    return {"type": "object", "properties": properties, "required": sorted(required)}
+
+
+def _attach_authentication_responses(responses: dict) -> None:
+    """The 401/429/500 every authenticated operation can return."""
+    responses.setdefault("401", _error_response(
+        "Missing or invalid credential. The bridge accepts a Bearer "
+        "token, an X-Arena-Token header, or (deprecated) a ?token= "
+        "query parameter."))
+    responses.setdefault("429", {
+        "description": (
+            "Too many failed authentication attempts from this IP "
+            "(ten within sixty seconds). Retry-After is set."),
+        "headers": {"Retry-After": {
+            "description": "Seconds to wait before retrying.",
+            "required": True,
+            "schema": {"type": "string"},
+        }},
+        "content": {"application/json": {"schema": _ERROR_ENVELOPE}},
+    })
+    responses.setdefault("500", _error_response(
+        "Unhandled server error. The handler wrapper converts any "
+        "uncaught exception into this envelope."))
+
+
+def _operations_of(item: dict):
+    """The (method, operation) pairs of a path item, skipping $ref and friends."""
+    return [
+        (method, operation) for method, operation in item.items()
+        if method in _OPERATION_METHODS
+    ]
+
+
 def _apply_universal_responses(spec: dict) -> dict:
     """Attach the responses every authenticated operation can actually return.
 
@@ -201,43 +361,13 @@ def _apply_universal_responses(spec: dict) -> dict:
             # operation inherits it unless it opts out with an empty list.
             # Skipping only the error responses would still leave generated
             # clients demanding a token for /health and friends.
-            for method, operation in item.items():
-                if method in _OPERATION_METHODS:
-                    operation.setdefault("security", [])
+            for _method, operation in _operations_of(item):
+                operation.setdefault("security", [])
             continue
-        for method, operation in item.items():
-            if method not in _OPERATION_METHODS:
-                continue
+        for _method, operation in _operations_of(item):
             responses = operation.setdefault("responses", {})
-            if _has_integer_query_parameter(operation):
-                # An operation with an integer query parameter can be handed
-                # a value that is not one. Since #254 the handler wrappers
-                # answer that with 400 instead of 500, so the document has
-                # to say 400 exists -- otherwise fixing one lie (a 500 for a
-                # caller's typo) would tell a new one (an undocumented
-                # status code).
-                responses.setdefault("400", _error_response(
-                    "A query parameter could not be parsed as an integer. "
-                    "The body names it in `param`.",
-                    _QUERY_PARAM_ERROR_ENVELOPE))
-            responses.setdefault("401", _error_response(
-                "Missing or invalid credential. The bridge accepts a Bearer "
-                "token, an X-Arena-Token header, or (deprecated) a ?token= "
-                "query parameter."))
-            responses.setdefault("429", {
-                "description": (
-                    "Too many failed authentication attempts from this IP "
-                    "(ten within sixty seconds). Retry-After is set."),
-                "headers": {"Retry-After": {
-                    "description": "Seconds to wait before retrying.",
-                    "required": True,
-                    "schema": {"type": "string"},
-                }},
-                "content": {"application/json": {"schema": _ERROR_ENVELOPE}},
-            })
-            responses.setdefault("500", _error_response(
-                "Unhandled server error. The handler wrapper converts any "
-                "uncaught exception into this envelope."))
+            _attach_refusal_400(operation, responses)
+            _attach_authentication_responses(responses)
     return spec
 
 
@@ -320,7 +450,7 @@ def build_openapi_spec(ctx) -> dict:
             "/v1/extension/preview": {"post": {"summary": "Validate and preview an Arena browser-extension execution payload", "tags": ["Planner"], "requestBody": {"content": {"application/json": {"schema": {"type": "object"}}}, "required": True}, "responses": {"200": {"description": "Extension preview result"}}}},
             "/v1/extension/execute": {"post": {"summary": "Execute an Arena browser-extension payload through tool policy checks", "tags": ["Planner"], "requestBody": {"content": {"application/json": {"schema": {"type": "object"}}}, "required": True}, "responses": {"200": {"description": "Extension execute result"}}}},
             "/v1/exec/script": {"post": {"summary": "Execute a raw script body", "description": "The body is the script itself, not JSON. The interpreter is chosen with the X-Arena-Interpreter header; X-Arena-Timeout and X-Arena-Cwd override the defaults. Refused with 403 on the cautious profile: raw scripts cannot be inspected for semantics.", "tags": ["Exec"], "parameters": [{"name": "X-Arena-Interpreter", "in": "header", "schema": {"type": "string"}, "description": "Interpreter key, e.g. powershell, bash, python"}, {"name": "X-Arena-Timeout", "in": "header", "schema": {"type": "integer"}}, {"name": "X-Arena-Cwd", "in": "header", "schema": {"type": "string"}}], "requestBody": {"required": True, "content": {"text/plain": {"schema": {"type": "string"}}}}, "responses": {"200": {"description": "Script result"}, "400": {"description": "Empty body, unsupported interpreter, or interpreter unavailable on this OS"}, "403": {"description": "Refused by the active profile or the control-character gate"}, "408": {"description": "Timed out"}, "413": {"description": "Script body above the 5 MiB cap"}}}},
-            "/v1/exec/stream": {"post": {"summary": "Execute a command, streaming output", "tags": ["Exec"], "requestBody": {"required": True, "content": {"application/json": {"schema": {"type": "object", "properties": {"cmd": {"type": "string"}, "timeout": {"type": "integer", "default": 30}, "cwd": {"type": "string"}}, "required": ["cmd"]}}}}, "responses": {"200": {"description": "Chunked stream of command output"}, "400": {"description": "Missing cmd"}, "403": {"description": "Refused by the active profile or the control-character gate"}}}},
+            "/v1/exec/stream": {"post": {"summary": "Execute a command, streaming output", "tags": ["Exec"], "requestBody": {"required": True, "content": {"application/json": {"schema": {"type": "object", "properties": {"cmd": {"type": "string"}, "timeout": {"type": "integer", "default": 30}, "cwd": {"type": "string"}}, "required": ["cmd"]}}}}, "responses": {"200": {"description": "Chunked stream of command output"}, "400": {"description": "Missing cmd, or a body that is not a JSON object"}, "403": {"description": "Refused by the active profile or the control-character gate"}}}},
             "/v1/token/regenerate": {"post": {"summary": "Rotate the bridge bearer token", "description": "Generates a new master token, writes it to the token file, and invalidates the current one from the next request onward. No restart is required. A write failure is ALSO reported with HTTP 200 and ok=false, so the caller must inspect ok before discarding the credential it currently holds.", "tags": ["Bridge"], "responses": {"200": {"description": "Rotation outcome. ok=true carries the new token in `token`; ok=false means the token file could not be written and the CURRENT credential is still valid -- do not discard it.", "content": {"application/json": {"schema": {"type": "object", "properties": {"ok": {"type": "boolean"}, "token": {"type": "string", "description": "Present only when ok is true"}, "written_to": {"type": "array", "items": {"type": "string"}}, "previous_token_revoked": {"type": "boolean"}, "restart_required": {"type": "boolean"}, "error": {"type": "string", "description": "Present only when ok is false"}}, "required": ["ok"]}}}}, }}},
             "/v1/events": {"get": {"summary": "WebSocket real-time event stream", "tags": ["Events"], "responses": {"200": {"description": "WebSocket upgrade for events"}}}},
             "/gui": {"get": {"summary": "Web dashboard", "tags": ["Bridge"], "responses": {"200": {"description": "HTML dashboard"}}}},

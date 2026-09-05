@@ -14,11 +14,10 @@ from arena.cognitive_input import (
     optional_text,
     positive_int,
     reject_unknown,
-    require_object,
     required_text,
 )
 from arena.handler_context import AgenticHandlerContext
-from arena.handler_helpers import authed
+from arena.handler_helpers import authed, json_object_body
 
 
 @dataclass(frozen=True)
@@ -31,12 +30,8 @@ class AgenticHandlers:
 def make_agentic_handlers(ctx: AgenticHandlerContext) -> AgenticHandlers:
     @authed(ctx)
     async def handle_v1_react(request: web.Request) -> web.Response:
+        data = await json_object_body(request)
         try:
-            data = await request.json()
-        except Exception as e:
-            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
-        try:
-            data = require_object(data)
             reject_unknown(data, frozenset({
                 "goal", "context", "constraints", "max_iterations",
                 "memory_profile", "url",
@@ -57,12 +52,8 @@ def make_agentic_handlers(ctx: AgenticHandlerContext) -> AgenticHandlers:
 
     @authed(ctx)
     async def handle_v1_reflect(request: web.Request) -> web.Response:
+        data = await json_object_body(request)
         try:
-            data = await request.json()
-        except Exception as e:
-            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
-        try:
-            data = require_object(data)
             reject_unknown(data, frozenset({"goal", "run", "notes", "outcome"}))
             goal = required_text(data, "goal")
             result = ctx.reflect_sync(

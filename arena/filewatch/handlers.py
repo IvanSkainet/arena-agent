@@ -10,7 +10,7 @@ from aiohttp import web
 
 from arena.files.sandbox import resolve_home_path
 from arena.handler_context import FileWatchHandlerContext
-from arena.handler_helpers import authed
+from arena.handler_helpers import authed, json_object_body
 
 
 @dataclass(frozen=True)
@@ -25,10 +25,7 @@ def make_file_watch_handlers(ctx: FileWatchHandlerContext) -> FileWatchHandlers:
         if request.method == "GET":
             return ctx.cors_json_response(ctx.list_sync())
 
-        try:
-            data = await request.json()
-        except Exception as e:
-            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+        data = await json_object_body(request)
 
         if request.method == "DELETE":
             watch_id = str(data.get("id", "")).strip()
