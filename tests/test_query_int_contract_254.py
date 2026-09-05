@@ -210,32 +210,50 @@ def test_no_documented_endpoint_answers_5xx_to_a_bad_query_int(spec, tmp_path):
     asyncio.run(_sweep(spec, tmp_path))
 
 
-async def _is_serviceable(client: TestClient, path: str) -> bool:
-    """Can this endpoint answer at all here, with no query string?
+async def _environment_failure(client: TestClient, path: str) -> str | None:
+    """The error this endpoint already gives with no query string, if any.
 
-    /v1/desktop/screenshot returns 500 "No screenshot tool available" on a
-    headless CI box, and a 500 from an endpoint that cannot run says nothing
-    about how it parses integers. Asking the endpoint beats an exclusion
-    list, which would go stale the moment the environment changed -- and on
-    the operator's machine, where screenshot works, it really is tested.
+    /v1/desktop/screenshot answers 500 "No screenshot tool available" on a
+    headless CI box before it looks at anything the caller sent. That 500 is
+    about the box, not about parsing.
+
+    Returning the control's message rather than a bare "skip this endpoint"
+    is the difference between excusing an endpoint and excusing one specific
+    failure: the malformed requests are still sent, and only a 500 that is
+    word-for-word the control's is forgiven. A regression that answers a bad
+    integer with a *different* 500 is still caught on the headless box.
     """
     control = await client.get(path, headers=_auth())
-    return control.status < 500
+    if control.status < 500:
+        return None
+    return (await _payload(control)).get("error", "")
 
 
 async def _bad_value_faults(
-    client: TestClient, path: str, name: str,
+    client: TestClient, path: str, name: str, excused: str | None,
 ) -> tuple[list[str], list[str]]:
     """(crashed, leaked) for one parameter across every bad value."""
     crashed, leaked = [], []
     for bad in BAD_INTS:
         response = await client.get(path, params={name: bad}, headers=_auth())
+        payload = await _payload(response)
         where = f"GET {path}?{name}={bad!r}"
         if response.status >= 500:
-            crashed.append(f"{where} -> {response.status} {(await response.text())[:200]}")
-        elif _error_type_of(await _payload(response)) is not None:
-            leaked.append(f"{where} -> {_error_type_of(await _payload(response))}")
+            if _is_excused(payload, excused):
+                continue  # the same thing the box cannot do with no query at all
+            crashed.append(f"{where} -> {response.status} {payload or '(no json)'}")
+        elif _error_type_of(payload) is not None:
+            leaked.append(f"{where} -> {_error_type_of(payload)}")
     return crashed, leaked
+
+
+def _is_excused(payload: dict, excused: str | None) -> bool:
+    """A 500 is forgiven only when it is word-for-word the control's.
+
+    Anything looser -- "this endpoint failed its control, ignore its 500s" --
+    would let a parse regression hide behind a missing screenshot tool.
+    """
+    return excused is not None and payload.get("error", "") == excused
 
 
 async def _payload(response) -> dict:
@@ -268,13 +286,13 @@ async def _sweep(spec, root):
     targets = _integer_query_parameters(spec)
     assert targets, "the document declares no integer query parameters -- sweep is vacuous"
 
-    crashed, leaked, skipped = [], [], set()
+    crashed, leaked, excused_paths = [], [], set()
     async with _running_client(root) as client:
         for path, name in targets:
-            if not await _is_serviceable(client, path):
-                skipped.add(path)
-                continue
-            faults, leaks = await _bad_value_faults(client, path, name)
+            excused = await _environment_failure(client, path)
+            if excused is not None:
+                excused_paths.add(path)
+            faults, leaks = await _bad_value_faults(client, path, name, excused)
             crashed += faults
             leaked += leaks
 
@@ -286,12 +304,13 @@ async def _sweep(spec, root):
         "the error envelope must not name the Python exception class: "
         + "; ".join(leaked)
     )
-    # A sweep that skipped everything would pass in silence. The two
-    # endpoints #254 was filed about need no hardware and must always run.
+    # The two endpoints #254 was filed about need no hardware, so nothing
+    # about them may ever be excused -- otherwise this could pass by
+    # forgiving the very failures it exists to catch.
     for required in ("/v1/mission/catalog", "/v1/mission/schedules"):
-        assert required not in skipped, (
-            f"{required} refused its own control request, so the sweep never "
-            f"tested it. Skipped: {sorted(skipped)}"
+        assert required not in excused_paths, (
+            f"{required} failed its own control request, so its 500s were "
+            f"excused. Excused: {sorted(excused_paths)}"
         )
 
 
@@ -310,12 +329,13 @@ def test_every_documented_400_is_one_the_server_will_actually_give(spec, tmp_pat
 
 
 async def _check_documented_400s(spec, root):
-    wrong, skipped = [], set()
+    wrong = []
     async with _running_client(root) as client:
         for path, name in _integer_query_parameters(spec):
-            if not await _is_serviceable(client, path):
-                skipped.add(path)
-                continue
+            # No environment excuse here, deliberately. A parse failure is
+            # raised while the handler is still reading the query string,
+            # before it tries to do anything the box might not support --
+            # so even the headless screenshot endpoint owes a 400.
             response = await client.get(path, params={name: "abc"}, headers=_auth())
             payload = await _payload(response)
             # The status alone is not enough. /v1/recall answers 400 for a
@@ -329,8 +349,6 @@ async def _check_documented_400s(spec, root):
         "these operations document a parse-failure 400 they do not give: "
         + "; ".join(wrong)
     )
-    for required in ("/v1/mission/catalog", "/v1/mission/schedules", "/v1/recall"):
-        assert required not in skipped, f"never checked {required}: {sorted(skipped)}"
 
 
 def test_the_three_measured_endpoints_answer_400_and_name_the_parameter(tmp_path):
@@ -459,3 +477,17 @@ def test_the_other_generated_errors_do_not_claim_a_param(spec):
             schema = (spec["paths"][path]["get"]["responses"][code]
                       ["content"]["application/json"]["schema"])
             assert "param" not in schema.get("properties", {}), f"{path} {code}"
+
+
+def test_only_the_identical_environment_failure_is_excused():
+    """The excuse is narrow on purpose, and nothing on CI exercises it.
+
+    On a headless box the only 500s are the environment's, so the *rejecting*
+    half of this rule never fires during a green run. Pin it directly.
+    """
+    missing_tool = "No screenshot tool available (need spectacle, grim, or scrot)"
+    assert _is_excused({"error": missing_tool}, missing_tool)
+    assert not _is_excused(
+        {"error": "ValueError: invalid literal for int()"}, missing_tool)
+    assert not _is_excused({"error": missing_tool}, None)
+    assert not _is_excused({}, missing_tool)
