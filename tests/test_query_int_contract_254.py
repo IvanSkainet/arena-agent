@@ -33,6 +33,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -67,21 +69,32 @@ def spec() -> dict:
     )
 
 
+def _concrete_get_operations(spec: dict) -> Iterator[tuple[str, dict]]:
+    """Every GET the document describes, minus the templated paths.
+
+    A templated path needs an id that exists on the machine running the
+    test, which is a different problem from parsing a query string.
+    """
+    for path, item in spec["paths"].items():
+        operation = item.get("get")
+        if operation and "{" not in path:
+            yield path, operation
+
+
+def _query_parameter_types(operation: dict) -> Iterator[tuple[str, str | None]]:
+    for parameter in operation.get("parameters", []):
+        if parameter.get("in") == "query":
+            yield parameter["name"], parameter.get("schema", {}).get("type")
+
+
 def _integer_query_parameters(spec: dict) -> list[tuple[str, str]]:
     """Every (path, parameter) the document says takes an integer via GET."""
-    found = []
-    for path, item in spec["paths"].items():
-        if "{" in path:
-            continue  # templated paths need an id that exists; out of scope here
-        operation = item.get("get")
-        if not operation:
-            continue
-        for parameter in operation.get("parameters", []):
-            if parameter.get("in") != "query":
-                continue
-            if parameter.get("schema", {}).get("type") == "integer":
-                found.append((path, parameter["name"]))
-    return found
+    return [
+        (path, name)
+        for path, operation in _concrete_get_operations(spec)
+        for name, declared in _query_parameter_types(operation)
+        if declared == "integer"
+    ]
 
 
 # --- the helper in isolation -------------------------------------------
@@ -157,6 +170,36 @@ def _build_app(root: Path) -> web.Application:
     return app
 
 
+@asynccontextmanager
+async def _running_client(root: Path) -> AsyncIterator[TestClient]:
+    """A live in-process bridge, torn down whatever happens.
+
+    Three tests need one, and the teardown has three obligations that are
+    each easy to forget: close the server, restore the logger, and empty the
+    per-IP rate-limit store so the next test is not throttled by this one.
+    """
+    log = logging.getLogger("arena-bridge")
+    previous = log.level
+    log.setLevel(logging.CRITICAL)  # a deliberate 500 logs a traceback
+    server = TestServer(_build_app(root))
+    await server.start_server()
+    client = TestClient(server)
+    await client.start_server()
+    try:
+        yield client
+    finally:
+        await client.close()
+        await server.close()
+        log.setLevel(previous)
+        store = getattr(ub, "_rate_limit_store", None)
+        if isinstance(store, dict):
+            store.clear()
+
+
+def _auth() -> dict[str, str]:
+    return {"Authorization": f"Bearer {TOKEN}"}
+
+
 def test_no_documented_endpoint_answers_5xx_to_a_bad_query_int(spec, tmp_path):
     """The property #254 asks for, over every integer parameter in the document.
 
@@ -167,54 +210,73 @@ def test_no_documented_endpoint_answers_5xx_to_a_bad_query_int(spec, tmp_path):
     asyncio.run(_sweep(spec, tmp_path))
 
 
+async def _is_serviceable(client: TestClient, path: str) -> bool:
+    """Can this endpoint answer at all here, with no query string?
+
+    /v1/desktop/screenshot returns 500 "No screenshot tool available" on a
+    headless CI box, and a 500 from an endpoint that cannot run says nothing
+    about how it parses integers. Asking the endpoint beats an exclusion
+    list, which would go stale the moment the environment changed -- and on
+    the operator's machine, where screenshot works, it really is tested.
+    """
+    control = await client.get(path, headers=_auth())
+    return control.status < 500
+
+
+async def _bad_value_faults(
+    client: TestClient, path: str, name: str,
+) -> tuple[list[str], list[str]]:
+    """(crashed, leaked) for one parameter across every bad value."""
+    crashed, leaked = [], []
+    for bad in BAD_INTS:
+        response = await client.get(path, params={name: bad}, headers=_auth())
+        where = f"GET {path}?{name}={bad!r}"
+        if response.status >= 500:
+            crashed.append(f"{where} -> {response.status} {(await response.text())[:200]}")
+        elif _error_type_of(await _payload(response)) is not None:
+            leaked.append(f"{where} -> {_error_type_of(await _payload(response))}")
+    return crashed, leaked
+
+
+async def _payload(response) -> dict:
+    if response.content_type != "application/json":
+        return {}
+    try:
+        body = json.loads(await response.text())
+    except ValueError:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def _error_type_of(payload: dict) -> str | None:
+    return payload.get("error_type")
+
+
+def test_the_leak_detector_would_actually_notice_a_leak():
+    """A detector nothing currently trips is a detector nobody has tested.
+
+    Since the fix, no documented endpoint returns `error_type` at all, so
+    the sweep's leak arm never fires on green code. Pin it directly, or the
+    arm could be broken and the sweep would go on passing.
+    """
+    assert _error_type_of({"ok": False, "error_type": "ValueError"}) == "ValueError"
+    assert _error_type_of({"ok": False, "error": "query parameter 'x'"}) is None
+    assert _error_type_of({}) is None
+
+
 async def _sweep(spec, root):
     targets = _integer_query_parameters(spec)
     assert targets, "the document declares no integer query parameters -- sweep is vacuous"
 
-    log = logging.getLogger("arena-bridge")
-    previous = log.level
-    log.setLevel(logging.CRITICAL)  # a 500 here logs a traceback by design
-    server = TestServer(_build_app(root))
-    await server.start_server()
-    client = TestClient(server)
-    await client.start_server()
-    headers = {"Authorization": f"Bearer {TOKEN}"}
-    crashed, leaked, unserviceable = [], [], []
-    try:
+    crashed, leaked, skipped = [], [], set()
+    async with _running_client(root) as client:
         for path, name in targets:
-            # Control first: the same endpoint with no query at all. If it
-            # cannot be served in this environment -- /v1/desktop/screenshot
-            # answers 500 "No screenshot tool available" on a headless CI
-            # box -- then a 500 for a bad value says nothing about parsing.
-            # Asking the endpoint instead of keeping an exclusion list means
-            # the skip cannot go stale, and means the operator's machine,
-            # where screenshot does work, really does test it.
-            control = await client.get(path, headers=headers)
-            if control.status >= 500:
-                unserviceable.append(f"{path} ({name})")
+            if not await _is_serviceable(client, path):
+                skipped.add(path)
                 continue
-            for bad in BAD_INTS:
-                response = await client.get(path, params={name: bad}, headers=headers)
-                where = f"GET {path}?{name}={bad!r}"
-                if response.status >= 500:
-                    body = (await response.text())[:200]
-                    crashed.append(f"{where} -> {response.status} {body}")
-                    continue
-                if response.content_type != "application/json":
-                    continue
-                try:
-                    payload = json.loads(await response.text())
-                except ValueError:
-                    continue
-                if isinstance(payload, dict) and "error_type" in payload:
-                    leaked.append(f"{where} -> {payload['error_type']}")
-    finally:
-        await client.close()
-        await server.close()
-        log.setLevel(previous)
-        store = getattr(ub, "_rate_limit_store", None)
-        if isinstance(store, dict):
-            store.clear()
+            faults, leaks = await _bad_value_faults(client, path, name)
+            crashed += faults
+            leaked += leaks
 
     assert crashed == [], (
         "a malformed query integer must not be reported as a server fault: "
@@ -226,11 +288,10 @@ async def _sweep(spec, root):
     )
     # A sweep that skipped everything would pass in silence. The two
     # endpoints #254 was filed about need no hardware and must always run.
-    skipped_paths = {entry.split(" ")[0] for entry in unserviceable}
     for required in ("/v1/mission/catalog", "/v1/mission/schedules"):
-        assert required not in skipped_paths, (
+        assert required not in skipped, (
             f"{required} refused its own control request, so the sweep never "
-            f"tested it: {unserviceable}"
+            f"tested it. Skipped: {sorted(skipped)}"
         )
 
 
@@ -243,37 +304,28 @@ def test_the_three_measured_endpoints_answer_400_and_name_the_parameter(tmp_path
     asyncio.run(_check_refusals(tmp_path))
 
 
+MEASURED_500s = [
+    ("/v1/mission/catalog", "offset", "null"),
+    ("/v1/mission/catalog", "limit", "abc"),
+    ("/v1/mission/schedules", "limit", "null"),
+]
+
+
+def _assert_useful_refusal(response, payload: dict, name: str, bad: str) -> None:
+    where = f"{name}={bad}"
+    assert response.status == 400, f"{where} -> {response.status}"
+    assert payload["ok"] is False, where
+    assert payload["param"] == name, f"{where}: {payload}"
+    assert name in payload["error"], f"{where}: {payload}"
+    assert "error_type" not in payload, f"{where}: {payload}"
+    assert bad not in payload["error"], f"{where}: the offending value is reflected back"
+
+
 async def _check_refusals(root):
-    cases = [
-        ("/v1/mission/catalog", "offset", "null"),
-        ("/v1/mission/catalog", "limit", "abc"),
-        ("/v1/mission/schedules", "limit", "null"),
-    ]
-    log = logging.getLogger("arena-bridge")
-    previous = log.level
-    log.setLevel(logging.CRITICAL)
-    server = TestServer(_build_app(root))
-    await server.start_server()
-    client = TestClient(server)
-    await client.start_server()
-    headers = {"Authorization": f"Bearer {TOKEN}"}
-    try:
-        for path, name, bad in cases:
-            response = await client.get(path, params={name: bad}, headers=headers)
-            payload = await response.json()
-            assert response.status == 400, f"GET {path}?{name}={bad} -> {response.status}"
-            assert payload["ok"] is False
-            assert payload["param"] == name, f"GET {path}?{name}={bad}: {payload}"
-            assert name in payload["error"]
-            assert "error_type" not in payload
-            assert bad not in payload["error"], "the offending value is reflected back"
-    finally:
-        await client.close()
-        await server.close()
-        log.setLevel(previous)
-        store = getattr(ub, "_rate_limit_store", None)
-        if isinstance(store, dict):
-            store.clear()
+    async with _running_client(root) as client:
+        for path, name, bad in MEASURED_500s:
+            response = await client.get(path, params={name: bad}, headers=_auth())
+            _assert_useful_refusal(response, await response.json(), name, bad)
 
 
 def test_the_valid_request_still_works(tmp_path):
@@ -282,21 +334,11 @@ def test_the_valid_request_still_works(tmp_path):
 
 
 async def _check_happy_path(root):
-    server = TestServer(_build_app(root))
-    await server.start_server()
-    client = TestClient(server)
-    await client.start_server()
-    headers = {"Authorization": f"Bearer {TOKEN}"}
-    try:
+    async with _running_client(root) as client:
         for query in ({"limit": "5", "offset": "0"}, {"offset": ""}, {}):
-            response = await client.get("/v1/mission/catalog", params=query, headers=headers)
+            response = await client.get(
+                "/v1/mission/catalog", params=query, headers=_auth())
             assert response.status == 200, f"{query} -> {response.status}"
-    finally:
-        await client.close()
-        await server.close()
-        store = getattr(ub, "_rate_limit_store", None)
-        if isinstance(store, dict):
-            store.clear()
 
 
 # --- the document has to admit the new status --------------------------
