@@ -1,0 +1,53 @@
+# Publishes a unique-clones badge from GitHub's traffic API.
+#
+# The release download counter is a poor popularity signal and we have
+# the evidence: v4.169.50 showed 349 downloads of
+# arena-agent-v4.169.50.zip against 3 of the byte-identical
+# arena-agent.zip, and 0 of the .sig files. One build, two names, wildly
+# different counts -- most of that number is auto-update retries and
+# bots, not people.
+#
+# /traffic/clones reports `uniques`, which counts distinct actors over a
+# rolling 14-day window. It is a smaller number and a truer one. The
+# window is why this runs on a schedule: the value expires, so a badge
+# committed once would freeze at whatever it said that day.
+name: traffic badge
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  badge:
+    name: Refresh the unique-clones badge
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Harden Runner (block mode, egress enforced)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # zizmor artipacked: checkout leaves the token in .git/config,
+          # where anything later in the job -- including an uploaded
+          # artifact -- can carry it out. This job pushes, so it sets the
+          # credential explicitly on the remote instead.
+          persist-credentials: false
+
+      - name: Read traffic and update the badge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/render_traffic_badge.py --write

@@ -1,0 +1,99 @@
+{
+  "operation": "GET /v1/mission/schedules",
+  "method": "GET",
+  "path_template": "/v1/mission/schedules",
+  "fingerprint": "c7b42fcf",
+  "case_id": "dqHO5P",
+  "code_sample": "curl -X GET -H 'Authorization: [Filtered]' 'http://127.0.0.1:8803/v1/mission/schedules?limit=null&limit=null'",
+  "sequence": [
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:8803/v1/mission/schedules?limit=null&limit=null",
+      "url_template": "http://127.0.0.1:8803/v1/mission/schedules",
+      "headers": {
+        "User-Agent": "schemathesis/4.25.2",
+        "Accept-Encoding": "gzip, deflate",
+        "Accept": "*/*",
+        "Connection": "keep-alive",
+        "Authorization": "[Filtered]",
+        "X-Schemathesis-TestCaseId": "dqHO5P"
+      },
+      "response": {
+        "status_code": 500,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+          "access-control-allow-headers": "Content-Type, Authorization, X-Arena-Token, Mcp-Session-Id",
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "ffb9082b",
+          "content-length": "112",
+          "date": "Fri, 04 Sep 2026 23:02:30 GMT",
+          "server": "Python/3.13 aiohttp/3.14.1"
+        },
+        "body": "{\"ok\": false, \"error\": \"ValueError: invalid literal for int() with base 10: 'null'\", \"error_type\": \"ValueError\"}"
+      },
+      "link": null,
+      "checks": [
+        {
+          "name": "not_a_server_error",
+          "status": "failure",
+          "message": "Server error"
+        }
+      ],
+      "meta": {
+        "generation": {
+          "time": 1.611199968465371e-05,
+          "mode": "negative"
+        },
+        "components": {
+          "HEADER": "positive",
+          "QUERY": "negative"
+        },
+        "phase": {
+          "name": "coverage",
+          "data": {
+            "type": "CoveragePhaseData",
+            "description": "limit: Incorrect type",
+            "location": null,
+            "parameter": "limit",
+            "parameter_location": "QUERY",
+            "scenario": "incorrect_type"
+          }
+        },
+        "pool_draws": [],
+        "pool_misses": [],
+        "semantic_draws": [],
+        "dictionary_draws": [],
+        "constants_draws": [],
+        "raw_containers": {
+          "HEADER": {
+            "Authorization": "Bearer "
+          },
+          "QUERY": {
+            "limit": [
+              "null",
+              "null"
+            ]
+          }
+        }
+      },
+      "path": "/v1/mission/schedules",
+      "path_parameters": {},
+      "query": {
+        "limit": [
+          "null",
+          "null"
+        ]
+      },
+      "case_headers": {
+        "Authorization": "[Filtered]"
+      },
+      "cookies": {},
+      "case_body": {
+        "encoding": "none"
+      },
+      "media_type": null,
+      "parent_index": null
+    }
+  ]
+}
