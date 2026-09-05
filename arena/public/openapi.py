@@ -250,10 +250,43 @@ def _attach_refusal_400(operation: dict, responses: dict) -> None:
         # them with a 500 naming a Python AttributeError. They now answer
         # 400, and an answer the document does not mention is its own
         # defect (#89).
-        responses.setdefault("400", _error_response(
-            "The request body is not a JSON object, or is not JSON at all. "
-            "`received` names the JSON type that arrived, when there was one.",
-            _JSON_BODY_ERROR_ENVELOPE))
+        _merge_json_body_400(responses)
+
+
+_JSON_BODY_400 = (
+    "The request body is not a JSON object, or is not JSON at all. "
+    "`received` names the JSON type that arrived, when there was one.")
+
+
+def _merge_json_body_400(responses: dict) -> None:
+    """Add the body-shape 400, or complete one the operation wrote itself.
+
+    `setdefault` alone was not enough, as three reviewers pointed out on the
+    #259 PR. `POST /v1/exec/stream` declares a 400 of its own
+    with a description and no schema at all; leaving it be meant the runtime returned
+    `received` there while the document never mentioned it, so every
+    generated client would drop the field on deserialisation.
+
+    A hand-written *description* is still more specific than this function
+    knows and is kept -- with one sentence appended, because the endpoint
+    can now refuse for a second reason. A hand-written *schema* is left
+    entirely alone: that is an author saying something deliberate.
+    """
+    existing = responses.get("400")
+    if existing is None:
+        responses["400"] = _error_response(_JSON_BODY_400, _JSON_BODY_ERROR_ENVELOPE)
+        return
+    if existing.get("content"):
+        return
+    description = existing.get("description", "").rstrip(". ")
+    if "JSON object" not in description:
+        description = f"{description}. {_JSON_BODY_400}".lstrip(". ")
+    else:
+        # Already says it in the author's own words; only the schema was
+        # missing. `/v1/exec/stream` is this case.
+        description = f"{description}. `received` names the JSON type that arrived, when there was one."
+    existing["description"] = description
+    existing["content"] = {"application/json": {"schema": _JSON_BODY_ERROR_ENVELOPE}}
 
 
 def _attach_authentication_responses(responses: dict) -> None:

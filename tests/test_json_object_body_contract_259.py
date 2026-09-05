@@ -389,20 +389,30 @@ def test_the_documented_400_schema_declares_the_received_field(spec):
     Every generated client drops an undeclared field on deserialisation, so
     `received` might as well not exist unless the schema names it.
 
-    Operations that already documented a 400 of their own are exempt: theirs
-    is more specific than this generator knows, and it is left alone
-    deliberately.
+    No operation is exempt. An earlier revision skipped the ones that had
+    written a 400 of their own, and three reviewers landed on the same
+    counter-example: `POST /v1/exec/stream` returns `received` at runtime
+    while declaring a 400 with no schema at all. A hand-written description
+    is respected; a missing schema is not a decision.
     """
-    marker = "The request body is not a JSON object"
     for path, method, operation in _json_body_operations(spec):
         response = operation["responses"]["400"]
-        if marker not in response.get("description", ""):
-            continue
         schema = response["content"]["application/json"]["schema"]
         assert "received" in schema["properties"], f"{method} {path}"
         # Declared but not required, because the same 400 answers a body
         # that is not JSON at all, where there is no type to name.
         assert "received" not in schema["required"], f"{method} {path}"
+
+
+def test_a_hand_written_400_description_survives_the_generator(spec):
+    """Completing a response must not flatten what an author wrote.
+
+    `/v1/exec/stream` refuses for two reasons -- no `cmd`, and a body that
+    is not an object -- and only the endpoint knows about the first.
+    """
+    description = spec["paths"]["/v1/exec/stream"]["post"]["responses"]["400"]["description"]
+    assert "Missing cmd" in description
+    assert "received" in description
 
 
 def test_the_documented_types_are_exactly_the_ones_the_helper_can_report(spec):
@@ -415,11 +425,8 @@ def test_the_documented_types_are_exactly_the_ones_the_helper_can_report(spec):
     from arena.handler_helpers import _JSON_TYPE_NAMES
 
     documented: set[str] = set()
-    marker = "The request body is not a JSON object"
     for _path, _method, operation in _json_body_operations(spec):
         response = operation["responses"]["400"]
-        if marker not in response.get("description", ""):
-            continue
         schema = response["content"]["application/json"]["schema"]
         documented |= set(schema["properties"]["received"]["enum"])
     assert documented == set(_JSON_TYPE_NAMES.values())
