@@ -430,7 +430,9 @@ def safe_int(
     return x
 
 
-def query_int(request: web.Request, name: str, *, default: int) -> int:
+def query_int(
+    request: web.Request, name: str, *, default: int | None,
+) -> int | None:
     """Read an integer query parameter, or refuse the request with a 400.
 
     ``safe_int`` (v4.44.0) already did the parsing. What it could not decide
@@ -460,6 +462,13 @@ def query_int(request: web.Request, name: str, *, default: int) -> int:
     200 with ``limit: 1`` today), and turning those into refusals would be a
     behaviour change riding along with a bug fix. ``safe_int`` still has the
     bounds for callers that genuinely need them.
+
+    Args:
+      request: the live aiohttp request.
+      name: query-string key, named in the error so the caller can fix it.
+      default: value for a missing or empty parameter. Keyword-only and
+        required -- pass ``None`` for a genuinely optional one, so that
+        "I forgot a default" cannot pass for "there is none".
 
     Raises:
       QueryParamError: the parameter was supplied and does not parse.

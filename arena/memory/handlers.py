@@ -10,7 +10,7 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.handler_context import MemoryHandlerContext
-from arena.handler_helpers import authed
+from arena.handler_helpers import authed, query_int
 from arena.memory.profiles import (
     DEFAULT_MEMORY_PROFILE,
     normalize_memory_profile,
@@ -132,10 +132,10 @@ def make_memory_handlers(ctx: MemoryHandlerContext) -> MemoryHandlers:
         if profile_err:
             return ctx.cors_json_response({"ok": False, "error": profile_err}, status=400)
         profile = normalize_memory_profile_filter(profile_arg)
-        try:
-            top = int(qs.get("top", ["5"])[0])
-        except ValueError:
-            top = 5
+        # query_int, not a silent fallback: ?top=abc used to be answered
+        # with the default five results and no hint that the number had
+        # been ignored (#254).
+        top = query_int(request, "top", default=5)
         if not query:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing q parameter"}, status=400)

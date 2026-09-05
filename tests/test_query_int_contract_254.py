@@ -295,6 +295,44 @@ async def _sweep(spec, root):
         )
 
 
+def test_every_documented_400_is_one_the_server_will_actually_give(spec, tmp_path):
+    """The other half of #89's lesson: the document says it, the server does it.
+
+    Greptile caught the first draft of this claiming a parse-failure 400 for
+    any non-string query parameter, including `number` and `boolean` ones
+    whose handlers quietly fall back to a default. That is the same untruth
+    as an undocumented status, pointing the other way -- a client handling a
+    branch that never arrives. The generated 400 is now integer-only, and
+    this test is what stops it drifting back: every operation that carries
+    the claim has to honour it under a real request.
+    """
+    asyncio.run(_check_documented_400s(spec, tmp_path))
+
+
+async def _check_documented_400s(spec, root):
+    wrong, skipped = [], set()
+    async with _running_client(root) as client:
+        for path, name in _integer_query_parameters(spec):
+            if not await _is_serviceable(client, path):
+                skipped.add(path)
+                continue
+            response = await client.get(path, params={name: "abc"}, headers=_auth())
+            payload = await _payload(response)
+            # The status alone is not enough. /v1/recall answers 400 for a
+            # missing `q` too, so a handler that went back to swallowing a
+            # bad `top` would still look right here. The refusal has to be
+            # about *this* parameter.
+            if response.status != 400 or payload.get("param") != name:
+                wrong.append(
+                    f"GET {path}?{name}=abc -> {response.status} {payload}")
+    assert wrong == [], (
+        "these operations document a parse-failure 400 they do not give: "
+        + "; ".join(wrong)
+    )
+    for required in ("/v1/mission/catalog", "/v1/mission/schedules", "/v1/recall"):
+        assert required not in skipped, f"never checked {required}: {sorted(skipped)}"
+
+
 def test_the_three_measured_endpoints_answer_400_and_name_the_parameter(tmp_path):
     """Not just "no 5xx" -- the replacement answer has to be the useful one.
 
@@ -328,6 +366,26 @@ async def _check_refusals(root):
             _assert_useful_refusal(response, await response.json(), name, bad)
 
 
+def test_a_repeated_parameter_still_takes_the_first_value(tmp_path):
+    """Flagged in review as a precedence change. Measured, it is not one.
+
+    The replaced expression read `parse_qs(qs)["limit"][0]`; the helper reads
+    `request.query.get("limit")`. Both return the *first* occurrence -- and
+    a MultiDict does have every occurrence to choose from, so the question
+    is real. `?limit=5&limit=abc` therefore still parses 5, rather than
+    tripping over the trailing junk and turning a working request into a 400.
+    """
+    asyncio.run(_check_repeated_parameter(tmp_path))
+
+
+async def _check_repeated_parameter(root):
+    async with _running_client(root) as client:
+        response = await client.get(
+            "/v1/mission/catalog?limit=5&limit=abc", headers=_auth())
+        assert response.status == 200, await response.text()
+        assert (await response.json())["limit"] == 5
+
+
 def test_the_valid_request_still_works(tmp_path):
     """The refusal path is worthless if it also refuses good input."""
     asyncio.run(_check_happy_path(tmp_path))
@@ -357,27 +415,22 @@ def test_every_operation_with_an_integer_query_param_documents_400(spec):
     assert undocumented == [], f"these can now answer 400 but do not say so: {undocumented}"
 
 
-def test_string_only_operations_are_not_given_a_spurious_400(spec):
-    """A `type: string` parameter accepts anything, so it cannot cause a 400.
+def test_the_generated_400_lands_exactly_on_the_integer_operations(spec):
+    """Exactly: neither missing where it belongs, nor sprayed where it does not.
 
-    Documenting one everywhere would be cheap and meaningless; the point of
-    the generated 400 is that it marks the operations that really parse.
+    An earlier draft attached it to every non-string query parameter, which
+    swept in `number` and `boolean` ones whose handlers still fall back to a
+    default -- documenting a refusal that never comes. A set comparison,
+    rather than two one-directional checks, is what makes both mistakes
+    visible at once.
     """
-    typed = {path for path, _ in _integer_query_parameters(spec)}
-    wrong = []
-    for path, item in spec["paths"].items():
-        operation = item.get("get")
-        if not operation or path in typed:
-            continue
-        parameters = operation.get("parameters", [])
-        if parameters and all(
-            p.get("schema", {}).get("type") in (None, "string")
-            for p in parameters if p.get("in") == "query"
-        ) and "400" in operation.get("responses", {}):
-            # A hand-written 400 on such an operation is legitimate -- it
-            # means the handler validates the string itself. Only the
-            # generated wording is wrong here.
-            if "could not be parsed as the type" in json.dumps(
-                    operation["responses"]["400"]):
-                wrong.append(path)
-    assert wrong == [], f"parse-failure 400 attached to string-only operations: {wrong}"
+    marker = "could not be parsed as an integer"
+    expected = {path for path, _name in _integer_query_parameters(spec)}
+    claimed = {
+        path for path, operation in _concrete_get_operations(spec)
+        if marker in json.dumps(operation.get("responses", {}).get("400", {}))
+    }
+    assert claimed == expected, (
+        f"claimed but does not parse an integer: {sorted(claimed - expected)}; "
+        f"parses an integer but does not claim: {sorted(expected - claimed)}"
+    )

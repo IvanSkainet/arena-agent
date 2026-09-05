@@ -155,19 +155,22 @@ def _apply_success_schemas(spec: dict) -> dict:
     return spec
 
 
-def _has_typed_query_parameter(operation: dict) -> bool:
-    """True when the operation declares a query parameter that must parse.
+def _has_integer_query_parameter(operation: dict) -> bool:
+    """True when the operation declares a query parameter parsed as an integer.
 
-    A `type: string` parameter accepts whatever arrives, so it cannot be the
-    reason for a 400. Anything else -- integer, number, boolean -- has values
-    that are not valid instances of it, and the handler has to refuse them.
+    Only integers, deliberately. A `type: string` parameter accepts whatever
+    arrives and cannot cause a parse failure; `number` and `boolean` ones are
+    still read by handlers that fall back to a default rather than refusing.
+    Documenting a 400 there would claim a refusal that never happens, which
+    is the same kind of untruth in the other direction. Integers are the set
+    where `query_int` makes the claim true, and the behavioural sweep in
+    tests/test_query_int_contract_254.py holds it to that.
     """
-    for parameter in operation.get("parameters", []):
-        if parameter.get("in") != "query":
-            continue
-        if parameter.get("schema", {}).get("type") not in (None, "string"):
-            return True
-    return False
+    return any(
+        parameter.get("schema", {}).get("type") == "integer"
+        for parameter in operation.get("parameters", [])
+        if parameter.get("in") == "query"
+    )
 
 
 def _apply_universal_responses(spec: dict) -> dict:
@@ -190,16 +193,16 @@ def _apply_universal_responses(spec: dict) -> dict:
             if method not in _OPERATION_METHODS:
                 continue
             responses = operation.setdefault("responses", {})
-            if _has_typed_query_parameter(operation):
-                # An operation that declares a non-string query parameter can
-                # be handed a value that does not parse. Since #254 the
-                # handler wrappers answer that with 400 instead of 500, so
-                # the document has to say 400 exists -- otherwise fixing one
-                # lie (a 500 for a caller's typo) would tell a new one (an
-                # undocumented status code).
+            if _has_integer_query_parameter(operation):
+                # An operation with an integer query parameter can be handed
+                # a value that is not one. Since #254 the handler wrappers
+                # answer that with 400 instead of 500, so the document has
+                # to say 400 exists -- otherwise fixing one lie (a 500 for a
+                # caller's typo) would tell a new one (an undocumented
+                # status code).
                 responses.setdefault("400", _error_response(
-                    "A query parameter could not be parsed as the type "
-                    "declared above. The body names it in `param`."))
+                    "A query parameter could not be parsed as an integer. "
+                    "The body names it in `param`."))
             responses.setdefault("401", _error_response(
                 "Missing or invalid credential. The bridge accepts a Bearer "
                 "token, an X-Arena-Token header, or (deprecated) a ?token= "
