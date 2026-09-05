@@ -228,3 +228,24 @@ def test_release_zip_rejects_tracked_symlinks(tmp_path, monkeypatch, directory_t
     monkeypatch.setattr(_mod.os, "walk", forbidden_walk)
     with pytest.raises(SystemExit, match="unsupported git mode"):
         _mod.main(["make_release_zip.py", "9.9.9", str(tmp_path / "bad.zip")])
+
+
+def test_release_md_lists_the_runtime_state_the_builder_actually_drops():
+    """The prose and the tuple have to be one fact, not two.
+
+    `queue/inbox/` was added to `EXCLUDE_PATH_PATTERNS` on #261 -- a task
+    file in a release zip is one the runner executes on the machine that
+    unpacks it -- and RELEASE.md still promised only the other three queue
+    states. A reviewer caught the drift; this catches the next one, in both
+    directions.
+    """
+    import re
+
+    documented = re.search(
+        r"`queue/\{([^}]+)\}/\*`",
+        (REPO / "RELEASE.md").read_text(encoding="utf-8"))
+    assert documented, "RELEASE.md no longer lists the excluded queue states"
+    said = {f"queue/{name.strip()}/" for name in documented.group(1).split(",")}
+    done = {p for p in _mod.EXCLUDE_PATH_PATTERNS if p.startswith("queue/")}
+    assert said == done, (
+        f"RELEASE.md says {sorted(said)}, the builder drops {sorted(done)}")

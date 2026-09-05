@@ -256,7 +256,7 @@ It MUST NOT include (excluded automatically by the script):
 - caches and generated test reports (`__pycache__/`, `*.pyc`, `.pytest_cache/`,
   `.mypy_cache/`, `node_modules/`, `.coverage*`, `coverage.xml`);
 - runtime state: `token.txt`, `audit.jsonl`, `bridge.log`, `requests.jsonl`,
-  `queue/{running,done,failed}/*`, `memory/{facts,history}.jsonl`,
+  `queue/{inbox,running,done,failed}/*`, `memory/{facts,history}.jsonl`,
   `memory/sessions/`, `missions/*`, `reports/*`;
 - `backups/`, `logs/`, editor config (`.vscode/`, `.idea/`).
 
