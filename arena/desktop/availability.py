@@ -39,6 +39,7 @@ __all__ = [
     "MissingTool",
     "builder_refusal",
     "failure_response",
+    "is_refusal",
     "failure_status",
     "unavailable_result",
 ]
@@ -95,6 +96,17 @@ def failure_status(result: Mapping[str, Any]) -> int:
     perform.
     """
     return 503 if result.get(UNAVAILABLE) else 500
+
+
+def is_refusal(result: Mapping[str, Any]) -> bool:
+    """Whether a result is one the caller must not read as a success.
+
+    A failed result that names a missing tool, or that carries the status it
+    wants (the text-target handler's 404 for "nothing matched"). A failed
+    result with neither is the one case that stays a 200 with `ok: false` --
+    an answer, not a refusal.
+    """
+    return not result.get("ok") and bool(result.get(UNAVAILABLE) or result.get("status"))
 
 
 def failure_response(ctx, result: dict[str, Any], fallback: str = "operation failed"):

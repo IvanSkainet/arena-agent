@@ -59,6 +59,12 @@ def _rm_tmp_dir(path: str) -> None:
         pass
 
 
+# Same marker as tesseract's in ocr.py: a 503 for the caller, not a 500 (#260).
+_NO_SCREENSHOT_TOOL = MissingTool(
+    "No screenshot tool available (need spectacle, grim, or scrot)",
+    ("spectacle", "grim", "scrot"))
+
+
 async def capture_desktop_screenshot(
     *,
     fmt: str = "base64",
@@ -134,9 +140,7 @@ async def capture_desktop_screenshot(
     elif env.get("has_scrot") and env.get("x11"):
         cmd = f'DISPLAY={os.environ.get("DISPLAY", ":0")} scrot -o {tmp_path}'
     else:
-        return unavailable_result(MissingTool(
-            "No screenshot tool available (need spectacle, grim, or scrot)",
-            ("spectacle", "grim", "scrot")))
+        return unavailable_result(_NO_SCREENSHOT_TOOL)
 
     result = await desktop_exec(cmd, timeout=15)
     if not result.get("ok") or not os.path.exists(tmp_path):

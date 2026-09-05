@@ -47,6 +47,11 @@ def parse_tesseract_tsv(tsv: str, *, min_confidence: int = 40, max_words: int = 
     return words
 
 
+# Marked, not just worded: the handler turns this into a 503 rather than a
+# 500, because no amount of retrying installs tesseract (#260).
+_NO_TESSERACT = MissingTool("tesseract is not installed", ("tesseract",))
+
+
 async def ocr_desktop(
     *,
     query: str = "",
@@ -69,10 +74,7 @@ async def ocr_desktop(
     audit_fn=None,
 ) -> dict[str, Any]:
     if shutil.which("tesseract") is None:
-        # Marked, not just worded: the handler turns this into a 503 rather
-        # than a 500, because no amount of retrying installs tesseract (#260).
-        return unavailable_result(
-            MissingTool("tesseract is not installed", ("tesseract",)))
+        return unavailable_result(_NO_TESSERACT)
     shot = await capture_screenshot(
         fmt="png",
         scale=scale,
