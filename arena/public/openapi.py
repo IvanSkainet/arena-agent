@@ -405,9 +405,11 @@ def _attach_unavailable_503(method: str, path: str, responses: dict) -> None:
     responses.setdefault("503", _error_response(
         "The host is missing a local tool this needs. Depending on what it "
         "has, that can be any of: " + ", ".join(needs)
-        + ". The request is valid and the same call succeeds once the "
-        "missing tool is installed, so this is not a failure of the bridge "
-        "and no retry will help. `unavailable` names what is blocking now.",
+        + ". The request itself is valid and no retry will help, so this is "
+        "not a failure of the bridge. Installing a tool from `unavailable` "
+        "clears that blocker; where an operation runs in layers (OCR reads a "
+        "screenshot before it reads text) the next layer may then report a "
+        "missing tool of its own.",
         _UNAVAILABLE_ENVELOPE))
 
 
