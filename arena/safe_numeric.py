@@ -12,6 +12,7 @@ sides import downwards. `handler_helpers` re-exports them, as before.
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
 __all__ = ["safe_float", "safe_int"]
@@ -35,14 +36,17 @@ def _clamped(x: float, minimum: float | None, maximum: float | None,
     range rather than have it silently applied.
     """
     if minimum is not None and x < minimum:
-        if strict:
-            raise ValueError(f"below minimum {minimum}: {x}")
-        return minimum
+        return _at_bound(x, minimum, "below minimum", strict=strict)
     if maximum is not None and x > maximum:
-        if strict:
-            raise ValueError(f"above maximum {maximum}: {x}")
-        return maximum
+        return _at_bound(x, maximum, "above maximum", strict=strict)
     return x
+
+
+def _at_bound(x: float, limit: float, side: str, *, strict: bool) -> float:
+    """The boundary value, or the ValueError the strict caller asked for."""
+    if strict:
+        raise ValueError(f"{side} {limit}: {x}")
+    return limit
 
 
 def safe_float(
@@ -100,10 +104,12 @@ def safe_float(
         x = float(value)
     except (TypeError, ValueError):
         return _default_or_raise(default)
-    # NaN and +/-Inf are both "valid floats" per Python's float()
-    # but almost never what an HTTP caller legitimately means.
-    # Reject both.
-    if x != x or x in (float("inf"), float("-inf")):
+    # NaN and +/-Inf are both "valid floats" per Python's float() but almost
+    # never what an HTTP caller legitimately means. `math.isfinite` covers
+    # all three in one word; the previous spelling was `x != x or x in
+    # (inf, -inf)`, which SonarCloud reads as a bug (S1764, identical
+    # sub-expressions around `!=`) rather than as the NaN idiom it is.
+    if not math.isfinite(x):
         if default is _NO_DEFAULT:
             raise ValueError(f"non-finite float rejected: {value!r}")
         return default  # type: ignore[return-value]
