@@ -100,6 +100,21 @@ def _needs_a_tool_here(path: str) -> bool:
     return not (sys.platform == "win32" and path in WINDOWS_SERVES_THESE_ITSELF)
 
 
+def _headless_enough_for(path: str) -> bool:
+    """Whether the screenshot row's expected list holds on this host.
+
+    The capture filters its list by the session: under X11 it drops grim,
+    under Wayland it drops scrot, and only with no session at all does it
+    name all three. So on a developer's Linux desktop with no screenshot
+    tool installed, the row would run and compare against the wrong list --
+    cubic caught that on the #260 PR. The session-filtered lists have their
+    own test above; this row is about the headless case.
+    """
+    if path != "/v1/desktop/screenshot":
+        return True
+    return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
 def _nothing_installed(needs: list[str]) -> bool:
     """Whether this host really is missing every tool for a row.
 
@@ -114,7 +129,9 @@ def _nothing_installed(needs: list[str]) -> bool:
 
 CALLS_FOR_THIS_PLATFORM = [
     call for call in TOOL_DEPENDENT_CALLS
-    if _needs_a_tool_here(call[1]) and _nothing_installed(call[3])
+    if _needs_a_tool_here(call[1])
+    and _nothing_installed(call[3])
+    and _headless_enough_for(call[1])
 ]
 
 
@@ -218,6 +235,11 @@ def test_the_screenshot_list_only_names_tools_that_would_work_here(session, expe
     result = asyncio.run(capture_desktop_screenshot(
         fmt="png", desktop_exec=never_called, detect_env=lambda: dict(session)))
     assert result[UNAVAILABLE] == expected
+    # And the sentence agrees with the list: naming a tool that was filtered
+    # out would contradict `unavailable` in the same response and send the
+    # reader off to install the one thing that cannot work here.
+    for tool in ("spectacle", "grim", "scrot"):
+        assert (tool in result["error"]) == (tool in expected), result["error"]
 
 
 # ---------------------------------------------------------------------

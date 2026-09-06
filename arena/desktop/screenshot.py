@@ -60,7 +60,17 @@ def _rm_tmp_dir(path: str) -> None:
 
 
 # Same marker as tesseract's in ocr.py: a 503 for the caller, not a 500 (#260).
-_SCREENSHOT_MESSAGE = "No screenshot tool available (need spectacle, grim, or scrot)"
+def _screenshot_message(needs: tuple[str, ...]) -> str:
+    """"...(need spectacle, grim, or scrot)", or whatever is left after filtering.
+
+    The sentence has to agree with the list beside it: after dropping grim on
+    X11, telling the reader they need grim contradicts the `unavailable`
+    field in the same response and sends them to install the one tool that
+    cannot work here.
+    """
+    listed = (" or ".join(needs) if len(needs) < 3
+              else ", ".join(needs[:-1]) + ", or " + needs[-1])
+    return f"No screenshot tool available (need {listed})"
 
 # grim only works under Wayland and scrot only under X11 -- the branches above
 # check that as well as the binary. Telling an X11 user to install grim would
@@ -87,7 +97,7 @@ def _refuse_for_want_of_a_tool(env: dict[str, Any], tmp_dir: str) -> dict[str, A
         tool for tool, requires in _SCREENSHOT_TOOLS
         if not session or requires is None or env.get(requires)
     )
-    return unavailable_result(MissingTool(_SCREENSHOT_MESSAGE, needs))
+    return unavailable_result(MissingTool(_screenshot_message(needs), needs))
 
 
 async def capture_desktop_screenshot(

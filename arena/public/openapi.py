@@ -158,10 +158,12 @@ _UNAVAILABLE_ENVELOPE = {
             "minItems": 1,
             "description": (
                 "The tools blocking this call right now, in the order the "
-                "bridge prefers them; installing any one of them clears "
-                "this refusal. An operation built on several tools reports "
-                "them a layer at a time, so a later call may name a "
-                "different one."),
+                "bridge prefers them: installing any one of these clears "
+                "this particular blocker. It does not promise the call then "
+                "succeeds -- an operation built on several tools (OCR reads "
+                "a screenshot before it reads text) reports one layer at a "
+                "time, and the next call may name a tool from the next "
+                "layer."),
         },
     },
     "required": ["ok", "error", "unavailable"],
