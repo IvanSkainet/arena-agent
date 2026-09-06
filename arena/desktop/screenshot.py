@@ -107,10 +107,8 @@ async def capture_desktop_screenshot(
     """Capture the desktop and optionally transform/re-encode the image.
 
     Returns `{ok: True, bytes, encoding, transformed, tool}` on success, or
-    `{ok: False, error}` on failure -- plus `unavailable`, listing the tools
-    that would make it work, when the failure is that this host has none of
-    them (#260). The caller decides whether to return JSON base64 or a binary
-    HTTP response.
+    `{ok: False, error}` -- plus `unavailable` when the host has no screenshot
+    tool (#260) -- on failure. The caller picks JSON base64 or a binary reply.
     """
     fmt = (fmt or "base64").lower()
     quality = max(1, min(100, int(quality or 80)))
