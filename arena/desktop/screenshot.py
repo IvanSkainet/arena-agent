@@ -7,7 +7,8 @@ import tempfile
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
-from arena.desktop.availability import MissingTool, unavailable_result
+from arena.desktop.availability import unavailable_result
+from arena.desktop.screenshot_tools import missing_screenshot_tool
 
 
 class DesktopExec(Protocol):
@@ -60,28 +61,6 @@ def _rm_tmp_dir(path: str) -> None:
 
 
 # Same marker as tesseract's in ocr.py: a 503 for the caller, not a 500 (#260).
-def _screenshot_message(needs: tuple[str, ...]) -> str:
-    """"...(need spectacle, grim, or scrot)", or whatever is left after filtering.
-
-    The sentence has to agree with the list beside it: after dropping grim on
-    X11, telling the reader they need grim contradicts the `unavailable`
-    field in the same response and sends them to install the one tool that
-    cannot work here.
-    """
-    listed = (" or ".join(needs) if len(needs) < 3
-              else ", ".join(needs[:-1]) + ", or " + needs[-1])
-    return f"No screenshot tool available (need {listed})"
-
-# grim only works under Wayland and scrot only under X11 -- the branches above
-# check that as well as the binary. Telling an X11 user to install grim would
-# have them install it and keep getting 503s, so the list is filtered by the
-# session when the session is known. When it is neither (a headless container,
-# where all three are equally absent and equally hypothetical) the full list
-# is the honest answer.
-_SCREENSHOT_TOOLS: tuple[tuple[str, str | None], ...] = (
-    ("spectacle", None), ("grim", "wayland"), ("scrot", "x11"))
-
-
 def _refuse_for_want_of_a_tool(env: dict[str, Any], tmp_dir: str) -> dict[str, Any]:
     """The 503 body, naming the tools that could actually run here.
 
@@ -92,12 +71,7 @@ def _refuse_for_want_of_a_tool(env: dict[str, Any], tmp_dir: str) -> dict[str, A
     Three reviewers caught that on the #260 PR.
     """
     _rm_tmp_dir(tmp_dir)
-    session = env.get("wayland") or env.get("x11")
-    needs = tuple(
-        tool for tool, requires in _SCREENSHOT_TOOLS
-        if not session or requires is None or env.get(requires)
-    )
-    return unavailable_result(MissingTool(_screenshot_message(needs), needs))
+    return unavailable_result(missing_screenshot_tool(env))
 
 
 async def capture_desktop_screenshot(
