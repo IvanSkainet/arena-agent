@@ -103,6 +103,20 @@ def _numeric_body_fields(spec: dict) -> list[tuple[str, str, str, dict]]:
     return found
 
 
+# Three endpoints answer before they reach the numeric field, and the answer
+# is right: /v1/desktop/focus and /v1/desktop/window_action refuse a request
+# with no window filter at all, and /v1/desktop/click_text needs tesseract
+# before it needs an offset. All three answer 4xx, none of them 5xx, and
+# which field was malformed is not something they can know yet. Measured
+# rather than assumed -- with a filter supplied, window_action does name the
+# field (`pid`), which is why the list is per path and not per field.
+REFUSED_BEFORE_THE_FIELD = {
+    "/v1/desktop/focus",
+    "/v1/desktop/window_action",
+    "/v1/desktop/click_text",
+}
+
+
 def _filler(schema: dict, skip: str) -> dict:
     """The required fields of an operation, so the sweep reaches the parse.
 
@@ -233,8 +247,28 @@ def _auth() -> dict[str, str]:
 
 @asynccontextmanager
 async def _running_client(root: Path) -> AsyncIterator[TestClient]:
-    async with running_client(root, TOKEN) as client:
-        yield client
+    """A bridge with the per-IP limiter out of the way.
+
+    The sweep sends eleven values at every numeric field of every documented
+    operation, all from 127.0.0.1, which is well past the 300-per-minute
+    limit. Before this the sweep only asked "not a 5xx" and a 429 passed
+    quietly; now that it also checks *which* field was named, the limiter
+    would answer for most of the run. The limiter has its own tests.
+    """
+    import arena.rate_limit as rate_limit
+
+    was_enabled = rate_limit._rl_v2_config["enabled"]
+    was_max = rate_limit._rate_limit_max
+    rate_limit._rl_v2_config["enabled"] = False
+    rate_limit._rate_limit_max = 10 ** 9
+    try:
+        async with running_client(root, TOKEN) as client:
+            yield client
+    finally:
+        rate_limit._rl_v2_config["enabled"] = was_enabled
+        rate_limit._rate_limit_max = was_max
+        rate_limit._rl_v2_store.clear()
+        rate_limit._rate_limit_store.clear()
 
 
 def test_no_documented_endpoint_answers_5xx_to_a_bad_body_number(spec, tmp_path):
@@ -246,7 +280,7 @@ async def _sweep(spec, root):
     targets = _numeric_body_fields(spec)
     assert targets, "the document declares no numeric body fields -- sweep is vacuous"
 
-    crashed, leaked = [], []
+    crashed, leaked, unnamed = [], [], []
     async with _running_client(root) as client:
         for method, path, field, schema in targets:
             for bad in BAD_NUMBERS:
@@ -260,8 +294,13 @@ async def _sweep(spec, root):
                     if payload.get("unavailable"):
                         continue  # the box has no tool for this (#260)
                     crashed.append(f"{where} -> {response.status} {payload}")
-                elif error_type_of(payload) is not None:
+                    continue
+                if error_type_of(payload) is not None:
                     leaked.append(f"{where} -> {error_type_of(payload)}")
+                if bad == "" or path in REFUSED_BEFORE_THE_FIELD:
+                    continue
+                if payload.get("field") != field:
+                    unnamed.append(f"{where} -> {response.status} {payload}")
 
     assert crashed == [], (
         "a malformed body number must not be reported as a server fault: "
@@ -269,6 +308,12 @@ async def _sweep(spec, root):
     assert leaked == [], (
         "the error envelope must not name the Python exception class: "
         + "; ".join(leaked))
+    # CodeRabbit, on the first draft: "not a 5xx" also passes for a 200 that
+    # quietly used the default, which is the behaviour #270 replaced. The
+    # refusal has to name the field the caller got wrong.
+    assert unnamed == [], (
+        "a rejected body number must say which field it was: "
+        + "; ".join(unnamed))
 
 
 def test_the_three_endpoints_the_issue_named_answer_400_and_say_which_field(tmp_path):

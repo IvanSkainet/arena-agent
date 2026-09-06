@@ -44,7 +44,6 @@ from arena.exec.client_lifecycle import (
     record_client_disconnect,
 )
 from arena.exec.control_gate import control_injection_response
-from arena.exec.environment import filter_caller_env
 from arena.exec.interpreters import (
     _INTERPRETERS,
     _resolve_interpreter,
@@ -53,10 +52,10 @@ from arena.exec.interpreters import (
     interpreter_path_arg,
     interpreter_runs_here,
 )
+from arena.exec.request_shape import limits_and_env, requested_cwd
 from arena.exec.runner import run_shell_command_stream
 from arena.handler_context import ExecHandlerContext
-from arena.handler_helpers import authed, body_int, err_json, parse_json_body
-from arena.handler_params import body_str
+from arena.handler_helpers import authed, err_json, parse_json_body
 from arena.security_commands import command_allowlist_reason
 from arena.web_utils import CORS_HEADERS
 
@@ -70,25 +69,6 @@ class ExecHandlers:
     script: Callable[..., Any]
     # v4.3.0: NDJSON streaming endpoint.
     stream: Callable[..., Any]
-
-
-def _limits_and_env(data: dict[str, Any], cfg: Any, ctx: Any) -> tuple[int, int, dict[str, str]]:
-    """The three request-scoped limits both exec handlers read the same way.
-
-    Written once because it was written twice: SonarCloud counts the copies
-    as duplicated lines, and #270 had to fix the same `int(data.get(...))`
-    in both. `timeout` and `max_output` are clamped to the profile's
-    ceilings -- a body cannot raise them, only lower them.
-    """
-    timeout = min(body_int(data, "timeout", default=int(cfg["timeout"])), cfg["max_timeout"])
-    max_output = min(
-        body_int(data, "max_output", default=int(ctx.default_max_output)),
-        cfg["max_output"])
-    raw_env = data.get("env")
-    env_extra: dict[str, Any] = dict(raw_env) if isinstance(raw_env, dict) else {}
-    env = os.environ.copy()
-    env.update(filter_caller_env(env_extra))
-    return timeout, max_output, env
 
 
 def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
@@ -139,18 +119,16 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 return err_json(ctx, reason, status=403, request_id=request_id)
 
         root: Path = cfg["root"]
-        cwd_raw = body_str(data, "cwd", default="") or str(root)
-        cwd = Path(cwd_raw).expanduser()
-        if not cwd.is_absolute():
-            cwd = root / cwd
+        cwd, cwd_error = requested_cwd(data, root)
+        if cwd_error:
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(ctx, cwd_error, status=400, request_id=request_id)
+        assert cwd is not None  # pyrefly: the error branch returned already
         if not cfg["allow_any_cwd"] and not ctx.under_root(cwd, root):
             ctx.record_request(is_error=True, count_request=False)
             return err_json(ctx, f"cwd must be under root {root}", status=403, request_id=request_id)
-        if not cwd.exists() or not cwd.is_dir():
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, f"cwd does not exist: {cwd}", status=400, request_id=request_id)
 
-        timeout, max_output, env = _limits_and_env(data, cfg, ctx)
+        timeout, max_output, env = limits_and_env(data, cfg, ctx)
 
         sem: asyncio.Semaphore = cfg["semaphore"]
         if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:
@@ -460,18 +438,16 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 return err_json(ctx, reason, status=403, request_id=request_id)
 
         root: Path = cfg["root"]
-        cwd_raw = body_str(data, "cwd", default="") or str(root)
-        cwd = Path(cwd_raw).expanduser()
-        if not cwd.is_absolute():
-            cwd = root / cwd
+        cwd, cwd_error = requested_cwd(data, root)
+        if cwd_error:
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(ctx, cwd_error, status=400, request_id=request_id)
+        assert cwd is not None  # pyrefly: the error branch returned already
         if not cfg["allow_any_cwd"] and not ctx.under_root(cwd, root):
             ctx.record_request(is_error=True, count_request=False)
             return err_json(ctx, f"cwd must be under root {root}", status=403, request_id=request_id)
-        if not cwd.exists() or not cwd.is_dir():
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, f"cwd does not exist: {cwd}", status=400, request_id=request_id)
 
-        timeout, max_output, env = _limits_and_env(data, cfg, ctx)
+        timeout, max_output, env = limits_and_env(data, cfg, ctx)
 
         sem: asyncio.Semaphore = cfg["semaphore"]
         if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:

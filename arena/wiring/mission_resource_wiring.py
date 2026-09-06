@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from arena.handler_params import body_int
-from arena.resources.runtime import MAX_MISSION_TIMEOUT_S
+from arena.mission_limits import MAX_MISSION_TIMEOUT_S
 
 
 def build_resource_registry(env, registry: dict[str, Any]) -> None:
@@ -24,7 +24,7 @@ def build_resource_registry(env, registry: dict[str, Any]) -> None:
             mission_id=str(data.get("mission_id", "") or ""),
             overwrite=bool(data.get("overwrite", False)),
             run_now=bool(data.get("run_now", False)),
-            timeout=body_int(data, "timeout", default=180, bounds=(1, MAX_MISSION_TIMEOUT_S)),
+            timeout=body_int(data, "timeout", default=0, bounds=(0, MAX_MISSION_TIMEOUT_S)) or 180,
             react_sync=registry["_react_sync"],
             reflect_sync=registry["_reflect_sync"],
             compose_sync=env._resource_runtime.mission_compose_sync,
@@ -39,7 +39,7 @@ def build_resource_registry(env, registry: dict[str, Any]) -> None:
             notes=str(data.get("notes", "") or ""),
             failed_only=bool(data.get("failed_only", True)),
             step=body_int(data, "step", default=None),
-            timeout=body_int(data, "timeout", default=180, bounds=(1, MAX_MISSION_TIMEOUT_S)),
+            timeout=body_int(data, "timeout", default=0, bounds=(0, MAX_MISSION_TIMEOUT_S)) or 180,
             rerun_now=bool(data.get("rerun_now", False)),
             compose_followup=bool(data.get("compose_followup", False)),
             create_followup=bool(data.get("create_followup", False)),
@@ -73,7 +73,7 @@ def build_resource_registry(env, registry: dict[str, Any]) -> None:
             run_now=bool(data.get("run_now", False)),
             followup_mission_id=str(data.get("mission_id_new", "") or data.get("followup_mission_id", "") or ""),
             overwrite=bool(data.get("overwrite", False)),
-            timeout=body_int(data, "timeout", default=180, bounds=(1, MAX_MISSION_TIMEOUT_S)),
+            timeout=body_int(data, "timeout", default=0, bounds=(0, MAX_MISSION_TIMEOUT_S)) or 180,
             react_sync=registry["_react_sync"],
             reflect_sync=registry["_reflect_sync"],
             compose_sync=env._resource_runtime.mission_compose_sync,
@@ -88,7 +88,7 @@ def build_resource_registry(env, registry: dict[str, Any]) -> None:
             notes=str(data.get("notes", "") or ""),
             failed_only=bool(data.get("failed_only", True)),
             step=body_int(data, "step", default=None),
-            timeout=body_int(data, "timeout", default=180, bounds=(1, MAX_MISSION_TIMEOUT_S)),
+            timeout=body_int(data, "timeout", default=0, bounds=(0, MAX_MISSION_TIMEOUT_S)) or 180,
             rerun_now=bool(data.get("rerun_now", False)),
             compose_followup=bool(data.get("compose_followup", False)),
             create_followup=bool(data.get("create_followup", False)),

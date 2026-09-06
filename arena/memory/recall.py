@@ -50,7 +50,10 @@ def _as_event(line: str) -> dict[str, Any] | None:
     """
     try:
         parsed = json.loads(line)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, RecursionError):
+        # RecursionError too: json.loads gives up on deeply nested input by
+        # blowing the stack, and an audit line is whatever was written to
+        # the file. Letting it out means one line takes the digest down.
         return None
     return parsed if isinstance(parsed, dict) else None
 

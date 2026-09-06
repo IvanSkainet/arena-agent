@@ -16,9 +16,9 @@ from typing import Any, overload
 from aiohttp import web
 
 from arena.handler_errors import BodyFieldError, QueryParamError
-from arena.handler_helpers import safe_int
+from arena.safe_numeric import safe_int
 
-__all__ = ["body_int", "body_str", "query_int"]
+__all__ = ["body_float", "body_int", "body_str", "query_int"]
 
 
 def query_int(
@@ -211,3 +211,22 @@ def body_str(body: Mapping[str, Any], name: str, *, default: str) -> str:
     if not isinstance(value, str):
         raise BodyFieldError(name, value, expected="a string")
     return value
+
+
+def body_float(body: Mapping[str, Any], name: str, *, default: float | None) -> float | None:
+    """Read a fractional number out of a JSON body, or refuse with a 400.
+
+    `body_int`'s sibling, for the fields where a fraction is the point --
+    `scale: 0.5` on the desktop capture. Same rules otherwise: booleans and
+    containers are refused rather than coerced, strings still parse because
+    callers send them, and missing/null/"" mean unspecified.
+    """
+    value = body.get(name)
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        raise BodyFieldError(name, value, expected="a number")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise BodyFieldError(name, value, expected="a number") from None

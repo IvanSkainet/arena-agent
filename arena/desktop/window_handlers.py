@@ -8,6 +8,7 @@ from arena.desktop.text_window_target import resolve_text_window_target
 from arena.desktop.window_catalog import list_desktop_windows, resolve_window_target, window_candidates
 from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import authed, body_int, controlled, json_object_body, query_int
+from arena.handler_params import body_float
 
 
 def _truthy(value: str | None) -> bool:
@@ -73,8 +74,8 @@ def make_desktop_window_handlers(ctx: DesktopHandlerContext):
                 desktop_file=desktop_file,
                 resource_name=resource_name,
                 pid=pid,
-                scale=body.get("scale"),
-                max_width=body.get("max_width"),
+                scale=body_float(body, "scale", default=None),
+                max_width=body_int(body, "max_width", default=None),
                 quality=body_int(body, "quality", default=80),
                 min_confidence=body_int(body, "min_confidence", default=40),
                 psm=body_int(body, "psm", default=11),

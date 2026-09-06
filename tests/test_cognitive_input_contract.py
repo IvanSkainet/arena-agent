@@ -20,6 +20,7 @@ from arena.cognitive_input import (
     require_object,
     required_text,
 )
+from arena.handler_errors import BodyFieldError
 from arena.planner.handlers import make_planner_handlers
 from arena.public.openapi import _cognitive_request_schemas
 
@@ -77,17 +78,31 @@ def test_required_goal_rejects_empty_and_coerced_values(data, message) -> None:
     (optional_string_list, ({"constraints": ["x", 1]}, "constraints"),
      "constraints must be a list of strings"),
     (optional_object, ({"run": []}, "run"), "run must be an object"),
-    (positive_int, ({"max_steps": True}, "max_steps", 8),
-     "max_steps must be a positive integer"),
-    (positive_int, ({"max_steps": 0}, "max_steps", 8),
-     "max_steps must be a positive integer"),
-    (positive_int, ({"max_steps": "8"}, "max_steps", 8),
-     "max_steps must be a positive integer"),
 ])
 def test_optional_field_types_are_not_coerced(call, args, message) -> None:
     with pytest.raises(CognitiveInputError) as caught:
         call(*args)
     assert str(caught.value) == message
+
+
+@pytest.mark.parametrize("value,message", [
+    (True, "body field 'max_steps' must be an integer, received boolean"),
+    ("8", "body field 'max_steps' must be an integer, received string"),
+    (0, "body field 'max_steps' must be an integer no smaller than 1, received number"),
+])
+def test_a_count_is_refused_as_a_named_field(value, message) -> None:
+    """Still refused, and now the refusal says which field and what arrived.
+
+    `positive_int` raised the module's own CognitiveInputError until #270,
+    which meant /v1/plan and /v1/react answered 400 with a sentence and no
+    `field` key -- while the document promises one for every operation with
+    a numeric body field. Same three rejections, same strictness ("8" is a
+    string, `True` is not 1), different envelope.
+    """
+    with pytest.raises(BodyFieldError) as caught:
+        positive_int({"max_steps": value}, "max_steps", 8)
+    assert str(caught.value) == message
+    assert caught.value.field == "max_steps"
 
 
 def test_unknown_fields_are_rejected_deterministically() -> None:
@@ -197,10 +212,10 @@ def test_handlers_treat_explicit_null_optional_integers_as_defaults() -> None:
     ("plan", {"goal": "x", "constraints": "bad"},
      "constraints must be a list of strings"),
     ("plan", {"goal": "x", "max_steps": False},
-     "max_steps must be a positive integer"),
+     "body field 'max_steps' must be an integer, received boolean"),
     ("react", {"goal": 123}, "goal must be a string"),
     ("react", {"goal": "x", "max_iterations": "4"},
-     "max_iterations must be a positive integer"),
+     "body field 'max_iterations' must be an integer, received string"),
     ("reflect", {}, "missing goal"),
     ("reflect", {"goal": "x", "run": []}, "run must be an object"),
     ("reflect", {"goal": "x", "observations": "bad"},
@@ -215,7 +230,17 @@ def test_handlers_return_400_without_calling_runtime(endpoint, body, error) -> N
     }
     response = asyncio.run(handlers[endpoint](request(f"/v1/{endpoint}", body)))
     assert response.status == 400
-    assert json.loads(response.text) == {"ok": False, "error": error}
+    payload = json.loads(response.text)
+    # A numeric field refused since #270 also carries `field` and `received`;
+    # everything this module refuses on its own carries the sentence alone.
+    # Both are checked here rather than only the intersection, so that a
+    # refusal quietly losing its field name is a failure.
+    assert payload["ok"] is False
+    assert payload["error"] == error
+    named = {k: v for k, v in payload.items() if k in ("field", "received")}
+    assert named == ({} if "body field" not in error
+                     else {"field": error.split("'")[1],
+                           "received": error.rsplit(" ", 1)[-1]})
     assert ctx.plan_calls == []
     assert ctx.react_calls == []
     assert ctx.reflect_calls == []

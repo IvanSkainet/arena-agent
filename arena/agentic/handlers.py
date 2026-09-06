@@ -17,7 +17,7 @@ from arena.cognitive_input import (
     required_text,
 )
 from arena.handler_context import AgenticHandlerContext
-from arena.handler_helpers import authed, json_object_body
+from arena.handler_helpers import BadRequest, authed, bad_request_refusal, json_object_body
 
 
 @dataclass(frozen=True)
@@ -45,6 +45,10 @@ def make_agentic_handlers(ctx: AgenticHandlerContext) -> AgenticHandlers:
                 memory_profile=optional_text(data, "memory_profile") or None,
                 url=optional_text(data, "url"),
             )
+        except BadRequest as e:
+            # Carries `field`/`received`; the plain-sentence branch below is
+            # for this module's own errors, which have no field to name.
+            return bad_request_refusal(ctx, e)
         except CognitiveInputError as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=400)
         ctx.audit({"event": "react_run", "goal": goal, "iterations": len(result.get("iterations") or []), "profile": result.get("memory_profile")})
@@ -62,6 +66,10 @@ def make_agentic_handlers(ctx: AgenticHandlerContext) -> AgenticHandlers:
                 notes=optional_text(data, "notes"),
                 outcome=optional_text(data, "outcome"),
             )
+        except BadRequest as e:
+            # Carries `field`/`received`; the plain-sentence branch below is
+            # for this module's own errors, which have no field to name.
+            return bad_request_refusal(ctx, e)
         except CognitiveInputError as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=400)
         ctx.audit({"event": "reflect_run", "goal": result.get("goal", ""), "confidence": result.get("confidence", "")})

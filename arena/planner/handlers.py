@@ -16,7 +16,7 @@ from arena.cognitive_input import (
     required_text,
 )
 from arena.handler_context import PlannerHandlerContext
-from arena.handler_helpers import authed, json_object_body
+from arena.handler_helpers import BadRequest, authed, bad_request_refusal, json_object_body
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,10 @@ def make_planner_handlers(ctx: PlannerHandlerContext) -> PlannerHandlers:
                 goal=goal, context=context, constraints=constraints,
                 max_steps=max_steps, memory_profile=memory_profile,
             )
+        except BadRequest as e:
+            # Carries `field`/`received`; the plain-sentence branch below is
+            # for this module's own errors, which have no field to name.
+            return bad_request_refusal(ctx, e)
         except CognitiveInputError as e:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=400)

@@ -7,6 +7,7 @@ from arena.desktop.availability import failure_response, is_refusal
 from arena.desktop.text_window_target import resolve_text_window_target
 from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import authed, body_int, json_object_body
+from arena.handler_params import body_float
 
 
 def make_desktop_text_window_handler(ctx: DesktopHandlerContext):
@@ -21,8 +22,8 @@ def make_desktop_text_window_handler(ctx: DesktopHandlerContext):
             desktop_file=str(body.get("desktop_file", "") or ""),
             resource_name=str(body.get("resource_name", "") or ""),
             pid=body_int(body, "pid", default=None),
-            scale=body.get("scale"),
-            max_width=body.get("max_width"),
+            scale=body_float(body, "scale", default=None),
+            max_width=body_int(body, "max_width", default=None),
             quality=body_int(body, "quality", default=80),
             min_confidence=body_int(body, "min_confidence", default=40),
             psm=body_int(body, "psm", default=11),

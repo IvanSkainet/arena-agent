@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from arena.handler_errors import BodyFieldError
+
 
 class CognitiveInputError(ValueError):
     """A cognitive endpoint request has an unusable field shape."""
@@ -57,9 +59,20 @@ def optional_object(data: dict[str, Any], field: str) -> dict[str, Any]:
 
 
 def positive_int(data: dict[str, Any], field: str, default: int) -> int:
+    """A count the caller supplied, refused as a named field if it is not one.
+
+    Raises `BodyFieldError` rather than the local `CognitiveInputError` so
+    that the refusal carries `field` and `received` like every other body
+    rejection since #270 -- the document promises those keys for any
+    operation with a numeric body field, and /v1/plan and /v1/react are two
+    of them. `BodyFieldError` is a ValueError, so the handlers that already
+    catch `CognitiveInputError` (also a ValueError) keep working either way.
+    """
     value = data.get(field, default)
     if value is None:
         return default
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise CognitiveInputError(f"{field} must be a positive integer")
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise BodyFieldError(field, value)
+    if value < 1:
+        raise BodyFieldError(field, value, expected="an integer no smaller than 1")
     return value

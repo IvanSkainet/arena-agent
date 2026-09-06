@@ -10,6 +10,7 @@ from arena.desktop.displays import get_displays, match_display
 from arena.desktop.input import build_click_command
 from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import authed, body_int, controlled, json_object_body
+from arena.handler_params import body_float
 
 
 class DesktopOcrHandlers(tuple):
@@ -83,8 +84,8 @@ def make_desktop_ocr_handlers(ctx: DesktopHandlerContext) -> DesktopOcrHandlers:
                 return None, ctx.cors_json_response({"ok": False, "error": f"unknown display: {display_name}", "available_displays": displays.get("displays", [])}, status=404)
         result = await ctx.ocr_desktop(
             query=query,
-            scale=data.get("scale"),
-            max_width=data.get("max_width"),
+            scale=body_float(data, "scale", default=None),
+            max_width=body_int(data, "max_width", default=None),
             quality=body_int(data, "quality", default=80),
             min_confidence=body_int(data, "min_confidence", default=40),
             psm=body_int(data, "psm", default=11),
@@ -137,15 +138,24 @@ def make_desktop_ocr_handlers(ctx: DesktopHandlerContext) -> DesktopOcrHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({**result, "error": f"no matches for query: {result['query']}"}, status=404)
         match = result["best_match"]
-        x, y = _target_point(match, str(data.get("target_position", "center") or "center"), data.get("offset_x", 0), data.get("offset_y", 0))
+        # Parse before the arithmetic, not after it. The first version of
+        # this read the offsets straight out of the body for _target_point
+        # and only validated them when building the response, so
+        # `{"offset_x": {"value": 1}}` reached `int(offset_x or 0)` and came
+        # back as a 500 -- the exact defect #270 is about, one line above
+        # its own fix. Two reviewers caught it.
+        offset_x = body_int(data, "offset_x", default=0)
+        offset_y = body_int(data, "offset_y", default=0)
+        position = str(data.get("target_position", "center") or "center")
+        x, y = _target_point(match, position, offset_x, offset_y)
         response = {
             **result,
             "target": {
                 "x": x,
                 "y": y,
-                "position": str(data.get("target_position", "center") or "center"),
-                "offset_x": body_int(data, "offset_x", default=0),
-                "offset_y": body_int(data, "offset_y", default=0),
+                "position": position,
+                "offset_x": offset_x,
+                "offset_y": offset_y,
             },
         }
         if data.get("dry_run", False):
