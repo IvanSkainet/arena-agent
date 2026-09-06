@@ -69,17 +69,21 @@ def spec() -> dict:
     )
 
 
+def _json_body_schema(operation: object) -> dict:
+    """The object schema this operation reads, or `{}` for the ones that do not."""
+    if not isinstance(operation, dict):
+        return {}
+    return (operation.get("requestBody", {}).get("content", {})
+            .get("application/json", {}).get("schema", {}))
+
+
 def _concrete_body_operations(spec: dict) -> Iterator[tuple[str, str, dict]]:
     """Every non-templated operation that reads a JSON object body."""
     for path, item in spec["paths"].items():
         if "{" in path:
-            continue
+            continue  # needs an id that exists on the machine running this
         for method, operation in item.items():
-            if not isinstance(operation, dict):
-                continue
-            schema = (operation.get("requestBody", {}).get("content", {})
-                      .get("application/json", {}).get("schema", {}))
-            if schema.get("properties"):
+            if _json_body_schema(operation).get("properties"):
                 yield method, path, operation
 
 
@@ -182,10 +186,10 @@ def test_a_number_that_reaches_a_system_call_has_a_bound():
     call directly, so the handlers that do say what they accept. The
     negative side is the same defect with the sign flipped.
     """
-    assert body_int({"t": 300}, "t", default=180, minimum=1, maximum=86_400) == 300
+    assert body_int({"t": 300}, "t", default=180, bounds=(1, 86_400)) == 300
     for bad, word in ((1578655390615, "greater"), (-174294, "smaller")):
         with pytest.raises(BodyFieldError) as caught:
-            body_int({"t": bad}, "t", default=180, minimum=1, maximum=86_400)
+            body_int({"t": bad}, "t", default=180, bounds=(1, 86_400))
         assert word in str(caught.value), str(caught.value)
         assert caught.value.field == "t"
 

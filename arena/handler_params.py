@@ -75,17 +75,17 @@ def query_int(
 
 @overload
 def body_int(body: Mapping[str, Any], name: str, *, default: int,
-             minimum: int | None = None, maximum: int | None = None) -> int: ...
+             bounds: tuple[int, int] | None = None) -> int: ...
 
 
 @overload
 def body_int(body: Mapping[str, Any], name: str, *, default: None,
-             minimum: int | None = None, maximum: int | None = None) -> int | None: ...
+             bounds: tuple[int, int] | None = None) -> int | None: ...
 
 
 def body_int(
     body: Mapping[str, Any], name: str, *, default: int | None,
-    minimum: int | None = None, maximum: int | None = None,
+    bounds: tuple[int, int] | None = None,
 ) -> int | None:
     """Read an integer field out of a JSON body, or refuse with a 400.
 
@@ -115,7 +115,7 @@ def body_int(
     matching both ``query_int`` and the ``int(body.get(x, 20) or 20)`` idiom
     this replaces -- so no request that works today starts failing.
 
-    `minimum` and `maximum` exist for one reason and are off by default. `query_int`
+    `bounds` exists for one reason and is off by default. `query_int`
     deliberately has no bounds -- every caller passed its value to a layer
     that already clamped it -- but a body number can reach a system call
     directly: `{"timeout": 1578655390615}` on `/v1/mission/run` came back as
@@ -130,28 +130,32 @@ def body_int(
       name: field name, named in the error so the caller can fix it.
       default: value for an unspecified field. Keyword-only and required;
         pass ``None`` for a genuinely optional one.
-      minimum: lower bound, same reasoning. Omit unless a smaller number
-        can break something.
-      maximum: upper bound, for values that end up in a system call. Omit
-        it unless a bigger number can break something.
+      bounds: `(minimum, maximum)` for values that end up in a system call.
+        Omit unless a number outside some range can break something.
 
     Raises:
-      BodyFieldError: the field was supplied and is not an integer, or is
-        above `maximum`.
+      BodyFieldError: the field was supplied and is not an integer, or
+        falls outside `bounds`.
     """
     parsed = _parse_body_int(body, name)
     if parsed is _UNSPECIFIED:
         return default
     number = int(parsed)  # type: ignore[arg-type]
-    if minimum is not None and number < minimum:
-        raise BodyFieldError(
-            name, body.get(name),
-            expected=f"an integer no smaller than {minimum}")
-    if maximum is not None and number > maximum:
-        raise BodyFieldError(
-            name, body.get(name),
-            expected=f"an integer no greater than {maximum}")
+    if bounds is not None:
+        _check_bounds(name, body.get(name), number, bounds)
     return number
+
+
+def _check_bounds(name: str, raw: object, number: int,
+                  bounds: tuple[int, int]) -> None:
+    """Refuse a number outside the range, naming the end it went past."""
+    minimum, maximum = bounds
+    if number < minimum:
+        raise BodyFieldError(
+            name, raw, expected=f"an integer no smaller than {minimum}")
+    if number > maximum:
+        raise BodyFieldError(
+            name, raw, expected=f"an integer no greater than {maximum}")
 
 
 _UNSPECIFIED = object()
@@ -166,20 +170,26 @@ def _parse_body_int(body: Mapping[str, Any], name: str) -> object:
     value = body.get(name)
     if value is None or value == "":
         return _UNSPECIFIED
-    if isinstance(value, bool):
+    # `bool` first: it is a subclass of `int`, so the check below would
+    # accept `true` as 1. Anything outside these three types cannot be a
+    # number however it is read.
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
         raise BodyFieldError(name, value)
+    return _number_from(name, value)
+
+
+def _number_from(name: str, value: int | float | str) -> int:
+    """int, whole float or numeric string -- or a refusal."""
     if isinstance(value, int):
         return value
     if isinstance(value, float):
         if value.is_integer():
             return int(value)
         raise BodyFieldError(name, value)
-    if isinstance(value, str):
-        try:
-            return safe_int(value)
-        except (TypeError, ValueError):
-            raise BodyFieldError(name, value) from None
-    raise BodyFieldError(name, value)
+    try:
+        return safe_int(value)
+    except (TypeError, ValueError):
+        raise BodyFieldError(name, value) from None
 
 
 def body_str(body: Mapping[str, Any], name: str, *, default: str) -> str:
