@@ -77,21 +77,26 @@ def _json_body_schema(operation: object) -> dict:
             .get("application/json", {}).get("schema", {}))
 
 
+def _concrete_paths(spec: dict) -> Iterator[tuple[str, dict]]:
+    """The paths a sweep can call without inventing an id that exists."""
+    return ((path, item) for path, item in spec["paths"].items() if "{" not in path)
+
+
 def _concrete_body_operations(spec: dict) -> Iterator[tuple[str, str, dict]]:
     """Every non-templated operation that reads a JSON object body."""
-    for path, item in spec["paths"].items():
-        if "{" in path:
-            continue  # needs an id that exists on the machine running this
-        for method, operation in item.items():
-            if _json_body_schema(operation).get("properties"):
-                yield method, path, operation
+    return (
+        (method, path, operation)
+        for path, item in _concrete_paths(spec)
+        for method, operation in item.items()
+        if _json_body_schema(operation).get("properties")
+    )
 
 
 def _numeric_body_fields(spec: dict) -> list[tuple[str, str, str, dict]]:
     """(method, path, field, schema) for every numeric field in the document."""
     found = []
     for method, path, operation in _concrete_body_operations(spec):
-        schema = (operation["requestBody"]["content"]["application/json"]["schema"])
+        schema = _json_body_schema(operation)
         for field, declared in (schema.get("properties") or {}).items():
             if declared.get("type") in ("integer", "number"):
                 found.append((method, path, field, schema))
