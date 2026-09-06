@@ -1,0 +1,12 @@
+# Hash-locked tools for the API fuzzing job ONLY (#258).
+#
+# Kept out of requirements-ci.lock deliberately: Schemathesis pulls in
+# hypothesis-jsonschema, starlette, werkzeug and a dozen more, and every one
+# of them would then be installed by every cell of the test matrix on every
+# OS, to be used by one job on one OS. Scorecard still requires hashes for
+# the install, hence a lock of its own -- same arrangement as the mutation
+# sweep and the security scan.
+#
+# The bridge itself is imported by scripts/serve_bridge_for_fuzzing.py, so
+# the job also installs requirements-ci.lock; only the fuzzer is here.
+schemathesis==4.25.2

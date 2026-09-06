@@ -1,0 +1,77 @@
+# Fuzzing gate for the documented API (#258).
+#
+# `scripts/serve_bridge_for_fuzzing.py` starts the bridge, this file says
+# what "a failure" means, and the `api-fuzz` job in ci.yml runs the two
+# together. Everything here is a decision that had to be made once and
+# written down, rather than re-argued on each red build.
+
+# One check to begin with. Everything else Schemathesis can assert -- 62
+# operations "mostly rejecting generated data", missing-header handling,
+# positive-data acceptance -- is real feedback and none of it is a defect
+# this bridge has agreed to fix yet, so turning it on now would mean a gate
+# that is red on day one and therefore ignored by day three. The measurement
+# behind that number is in #258; the other checks come one PR at a time,
+# each with its own cleanup.
+[checks]
+enabled = false
+not_a_server_error.enabled = true
+
+# A 5xx is the whole point of the gate, with one documented exception: since
+# #260 an operation that needs a local tool answers 503 with `unavailable`
+# listing what to install. CI runners have no tesseract and no screenshot
+# tool, so these six answer 503 every time, correctly. Allowing 503 globally
+# would hide a real outage, so it is allowed per operation -- exactly the
+# eight the document marks as needing a tool, minus the two that Windows
+# serves itself and CI never reaches.
+[[operations]]
+include-name = "POST /v1/desktop/ocr"
+checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 503]
+
+[[operations]]
+include-name = "POST /v1/desktop/find_text"
+checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 503]
+
+[[operations]]
+include-name = "POST /v1/desktop/click_text"
+checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 503]
+
+[[operations]]
+include-name = "POST /v1/desktop/resolve_text_target"
+checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 503]
+
+[[operations]]
+include-name = "POST /v1/desktop/text_action"
+checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 503]
+
+[[operations]]
+include-name = "POST /v1/desktop/focus"
+checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 503]
+
+[[operations]]
+include-name = "POST /v1/desktop/window_action"
+checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 503]
+
+[[operations]]
+include-name = "GET /v1/desktop/screenshot"
+checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 503]
+
+# Not fuzzed, because fuzzing it ends the run rather than testing it: the
+# operation issues a new bridge token, so the header every later request
+# carries stops working and the remaining operations report 401 instead of
+# whatever they would have said. Measured -- a run that hit it found six
+# failures where the same run without it found thirteen.
+[[operations]]
+include-name = "POST /v1/token/regenerate"
+enabled = false
+
+[generation]
+# Enough to find the shapes that break parsers -- `[null, null]` where a
+# number belongs, `{}` where a string does -- without turning a required
+# check into a five-minute wait. #270 was found at 30.
+max-examples = 30
+
+[phases.stateful]
+# Off for now: it needs resources created by earlier calls to exist, and on
+# a fresh runner most of them do not, so it spends its budget on 404s. The
+# `missing_test_data` warning says as much on every run.
+enabled = false
