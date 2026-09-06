@@ -56,7 +56,14 @@ TOKEN = "body-int-contract-token"
 # them into the default, which is how a caller sending `{"psm": []}` learned
 # nothing about their mistake. The empty containers are the ones the old code
 # swallowed; the non-empty ones are the ones it crashed on.
-BAD_NUMBERS = ([1, 2], [], {"a": 1}, {}, "abc", "null", "", True, False, 1.5, "1e999")
+BAD_NUMBERS = ([1, 2], [], {"a": 1}, {}, "abc", "null", True, False, 1.5, "1e999")
+
+# `""` is deliberately absent from that tuple. It means "unspecified", so
+# sending it makes the request *valid* -- and a valid /v1/mission/propose
+# starts a planning run, which is how this sweep turned three CI cells red
+# with a 500 that had nothing to do with parsing. That `""` still means
+# unspecified is pinned by test_missing_null_and_empty_all_mean_unspecified
+# above, where it costs a microsecond instead of an agent run.
 
 # Values that must keep working, because they work today.
 GOOD_NUMBERS = (7, "7", 2.0, 0, -1)
@@ -276,8 +283,7 @@ def test_no_documented_endpoint_answers_5xx_to_a_bad_body_number(spec, tmp_path)
     asyncio.run(_sweep(spec, tmp_path))
 
 
-def _verdict(status: int, payload: dict, path: str, field: str,
-             bad: object) -> tuple[str, str]:
+def _verdict(status: int, payload: dict, path: str, field: str) -> tuple[str, str]:
     """("", "") for an acceptable answer, or (what went wrong, which kind).
 
     Three ways to be wrong, in order of severity: a 5xx that is not the
@@ -290,7 +296,7 @@ def _verdict(status: int, payload: dict, path: str, field: str,
         return str(payload), "crash"
     if error_type_of(payload) is not None:
         return str(error_type_of(payload)), "leak"
-    if bad == "" or path in REFUSED_BEFORE_THE_FIELD:
+    if path in REFUSED_BEFORE_THE_FIELD:
         return "", ""
     if payload.get("field") != field:
         return str(payload), "unnamed"
@@ -311,7 +317,7 @@ async def _sweep(spec, root):
                     path, json=body, headers=_auth())
                 payload = await json_payload(response)
                 where = f"{method.upper()} {path} {field}={bad!r}"
-                fault, kind = _verdict(response.status, payload, path, field, bad)
+                fault, kind = _verdict(response.status, payload, path, field)
                 if fault:
                     {"crash": crashed, "leak": leaked, "unnamed": unnamed}[kind].append(
                         f"{where} -> {response.status} {fault}")
