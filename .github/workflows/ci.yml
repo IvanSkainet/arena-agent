@@ -1587,10 +1587,17 @@ jobs:
       # headless, so the eight tool-dependent operations answer the
       # documented 503 -- schemathesis.toml expects exactly those.
       - name: Start the bridge
+        env:
+          # A throwaway token for a bridge that lives for one job on one
+          # runner, in a variable rather than inline: a literal `Bearer` in
+          # a curl line reads to a secret scanner as a leaked credential,
+          # and a scanner that cries wolf here is one nobody reads later
+          # (sourcery/betterleaks).
+          FUZZ_TOKEN: ci-fuzz-token
         run: |
-          python scripts/serve_bridge_for_fuzzing.py --port 8899 --token ci-fuzz-token &
+          python scripts/serve_bridge_for_fuzzing.py --port 8899 --token "$FUZZ_TOKEN" &
           for _ in $(seq 1 30); do
-            if curl -fsS -o /dev/null -H "Authorization: Bearer ci-fuzz-token" \
+            if curl -fsS -o /dev/null -H "Authorization: Bearer $FUZZ_TOKEN" \
                  http://127.0.0.1:8899/openapi.json; then
               echo "bridge is up"; exit 0
             fi
@@ -1603,9 +1610,11 @@ jobs:
       # findings between them (measured in #258) and each needs its own
       # cleanup before it can be required.
       - name: Fuzz the documented API
+        env:
+          FUZZ_TOKEN: ci-fuzz-token
         run: |
           schemathesis run http://127.0.0.1:8899/openapi.json \
-            --header "Authorization: Bearer ci-fuzz-token" \
+            --header "Authorization: Bearer $FUZZ_TOKEN" \
             --seed "${GITHUB_RUN_NUMBER}" \
             --workers 4
 

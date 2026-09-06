@@ -18,11 +18,12 @@ not_a_server_error.enabled = true
 
 # A 5xx is the whole point of the gate, with one documented exception: since
 # #260 an operation that needs a local tool answers 503 with `unavailable`
-# listing what to install. CI runners have no tesseract and no screenshot
-# tool, so these six answer 503 every time, correctly. Allowing 503 globally
-# would hide a real outage, so it is allowed per operation -- exactly the
-# eight the document marks as needing a tool, minus the two that Windows
-# serves itself and CI never reaches.
+# listing what to install. CI runners have neither tesseract nor a
+# screenshot tool, so all eight answer 503 every time, correctly. Allowing
+# 503 globally would hide a real outage, so it is allowed per operation --
+# exactly the eight the document marks as needing a local tool, no more and
+# no fewer. `tests/test_api_fuzz_gate_258.py` compares this list against
+# `_NEEDS_LOCAL_TOOL` in the document and fails on any drift.
 [[operations]]
 include-name = "POST /v1/desktop/ocr"
 checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 503]

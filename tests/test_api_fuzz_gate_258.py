@@ -13,16 +13,33 @@ Three failure modes, one test each:
 * the fuzzer is pointed at a bridge whose limiters answer 429 to everything,
   so the run is green because almost nothing reached a handler;
 * the job stops running the config, or the config stops naming the checks
-  the measurement in #258 said were ready.
+  the measurement in #258 said were ready;
+* the bridge under test writes into the checkout instead of its throwaway
+  root, which is how a live token reached the repository once already.
+
+PyYAML is imported normally, not through `pytest.importorskip`. AGENTS.md
+forbids the latter for a gate dependency and greptile and cubic both caught
+it here: skipping the module when the parser is missing means the gate
+reports success having asserted nothing, which is the failure this file
+exists to prevent. PyYAML is in requirements-ci.lock.
 """
 from __future__ import annotations
 
+import contextlib
+import json
+import socket
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
 import tomllib
+import yaml
 
-yaml = pytest.importorskip("yaml")
+from tests._git_budget import git_timeout
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = REPO_ROOT / "schemathesis.toml"
@@ -108,16 +125,77 @@ def test_the_server_neutralises_both_limiters():
     assert "auth_fail:" in source
 
 
-def test_the_server_runs_somewhere_disposable():
-    """Parts of the bridge resolve paths against the process's own cwd.
+@pytest.mark.timeout(120)
+def test_the_run_leaves_nothing_in_the_checkout():
+    """Started for real, asked to write, and the checkout checked afterwards.
 
-    A run started from a checkout wrote `missions/[None, None]/`,
-    `queue/running/*.json` and a live `token.txt` into the repository -- the
-    fuzzer reaching the token endpoint through a relative path. The chdir is
-    what keeps that inside the temporary root.
+    Not a source-text assertion: the first two attempts at this *looked*
+    isolated and were not. A chdir does not move `TOKEN_FILE`, which hangs
+    off the source tree, so POST /v1/token/regenerate wrote a live token
+    beside the code; `ARENA_AGENT_HOME` was missing, so mission and queue
+    files landed in the repository. Both are things only a running bridge
+    can demonstrate.
+
+    Skipped where a socket or a process is not available; a CI runner has
+    both, and the job that matters runs there.
     """
-    source = SERVER_PATH.read_text(encoding="utf-8")
-    assert "os.chdir(root)" in source
+    port = _free_port()
+    proc = subprocess.Popen(
+        [sys.executable, str(SERVER_PATH), "--port", str(port),
+         "--token", "isolation-probe"],
+        cwd=REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True)
+    before = _repository_contents()
+    try:
+        _wait_until_listening(proc, port)
+        # The two endpoints that wrote outside the workspace before #258:
+        # one issues a token file, the other creates a mission directory.
+        _post(port, "/v1/token/regenerate", {})
+        _post(port, "/v1/mission/compose", {"goal": "isolation", "create": True})
+    finally:
+        proc.terminate()
+        proc.wait(timeout=30)
+
+    appeared = sorted(_repository_contents() - before)
+    assert appeared == [], f"the fuzz bridge wrote into the checkout: {appeared}"
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _wait_until_listening(proc: subprocess.Popen, port: int) -> None:
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            raise AssertionError(f"the bridge exited: {proc.communicate()[0]}")
+        with socket.socket() as sock:
+            sock.settimeout(0.5)
+            if sock.connect_ex(("127.0.0.1", port)) == 0:
+                return
+        time.sleep(0.5)
+    raise AssertionError("the bridge did not start within 60s")
+
+
+def _post(port: int, path: str, body: dict) -> None:
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}", data=json.dumps(body).encode(),
+        headers={"Authorization": "Bearer isolation-probe",
+                 "Content-Type": "application/json"})
+    with contextlib.suppress(urllib.error.HTTPError, urllib.error.URLError):
+        with urllib.request.urlopen(request, timeout=30) as response:
+            response.read()
+
+
+def _repository_contents() -> set[str]:
+    """Every path in the checkout, tracked or not, as git sees it."""
+    listing = subprocess.run(
+        ["git", "status", "--porcelain", "--ignored=matching"],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+        timeout=git_timeout())
+    return set(listing.stdout.splitlines())
 
 
 def test_the_job_installs_hashes_and_starts_the_bridge_before_fuzzing(fuzz_job):

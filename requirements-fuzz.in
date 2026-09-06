@@ -8,5 +8,14 @@
 # sweep and the security scan.
 #
 # The bridge itself is imported by scripts/serve_bridge_for_fuzzing.py, so
-# the job also installs requirements-ci.lock; only the fuzzer is here.
+# the job also installs requirements-ci.lock; only the fuzzer is here. Both
+# locks land in one environment, so the five packages they share have to
+# agree -- scripts/lock_conflict_ratchet.py fails the build if they do not.
+# The constraint below is what keeps them agreeing when the lock is
+# regenerated: uv reads `-c` out of the input file, so a plain
+# `uv pip compile requirements-fuzz.in` -- what the relock workflow runs --
+# resolves against the bridge's pins without anyone remembering a flag
+# (cubic caught that the first version only passed --constraint by hand).
+-c requirements-ci.lock
+
 schemathesis==4.25.2
