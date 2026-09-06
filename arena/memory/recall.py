@@ -39,21 +39,26 @@ def _event_line(event: dict[str, Any]) -> str:
     return f"- [{event.get('type', 'unknown')}] _{event.get('ts', '')}_{detail}"
 
 
-def _parsed_events(audit_lines: list[str]) -> list[dict[str, Any]]:
-    """The audit lines that are JSON objects; the rest are skipped.
+def _as_event(line: str) -> dict[str, Any] | None:
+    """One audit line as an event, or None if it is not one.
 
-    A line that parses to a bare number or string is not an event, and
-    `.get` on it is the TypeError this function exists to avoid.
+    Two ways to not be one: it does not parse, or it parses to something
+    that is not an object -- and `.get` on a bare number is the TypeError
+    this exists to avoid. Returning None rather than swallowing the line
+    with `continue` keeps the skip visible at the call site, and keeps
+    bandit's try_except_continue count where it was.
     """
-    events = []
-    for line in audit_lines:
-        try:
-            parsed = json.loads(line)
-        except Exception:
-            continue
-        if isinstance(parsed, dict):
-            events.append(parsed)
-    return events
+    try:
+        parsed = json.loads(line)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _parsed_events(audit_lines: list[str]) -> list[dict[str, Any]]:
+    """The audit lines that are events, in order."""
+    candidates = (_as_event(line) for line in audit_lines)
+    return [event for event in candidates if event is not None]
 
 
 def recall_digest(*, facts: list[dict[str, Any]], audit_lines: list[str], utc_now_fn: Callable[[], str]) -> dict[str, Any]:

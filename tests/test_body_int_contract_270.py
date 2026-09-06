@@ -203,8 +203,11 @@ def test_a_string_field_is_a_string_and_not_whatever_str_accepts():
     counterpart, and refuses numbers too -- "12" as a directory is a typo
     that should be visible, not a directory called 12.
     """
-    assert body_str({"cwd": "/tmp"}, "cwd", default="") == "/tmp"
-    assert body_str({}, "cwd", default="/root") == "/root"
+    # Bare directory names, not "/tmp/...": the helper never touches the
+    # filesystem, and a literal temp path here reads to bandit (B108) as
+    # code that does.
+    assert body_str({"cwd": "workspace"}, "cwd", default="") == "workspace"
+    assert body_str({}, "cwd", default="fallback") == "fallback"
     for bad, received in (({"a": 1}, "object"), ([1], "array"), (12, "number"), (True, "boolean")):
         with pytest.raises(BodyFieldError) as caught:
             body_str({"cwd": bad}, "cwd", default="")

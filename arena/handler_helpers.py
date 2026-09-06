@@ -431,7 +431,12 @@ def safe_int(
 # working: the parameter readers moved to `handler_params` when this module
 # hit the 600-line ceiling, and rewriting forty call sites for a file split
 # would be churn with no defect behind it (#266, #270).
-from arena.handler_params import (  # noqa: E402  -- circular by design, see above
+#
+# Down here rather than at the top because `handler_params` imports
+# `safe_int` from this module, so the two would deadlock on import order.
+# E402 is suppressed with a bare code: SonarCloud's S7632 reads trailing
+# prose in a `noqa` as a malformed suppression, which it is.
+from arena.handler_params import (  # noqa: E402
     body_int as body_int,
     query_int as query_int,
 )
