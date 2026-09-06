@@ -57,15 +57,23 @@ from tests._live_bridge import build_app  # noqa: E402
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8899)
-    parser.add_argument("--token", default="fuzz-token")
-    parser.add_argument("--root", default=None,
-                        help="workspace root; a temporary directory by default")
+    # Required rather than defaulted: a literal token in a script is a
+    # credential in the source tree as far as any scanner is concerned, and
+    # they are right often enough that arguing is not worth it. The caller
+    # picks one; CI passes a throwaway.
+    parser.add_argument("--token", required=True)
     args = parser.parse_args()
 
     rate_limit._rl_v2_config["enabled"] = False
     rate_limit._rate_limit_max = 10 ** 9
 
-    root = Path(args.root) if args.root else Path(tempfile.mkdtemp(prefix="fuzz-root-"))
+    # No --root option on purpose. It was there for a run against a fixed
+    # directory, which nothing needs, and SonarCloud read it exactly right
+    # (S8707): a path from the command line, handed to a bridge that then
+    # writes files and executes commands relative to it, is a way out of the
+    # sandbox for anything -- a person or an agent -- that gets the argument
+    # wrong. A directory nobody can name cannot be escaped into.
+    root = Path(tempfile.mkdtemp(prefix="fuzz-root-"))
     app = build_app(root, args.token)
     os.chdir(root)
     asyncio.run(_serve(app, args.port))
