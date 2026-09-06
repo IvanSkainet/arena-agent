@@ -20,6 +20,31 @@ __all__ = ["safe_float", "safe_int"]
 _NO_DEFAULT = object()
 
 
+def _default_or_raise(default: Any) -> Any:
+    """The shared "it did not parse" branch of both readers."""
+    if default is _NO_DEFAULT:
+        raise
+    return default
+
+
+def _clamped(x: float, minimum: float | None, maximum: float | None,
+             *, strict: bool) -> float:
+    """`x` pulled inside `[minimum, maximum]`, or a refusal if strict.
+
+    Strict means the caller gave no default and wants to hear about the
+    range rather than have it silently applied.
+    """
+    if minimum is not None and x < minimum:
+        if strict:
+            raise ValueError(f"below minimum {minimum}: {x}")
+        return minimum
+    if maximum is not None and x > maximum:
+        if strict:
+            raise ValueError(f"above maximum {maximum}: {x}")
+        return maximum
+    return x
+
+
 def safe_float(
     value: Any,
     *,
@@ -74,9 +99,7 @@ def safe_float(
     try:
         x = float(value)
     except (TypeError, ValueError):
-        if default is _NO_DEFAULT:
-            raise
-        return default  # type: ignore[return-value]
+        return _default_or_raise(default)
     # NaN and +/-Inf are both "valid floats" per Python's float()
     # but almost never what an HTTP caller legitimately means.
     # Reject both.
@@ -84,18 +107,10 @@ def safe_float(
         if default is _NO_DEFAULT:
             raise ValueError(f"non-finite float rejected: {value!r}")
         return default  # type: ignore[return-value]
-    if minimum is not None and x < minimum:
-        if default is _NO_DEFAULT:
-            raise ValueError(f"below minimum {minimum}: {x}")
-        # Clamp to the boundary rather than falling to the default;
-        # a request for "timeout=0.001" against min=0.01 is closer
-        # to "operator meant fast" than "operator meant default".
-        return float(minimum)
-    if maximum is not None and x > maximum:
-        if default is _NO_DEFAULT:
-            raise ValueError(f"above maximum {maximum}: {x}")
-        return float(maximum)
-    return x
+    # Clamp to the boundary rather than falling to the default; a request
+    # for "timeout=0.001" against min=0.01 is closer to "operator meant
+    # fast" than "operator meant default".
+    return float(_clamped(x, minimum, maximum, strict=default is _NO_DEFAULT))
 
 
 def safe_int(
@@ -116,15 +131,5 @@ def safe_int(
     try:
         x = int(value)
     except (TypeError, ValueError):
-        if default is _NO_DEFAULT:
-            raise
-        return default  # type: ignore[return-value]
-    if minimum is not None and x < minimum:
-        if default is _NO_DEFAULT:
-            raise ValueError(f"below minimum {minimum}: {x}")
-        return int(minimum)
-    if maximum is not None and x > maximum:
-        if default is _NO_DEFAULT:
-            raise ValueError(f"above maximum {maximum}: {x}")
-        return int(maximum)
-    return x
+        return _default_or_raise(default)
+    return int(_clamped(x, minimum, maximum, strict=default is _NO_DEFAULT))

@@ -161,21 +161,26 @@ def _check_bounds(name: str, raw: object, number: int,
 _UNSPECIFIED = object()
 
 
-def _parse_body_int(body: Mapping[str, Any], name: str) -> object:
-    """The type work, split out so `body_int` reads as one decision.
+def _numeric_value(body: Mapping[str, Any], name: str, expected: str) -> object:
+    """The field as int, float or str -- or `_UNSPECIFIED`, or a refusal.
 
-    Returns `_UNSPECIFIED` for a field the caller did not set, so that a
-    genuine `0` is not confused with "missing" the way a falsy check would.
+    `_UNSPECIFIED` rather than None for a field the caller did not set, so
+    that a genuine `0` is not read as "missing" the way a falsy check would.
+    `bool` is rejected first because it is a subclass of `int`, which would
+    otherwise make `true` mean 1.
     """
     value = body.get(name)
     if value is None or value == "":
         return _UNSPECIFIED
-    # `bool` first: it is a subclass of `int`, so the check below would
-    # accept `true` as 1. Anything outside these three types cannot be a
-    # number however it is read.
     if isinstance(value, bool) or not isinstance(value, int | float | str):
-        raise BodyFieldError(name, value)
-    return _number_from(name, value)
+        raise BodyFieldError(name, value, expected=expected)
+    return value
+
+
+def _parse_body_int(body: Mapping[str, Any], name: str) -> object:
+    """The type work, split out so `body_int` reads as one decision."""
+    value = _numeric_value(body, name, "an integer")
+    return value if value is _UNSPECIFIED else _number_from(name, value)  # type: ignore[arg-type]
 
 
 def _number_from(name: str, value: int | float | str) -> int:
@@ -221,12 +226,10 @@ def body_float(body: Mapping[str, Any], name: str, *, default: float | None) -> 
     containers are refused rather than coerced, strings still parse because
     callers send them, and missing/null/"" mean unspecified.
     """
-    value = body.get(name)
-    if value is None or value == "":
+    value = _numeric_value(body, name, "a number")
+    if value is _UNSPECIFIED:
         return default
-    if isinstance(value, bool) or not isinstance(value, int | float | str):
-        raise BodyFieldError(name, value, expected="a number")
     try:
-        return float(value)
+        return float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         raise BodyFieldError(name, value, expected="a number") from None

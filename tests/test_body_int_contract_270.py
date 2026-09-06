@@ -276,6 +276,27 @@ def test_no_documented_endpoint_answers_5xx_to_a_bad_body_number(spec, tmp_path)
     asyncio.run(_sweep(spec, tmp_path))
 
 
+def _verdict(status: int, payload: dict, path: str, field: str,
+             bad: object) -> tuple[str, str]:
+    """("", "") for an acceptable answer, or (what went wrong, which kind).
+
+    Three ways to be wrong, in order of severity: a 5xx that is not the
+    documented "no tool here" (#260), a Python class name in the envelope,
+    and a refusal that does not say which field the caller got wrong.
+    """
+    if status >= 500:
+        if payload.get("unavailable"):
+            return "", ""  # the box has no tool for this
+        return str(payload), "crash"
+    if error_type_of(payload) is not None:
+        return str(error_type_of(payload)), "leak"
+    if bad == "" or path in REFUSED_BEFORE_THE_FIELD:
+        return "", ""
+    if payload.get("field") != field:
+        return str(payload), "unnamed"
+    return "", ""
+
+
 async def _sweep(spec, root):
     targets = _numeric_body_fields(spec)
     assert targets, "the document declares no numeric body fields -- sweep is vacuous"
@@ -290,17 +311,10 @@ async def _sweep(spec, root):
                     path, json=body, headers=_auth())
                 payload = await json_payload(response)
                 where = f"{method.upper()} {path} {field}={bad!r}"
-                if response.status >= 500:
-                    if payload.get("unavailable"):
-                        continue  # the box has no tool for this (#260)
-                    crashed.append(f"{where} -> {response.status} {payload}")
-                    continue
-                if error_type_of(payload) is not None:
-                    leaked.append(f"{where} -> {error_type_of(payload)}")
-                if bad == "" or path in REFUSED_BEFORE_THE_FIELD:
-                    continue
-                if payload.get("field") != field:
-                    unnamed.append(f"{where} -> {response.status} {payload}")
+                fault, kind = _verdict(response.status, payload, path, field, bad)
+                if fault:
+                    {"crash": crashed, "leak": leaked, "unnamed": unnamed}[kind].append(
+                        f"{where} -> {response.status} {fault}")
 
     assert crashed == [], (
         "a malformed body number must not be reported as a server fault: "
