@@ -6,6 +6,7 @@ from urllib.parse import parse_qs
 
 from aiohttp import web
 
+from arena.desktop.availability import failure_response
 from arena.desktop.displays import get_displays, match_display
 from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import authed, query_int
@@ -66,8 +67,7 @@ def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
             audit_fn=ctx.audit,
         )
         if not shot.get("ok"):
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": shot.get("error", "Screenshot failed")}, status=500)
+            return failure_response(ctx, shot, "Screenshot failed")
         img_bytes = shot["bytes"]
         out_format = shot["encoding"]
         if fmt == "base64":

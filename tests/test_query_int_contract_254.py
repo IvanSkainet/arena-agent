@@ -178,27 +178,26 @@ def test_no_documented_endpoint_answers_5xx_to_a_bad_query_int(spec, tmp_path):
     asyncio.run(_sweep(spec, tmp_path))
 
 
-async def _environment_failure(client: TestClient, path: str) -> str | None:
-    """The error this endpoint already gives with no query string, if any.
+async def _environment_failure(client: TestClient, path: str) -> bool:
+    """Whether this endpoint refuses for want of a tool before parsing anything.
 
-    /v1/desktop/screenshot answers 500 "No screenshot tool available" on a
-    headless CI box before it looks at anything the caller sent. That 500 is
-    about the box, not about parsing.
+    /v1/desktop/screenshot cannot run on a headless CI box no matter what
+    the query string says. It used to signal that with a 500 and a sentence,
+    so this control had to fetch the sentence and forgive that exact wording
+    later -- string matching, because there was nothing else to match on.
 
-    Returning the control's message rather than a bare "skip this endpoint"
-    is the difference between excusing an endpoint and excusing one specific
-    failure: the malformed requests are still sent, and only a 500 that is
-    word-for-word the control's is forgiven. A regression that answers a bad
-    integer with a *different* 500 is still caught on the headless box.
+    Since #260 the refusal is a 503 carrying `unavailable`, which says the
+    same thing in a form a test can check, so the control's only job now is
+    to notice that this path is in that state at all -- for the assertion at
+    the end of the sweep that the two endpoints #254 was filed about are
+    never among them.
     """
     control = await client.get(path, headers=_auth())
-    if control.status < 500:
-        return None
-    return (await json_payload(control)).get("error", "")
+    return _is_excused(control.status, await json_payload(control))
 
 
 async def _bad_value_faults(
-    client: TestClient, path: str, name: str, excused: str | None,
+    client: TestClient, path: str, name: str, excused: bool,
 ) -> tuple[list[str], list[str]]:
     """(crashed, leaked) for one parameter across every bad value."""
     crashed, leaked = [], []
@@ -207,21 +206,29 @@ async def _bad_value_faults(
         payload = await json_payload(response)
         where = f"GET {path}?{name}={bad!r}"
         if response.status >= 500:
-            if _is_excused(payload, excused):
-                continue  # the same thing the box cannot do with no query at all
+            if excused and _is_excused(response.status, payload):
+                continue  # the box has no tool for this, query string or not
             crashed.append(f"{where} -> {response.status} {payload or '(no json)'}")
         elif error_type_of(payload) is not None:
             leaked.append(f"{where} -> {error_type_of(payload)}")
     return crashed, leaked
 
 
-def _is_excused(payload: dict, excused: str | None) -> bool:
-    """A 500 is forgiven only when it is word-for-word the control's.
+def _is_excused(status: int, payload: dict) -> bool:
+    """A 5xx is forgiven only when it is the box saying it has no tool.
 
-    Anything looser -- "this endpoint failed its control, ignore its 500s" --
-    would let a parse regression hide behind a missing screenshot tool.
+    Both halves are required. A 503 without `unavailable` is some other
+    unavailability and stays a fault; a body with `unavailable` under a 500
+    is a contradiction and stays a fault too.
+
+    And the caller checks one more thing: that this path answered the same
+    way to a request with no query string at all. cubic caught the first
+    draft forgiving any 503 from any endpoint -- so if `/v1/mission/catalog`
+    ever answered a malformed integer with a 503 naming a tool, the sweep
+    would have shrugged at exactly the regression it exists to catch. The
+    endpoint has to have been broken before the bad value was sent.
     """
-    return excused is not None and payload.get("error", "") == excused
+    return status == 503 and bool(payload.get("unavailable"))
 
 
 def test_the_leak_detector_would_actually_notice_a_leak():
@@ -244,7 +251,7 @@ async def _sweep(spec, root):
     async with _running_client(root) as client:
         for path, name in targets:
             excused = await _environment_failure(client, path)
-            if excused is not None:
+            if excused:
                 excused_paths.add(path)
             faults, leaks = await _bad_value_faults(client, path, name, excused)
             crashed += faults
@@ -433,15 +440,22 @@ def test_the_other_generated_errors_do_not_claim_a_param(spec):
             assert "param" not in schema.get("properties", {}), f"{path} {code}"
 
 
-def test_only_the_identical_environment_failure_is_excused():
+def test_only_a_missing_tool_is_excused():
     """The excuse is narrow on purpose, and nothing on CI exercises it.
 
-    On a headless box the only 500s are the environment's, so the *rejecting*
+    On a headless box the only 5xx are the environment's, so the *rejecting*
     half of this rule never fires during a green run. Pin it directly.
     """
-    missing_tool = "No screenshot tool available (need spectacle, grim, or scrot)"
-    assert _is_excused({"error": missing_tool}, missing_tool)
-    assert not _is_excused(
-        {"error": "ValueError: invalid literal for int()"}, missing_tool)
-    assert not _is_excused({"error": missing_tool}, None)
-    assert not _is_excused({}, missing_tool)
+    missing_tool = {
+        "ok": False,
+        "error": "No screenshot tool available (need spectacle, grim, or scrot)",
+        "unavailable": ["spectacle", "grim", "scrot"],
+    }
+    assert _is_excused(503, missing_tool)
+    # A crash is a crash whatever it says, and a 503 that names nothing to
+    # install is not the box's shape -- neither gets forgiven.
+    assert not _is_excused(500, missing_tool)
+    assert not _is_excused(500, {"error": "ValueError: invalid literal for int()"})
+    assert not _is_excused(503, {"ok": False, "error": "shutting down"})
+    assert not _is_excused(503, {"ok": False, "unavailable": []})
+    assert not _is_excused(503, {})

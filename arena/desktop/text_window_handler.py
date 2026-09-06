@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from aiohttp import web
 
+from arena.desktop.availability import failure_response, is_refusal
 from arena.desktop.text_window_target import resolve_text_window_target
 from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import authed, json_object_body
@@ -39,9 +40,12 @@ def make_desktop_text_window_handler(ctx: DesktopHandlerContext):
             ocr_desktop=ctx.ocr_desktop,
             audit_fn=ctx.audit,
         )
-        if not result.get("ok") and result.get("status"):
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response(result, status=int(result.pop("status")))
+        if is_refusal(result):
+            # The `unavailable` half is new: this endpoint answered 200 with
+            # `ok: false` when tesseract was missing -- worse than the 500 the
+            # others gave, because a caller checking the status code alone
+            # read it as success (#260).
+            return failure_response(ctx, result)
         return ctx.cors_json_response(result)
 
     return handle_v1_desktop_resolve_text_target

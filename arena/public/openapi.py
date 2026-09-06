@@ -144,6 +144,56 @@ _JSON_BODY_ERROR_ENVELOPE = {
 }
 
 
+# The third refusal that names its cause, and the only 5xx that does: the
+# machine has no tool for this. `unavailable` lists what to install -- any
+# one of them is enough -- so a client can say "install tesseract" instead of
+# reading the sentence (#260).
+_UNAVAILABLE_ENVELOPE = {
+    "type": "object",
+    "properties": {
+        **_ERROR_ENVELOPE["properties"],
+        "unavailable": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+            "description": (
+                "The tools blocking this call right now, in the order the "
+                "bridge prefers them: installing any one of these clears "
+                "this particular blocker. It does not promise the call then "
+                "succeeds -- an operation built on several tools (OCR reads "
+                "a screenshot before it reads text) reports one layer at a "
+                "time, and the next call may name a tool from the next "
+                "layer."),
+        },
+    },
+    "required": ["ok", "error", "unavailable"],
+}
+
+
+# The operations that run something the host may simply not have, and every
+# tool each of them can end up asking for. Written out rather than detected:
+# "which endpoints shell out to a desktop tool" is not visible in the
+# document, and a wrong guess here would either promise a 503 that never
+# comes or hide one that does. A test walks this list against the handlers in
+# both directions.
+#
+# The OCR entries name the screenshot tools too: OCR reads a fresh capture,
+# so a host with tesseract and no screenshot tool is refused for the second
+# reason. Listing only tesseract would tell such a caller to install
+# something it already has.
+_OCR_NEEDS = ("tesseract", "spectacle", "grim", "scrot")
+_NEEDS_LOCAL_TOOL = {
+    ("get", "/v1/desktop/screenshot"): ("spectacle", "grim", "scrot"),
+    ("post", "/v1/desktop/ocr"): _OCR_NEEDS,
+    ("post", "/v1/desktop/find_text"): _OCR_NEEDS,
+    ("post", "/v1/desktop/click_text"): _OCR_NEEDS + ("ydotool", "xdotool"),
+    ("post", "/v1/desktop/resolve_text_target"): _OCR_NEEDS,
+    ("post", "/v1/desktop/text_action"): _OCR_NEEDS + ("ydotool", "xdotool"),
+    ("post", "/v1/desktop/focus"): _OCR_NEEDS,
+    ("post", "/v1/desktop/window_action"): _OCR_NEEDS,
+}
+
+
 def _error_response(description: str, schema: dict | None = None) -> dict:
     return {
         "description": description,
@@ -341,6 +391,28 @@ def _attach_authentication_responses(responses: dict) -> None:
         "uncaught exception into this envelope."))
 
 
+def _attach_unavailable_503(method: str, path: str, responses: dict) -> None:
+    """Document the 503 for an operation that needs a tool on the host.
+
+    Only the operations in `_NEEDS_LOCAL_TOOL`. Sprayed wider it would
+    promise a status the endpoint cannot produce, which is the same defect as
+    #259 pointing the other way: the document has to match what the handler
+    does, in both directions.
+    """
+    needs = _NEEDS_LOCAL_TOOL.get((method, path))
+    if not needs:
+        return
+    responses.setdefault("503", _error_response(
+        "The host is missing a local tool this needs. Depending on what it "
+        "has, that can be any of: " + ", ".join(needs)
+        + ". The request itself is valid and no retry will help, so this is "
+        "not a failure of the bridge. Installing a tool from `unavailable` "
+        "clears that blocker; where an operation runs in layers (OCR reads a "
+        "screenshot before it reads text) the next layer may then report a "
+        "missing tool of its own.",
+        _UNAVAILABLE_ENVELOPE))
+
+
 def _operations_of(item: dict):
     """The (method, operation) pairs of a path item, skipping $ref and friends."""
     return [
@@ -364,9 +436,10 @@ def _apply_universal_responses(spec: dict) -> dict:
             for _method, operation in _operations_of(item):
                 operation.setdefault("security", [])
             continue
-        for _method, operation in _operations_of(item):
+        for method, operation in _operations_of(item):
             responses = operation.setdefault("responses", {})
             _attach_refusal_400(operation, responses)
+            _attach_unavailable_503(method, path, responses)
             _attach_authentication_responses(responses)
     return spec
 

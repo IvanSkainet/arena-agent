@@ -7,6 +7,9 @@ import tempfile
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
+from arena.desktop.availability import unavailable_result
+from arena.desktop.screenshot_tools import missing_screenshot_tool
+
 
 class DesktopExec(Protocol):
     """Shape of :func:`arena.desktop.exec._desktop_exec`.
@@ -57,6 +60,20 @@ def _rm_tmp_dir(path: str) -> None:
         pass
 
 
+# Same marker as tesseract's in ocr.py: a 503 for the caller, not a 500 (#260).
+def _refuse_for_want_of_a_tool(env: dict[str, Any], tmp_dir: str) -> dict[str, Any]:
+    """The 503 body, naming the tools that could actually run here.
+
+    Deletes `tmp_dir` on the way out: the capture creates it before it knows
+    which tool to run, and both of the cleanup paths sit further down, so a
+    refusal returning from between the two leaked one `arena_desktop_*`
+    directory per request on a host that will never have a screenshot tool.
+    Three reviewers caught that on the #260 PR.
+    """
+    _rm_tmp_dir(tmp_dir)
+    return unavailable_result(missing_screenshot_tool(env))
+
+
 async def capture_desktop_screenshot(
     *,
     fmt: str = "base64",
@@ -74,8 +91,8 @@ async def capture_desktop_screenshot(
     """Capture the desktop and optionally transform/re-encode the image.
 
     Returns `{ok: True, bytes, encoding, transformed, tool}` on success, or
-    `{ok: False, error}` on failure. The caller decides whether to return JSON
-    base64 or a binary HTTP response.
+    `{ok: False, error}` -- plus `unavailable` when the host has no screenshot
+    tool (#260) -- on failure. The caller picks JSON base64 or a binary reply.
     """
     fmt = (fmt or "base64").lower()
     quality = max(1, min(100, int(quality or 80)))
@@ -132,7 +149,7 @@ async def capture_desktop_screenshot(
     elif env.get("has_scrot") and env.get("x11"):
         cmd = f'DISPLAY={os.environ.get("DISPLAY", ":0")} scrot -o {tmp_path}'
     else:
-        return {"ok": False, "error": "No screenshot tool available (need spectacle, grim, or scrot)"}
+        return _refuse_for_want_of_a_tool(env, tmp_dir)
 
     result = await desktop_exec(cmd, timeout=15)
     if not result.get("ok") or not os.path.exists(tmp_path):

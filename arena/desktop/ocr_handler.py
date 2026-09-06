@@ -5,6 +5,7 @@ import shutil
 
 from aiohttp import web
 
+from arena.desktop.availability import builder_refusal, failure_response
 from arena.desktop.displays import get_displays, match_display
 from arena.desktop.input import build_click_command
 from arena.handler_context import DesktopHandlerContext
@@ -101,8 +102,7 @@ def make_desktop_ocr_handlers(ctx: DesktopHandlerContext) -> DesktopOcrHandlers:
             audit_fn=ctx.audit,
         )
         if not result.get("ok"):
-            ctx.record_request(is_error=True, count_request=False)
-            return None, ctx.cors_json_response(result, status=500)
+            return None, failure_response(ctx, result, "OCR failed")
         if display_info:
             result["display"] = display_info
         return result, None
@@ -161,7 +161,8 @@ def make_desktop_ocr_handlers(ctx: DesktopHandlerContext) -> DesktopOcrHandlers:
             has_kdotool=shutil.which("kdotool") is not None,
         )
         if err:
-            return ctx.cors_json_response({"ok": False, "error": err}, status=500)
+            body_, status = builder_refusal(err)
+            return ctx.cors_json_response(body_, status=status)
         exec_result = await ctx.desktop_exec(cmd, timeout=10)
         if not exec_result.get("ok"):
             ctx.record_request(is_error=True, count_request=False)
