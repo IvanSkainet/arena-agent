@@ -67,6 +67,31 @@ TOOL_DEPENDENT_CALLS = [
 
 TOKEN = "unavailable-contract-260"
 
+# Five of the nine have a second implementation that needs nothing installed.
+# On Windows, click/type/key/mouse go through user32 and the screenshot comes
+# from the GDI path, so the request succeeds and there is no unavailability to
+# test -- the CI runners proved it by answering 200 with `"tool": "user32"`.
+# Skipped rather than deleted: the endpoints still answer 503 everywhere else,
+# and the row is what the document test reads. Skipping also keeps the sweep
+# from moving the mouse and typing on a Windows machine that is not a CI box.
+WINDOWS_SERVES_THESE_ITSELF = frozenset({
+    "/v1/desktop/screenshot",
+    "/v1/desktop/click",
+    "/v1/desktop/type",
+    "/v1/desktop/key",
+    "/v1/desktop/mouse",
+})
+
+
+def _needs_a_tool_here(path: str) -> bool:
+    """Whether this platform reaches the missing-tool path for `path` at all."""
+    return not (sys.platform == "win32" and path in WINDOWS_SERVES_THESE_ITSELF)
+
+
+CALLS_FOR_THIS_PLATFORM = [
+    call for call in TOOL_DEPENDENT_CALLS if _needs_a_tool_here(call[1])
+]
+
 
 def _spec():
     from arena.public.openapi import build_openapi_spec
@@ -287,8 +312,8 @@ async def _call(client, method, path, body):
     return await client.request(method, path, headers=headers, data=data)
 
 
-@pytest.mark.parametrize("call", TOOL_DEPENDENT_CALLS,
-                         ids=[f"{m} {p}" for m, p, _b, _n in TOOL_DEPENDENT_CALLS])
+@pytest.mark.parametrize("call", CALLS_FOR_THIS_PLATFORM,
+                         ids=[f"{m} {p}" for m, p, _b, _n in CALLS_FOR_THIS_PLATFORM])
 def test_every_tool_dependent_endpoint_answers_503_with_its_tool_list(tmp_path, call):
     # One `call` tuple rather than four unpacked parameters: CodeScene counts
     # arguments, and a row of the table is one thing anyway.
@@ -351,7 +376,7 @@ def test_an_unavailable_tool_does_not_make_the_bridge_look_unhealthy():
         with __import__("tempfile").TemporaryDirectory() as root:
             async with running_client(Path(root), TOKEN) as client:
                 before = BRIDGE_METRICS["total_errors"]
-                for method, path, body, _needs in TOOL_DEPENDENT_CALLS:
+                for method, path, body, _needs in CALLS_FOR_THIS_PLATFORM:
                     await _call(client, method, path, body)
                 return before, BRIDGE_METRICS["total_errors"]
 
@@ -380,3 +405,30 @@ def test_a_genuine_failure_still_counts_as_one():
     before, after, status = asyncio.run(scenario())
     assert status >= 400
     assert after > before, f"a real {status} failure did not count as an error"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="about the Windows branch")
+@pytest.mark.parametrize("path", sorted(WINDOWS_SERVES_THESE_ITSELF))
+def test_the_windows_branch_still_answers_without_any_of_these_tools(path):
+    """The other side of the skip above, so it cannot hide a regression.
+
+    Skipping five rows on Windows is only honest if something asserts *why*
+    they are skipped. These endpoints have a second implementation there --
+    user32 and GDI -- that no `apt install` is involved in, and a change that
+    made Windows start refusing them for want of ydotool would be a real
+    break that the skipped sweep would say nothing about.
+    """
+    from tests._live_bridge import json_payload, running_client
+
+    method, _path, body, _needs = next(
+        call for call in TOOL_DEPENDENT_CALLS if call[1] == path)
+
+    async def scenario():
+        with __import__("tempfile").TemporaryDirectory() as root:
+            async with running_client(Path(root), TOKEN) as client:
+                response = await _call(client, method, path, body)
+                return response.status, await json_payload(response)
+
+    status, payload = asyncio.run(scenario())
+    assert status != 503, f"{method} {path} claims a missing tool: {payload}"
+    assert UNAVAILABLE not in payload
