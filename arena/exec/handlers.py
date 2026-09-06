@@ -55,7 +55,7 @@ from arena.exec.interpreters import (
 )
 from arena.exec.runner import run_shell_command_stream
 from arena.handler_context import ExecHandlerContext
-from arena.handler_helpers import authed, err_json, parse_json_body
+from arena.handler_helpers import authed, body_int, err_json, parse_json_body
 from arena.security_commands import command_allowlist_reason
 from arena.web_utils import CORS_HEADERS
 
@@ -130,8 +130,8 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return err_json(ctx, f"cwd does not exist: {cwd}", status=400, request_id=request_id)
 
-        timeout = min(int(data.get("timeout") or cfg["timeout"]), cfg["max_timeout"])
-        max_output = min(int(data.get("max_output") or ctx.default_max_output), cfg["max_output"])
+        timeout = min(body_int(data, "timeout", default=int(cfg["timeout"])), cfg["max_timeout"])
+        max_output = min(body_int(data, "max_output", default=int(ctx.default_max_output)), cfg["max_output"])
         raw_env = data.get("env")
         env_extra: dict[str, Any] = dict(raw_env) if isinstance(raw_env, dict) else {}
         env = os.environ.copy()
@@ -456,8 +456,8 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return err_json(ctx, f"cwd does not exist: {cwd}", status=400, request_id=request_id)
 
-        timeout = min(int(data.get("timeout") or cfg["timeout"]), cfg["max_timeout"])
-        max_output = min(int(data.get("max_output") or ctx.default_max_output), cfg["max_output"])
+        timeout = min(body_int(data, "timeout", default=int(cfg["timeout"])), cfg["max_timeout"])
+        max_output = min(body_int(data, "max_output", default=int(ctx.default_max_output)), cfg["max_output"])
         raw_env = data.get("env")
         env_extra: dict[str, Any] = dict(raw_env) if isinstance(raw_env, dict) else {}
         env = os.environ.copy()

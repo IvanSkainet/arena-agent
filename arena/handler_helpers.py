@@ -57,6 +57,7 @@ from arena.handler_errors import (
     _JSON_TYPE_NAMES as _JSON_TYPE_NAMES,
     _UNREADABLE as _UNREADABLE,
     BadRequest as BadRequest,
+    BodyFieldError as BodyFieldError,
     JsonBodyError as JsonBodyError,
     QueryParamError as QueryParamError,
 )
@@ -426,56 +427,14 @@ def safe_int(
     return x
 
 
-def query_int(
-    request: web.Request, name: str, *, default: int | None,
-) -> int | None:
-    """Read an integer query parameter, or refuse the request with a 400.
-
-    ``safe_int`` (v4.44.0) already did the parsing. What it could not decide
-    is what a *handler* should do with a bad value, and both of the answers
-    it offers are wrong on their own:
-
-    * ``safe_int(raw, default=50)`` swallows the mistake. A client sending
-      ``?limit=fifty`` gets 200 and the first fifty rows, and goes on sending
-      ``fifty`` forever because nothing ever told it otherwise.
-    * ``safe_int(raw)`` raises ``ValueError``, which the wrappers above turn
-      into ``500 {"error": "ValueError: invalid literal for int() ...",
-      "error_type": "ValueError"}`` -- the bridge blaming itself for the
-      caller's typo, and naming an internal Python class while doing it.
-      That is #254, measured live on the operator's bridge at v4.170.0.
-
-    So: parse strictly, and re-raise the failure as :class:`QueryParamError`,
-    which the decorators answer with 400.
-
-    A missing or empty parameter is not an error. ``?offset=`` means
-    "unspecified" and yields ``default``, which is what it did before -- the
-    old ``int(query.get("offset", [0])[0] or 0)`` reached ``int()`` only for
-    a non-empty value too. Only the parse verdict changes, never the value
-    of a request that already worked.
-
-    Deliberately no ``minimum``/``maximum``: every current caller passes its
-    bad values on to a layer that already clamps them (``?limit=-1`` answers
-    200 with ``limit: 1`` today), and turning those into refusals would be a
-    behaviour change riding along with a bug fix. ``safe_int`` still has the
-    bounds for callers that genuinely need them.
-
-    Args:
-      request: the live aiohttp request.
-      name: query-string key, named in the error so the caller can fix it.
-      default: value for a missing or empty parameter. Keyword-only and
-        required -- pass ``None`` for a genuinely optional one, so that
-        "I forgot a default" cannot pass for "there is none".
-
-    Raises:
-      QueryParamError: the parameter was supplied and does not parse.
-    """
-    raw = request.query.get(name)
-    if raw is None or raw == "":
-        return default
-    try:
-        return safe_int(raw)
-    except (TypeError, ValueError):
-        raise QueryParamError(name) from None
+# Re-exported so that `from arena.handler_helpers import query_int` keeps
+# working: the parameter readers moved to `handler_params` when this module
+# hit the 600-line ceiling, and rewriting forty call sites for a file split
+# would be churn with no defect behind it (#266, #270).
+from arena.handler_params import (  # noqa: E402  -- circular by design, see above
+    body_int as body_int,
+    query_int as query_int,
+)
 
 
 async def json_object_body(

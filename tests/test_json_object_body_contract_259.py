@@ -488,15 +488,31 @@ def test_the_documented_types_are_exactly_the_ones_the_helper_can_report(spec):
     They are written in different files, so a JSON type added to one and
     forgotten in the other would leave the document claiming a set of values
     the server never sends -- or worse, sending one it never claimed.
+
+    Since #270 an operation can answer 400 for two reasons that both carry
+    `received`: the body was not an object, or a field inside it was not a
+    number. The second can report `object` -- a field can be one, where the
+    body being one is the thing that check wanted -- so which set applies
+    depends on whether the operation declares a numeric field. Comparing
+    against the union for every operation would let `object` be documented
+    where the server cannot send it.
     """
+    from arena.handler_errors import _BODY_TYPE_NAMES
     from arena.handler_helpers import _JSON_TYPE_NAMES
 
-    documented: set[str] = set()
+    shape_only = set(_JSON_TYPE_NAMES.values())
+    with_fields = set(_BODY_TYPE_NAMES.values())
     for _path, _method, operation in _json_body_operations(spec):
         response = operation["responses"]["400"]
         schema = response["content"]["application/json"]["schema"]
-        documented |= set(schema["properties"]["received"]["enum"])
-    assert documented == set(_JSON_TYPE_NAMES.values())
+        documented = set(schema["properties"]["received"]["enum"])
+        numeric = any(
+            field.get("type") in ("integer", "number")
+            for field in (operation["requestBody"]["content"]
+                          ["application/json"]["schema"]
+                          .get("properties") or {}).values())
+        assert documented == (with_fields if numeric else shape_only), (
+            f"{_method.upper()} {_path} documents {sorted(documented)}")
 
 
 def test_the_body_shape_400_is_not_claimed_where_no_json_body_is_read(spec):

@@ -9,7 +9,7 @@ from arena.desktop.availability import builder_refusal, failure_response
 from arena.desktop.displays import get_displays, match_display
 from arena.desktop.input import build_click_command
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import authed, controlled, json_object_body
+from arena.handler_helpers import authed, body_int, controlled, json_object_body
 
 
 class DesktopOcrHandlers(tuple):
@@ -85,10 +85,10 @@ def make_desktop_ocr_handlers(ctx: DesktopHandlerContext) -> DesktopOcrHandlers:
             query=query,
             scale=data.get("scale"),
             max_width=data.get("max_width"),
-            quality=int(data.get("quality", 80) or 80),
-            min_confidence=int(data.get("min_confidence", 40) or 40),
-            psm=int(data.get("psm", 11) or 11),
-            max_results=int(data.get("max_results", 20) or 20),
+            quality=body_int(data, "quality", default=80),
+            min_confidence=body_int(data, "min_confidence", default=40),
+            psm=body_int(data, "psm", default=11),
+            max_results=body_int(data, "max_results", default=20),
             prefer_active_window=prefer_active_window,
             within_active_window=within_active_window,
             active_window=active_window,
@@ -144,8 +144,8 @@ def make_desktop_ocr_handlers(ctx: DesktopHandlerContext) -> DesktopOcrHandlers:
                 "x": x,
                 "y": y,
                 "position": str(data.get("target_position", "center") or "center"),
-                "offset_x": int(data.get("offset_x", 0) or 0),
-                "offset_y": int(data.get("offset_y", 0) or 0),
+                "offset_x": body_int(data, "offset_x", default=0),
+                "offset_y": body_int(data, "offset_y", default=0),
             },
         }
         if data.get("dry_run", False):

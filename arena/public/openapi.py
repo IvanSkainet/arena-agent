@@ -144,6 +144,29 @@ _JSON_BODY_ERROR_ENVELOPE = {
 }
 
 
+# The body-field refusal (#270). `field` is always there -- the parse either
+# failed on a named field or did not happen -- and `received` names the JSON
+# type that arrived. Six words here rather than the five above: a field
+# inside the object can be an object, which is exactly what the body-shape
+# check was looking for and so never had to name.
+_BODY_FIELD_ERROR_ENVELOPE = {
+    "type": "object",
+    "properties": {
+        **_ERROR_ENVELOPE["properties"],
+        "field": {
+            "type": "string",
+            "description": "Name of the body field that is not an integer.",
+        },
+        "received": {
+            "type": "string",
+            "enum": ["null", "boolean", "number", "string", "array", "object"],
+            "description": "The JSON type of the value that arrived.",
+        },
+    },
+    "required": ["ok", "error", "field"],
+}
+
+
 # The third refusal that names its cause, and the only 5xx that does: the
 # machine has no tool for this. `unavailable` lists what to install -- any
 # one of them is enough -- so a client can say "install tesseract" instead of
@@ -295,8 +318,25 @@ def _attach_refusal_400(operation: dict, responses: dict) -> None:
         reasons.append(_QUERY_PARAM_400)
     if _reads_a_json_object_body(operation):
         reasons.append(_JSON_BODY_400)
+    if _has_integer_body_field(operation):
+        reasons.append(_BODY_FIELD_400)
     if reasons:
         _merge_400(responses, reasons)
+
+
+def _has_integer_body_field(operation: dict) -> bool:
+    """Whether the body this operation reads declares a numeric field (#270).
+
+    Read off the document rather than the handlers for the same reason the
+    other two are: the test that walks this list sends a malformed value at
+    every field the document calls an integer, so a field the document
+    invented would fail the sweep rather than quietly document a 400 that
+    cannot happen.
+    """
+    schema = (operation.get("requestBody", {}).get("content", {})
+              .get("application/json", {}).get("schema", {}))
+    return any(field.get("type") in ("integer", "number")
+               for field in (schema.get("properties") or {}).values())
 
 
 class _Refusal400(NamedTuple):
@@ -313,6 +353,13 @@ _QUERY_PARAM_400 = _Refusal400(
     field_note="The body names it in `param`.",
     already_said="query parameter",
     envelope=_QUERY_PARAM_ERROR_ENVELOPE,
+)
+
+_BODY_FIELD_400 = _Refusal400(
+    summary="A body field declared as a number is not one.",
+    field_note="The body names it in `field`, with its JSON type in `received`.",
+    already_said="body field",
+    envelope=_BODY_FIELD_ERROR_ENVELOPE,
 )
 
 _JSON_BODY_400 = _Refusal400(
