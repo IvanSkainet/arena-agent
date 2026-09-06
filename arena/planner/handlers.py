@@ -43,8 +43,10 @@ def make_planner_handlers(ctx: PlannerHandlerContext) -> PlannerHandlers:
                 max_steps=max_steps, memory_profile=memory_profile,
             )
         except BadRequest as e:
-            # Carries `field`/`received`; the plain-sentence branch below is
-            # for this module's own errors, which have no field to name.
+            # Not redundant with the @authed wrapper, though it looks it: the
+            # `except Exception` below catches BodyFieldError first and would
+            # answer 400 with the sentence but no `field` -- which the
+            # document promises for every numeric body field (#270).
             return bad_request_refusal(ctx, e)
         except CognitiveInputError as e:
             ctx.record_request(is_error=True, count_request=False)

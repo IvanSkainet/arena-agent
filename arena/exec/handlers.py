@@ -52,7 +52,7 @@ from arena.exec.interpreters import (
     interpreter_path_arg,
     interpreter_runs_here,
 )
-from arena.exec.request_shape import limits_and_env, requested_cwd
+from arena.exec.request_shape import limits_and_env, requested_cwd, usable_cwd
 from arena.exec.runner import run_shell_command_stream
 from arena.handler_context import ExecHandlerContext
 from arena.handler_helpers import authed, err_json, parse_json_body
@@ -119,14 +119,13 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 return err_json(ctx, reason, status=403, request_id=request_id)
 
         root: Path = cfg["root"]
-        cwd, cwd_error = requested_cwd(data, root)
+        boundary = None if cfg["allow_any_cwd"] else ctx.under_root
+        cwd, cwd_error = requested_cwd(data, root, under_root=boundary)
         if cwd_error:
             ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, cwd_error, status=400, request_id=request_id)
+            status = 403 if cwd_error.startswith("cwd must be under") else 400
+            return err_json(ctx, cwd_error, status=status, request_id=request_id)
         assert cwd is not None  # pyrefly: the error branch returned already
-        if not cfg["allow_any_cwd"] and not ctx.under_root(cwd, root):
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, f"cwd must be under root {root}", status=403, request_id=request_id)
 
         timeout, max_output, env = limits_and_env(data, cfg, ctx)
 
@@ -269,17 +268,13 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
 
         root: Path = cfg["root"]
         cwd_hdr = (request.headers.get("X-Arena-Cwd") or "").strip()
-        cwd = Path(cwd_hdr).expanduser() if cwd_hdr else root
-        if not cwd.is_absolute():
-            cwd = root / cwd
-        if not cfg["allow_any_cwd"] and not ctx.under_root(cwd, root):
+        boundary = None if cfg["allow_any_cwd"] else ctx.under_root
+        cwd, cwd_error = usable_cwd(cwd_hdr, root, under_root=boundary)
+        if cwd_error:
             ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, f"cwd must be under root {root}",
-                            status=403, request_id=request_id)
-        if not cwd.exists() or not cwd.is_dir():
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, f"cwd does not exist: {cwd}",
-                            status=400, request_id=request_id)
+            status = 403 if cwd_error.startswith("cwd must be under") else 400
+            return err_json(ctx, cwd_error, status=status, request_id=request_id)
+        assert cwd is not None  # pyrefly: the error branch returned already
 
         # Concurrency gate: same semaphore as /v1/exec so the two
         # endpoints share fairness rather than doubling capacity.
@@ -438,14 +433,13 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 return err_json(ctx, reason, status=403, request_id=request_id)
 
         root: Path = cfg["root"]
-        cwd, cwd_error = requested_cwd(data, root)
+        boundary = None if cfg["allow_any_cwd"] else ctx.under_root
+        cwd, cwd_error = requested_cwd(data, root, under_root=boundary)
         if cwd_error:
             ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, cwd_error, status=400, request_id=request_id)
+            status = 403 if cwd_error.startswith("cwd must be under") else 400
+            return err_json(ctx, cwd_error, status=status, request_id=request_id)
         assert cwd is not None  # pyrefly: the error branch returned already
-        if not cfg["allow_any_cwd"] and not ctx.under_root(cwd, root):
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, f"cwd must be under root {root}", status=403, request_id=request_id)
 
         timeout, max_output, env = limits_and_env(data, cfg, ctx)
 

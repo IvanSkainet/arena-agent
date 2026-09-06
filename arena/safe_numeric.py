@@ -22,7 +22,11 @@ _NO_DEFAULT = object()
 
 
 def _default_or_raise(default: Any) -> Any:
-    """The shared "it did not parse" branch of both readers."""
+    """The shared "it did not parse" branch of both readers.
+
+    Re-raises the exception being handled when the caller asked for strict
+    parsing, which is why it is only ever called from inside an `except`.
+    """
     if default is _NO_DEFAULT:
         raise
     return default
@@ -102,7 +106,9 @@ def safe_float(
     """
     try:
         x = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError as well: `float(10**400)` is "number too large to
+        # convert", which reached /v1/game/boe/wait_inbox as a 500 (cubic).
         return _default_or_raise(default)
     # NaN and +/-Inf are both "valid floats" per Python's float() but almost
     # never what an HTTP caller legitimately means. `math.isfinite` covers
@@ -110,9 +116,14 @@ def safe_float(
     # (inf, -inf)`, which SonarCloud reads as a bug (S1764, identical
     # sub-expressions around `!=`) rather than as the NaN idiom it is.
     if not math.isfinite(x):
-        if default is _NO_DEFAULT:
-            raise ValueError(f"non-finite float rejected: {value!r}")
-        return default  # type: ignore[return-value]
+        # `default` is typed `float | object` only because `_NO_DEFAULT` is a
+        # sentinel object; anything else there is a number the caller passed.
+        # Narrowing with isinstance rather than a `# type: ignore`, which
+        # AGENTS.md forbids (cubic), and a non-number default is treated as
+        # no default rather than quietly becoming one.
+        if isinstance(default, int | float) and not isinstance(default, bool):
+            return float(default)
+        raise ValueError(f"non-finite float rejected: {value!r}")
     # Clamp to the boundary rather than falling to the default; a request
     # for "timeout=0.001" against min=0.01 is closer to "operator meant
     # fast" than "operator meant default".
@@ -136,6 +147,9 @@ def safe_int(
     """
     try:
         x = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # `int(float("inf"))` raises OverflowError, not ValueError, so an
+        # infinity used to escape this function instead of falling back to
+        # the default the caller supplied (cubic).
         return _default_or_raise(default)
     return int(_clamped(x, minimum, maximum, strict=default is _NO_DEFAULT))

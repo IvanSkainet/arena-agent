@@ -16,7 +16,7 @@ from typing import Any, overload
 from aiohttp import web
 
 from arena.handler_errors import BodyFieldError, QueryParamError
-from arena.safe_numeric import safe_int
+from arena.safe_numeric import safe_float, safe_int
 
 __all__ = ["body_float", "body_int", "body_str", "query_int"]
 
@@ -140,7 +140,8 @@ def body_int(
     parsed = _parse_body_int(body, name)
     if parsed is _UNSPECIFIED:
         return default
-    number = int(parsed)  # type: ignore[arg-type]
+    assert isinstance(parsed, int)  # _number_from returns an int or raises
+    number = parsed
     if bounds is not None:
         _check_bounds(name, body.get(name), number, bounds)
     return number
@@ -180,7 +181,10 @@ def _numeric_value(body: Mapping[str, Any], name: str, expected: str) -> object:
 def _parse_body_int(body: Mapping[str, Any], name: str) -> object:
     """The type work, split out so `body_int` reads as one decision."""
     value = _numeric_value(body, name, "an integer")
-    return value if value is _UNSPECIFIED else _number_from(name, value)  # type: ignore[arg-type]
+    if value is _UNSPECIFIED:
+        return _UNSPECIFIED
+    assert isinstance(value, int | float | str)  # _numeric_value refused the rest
+    return _number_from(name, value)
 
 
 def _number_from(name: str, value: int | float | str) -> int:
@@ -230,6 +234,9 @@ def body_float(body: Mapping[str, Any], name: str, *, default: float | None) -> 
     if value is _UNSPECIFIED:
         return default
     try:
-        return float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        raise BodyFieldError(name, value, expected="a number") from None
+        # Through `safe_float`, not `float()`: it is the helper this repo
+        # already uses for caller-supplied numbers, and it rejects NaN and
+        # the infinities, which `float("nan")` happily produces (cubic).
+        return safe_float(value)
+    except (TypeError, ValueError, OverflowError):
+        raise BodyFieldError(name, value, expected="a finite number") from None
