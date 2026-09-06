@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from arena.handler_params import body_int
 from arena.resources.mission_schedule_store import (
     delete_schedule_def,
     list_schedule_defs,
@@ -44,7 +45,7 @@ def list_mission_schedules_runtime(schedules_dir: Path, payload: dict[str, Any] 
     action = str(payload.get("action", "") or "").strip().lower()
     enabled = payload.get("enabled")
     due_only = bool(payload.get("due_only", False))
-    limit = max(1, min(200, int(payload.get("limit", 100) or 100)))
+    limit = max(1, min(200, body_int(payload, "limit", default=100)))
     items = []
     for schedule in list_schedule_defs(schedules_dir):
         entry = _view(schedule, now=now)
@@ -81,7 +82,7 @@ def tick_mission_schedules_runtime(
     now = dt.datetime.now(dt.timezone.utc)
     schedule_id = str(payload.get("schedule_id", "") or payload.get("id", "") or "").strip()
     force = bool(payload.get("force", False))
-    limit = max(1, min(50, int(payload.get("limit", 10) or 10)))
+    limit = max(1, min(50, body_int(payload, "limit", default=10)))
     schedules = list_schedule_defs(schedules_dir)
     if schedule_id:
         schedules = [item for item in schedules if str(item.get("id", "")) == schedule_id]

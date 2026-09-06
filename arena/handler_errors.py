@@ -120,11 +120,15 @@ class BodyFieldError(BadRequest):
     error envelope becomes a gadget.
     """
 
-    def __init__(self, field: str, received: object = _UNREADABLE) -> None:
+    def __init__(self, field: str, received: object = _UNREADABLE,
+                 *, expected: str = "an integer") -> None:
         self.field = field
         self.received = (None if received is _UNREADABLE
                          else _BODY_TYPE_NAMES.get(type(received)))
         self.details = ({"field": field} if self.received is None
                         else {"field": field, "received": self.received})
+        # `expected` carries the bound when there is one: "an integer no
+        # greater than 86400" is the whole answer, where "must be an integer"
+        # sent to someone who did send an integer is a riddle.
         tail = "" if self.received is None else f", received {self.received}"
-        super().__init__(f"body field {field!r} must be an integer{tail}")
+        super().__init__(f"body field {field!r} must be {expected}{tail}")

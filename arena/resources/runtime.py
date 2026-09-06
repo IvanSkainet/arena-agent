@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from arena.handler_params import body_int
 from arena.resources.listing import list_agents, list_hooks, list_missions, list_reports, list_subagents, show_mission
 from arena.resources.mission_catalog import catalog_missions
 from arena.resources.mission_family import get_mission_family
@@ -24,6 +25,13 @@ from arena.resources.missions_manage import (
     run_mission,
 )
 from arena.resources.subagents import spawn_subagent
+
+# A mission timeout ends up as `subprocess.run(..., timeout=...)`, and
+# selectors.poll refuses anything past its own limits: `{"timeout":
+# 1578655390615}` came back as `OverflowError: timestamp too large to convert
+# to C PyTime_t`, a 500 for a number that is valid JSON (#270). A day is far
+# past any real mission and comfortably inside what the C layer accepts.
+MAX_MISSION_TIMEOUT_S = 86_400
 
 
 @dataclass(frozen=True)
@@ -109,8 +117,8 @@ def make_resource_runtime(ctx: ResourceRuntimeContext) -> ResourceRuntime:
             template=str(data.get("template", "") or ""),
             query=str(data.get("query", "") or data.get("q", "") or ""),
             has_report=data.get("has_report"),
-            limit=int(data.get("limit", 50) or 50),
-            offset=int(data.get("offset", 0) or 0),
+            limit=body_int(data, "limit", default=50),
+            offset=body_int(data, "offset", default=0),
         )
 
     def _mission_schedules_sync(data: dict[str, Any]) -> dict[str, Any]:
@@ -126,7 +134,7 @@ def make_resource_runtime(ctx: ResourceRuntimeContext) -> ResourceRuntime:
         return list_mission_templates()
 
     def _mission_compose_sync(data: dict[str, Any]) -> dict[str, Any]:
-        return compose_mission_draft(goal=str(data.get("goal", "") or ""), context=str(data.get("context", "") or ""), constraints=data.get("constraints") or [], max_steps=int(data.get("max_steps", 8) or 8), memory_profile=data.get("memory_profile"), title=str(data.get("title", "") or ""), template=str(data.get("template", "") or ""), build_plan=ctx.build_plan)
+        return compose_mission_draft(goal=str(data.get("goal", "") or ""), context=str(data.get("context", "") or ""), constraints=data.get("constraints") or [], max_steps=body_int(data, "max_steps", default=8), memory_profile=data.get("memory_profile"), title=str(data.get("title", "") or ""), template=str(data.get("template", "") or ""), build_plan=ctx.build_plan)
 
     def _mission_create_sync(data: dict[str, Any]) -> dict[str, Any]:
         composed = data.get("draft") if isinstance(data.get("draft"), dict) else _mission_compose_sync(data).get("draft")
@@ -135,9 +143,9 @@ def make_resource_runtime(ctx: ResourceRuntimeContext) -> ResourceRuntime:
         return create_mission_from_draft(missions_dir=ctx.missions_dir, draft=composed, mission_id=str(data.get("mission_id", "") or ""), overwrite=bool(data.get("overwrite", False)))
 
     def _mission_run_sync(data: dict[str, Any]) -> dict[str, Any]:
-        return run_mission(root_agent=ctx.root_agent, mission_id=str(data.get("mission_id", "") or data.get("id", "") or ""), step=int(data["step"]) if data.get("step") is not None else None, timeout=int(data.get("timeout", 180) or 180), subprocess_kwargs=ctx.subprocess_kwargs)
+        return run_mission(root_agent=ctx.root_agent, mission_id=str(data.get("mission_id", "") or data.get("id", "") or ""), step=body_int(data, "step", default=None), timeout=body_int(data, "timeout", default=180, minimum=1, maximum=MAX_MISSION_TIMEOUT_S), subprocess_kwargs=ctx.subprocess_kwargs)
 
     def _mission_rerun_sync(data: dict[str, Any]) -> dict[str, Any]:
-        return rerun_mission(root_agent=ctx.root_agent, missions_dir=ctx.missions_dir, mission_id=str(data.get("mission_id", "") or data.get("id", "") or ""), failed_only=bool(data.get("failed_only", False)), step=int(data["step"]) if data.get("step") is not None else None, timeout=int(data.get("timeout", 180) or 180), subprocess_kwargs=ctx.subprocess_kwargs)
+        return rerun_mission(root_agent=ctx.root_agent, missions_dir=ctx.missions_dir, mission_id=str(data.get("mission_id", "") or data.get("id", "") or ""), failed_only=bool(data.get("failed_only", False)), step=body_int(data, "step", default=None), timeout=body_int(data, "timeout", default=180, minimum=1, maximum=MAX_MISSION_TIMEOUT_S), subprocess_kwargs=ctx.subprocess_kwargs)
 
     return ResourceRuntime(list_missions_sync=_list_missions_sync, list_reports_sync=_list_reports_sync, hooks_list_sync=_hooks_list_sync, agents_list_sync=_agents_list_sync, subagents_list_sync=_subagents_list_sync, subagents_spawn_sync=_subagents_spawn_sync, mission_show_sync=_mission_show_sync, mission_status_sync=_mission_status_sync, mission_report_sync=_mission_report_sync, mission_history_sync=_mission_history_sync, mission_lineage_sync=_mission_lineage_sync, mission_family_sync=_mission_family_sync, mission_catalog_sync=_mission_catalog_sync, mission_schedules_sync=_mission_schedules_sync, mission_schedule_save_sync=_mission_schedule_save_sync, mission_schedule_delete_sync=_mission_schedule_delete_sync, mission_templates_sync=_mission_templates_sync, mission_compose_sync=_mission_compose_sync, mission_create_sync=_mission_create_sync, mission_run_sync=_mission_run_sync, mission_rerun_sync=_mission_rerun_sync)

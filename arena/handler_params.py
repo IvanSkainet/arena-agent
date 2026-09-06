@@ -18,7 +18,7 @@ from aiohttp import web
 from arena.handler_errors import BodyFieldError, QueryParamError
 from arena.handler_helpers import safe_int
 
-__all__ = ["body_int", "query_int"]
+__all__ = ["body_int", "body_str", "query_int"]
 
 
 def query_int(
@@ -74,15 +74,18 @@ def query_int(
 
 
 @overload
-def body_int(body: Mapping[str, Any], name: str, *, default: int) -> int: ...
+def body_int(body: Mapping[str, Any], name: str, *, default: int,
+             minimum: int | None = None, maximum: int | None = None) -> int: ...
 
 
 @overload
-def body_int(body: Mapping[str, Any], name: str, *, default: None) -> int | None: ...
+def body_int(body: Mapping[str, Any], name: str, *, default: None,
+             minimum: int | None = None, maximum: int | None = None) -> int | None: ...
 
 
 def body_int(
     body: Mapping[str, Any], name: str, *, default: int | None,
+    minimum: int | None = None, maximum: int | None = None,
 ) -> int | None:
     """Read an integer field out of a JSON body, or refuse with a 400.
 
@@ -112,18 +115,57 @@ def body_int(
     matching both ``query_int`` and the ``int(body.get(x, 20) or 20)`` idiom
     this replaces -- so no request that works today starts failing.
 
+    `minimum` and `maximum` exist for one reason and are off by default. `query_int`
+    deliberately has no bounds -- every caller passed its value to a layer
+    that already clamped it -- but a body number can reach a system call
+    directly: `{"timeout": 1578655390615}` on `/v1/mission/run` came back as
+    `OverflowError: timestamp too large to convert to C PyTime_t`, a 500 for
+    an integer that is perfectly valid JSON. Where that is possible the
+    handler says so, and the refusal names the bound rather than repeating
+    "must be an integer" at someone who sent one. `{"timeout": -174294}` is
+    the same defect with the sign flipped.
+
     Args:
       body: the parsed JSON object.
       name: field name, named in the error so the caller can fix it.
       default: value for an unspecified field. Keyword-only and required;
         pass ``None`` for a genuinely optional one.
+      minimum: lower bound, same reasoning. Omit unless a smaller number
+        can break something.
+      maximum: upper bound, for values that end up in a system call. Omit
+        it unless a bigger number can break something.
 
     Raises:
-      BodyFieldError: the field was supplied and is not an integer.
+      BodyFieldError: the field was supplied and is not an integer, or is
+        above `maximum`.
+    """
+    parsed = _parse_body_int(body, name)
+    if parsed is _UNSPECIFIED:
+        return default
+    number = int(parsed)  # type: ignore[arg-type]
+    if minimum is not None and number < minimum:
+        raise BodyFieldError(
+            name, body.get(name),
+            expected=f"an integer no smaller than {minimum}")
+    if maximum is not None and number > maximum:
+        raise BodyFieldError(
+            name, body.get(name),
+            expected=f"an integer no greater than {maximum}")
+    return number
+
+
+_UNSPECIFIED = object()
+
+
+def _parse_body_int(body: Mapping[str, Any], name: str) -> object:
+    """The type work, split out so `body_int` reads as one decision.
+
+    Returns `_UNSPECIFIED` for a field the caller did not set, so that a
+    genuine `0` is not confused with "missing" the way a falsy check would.
     """
     value = body.get(name)
     if value is None or value == "":
-        return default
+        return _UNSPECIFIED
     if isinstance(value, bool):
         raise BodyFieldError(name, value)
     if isinstance(value, int):
@@ -138,3 +180,24 @@ def body_int(
         except (TypeError, ValueError):
             raise BodyFieldError(name, value) from None
     raise BodyFieldError(name, value)
+
+
+def body_str(body: Mapping[str, Any], name: str, *, default: str) -> str:
+    """Read a string field out of a JSON body, or refuse with a 400.
+
+    The string counterpart of `body_int`, added for the same reason and
+    found the same way. `str()` accepts anything, so `{"cwd": {...}}` on
+    /v1/exec became a path made of the repr of a dict, and `Path.exists()`
+    answered `OSError: [Errno 36] File name too long` -- a 500 where "cwd
+    must be a string" was the whole of it (#270).
+
+    Numbers and booleans are refused rather than stringified: `{"cwd": 12}`
+    is a caller mistake, and turning it into the directory "12" hides it.
+    Missing and null mean unspecified, as everywhere else here.
+    """
+    value = body.get(name)
+    if value is None:
+        return default
+    if not isinstance(value, str):
+        raise BodyFieldError(name, value, expected="a string")
+    return value

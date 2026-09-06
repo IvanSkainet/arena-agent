@@ -172,7 +172,16 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         except BadRequest as e:
             return bad_request_refusal(ctx, e)
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(ctx.executor, sync_fn, data)
+        try:
+            result = await loop.run_in_executor(ctx.executor, sync_fn, data)
+        except BadRequest as e:
+            # The sync function reads the body too -- `max_steps`, `timeout`,
+            # `step` -- and a bad value there is the same caller mistake as a
+            # bad body shape above. Without this the refusal crosses the
+            # executor boundary as a plain exception and the generic handler
+            # turns it into 500 INTERNAL_ERROR, which is #270 with the fix
+            # applied and the answer still wrong.
+            return bad_request_refusal(ctx, e)
         status = int(result.pop("status", 200 if result.get("ok") else 400))
         return ctx.cors_json_response(result, status=status)
 

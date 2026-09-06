@@ -56,6 +56,7 @@ from arena.exec.interpreters import (
 from arena.exec.runner import run_shell_command_stream
 from arena.handler_context import ExecHandlerContext
 from arena.handler_helpers import authed, body_int, err_json, parse_json_body
+from arena.handler_params import body_str
 from arena.security_commands import command_allowlist_reason
 from arena.web_utils import CORS_HEADERS
 
@@ -119,7 +120,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 return err_json(ctx, reason, status=403, request_id=request_id)
 
         root: Path = cfg["root"]
-        cwd_raw = str(data.get("cwd") or root)
+        cwd_raw = body_str(data, "cwd", default="") or str(root)
         cwd = Path(cwd_raw).expanduser()
         if not cwd.is_absolute():
             cwd = root / cwd
@@ -445,7 +446,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 return err_json(ctx, reason, status=403, request_id=request_id)
 
         root: Path = cfg["root"]
-        cwd_raw = str(data.get("cwd") or root)
+        cwd_raw = body_str(data, "cwd", default="") or str(root)
         cwd = Path(cwd_raw).expanduser()
         if not cwd.is_absolute():
             cwd = root / cwd

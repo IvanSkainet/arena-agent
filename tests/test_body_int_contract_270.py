@@ -37,6 +37,7 @@ import pytest
 from aiohttp.test_utils import TestClient
 
 from arena.handler_helpers import BodyFieldError, body_int
+from arena.handler_params import body_str
 from arena.public.openapi import build_openapi_spec
 from tests._live_bridge import (
     auth_header,
@@ -171,6 +172,42 @@ def test_the_refusal_never_echoes_the_value():
     assert dict(error.details) == {"field": "psm", "received": "string"}
 
 
+def test_a_number_that_reaches_a_system_call_has_a_bound():
+    """`{"timeout": 1578655390615}` was a 500, and the number was valid JSON.
+
+    It ends up in `subprocess.run(timeout=...)`, where selectors.poll
+    answers `OverflowError: timestamp too large to convert to C PyTime_t`.
+    `query_int` deliberately has no bounds because every caller passed its
+    value to a layer that clamped it; a body number can reach the system
+    call directly, so the handlers that do say what they accept. The
+    negative side is the same defect with the sign flipped.
+    """
+    assert body_int({"t": 300}, "t", default=180, minimum=1, maximum=86_400) == 300
+    for bad, word in ((1578655390615, "greater"), (-174294, "smaller")):
+        with pytest.raises(BodyFieldError) as caught:
+            body_int({"t": bad}, "t", default=180, minimum=1, maximum=86_400)
+        assert word in str(caught.value), str(caught.value)
+        assert caught.value.field == "t"
+
+
+def test_a_string_field_is_a_string_and_not_whatever_str_accepts():
+    """`{"cwd": {...}}` became a path made of a dict's repr.
+
+    `str()` never refuses, so the object turned into a 400-character
+    directory name and `Path.exists()` answered `OSError: [Errno 36] File
+    name too long`. The fuzzing gate found it; `body_str` is `body_int`'s
+    counterpart, and refuses numbers too -- "12" as a directory is a typo
+    that should be visible, not a directory called 12.
+    """
+    assert body_str({"cwd": "/tmp"}, "cwd", default="") == "/tmp"
+    assert body_str({}, "cwd", default="/root") == "/root"
+    for bad, received in (({"a": 1}, "object"), ([1], "array"), (12, "number"), (True, "boolean")):
+        with pytest.raises(BodyFieldError) as caught:
+            body_str({"cwd": bad}, "cwd", default="")
+        assert caught.value.received == received
+        assert "a string" in str(caught.value)
+
+
 def test_body_field_error_is_a_valueerror():
     """Handlers that already wrote `except ValueError: use_default` keep it."""
     assert issubclass(BodyFieldError, ValueError)
@@ -250,6 +287,51 @@ async def _check_named_fields(root):
             assert error_type_of(payload) is None, payload
 
 
+def test_what_the_fuzzer_found_answers_400_now(tmp_path):
+    """The five shapes the first gated Schemathesis run turned up.
+
+    Each was a 500 on a request that is valid JSON, and each is a different
+    corner: an out-of-range number, a negative one, an object where a string
+    belongs, and -- twice -- a read of data an earlier write had accepted.
+    """
+    asyncio.run(_check_fuzzer_findings(tmp_path))
+
+
+async def _check_fuzzer_findings(root):
+    async with _running_client(root) as client:
+        for path, body, field in (
+            ("/v1/mission/run", {"mission_id": "x", "timeout": 1578655390615}, "timeout"),
+            ("/v1/mission/run", {"mission_id": "x", "timeout": -174294}, "timeout"),
+            ("/v1/mission/compose", {"goal": "x", "max_steps": [None, None]}, "max_steps"),
+            ("/v1/exec", {"cmd": "echo hi", "cwd": {"a": 1}}, "cwd"),
+        ):
+            response = await client.post(path, json=body, headers=_auth())
+            payload = await json_payload(response)
+            assert response.status == 400, f"{path} {body} -> {response.status} {payload}"
+            assert payload["field"] == field, payload
+            assert error_type_of(payload) is None, payload
+
+
+def test_a_digest_survives_whatever_the_api_let_someone_store(tmp_path):
+    """A write the API accepted must not break every later read.
+
+    `{"tags": [null]}` stored fine and then `", ".join` raised TypeError on
+    the way out, so `/v1/recall/digest` answered 500 for as long as the fact
+    existed -- one poisoned row, endpoint down. Same for an audit line whose
+    `cmd` is a number.
+    """
+    from arena.memory.recall import recall_digest
+
+    result = recall_digest(
+        facts=[{"key": "k", "value": "v", "tags": [None, 12]},
+               {"key": "k2", "tags": "not-a-list"},
+               "not-a-dict-at-all"],
+        audit_lines=['{"type": "exec", "cmd": 12}', '{"type": "read", "path": 7}', "3"],
+        utc_now_fn=lambda: "2026-01-01T00:00:00Z")
+    assert result["ok"] is True
+    assert "None, 12" in result["digest"]
+
+
 def test_a_good_value_still_gets_through(tmp_path):
     """The fix must not turn working requests into refusals.
 
@@ -276,9 +358,11 @@ async def _check_good_values(root):
 
 # Call sites that still read a number straight out of a request-like dict.
 # Every one of these is either unreachable over HTTP with a bad value or
-# guarded by its own try/except; the sweep above confirms none of them
-# answers 5xx today. The list exists so that a *new* one cannot appear
-# unnoticed -- it may shrink, never grow.
+# guarded by its own try/except; the sweep above and a Schemathesis run over
+# the whole document confirm none of them answers 5xx today. The list exists
+# so that a *new* one cannot appear unnoticed -- it may shrink, never grow,
+# and four entries left it when the fuzzing gate reached the mission
+# endpoints through their executor.
 KNOWN_RAW_NUMBER_READS = {
     "arena/api_v2/exec_handler.py",
     "arena/cluster/handlers.py",
@@ -291,13 +375,9 @@ KNOWN_RAW_NUMBER_READS = {
     "arena/mobile/handlers_recording.py",
     "arena/observability/tracing_config_handler.py",
     "arena/rate_limit.py",
-    "arena/resources/mission_schedule_runtime.py",
-    "arena/resources/mission_schedule_store.py",
-    "arena/resources/runtime.py",
     "arena/sandbox/handlers.py",
     "arena/system/handlers.py",
     "arena/watchdog/handlers.py",
-    "arena/wiring/mission_resource_wiring.py",
 }
 
 _BODY_NAMES = ("body", "data", "payload")
