@@ -20,7 +20,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -53,12 +56,21 @@ NOTHING_INSTALLED: dict = {}
 # nothing here. The set is every desktop endpoint that shells out to one:
 # eight from the four builders and the OCR pair, plus resolve_text_target,
 # which is the odd one out below.
+# The last column is what `unavailable` must contain on a host with none of
+# these tools -- the blocker the call hits first, not everything it would
+# eventually need. The document lists the whole chain; see the tests below.
 TOOL_DEPENDENT_CALLS = [
     ("GET", "/v1/desktop/screenshot", None, ["spectacle", "grim", "scrot"]),
     ("POST", "/v1/desktop/ocr", {}, ["tesseract"]),
     ("POST", "/v1/desktop/find_text", {"query": "x"}, ["tesseract"]),
     ("POST", "/v1/desktop/click_text", {"query": "x"}, ["tesseract"]),
     ("POST", "/v1/desktop/resolve_text_target", {"query": "x"}, ["tesseract"]),
+    # Composite: OCR first, then a click or a window operation. Reviewers on
+    # the #260 PR found these three answering 200, 500 and 404 for the very
+    # same missing tesseract the four above already refused with a 503.
+    ("POST", "/v1/desktop/text_action", {"query": "x", "action": "click"}, ["tesseract"]),
+    ("POST", "/v1/desktop/focus", {"query": "x"}, ["tesseract"]),
+    ("POST", "/v1/desktop/window_action", {"query": "x", "action": "maximize"}, ["tesseract"]),
     ("POST", "/v1/desktop/click", {"x": 1, "y": 2}, ["ydotool", "xdotool"]),
     ("POST", "/v1/desktop/type", {"text": "a"}, ["ydotool", "wtype", "xdotool"]),
     ("POST", "/v1/desktop/key", {"key": "a"}, ["ydotool", "xdotool"]),
@@ -88,8 +100,21 @@ def _needs_a_tool_here(path: str) -> bool:
     return not (sys.platform == "win32" and path in WINDOWS_SERVES_THESE_ITSELF)
 
 
+def _nothing_installed(needs: list[str]) -> bool:
+    """Whether this host really is missing every tool for a row.
+
+    The CI runners have none of them, which is what makes the sweep worth
+    running, but a developer with xdotool on their desktop would otherwise
+    watch the suite fail for something that is not a defect. The check asks
+    about the tools themselves, so a row runs wherever the refusal is
+    reachable and is skipped exactly where it is not.
+    """
+    return not any(shutil.which(tool) for tool in needs)
+
+
 CALLS_FOR_THIS_PLATFORM = [
-    call for call in TOOL_DEPENDENT_CALLS if _needs_a_tool_here(call[1])
+    call for call in TOOL_DEPENDENT_CALLS
+    if _needs_a_tool_here(call[1]) and _nothing_installed(call[3])
 ]
 
 
@@ -152,6 +177,47 @@ def test_the_screenshot_producer_marks_it_too():
         detect_env=lambda: NOTHING_INSTALLED))
     assert result[UNAVAILABLE] == ["spectacle", "grim", "scrot"]
     assert result["ok"] is False
+
+
+def test_refusing_a_screenshot_leaves_no_temporary_directory_behind():
+    """The capture makes its private directory before it picks a tool.
+
+    Three reviewers caught the first version of this returning from between
+    those two points, so every screenshot request on a headless host left an
+    `arena_desktop_*` directory in the temp dir -- unbounded growth caused
+    entirely by asking a machine to do something it cannot.
+    """
+    async def never_called(*a, **k):  # pragma: no cover - must not run
+        raise AssertionError("no tool, so nothing should be executed")
+
+    before = set(Path(tempfile.gettempdir()).glob("arena_desktop_*"))
+    for _ in range(3):
+        asyncio.run(capture_desktop_screenshot(
+            fmt="png", desktop_exec=never_called,
+            detect_env=lambda: NOTHING_INSTALLED))
+    leaked = set(Path(tempfile.gettempdir()).glob("arena_desktop_*")) - before
+    assert leaked == set(), f"refusals left {len(leaked)} directories behind"
+
+
+@pytest.mark.parametrize("session,expected", [
+    ({"x11": True}, ["spectacle", "scrot"]),
+    ({"wayland": True}, ["spectacle", "grim"]),
+    ({}, ["spectacle", "grim", "scrot"]),
+])
+def test_the_screenshot_list_only_names_tools_that_would_work_here(session, expected):
+    """grim is Wayland-only and scrot is X11-only, and the capture knows it.
+
+    The branches above the refusal check the session as well as the binary,
+    so telling an X11 user to install grim would have them install it and
+    keep getting 503s. With no session at all -- a headless container, where
+    all three are equally absent -- the full list is the honest answer.
+    """
+    async def never_called(*a, **k):  # pragma: no cover - must not run
+        raise AssertionError("no tool, so nothing should be executed")
+
+    result = asyncio.run(capture_desktop_screenshot(
+        fmt="png", desktop_exec=never_called, detect_env=lambda: dict(session)))
+    assert result[UNAVAILABLE] == expected
 
 
 # ---------------------------------------------------------------------
@@ -238,7 +304,7 @@ def test_exactly_the_tool_dependent_operations_document_503():
         for method, operation in item.items()
         if isinstance(operation, dict) and "503" in operation.get("responses", {})
     }
-    # Four of the nine endpoints that answer 503 are absent from the
+    # Four of the twelve endpoints that answer 503 are absent from the
     # document entirely -- see the test at the end of this section.
     expected = {
         (method.lower(), path)
@@ -263,6 +329,29 @@ def test_the_documented_503_names_the_tools_the_endpoint_actually_wants():
                        ["responses"]["503"]["description"])
         for tool in needs:
             assert tool in description, f"{method} {path} does not mention {tool}"
+
+
+def test_what_a_call_reports_is_part_of_what_the_document_promised():
+    """The wire list must be a subset of the documented one, never news.
+
+    An operation built in layers -- OCR needs a screenshot before it needs
+    tesseract -- can only report the layer it hit, so the two lists are not
+    equal and demanding that would be wrong. But a tool arriving in
+    `unavailable` that the document never mentioned means the reader was told
+    to prepare for the wrong thing. cubic raised this on the #260 PR: the
+    OCR entries used to promise tesseract alone, while a host with tesseract
+    and no screenshot tool is refused for the other reason.
+    """
+    from arena.public.openapi import _NEEDS_LOCAL_TOOL
+
+    spec = _spec()
+    for method, path, _body, needs in TOOL_DEPENDENT_CALLS:
+        if path not in spec["paths"]:
+            continue
+        documented = set(_NEEDS_LOCAL_TOOL[(method.lower(), path)])
+        assert set(needs) <= documented, (
+            f"{method} {path} reports {sorted(set(needs) - documented)}, "
+            f"which the document never mentions")
 
 
 def test_the_503_schema_requires_the_unavailable_list():
@@ -407,7 +496,9 @@ def test_a_genuine_failure_still_counts_as_one():
     assert after > before, f"a real {status} failure did not count as an error"
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="about the Windows branch")
+@pytest.mark.skipif(
+    sys.platform != "win32" or not os.environ.get("CI"),
+    reason="drives real mouse and keyboard input; CI runners only")
 @pytest.mark.parametrize("path", sorted(WINDOWS_SERVES_THESE_ITSELF))
 def test_the_windows_branch_still_answers_without_any_of_these_tools(path):
     """The other side of the skip above, so it cannot hide a regression.
@@ -417,6 +508,12 @@ def test_the_windows_branch_still_answers_without_any_of_these_tools(path):
     user32 and GDI -- that no `apt install` is involved in, and a change that
     made Windows start refusing them for want of ydotool would be a real
     break that the skipped sweep would say nothing about.
+
+    Gated on CI as well as on the platform: it really does click at (1, 2),
+    move the cursor and type "a" into whatever has focus. Fine on a
+    throwaway runner, not fine on the machine someone is working at -- which
+    was half the reason for skipping these rows in the sweep, and re-running
+    them here unconditionally would have undone it.
     """
     from tests._live_bridge import json_payload, running_client
 

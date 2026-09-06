@@ -197,7 +197,7 @@ async def _environment_failure(client: TestClient, path: str) -> bool:
 
 
 async def _bad_value_faults(
-    client: TestClient, path: str, name: str,
+    client: TestClient, path: str, name: str, excused: bool,
 ) -> tuple[list[str], list[str]]:
     """(crashed, leaked) for one parameter across every bad value."""
     crashed, leaked = [], []
@@ -206,7 +206,7 @@ async def _bad_value_faults(
         payload = await json_payload(response)
         where = f"GET {path}?{name}={bad!r}"
         if response.status >= 500:
-            if _is_excused(response.status, payload):
+            if excused and _is_excused(response.status, payload):
                 continue  # the box has no tool for this, query string or not
             crashed.append(f"{where} -> {response.status} {payload or '(no json)'}")
         elif error_type_of(payload) is not None:
@@ -219,9 +219,14 @@ def _is_excused(status: int, payload: dict) -> bool:
 
     Both halves are required. A 503 without `unavailable` is some other
     unavailability and stays a fault; a body with `unavailable` under a 500
-    is a contradiction and stays a fault too. Anything looser -- "this
-    endpoint failed its control, ignore its 5xx" -- would let a parse
-    regression hide behind a missing screenshot tool.
+    is a contradiction and stays a fault too.
+
+    And the caller checks one more thing: that this path answered the same
+    way to a request with no query string at all. cubic caught the first
+    draft forgiving any 503 from any endpoint -- so if `/v1/mission/catalog`
+    ever answered a malformed integer with a 503 naming a tool, the sweep
+    would have shrugged at exactly the regression it exists to catch. The
+    endpoint has to have been broken before the bad value was sent.
     """
     return status == 503 and bool(payload.get("unavailable"))
 
@@ -245,9 +250,10 @@ async def _sweep(spec, root):
     crashed, leaked, excused_paths = [], [], set()
     async with _running_client(root) as client:
         for path, name in targets:
-            if await _environment_failure(client, path):
+            excused = await _environment_failure(client, path)
+            if excused:
                 excused_paths.add(path)
-            faults, leaks = await _bad_value_faults(client, path, name)
+            faults, leaks = await _bad_value_faults(client, path, name, excused)
             crashed += faults
             leaked += leaks
 

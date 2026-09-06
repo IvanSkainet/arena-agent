@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from aiohttp import web
 
+from arena.desktop.availability import failure_response, is_refusal
 from arena.desktop.text_window_target import resolve_text_window_target
 from arena.desktop.window_action import perform_window_action
 from arena.desktop.window_action_plans import plan_window_action_geometry
@@ -50,8 +51,9 @@ def make_desktop_window_action_handler(ctx: DesktopHandlerContext):
                 audit_fn=ctx.audit,
             )
             if not text_target.get("ok"):
-                ctx.record_request(is_error=True, count_request=False)
-                return ctx.cors_json_response(text_target, status=int(text_target.pop("status", 404)))
+                # 404 stays the default -- "no window matched that text" --
+                # but a missing tesseract is not a missing window (#260).
+                return failure_response(ctx, text_target, default_status=404)
             body["id"] = (text_target.get("target_window") or {}).get("id") or body.get("id")
             body["title"] = body.get("title") or (text_target.get("target_window") or {}).get("title")
         resolved = await resolve_window_target(
@@ -106,10 +108,8 @@ def make_desktop_window_action_handler(ctx: DesktopHandlerContext):
         result["candidates"] = resolved.get("candidates", [])
         if text_target:
             result["text_target"] = text_target
-        if not result.get("ok") and result.get("status"):
-            ctx.record_request(is_error=True, count_request=False)
-            status = int(result.pop("status"))
-            return ctx.cors_json_response(result, status=status)
+        if is_refusal(result):
+            return failure_response(ctx, result)
         ctx.control_record_agent_action()
         return ctx.cors_json_response(result)
 

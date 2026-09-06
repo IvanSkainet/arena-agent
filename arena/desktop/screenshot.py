@@ -60,9 +60,26 @@ def _rm_tmp_dir(path: str) -> None:
 
 
 # Same marker as tesseract's in ocr.py: a 503 for the caller, not a 500 (#260).
-_NO_SCREENSHOT_TOOL = MissingTool(
-    "No screenshot tool available (need spectacle, grim, or scrot)",
-    ("spectacle", "grim", "scrot"))
+_SCREENSHOT_MESSAGE = "No screenshot tool available (need spectacle, grim, or scrot)"
+
+# grim only works under Wayland and scrot only under X11 -- the branches above
+# check that as well as the binary. Telling an X11 user to install grim would
+# have them install it and keep getting 503s, so the list is filtered by the
+# session when the session is known. When it is neither (a headless container,
+# where all three are equally absent and equally hypothetical) the full list
+# is the honest answer.
+_SCREENSHOT_TOOLS: tuple[tuple[str, str | None], ...] = (
+    ("spectacle", None), ("grim", "wayland"), ("scrot", "x11"))
+
+
+def _missing_screenshot_tool(env: dict[str, Any]) -> MissingTool:
+    """The refusal, naming the tools that could actually run here."""
+    session = env.get("wayland") or env.get("x11")
+    needs = tuple(
+        tool for tool, requires in _SCREENSHOT_TOOLS
+        if not session or requires is None or env.get(requires)
+    )
+    return MissingTool(_SCREENSHOT_MESSAGE, needs)
 
 
 async def capture_desktop_screenshot(
@@ -82,8 +99,10 @@ async def capture_desktop_screenshot(
     """Capture the desktop and optionally transform/re-encode the image.
 
     Returns `{ok: True, bytes, encoding, transformed, tool}` on success, or
-    `{ok: False, error}` on failure. The caller decides whether to return JSON
-    base64 or a binary HTTP response.
+    `{ok: False, error}` on failure -- plus `unavailable`, listing the tools
+    that would make it work, when the failure is that this host has none of
+    them (#260). The caller decides whether to return JSON base64 or a binary
+    HTTP response.
     """
     fmt = (fmt or "base64").lower()
     quality = max(1, min(100, int(quality or 80)))
@@ -140,7 +159,12 @@ async def capture_desktop_screenshot(
     elif env.get("has_scrot") and env.get("x11"):
         cmd = f'DISPLAY={os.environ.get("DISPLAY", ":0")} scrot -o {tmp_path}'
     else:
-        return unavailable_result(_NO_SCREENSHOT_TOOL)
+        # Both cleanup paths are below this point, so without this the
+        # directory made a few lines up survives every refusal -- one
+        # `arena_desktop_*` per request on a host that will never have a
+        # screenshot tool. Caught by three reviewers on the #260 PR.
+        _rm_tmp_dir(tmp_dir)
+        return unavailable_result(_missing_screenshot_tool(env))
 
     result = await desktop_exec(cmd, timeout=15)
     if not result.get("ok") or not os.path.exists(tmp_path):

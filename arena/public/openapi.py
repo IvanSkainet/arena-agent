@@ -157,25 +157,38 @@ _UNAVAILABLE_ENVELOPE = {
             "items": {"type": "string"},
             "minItems": 1,
             "description": (
-                "Tools that would make this call work, in the order the "
-                "bridge prefers them. Any one of them is enough."),
+                "The tools blocking this call right now, in the order the "
+                "bridge prefers them; installing any one of them clears "
+                "this refusal. An operation built on several tools reports "
+                "them a layer at a time, so a later call may name a "
+                "different one."),
         },
     },
     "required": ["ok", "error", "unavailable"],
 }
 
 
-# The operations that run something the host may simply not have. Written
-# out rather than detected: "which endpoints shell out to a desktop tool" is
-# not visible in the document, and a wrong guess here would either promise a
-# 503 that never comes or hide one that does. A test walks this list against
-# the handlers in both directions.
+# The operations that run something the host may simply not have, and every
+# tool each of them can end up asking for. Written out rather than detected:
+# "which endpoints shell out to a desktop tool" is not visible in the
+# document, and a wrong guess here would either promise a 503 that never
+# comes or hide one that does. A test walks this list against the handlers in
+# both directions.
+#
+# The OCR entries name the screenshot tools too: OCR reads a fresh capture,
+# so a host with tesseract and no screenshot tool is refused for the second
+# reason. Listing only tesseract would tell such a caller to install
+# something it already has.
+_OCR_NEEDS = ("tesseract", "spectacle", "grim", "scrot")
 _NEEDS_LOCAL_TOOL = {
     ("get", "/v1/desktop/screenshot"): ("spectacle", "grim", "scrot"),
-    ("post", "/v1/desktop/ocr"): ("tesseract",),
-    ("post", "/v1/desktop/find_text"): ("tesseract",),
-    ("post", "/v1/desktop/click_text"): ("tesseract",),
-    ("post", "/v1/desktop/resolve_text_target"): ("tesseract",),
+    ("post", "/v1/desktop/ocr"): _OCR_NEEDS,
+    ("post", "/v1/desktop/find_text"): _OCR_NEEDS,
+    ("post", "/v1/desktop/click_text"): _OCR_NEEDS + ("ydotool", "xdotool"),
+    ("post", "/v1/desktop/resolve_text_target"): _OCR_NEEDS,
+    ("post", "/v1/desktop/text_action"): _OCR_NEEDS + ("ydotool", "xdotool"),
+    ("post", "/v1/desktop/focus"): _OCR_NEEDS,
+    ("post", "/v1/desktop/window_action"): _OCR_NEEDS,
 }
 
 
@@ -379,19 +392,20 @@ def _attach_authentication_responses(responses: dict) -> None:
 def _attach_unavailable_503(method: str, path: str, responses: dict) -> None:
     """Document the 503 for an operation that needs a tool on the host.
 
-    Only these four. Sprayed wider it would promise a status the endpoint
-    cannot produce, which is the same defect as #259 pointing the other way:
-    the document has to match what the handler does, in both directions.
+    Only the operations in `_NEEDS_LOCAL_TOOL`. Sprayed wider it would
+    promise a status the endpoint cannot produce, which is the same defect as
+    #259 pointing the other way: the document has to match what the handler
+    does, in both directions.
     """
     needs = _NEEDS_LOCAL_TOOL.get((method, path))
     if not needs:
         return
     responses.setdefault("503", _error_response(
-        "The host has none of the tools this needs ("
-        + ", ".join(needs)
-        + "). The request is valid and the same call succeeds once one of "
-        "them is installed, so this is not a failure of the bridge and no "
-        "retry will help. `unavailable` lists them.",
+        "The host is missing a local tool this needs. Depending on what it "
+        "has, that can be any of: " + ", ".join(needs)
+        + ". The request is valid and the same call succeeds once the "
+        "missing tool is installed, so this is not a failure of the bridge "
+        "and no retry will help. `unavailable` names what is blocking now.",
         _UNAVAILABLE_ENVELOPE))
 
 

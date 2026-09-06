@@ -68,7 +68,7 @@ def unavailable_result(error: MissingTool) -> dict[str, Any]:
     return {"ok": False, "error": str(error), UNAVAILABLE: list(error.needs)}
 
 
-def builder_refusal(error: str) -> tuple[dict[str, Any], int]:
+def builder_refusal(error: MissingTool | str) -> tuple[dict[str, Any], int]:
     """The body and status for an error a `build_*_command` handed back.
 
     Two kinds arrive here and they are not the same thing:
@@ -109,7 +109,8 @@ def is_refusal(result: Mapping[str, Any]) -> bool:
     return not result.get("ok") and bool(result.get(UNAVAILABLE) or result.get("status"))
 
 
-def failure_response(ctx, result: dict[str, Any], fallback: str = "operation failed"):
+def failure_response(ctx, result: Mapping[str, Any], fallback: str = "operation failed",
+                     default_status: int = 500):
     """The response for a producer's failed result, whatever kind of failure it is.
 
     Three handlers had the same four lines -- pick a status, decide whether
@@ -119,16 +120,20 @@ def failure_response(ctx, result: dict[str, Any], fallback: str = "operation fai
     always does.
 
     A result may also carry its own `status` (the text-target handler's 404
-    for "nothing matched"); that wins over the 500 default and still counts.
+    for "nothing matched"); that wins over `default_status` and still counts.
+
+    The result is read, never modified: two of the callers hand in a dict they
+    keep using, and a helper that quietly pops keys out of its argument is a
+    bug that surfaces somewhere else entirely.
     """
-    status = 503 if result.get(UNAVAILABLE) else int(result.pop("status", 500) or 500)
-    result.pop("status", None)
+    body = {k: v for k, v in result.items() if k != "status"}
+    status = (503 if result.get(UNAVAILABLE)
+              else int(result.get("status") or default_status))
     if status != 503:
         # A missing tool is not this bridge failing. Counting it would make
         # a headless box -- behaving exactly as configured -- report itself
         # unhealthy the moment a client asks it for a screenshot (#260).
         ctx.record_request(is_error=True, count_request=False)
-    body = dict(result)
     body["ok"] = False
     body["error"] = str(body.get("error") or fallback)
     return ctx.cors_json_response(body, status=status)

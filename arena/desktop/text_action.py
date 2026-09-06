@@ -4,6 +4,7 @@ from __future__ import annotations
 import shutil
 from typing import Any
 
+from arena.desktop.availability import builder_refusal
 from arena.desktop.input import build_click_command
 from arena.desktop.ocr_handler import _target_point
 from arena.desktop.text_window_target import resolve_text_window_target
@@ -108,10 +109,17 @@ async def run_text_action(
         env = detect_env()
         cmd, click_tool, err = build_click_command(env=env, x=x, y=y, button=button, double=double, activate=activate, has_kdotool=shutil.which("kdotool") is not None)
         if err:
-            return {"ok": False, "error": err, "status": 500, **resolved}
+            # Two defects in one line before #260. `**resolved` came last, so
+            # its `ok: True` overwrote the `ok: False` in front of it and the
+            # handler shipped a failed click as 200. And a missing ydotool
+            # arrived here as a hardcoded 500 with nothing naming the tool,
+            # while the same refusal from /v1/desktop/click is a 503.
+            refusal, status = builder_refusal(err)
+            return {**resolved, **refusal, "status": status}
         exec_result = await desktop_exec(cmd, timeout=10)
         if not exec_result.get("ok"):
-            return {"ok": False, "error": f"Click failed ({click_tool}): {exec_result.get('stderr', exec_result.get('error', ''))}", "status": 500, **resolved}
+            return {**resolved, "ok": False, "status": 500,
+                    "error": f"Click failed ({click_tool}): {exec_result.get('stderr', exec_result.get('error', ''))}"}
         return {**resolved, "workflow_action": "click", "click_tool": click_tool, "clicked": True, "target": {"x": x, "y": y, "position": target_position, "offset_x": offset_x, "offset_y": offset_y}}
     if dry_run:
         payload = {**resolved, "workflow_action": action, "dry_run": True}
