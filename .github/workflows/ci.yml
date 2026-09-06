@@ -1586,15 +1586,17 @@ jobs:
       # then sends thousands of requests back at the same host. The runner is
       # headless, so the eight tool-dependent operations answer the
       # documented 503 -- schemathesis.toml expects exactly those.
+      # Generated, not written down. A fixed string in the workflow is a
+      # known bearer token for a bridge that grants shell, files and desktop
+      # control -- low probability on a private runner bound to 127.0.0.1,
+      # but there is no reason to have one (cubic), and a literal `Bearer`
+      # in a curl line also reads to secret scanners as a leak
+      # (sourcery/betterleaks). Masked so it cannot surface in the log.
       - name: Start the bridge
-        env:
-          # A throwaway token for a bridge that lives for one job on one
-          # runner, in a variable rather than inline: a literal `Bearer` in
-          # a curl line reads to a secret scanner as a leaked credential,
-          # and a scanner that cries wolf here is one nobody reads later
-          # (sourcery/betterleaks).
-          FUZZ_TOKEN: ci-fuzz-token
         run: |
+          FUZZ_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+          echo "::add-mask::$FUZZ_TOKEN"
+          echo "FUZZ_TOKEN=$FUZZ_TOKEN" >> "$GITHUB_ENV"
           python scripts/serve_bridge_for_fuzzing.py --port 8899 --token "$FUZZ_TOKEN" &
           for _ in $(seq 1 30); do
             if curl -fsS -o /dev/null -H "Authorization: Bearer $FUZZ_TOKEN" \
@@ -1610,8 +1612,6 @@ jobs:
       # findings between them (measured in #258) and each needs its own
       # cleanup before it can be required.
       - name: Fuzz the documented API
-        env:
-          FUZZ_TOKEN: ci-fuzz-token
         run: |
           schemathesis run http://127.0.0.1:8899/openapi.json \
             --header "Authorization: Bearer $FUZZ_TOKEN" \

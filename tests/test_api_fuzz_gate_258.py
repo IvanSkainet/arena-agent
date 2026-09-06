@@ -215,6 +215,21 @@ def test_the_job_installs_hashes_and_starts_the_bridge_before_fuzzing(fuzz_job):
     assert names.index("Start the bridge") < names.index("Fuzz the documented API")
 
 
+def test_the_bridge_token_is_generated_rather_than_written_down(fuzz_job):
+    """A token in the workflow is a known credential for a live bridge.
+
+    The bridge under test grants shell, file and desktop access. It listens
+    on 127.0.0.1 of an ephemeral runner, so the exposure is small, but a
+    fixed string buys nothing in exchange for it (cubic). Generated per run
+    and masked, so it is neither guessable nor visible in the log.
+    """
+    runs = "\n".join(step.get("run", "") for step in fuzz_job["steps"])
+    assert "secrets.token_urlsafe" in runs
+    assert "::add-mask::" in runs
+    envs = " ".join(str(step.get("env", "")) for step in fuzz_job["steps"])
+    assert "ci-fuzz-token" not in runs + envs
+
+
 def test_the_seed_changes_between_runs(fuzz_job):
     """A fixed seed would test the same 4000 requests forever.
 
