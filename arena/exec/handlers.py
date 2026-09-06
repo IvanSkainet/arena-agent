@@ -72,6 +72,25 @@ class ExecHandlers:
     stream: Callable[..., Any]
 
 
+def _limits_and_env(data: dict[str, Any], cfg: Any, ctx: Any) -> tuple[int, int, dict[str, str]]:
+    """The three request-scoped limits both exec handlers read the same way.
+
+    Written once because it was written twice: SonarCloud counts the copies
+    as duplicated lines, and #270 had to fix the same `int(data.get(...))`
+    in both. `timeout` and `max_output` are clamped to the profile's
+    ceilings -- a body cannot raise them, only lower them.
+    """
+    timeout = min(body_int(data, "timeout", default=int(cfg["timeout"])), cfg["max_timeout"])
+    max_output = min(
+        body_int(data, "max_output", default=int(ctx.default_max_output)),
+        cfg["max_output"])
+    raw_env = data.get("env")
+    env_extra: dict[str, Any] = dict(raw_env) if isinstance(raw_env, dict) else {}
+    env = os.environ.copy()
+    env.update(filter_caller_env(env_extra))
+    return timeout, max_output, env
+
+
 def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
     @authed(ctx)
     async def handle_v1_ps(request: web.Request) -> web.Response:
@@ -131,12 +150,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return err_json(ctx, f"cwd does not exist: {cwd}", status=400, request_id=request_id)
 
-        timeout = min(body_int(data, "timeout", default=int(cfg["timeout"])), cfg["max_timeout"])
-        max_output = min(body_int(data, "max_output", default=int(ctx.default_max_output)), cfg["max_output"])
-        raw_env = data.get("env")
-        env_extra: dict[str, Any] = dict(raw_env) if isinstance(raw_env, dict) else {}
-        env = os.environ.copy()
-        env.update(filter_caller_env(env_extra))
+        timeout, max_output, env = _limits_and_env(data, cfg, ctx)
 
         sem: asyncio.Semaphore = cfg["semaphore"]
         if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:
@@ -457,12 +471,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return err_json(ctx, f"cwd does not exist: {cwd}", status=400, request_id=request_id)
 
-        timeout = min(body_int(data, "timeout", default=int(cfg["timeout"])), cfg["max_timeout"])
-        max_output = min(body_int(data, "max_output", default=int(ctx.default_max_output)), cfg["max_output"])
-        raw_env = data.get("env")
-        env_extra: dict[str, Any] = dict(raw_env) if isinstance(raw_env, dict) else {}
-        env = os.environ.copy()
-        env.update(filter_caller_env(env_extra))
+        timeout, max_output, env = _limits_and_env(data, cfg, ctx)
 
         sem: asyncio.Semaphore = cfg["semaphore"]
         if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:

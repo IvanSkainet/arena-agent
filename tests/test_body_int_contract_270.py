@@ -396,6 +396,21 @@ _BODY_NAMES = ("body", "data", "payload")
 _READ = re.compile(r"^(body|data|payload)(?:\.get\(|\[)['\"]")
 
 
+def _reads_a_body_number(node: ast.AST) -> bool:
+    """Whether this node is `int(body[...])` or `float(data.get(...))`."""
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id in ("int", "float") and bool(node.args)
+            and bool(_READ.match(ast.unparse(node.args[0]))))
+
+
+def _module_tree(source: pathlib.Path) -> ast.AST | None:
+    """The parsed file, or None if it does not parse."""
+    try:
+        return ast.parse(source.read_text(encoding="utf-8"))
+    except SyntaxError:  # pragma: no cover - the repo does not have any
+        return None
+
+
 def _files_reading_numbers_from_a_body() -> set[str]:
     """Source files calling int()/float() straight on a body field.
 
@@ -404,18 +419,12 @@ def _files_reading_numbers_from_a_body() -> set[str]:
     enough to catch both catches comments and docstrings as well.
     """
     root = pathlib.Path(__file__).resolve().parent.parent
-    found = set()
-    for source in (root / "arena").rglob("*.py"):
-        try:
-            tree = ast.parse(source.read_text(encoding="utf-8"))
-        except SyntaxError:  # pragma: no cover - the repo does not have any
-            continue
-        for node in ast.walk(tree):
-            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                    and node.func.id in ("int", "float") and node.args
-                    and _READ.match(ast.unparse(node.args[0]))):
-                found.add(str(source.relative_to(root)).replace("\\", "/"))
-    return found
+    trees = ((source, _module_tree(source)) for source in (root / "arena").rglob("*.py"))
+    return {
+        str(source.relative_to(root)).replace("\\", "/")
+        for source, tree in trees
+        if tree is not None and any(_reads_a_body_number(n) for n in ast.walk(tree))
+    }
 
 
 def test_no_new_int_over_a_request_body_appears():
