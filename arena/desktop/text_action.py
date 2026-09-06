@@ -12,6 +12,19 @@ from arena.desktop.window_action import perform_window_action
 from arena.desktop.window_action_plans import PLANNED_ACTIONS, plan_window_action_geometry
 
 
+def _click_refused(error: str, resolved: dict[str, Any]) -> dict[str, Any]:
+    """The click could not be made: 503 for a missing tool, 400 for a bad key.
+
+    Two defects lived in the line this replaces. `**resolved` came last, so
+    its `ok: True` overwrote the `ok: False` written in front of it and the
+    handler shipped a failed click as a 200. And a missing ydotool arrived
+    as a hardcoded 500 naming no tool, while the identical refusal from
+    /v1/desktop/click is a 503 that does (#260).
+    """
+    refusal, status = builder_refusal(error)
+    return {**resolved, **refusal, "status": status}
+
+
 async def run_text_action(
     *,
     action: str,
@@ -109,17 +122,10 @@ async def run_text_action(
         env = detect_env()
         cmd, click_tool, err = build_click_command(env=env, x=x, y=y, button=button, double=double, activate=activate, has_kdotool=shutil.which("kdotool") is not None)
         if err:
-            # Two defects in one line before #260. `**resolved` came last, so
-            # its `ok: True` overwrote the `ok: False` in front of it and the
-            # handler shipped a failed click as 200. And a missing ydotool
-            # arrived here as a hardcoded 500 with nothing naming the tool,
-            # while the same refusal from /v1/desktop/click is a 503.
-            refusal, status = builder_refusal(err)
-            return {**resolved, **refusal, "status": status}
+            return _click_refused(err, resolved)
         exec_result = await desktop_exec(cmd, timeout=10)
         if not exec_result.get("ok"):
-            return {**resolved, "ok": False, "status": 500,
-                    "error": f"Click failed ({click_tool}): {exec_result.get('stderr', exec_result.get('error', ''))}"}
+            return {**resolved, "ok": False, "status": 500, "error": f"Click failed ({click_tool}): {exec_result.get('stderr', exec_result.get('error', ''))}"}
         return {**resolved, "workflow_action": "click", "click_tool": click_tool, "clicked": True, "target": {"x": x, "y": y, "position": target_position, "offset_x": offset_x, "offset_y": offset_y}}
     if dry_run:
         payload = {**resolved, "workflow_action": action, "dry_run": True}

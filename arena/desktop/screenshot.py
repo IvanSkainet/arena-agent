@@ -72,14 +72,22 @@ _SCREENSHOT_TOOLS: tuple[tuple[str, str | None], ...] = (
     ("spectacle", None), ("grim", "wayland"), ("scrot", "x11"))
 
 
-def _missing_screenshot_tool(env: dict[str, Any]) -> MissingTool:
-    """The refusal, naming the tools that could actually run here."""
+def _refuse_for_want_of_a_tool(env: dict[str, Any], tmp_dir: str) -> dict[str, Any]:
+    """The 503 body, naming the tools that could actually run here.
+
+    Deletes `tmp_dir` on the way out: the capture creates it before it knows
+    which tool to run, and both of the cleanup paths sit further down, so a
+    refusal returning from between the two leaked one `arena_desktop_*`
+    directory per request on a host that will never have a screenshot tool.
+    Three reviewers caught that on the #260 PR.
+    """
+    _rm_tmp_dir(tmp_dir)
     session = env.get("wayland") or env.get("x11")
     needs = tuple(
         tool for tool, requires in _SCREENSHOT_TOOLS
         if not session or requires is None or env.get(requires)
     )
-    return MissingTool(_SCREENSHOT_MESSAGE, needs)
+    return unavailable_result(MissingTool(_SCREENSHOT_MESSAGE, needs))
 
 
 async def capture_desktop_screenshot(
@@ -159,12 +167,7 @@ async def capture_desktop_screenshot(
     elif env.get("has_scrot") and env.get("x11"):
         cmd = f'DISPLAY={os.environ.get("DISPLAY", ":0")} scrot -o {tmp_path}'
     else:
-        # Both cleanup paths are below this point, so without this the
-        # directory made a few lines up survives every refusal -- one
-        # `arena_desktop_*` per request on a host that will never have a
-        # screenshot tool. Caught by three reviewers on the #260 PR.
-        _rm_tmp_dir(tmp_dir)
-        return unavailable_result(_missing_screenshot_tool(env))
+        return _refuse_for_want_of_a_tool(env, tmp_dir)
 
     result = await desktop_exec(cmd, timeout=15)
     if not result.get("ok") or not os.path.exists(tmp_path):
