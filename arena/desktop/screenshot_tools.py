@@ -19,12 +19,12 @@ SCREENSHOT_TOOLS: tuple[tuple[str, str | None], ...] = (
 
 
 def screenshot_message(needs: tuple[str, ...]) -> str:
-    """"...(need spectacle, grim, or scrot)", or what is left after filtering.
+    """Builds "No screenshot tool available (need spectacle, grim, or scrot)".
 
-    The sentence has to agree with the list beside it: having dropped grim on
-    X11, telling the reader they need grim contradicts the `unavailable` field
-    in the same response and sends them to install the one tool that cannot
-    work here.
+    Or whatever is left of that list after filtering. The sentence has to
+    agree with the list beside it: having dropped grim on X11, telling the
+    reader they need grim contradicts the `unavailable` field in the same
+    response and sends them to install the one tool that cannot work here.
     """
     listed = ", ".join(needs[:-1]) + ", or " + needs[-1] if len(needs) > 2 else " or ".join(needs)
     return f"No screenshot tool available (need {listed})"
