@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.handler_params import body_int
+from arena.mission_limits import MAX_SCHEDULE_EVERY_MINUTES
 
 _ACTIONS = {"run", "rerun_failed", "iterate"}
 
@@ -65,7 +66,8 @@ def save_schedule_def(schedules_dir: Path, data: dict[str, Any]) -> dict[str, An
     action = str(data.get("action", "iterate") or "iterate").strip().lower()
     if action not in _ACTIONS:
         return {"ok": False, "error": f"invalid action: {action}", "status": 400}
-    every_minutes = max(1, body_int(data, "every_minutes", default=60))
+    every_minutes = max(1, body_int(data, "every_minutes", default=60,
+                                    bounds=(0, MAX_SCHEDULE_EVERY_MINUTES)))
     now = _now()
     schedule_id = str(data.get("schedule_id", "") or data.get("id", "") or "").strip() or _slug(f"{mission_id}-{action}")
     try:
