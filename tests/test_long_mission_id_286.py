@@ -35,11 +35,13 @@ from arena.resources.missions_manage import create_mission_from_draft
 
 # One ASCII, one that is short in characters and long in bytes -- the second
 # is the shape the fuzzer actually found, and a character-counting guard
-# would let it straight through.
+# would let it straight through. Each of the three is over the limit in
+# *both* units, so the parametrisation reads the same on ext4 and on NTFS;
+# the byte/unit difference has a test of its own at the bottom.
 TOO_LONG = (
     "a" * (NAME_MAX_UNITS + 1),
-    "Ṱ̺̺̕o͞ ̷i̲̬͇̪͙n̝̗͕v̟̜̘̦͟o̶̙̰̠kè͚̮̺̪̹̱̤ ̖t̝͕̳̣̻̪͞h̼͓̲̦̳̘̲e͇̣̰̦̬͎ ̢̼̻̱̘h͚͎͙̜̣̲ͅi̦̲̣̰̤v̻͍e̺̭̳̪̰-m̢iͅn̖̺̞̲̯̰d̵̼̟͙̩̼̘̳" * 2,
-    "\U0001f600" * 64,
+    "Ṱ̺̺̕o͞ ̷i̲̬͇̪͙n̝̗͕v̟̜̘̦͟o̶̙̰̠kè͚̮̺̪̹̱̤ ̖t̝͕̳̣̻̪͞h̼͓̲̦̳̘̲e͇̣̰̦̬͎ ̢̼̻̱̘h͚͎͙̜̣̲ͅi̦̲̣̰̤v̻͍e̺̭̳̪̰-m̢iͅn̖̺̞̲̯̰d̵̼̟͙̩̼̘̳" * 3,
+    "\U0001f600" * 128,
 )
 
 READERS = (
@@ -94,13 +96,13 @@ def test_a_name_at_the_limit_is_still_allowed(tmp_path: Path) -> None:
 
 
 def test_the_limit_is_not_counted_in_characters(tmp_path: Path) -> None:
-    """A 100-character id can be 400 bytes, and that is the case that broke.
+    """A 200-character id can be 800 bytes, and that is the case that broke.
 
     The unit is the local filesystem's: bytes of UTF-8 on ext4 and APFS,
     UTF-16 code units on NTFS. Counting characters would let the id that
     found this straight through on either.
     """
-    wide = "\U0001f600" * 100
+    wide = "\U0001f600" * 200
     assert len(wide) < NAME_MAX_UNITS
     assert unusable_directory_name(wide) is not None
 
