@@ -26,6 +26,7 @@ exists to prevent. PyYAML is in requirements-ci.lock.
 from __future__ import annotations
 
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -139,8 +140,6 @@ def test_the_run_leaves_nothing_in_the_checkout():
     files landed in the repository. Both are things only a running bridge
     can demonstrate.
 
-    Skipped where a socket or a process is not available; a CI runner has
-    both, and the job that matters runs there.
     """
     # Captured before the process starts: anything the bridge writes while
     # starting up is exactly what this test is about, and a baseline taken
@@ -148,10 +147,11 @@ def test_the_run_leaves_nothing_in_the_checkout():
     before = _repository_contents()
     port = _free_port()
     proc = subprocess.Popen(
-        [sys.executable, str(SERVER_PATH), "--port", str(port),
-         "--token", "isolation-probe"],
+        [sys.executable, str(SERVER_PATH), "--port", str(port)],
         cwd=REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True)
+        text=True,
+        env={**os.environ, "ARENA_FUZZ_TOKEN": "isolation-probe",
+             "PYTHONDONTWRITEBYTECODE": "1"})
     try:
         _wait_until_listening(proc, port)
         # The two endpoints that wrote outside the workspace before #258:
@@ -199,19 +199,16 @@ def _post(port: int, path: str, body: dict) -> int:
     returned as itself so the caller can insist on what it expects.
     """
     url = f"http://127.0.0.1:{port}{path}"
-    # The scheme is checked rather than assumed: bandit's B310 is about
-    # `urlopen` accepting `file:` and custom schemes, and a test that builds
-    # its own URL is exactly where a typo would go unnoticed.
-    if not url.startswith("http://127.0.0.1:"):  # pragma: no cover - a typo guard
-        raise AssertionError(f"probe URL is not local: {url}")
     request = urllib.request.Request(
         url, data=json.dumps(body).encode(),
         headers={"Authorization": "Bearer isolation-probe",
                  "Content-Type": "application/json"})
     try:
-        # The scheme is asserted above and the host is 127.0.0.1; bandit's
-        # B310 is about `urlopen` reaching `file:` or a custom scheme, which
-        # this cannot.
+        # The URL is a literal `http://127.0.0.1:` with an int port and a
+        # path from this file, so bandit's B310 -- `urlopen` reaching
+        # `file:` or a custom scheme -- cannot happen here. The guard that
+        # used to say so in code was unreachable, which cubic called dead
+        # and was right about.
         with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310  # nosec B310
             response.read()
             return int(response.status)
@@ -221,12 +218,19 @@ def _post(port: int, path: str, body: dict) -> int:
 
 
 def _repository_contents() -> set[str]:
-    """Every path in the checkout, tracked or not, as git sees it."""
+    """Every path in the checkout, tracked or not, as git sees it.
+
+    `__pycache__` is filtered out: importing the bridge writes bytecode, and
+    that is Python doing its job rather than the bridge writing where it
+    should not (cubic). The probe also runs with PYTHONDONTWRITEBYTECODE, so
+    this is the second of two belts.
+    """
     listing = subprocess.run(
         ["git", "status", "--porcelain", "--ignored=matching"],
         cwd=REPO_ROOT, capture_output=True, text=True, check=True,
         timeout=git_timeout())
-    return set(listing.stdout.splitlines())
+    return {line for line in listing.stdout.splitlines()
+            if "__pycache__" not in line and not line.endswith(".pyc")}
 
 
 def test_the_job_installs_hashes_and_starts_the_bridge_before_fuzzing(fuzz_job):
@@ -246,6 +250,34 @@ def test_the_job_installs_hashes_and_starts_the_bridge_before_fuzzing(fuzz_job):
     assert names.index("Start the bridge") < names.index("Fuzz the documented API")
 
 
+def test_the_release_contract_lists_the_fuzz_cache(fuzz_job):
+    """RELEASE.md is the contract; the exclusion has to be in both places.
+
+    `.gitignore` keeps the cache out of commits and `make_release_zip.py`
+    keeps it out of the archive, but the document that says what a release
+    contains is what a person reads before cutting one (cubic).
+    """
+    release = (REPO_ROOT / "RELEASE.md").read_text(encoding="utf-8")
+    assert ".schemathesis/" in release
+    excluded = (REPO_ROOT / "scripts" / "make_release_zip.py").read_text(encoding="utf-8")
+    assert '".schemathesis"' in excluded
+
+
+def test_the_fuzzer_is_pointed_at_the_bridge_explicitly(fuzz_job):
+    """`--url`, because the document does not describe where the run is.
+
+    The served schema advertises `servers: [{"url": "http://<host>:8765"}]`
+    -- the address the operator's bridge answers on, not the throwaway one
+    the job starts on 127.0.0.1:8899. Schemathesis currently prefers the
+    location it fetched the schema from, so the run works either way, but
+    "currently prefers" is not something a required gate should rest on: the
+    failure mode is thousands of requests into the void and a green result
+    (cubic).
+    """
+    runs = "\n".join(step.get("run", "") for step in fuzz_job["steps"])
+    assert "--url http://127.0.0.1:8899" in runs
+
+
 def test_the_bridge_token_is_generated_rather_than_written_down(fuzz_job):
     """A token in the workflow is a known credential for a live bridge.
 
@@ -259,6 +291,10 @@ def test_the_bridge_token_is_generated_rather_than_written_down(fuzz_job):
     assert "::add-mask::" in runs
     envs = " ".join(str(step.get("env", "")) for step in fuzz_job["steps"])
     assert "ci-fuzz-token" not in runs + envs
+    # Handed over in the environment, not in argv: /proc/<pid>/cmdline is
+    # readable by anything else on the runner for the whole job (cubic).
+    assert "ARENA_FUZZ_TOKEN=" in runs
+    assert "--token" not in runs
 
 
 def test_the_seed_changes_between_runs(fuzz_job):

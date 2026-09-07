@@ -42,8 +42,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import os
 import shutil
+import signal
 import sys
 import tempfile
 from pathlib import Path
@@ -156,14 +158,31 @@ def _prepare_workspace(root: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    # Required rather than defaulted: a literal token in a script is a
-    # credential in the source tree as far as any scanner is concerned, and
-    # they are right often enough that arguing is not worth it. The caller
-    # picks one; CI passes a throwaway.
-    parser.add_argument("--token", required=True)
+    # Read from the environment, not from argv: a token on the command line
+    # is readable from /proc/<pid>/cmdline by anything else on the runner
+    # for the whole job (cubic). Still no default -- a literal token in a
+    # script is a credential in the source tree as far as any scanner is
+    # concerned, and they are right often enough that arguing is not worth
+    # it. `--token` stays for a laptop run, where argv is not a boundary.
+    parser.add_argument("--token", default=os.environ.get("ARENA_FUZZ_TOKEN", ""))
     args = parser.parse_args()
+    if not args.token:
+        parser.error("set ARENA_FUZZ_TOKEN or pass --token")
 
     root = Path(tempfile.mkdtemp(prefix="fuzz-root-"))
+    # Everything after the directory exists is inside the try, including the
+    # redirection and the import that follows it: both can raise, and a
+    # cleanup that starts later leaves one workspace per failed start
+    # (sourcery and cubic, separately).
+    try:
+        return _serve_until_stopped(root, args)
+    finally:
+        os.chdir(REPO_ROOT)
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def _serve_until_stopped(root: Path, args: argparse.Namespace) -> int:
+    """The run itself, with the workspace already created."""
     _point_the_bridge_at(root)
     from tests._live_bridge import build_app
 
@@ -173,20 +192,27 @@ def main() -> int:
     # writes files and executes commands relative to it, is a way out of the
     # sandbox for anything -- a person or an agent -- that gets the argument
     # wrong. A directory nobody can name cannot be escaped into.
-    # The whole body is inside the try, not just the serving: preparing the
-    # workspace, building the app and the chdir can all fail, and each of
-    # them leaves the temporary directory behind if the cleanup only covers
-    # what comes after (CodeRabbit).
-    try:
-        _prepare_workspace(root)
-        app = build_app(root, args.token)
-        os.chdir(root)
-        asyncio.run(_serve(app, args.port))
-    finally:
-        # One abandoned workspace per run fills /tmp on a laptop (cubic).
-        os.chdir(REPO_ROOT)
-        shutil.rmtree(root, ignore_errors=True)
+    _stop_on_sigterm()
+    _prepare_workspace(root)
+    app = build_app(root, args.token)
+    os.chdir(root)
+    asyncio.run(_serve(app, args.port))
     return 0
+
+
+def _stop_on_sigterm() -> None:
+    """Turn SIGTERM into KeyboardInterrupt so the cleanup runs.
+
+    CI stops this process with SIGTERM, whose default action is immediate
+    termination -- no `finally`, no `runner.cleanup()`, one temporary
+    workspace left behind per run (sourcery and cubic). Raising instead
+    gives asyncio a chance to unwind.
+    """
+    def _raise(signum: int, frame: object) -> None:  # noqa: ARG001
+        raise KeyboardInterrupt(f"signal {signum}")
+
+    with contextlib.suppress(ValueError):  # not the main thread
+        signal.signal(signal.SIGTERM, _raise)
 
 
 async def _serve(app: web.Application, port: int) -> None:

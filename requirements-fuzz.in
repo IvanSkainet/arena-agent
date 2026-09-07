@@ -9,8 +9,11 @@
 #
 # The bridge itself is imported by scripts/serve_bridge_for_fuzzing.py, so
 # the job also installs requirements-ci.lock; only the fuzzer is here. Both
-# locks land in one environment, so the five packages they share have to
-# agree -- scripts/lock_conflict_ratchet.py fails the build if they do not.
+# locks land in one environment, so every package they share has to agree --
+# 21 of them at the time of writing, and the count moves whenever either
+# side gains a dependency, which is why the check is a script rather than a
+# comment. scripts/lock_conflict_ratchet.py fails the build if two locks
+# installed by one job disagree.
 # The constraint below is what keeps them agreeing when the lock is
 # regenerated: uv reads `-c` out of the input file, so a plain
 # `uv pip compile requirements-fuzz.in` -- what the relock workflow runs --

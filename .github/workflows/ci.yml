@@ -1597,7 +1597,7 @@ jobs:
           FUZZ_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
           echo "::add-mask::$FUZZ_TOKEN"
           echo "FUZZ_TOKEN=$FUZZ_TOKEN" >> "$GITHUB_ENV"
-          python scripts/serve_bridge_for_fuzzing.py --port 8899 --token "$FUZZ_TOKEN" &
+          ARENA_FUZZ_TOKEN="$FUZZ_TOKEN" python scripts/serve_bridge_for_fuzzing.py --port 8899 &
           for _ in $(seq 1 30); do
             if curl -fsS -o /dev/null -H "Authorization: Bearer $FUZZ_TOKEN" \
                  http://127.0.0.1:8899/openapi.json; then
@@ -1607,6 +1607,12 @@ jobs:
           done
           echo "bridge did not start"; exit 1
 
+      # `--url` is not redundant with the schema location: the document
+      # advertises `servers: [{"url": "http://<hostname>:8765"}]`, the
+      # bridge under test listens on 127.0.0.1:8899, and a Schemathesis
+      # version that preferred `servers` over the location would send every
+      # request into the void and report a green run (cubic).
+      #
       # Settings live in schemathesis.toml, next to the reasons for them.
       # `not_a_server_error` only, for now: the other checks have 182 open
       # findings between them (measured in #258) and each needs its own
@@ -1614,6 +1620,7 @@ jobs:
       - name: Fuzz the documented API
         run: |
           schemathesis run http://127.0.0.1:8899/openapi.json \
+            --url http://127.0.0.1:8899 \
             --header "Authorization: Bearer $FUZZ_TOKEN" \
             --seed "${GITHUB_RUN_NUMBER}" \
             --workers 4
