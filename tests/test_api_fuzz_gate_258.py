@@ -103,6 +103,18 @@ def test_the_gate_still_watches_for_server_errors(config):
     assert checks["not_a_server_error"]["enabled"] is True
 
 
+def test_the_second_batch_of_checks_is_on(config):
+    """Step 2 of #258: the answer has to be one the document admits to.
+
+    Turning these on took a fix per finding rather than an allowance
+    (GET /v1/events answering an undocumented 400, plus 35 status codes
+    the document simply never mentioned), so an `enabled = false` sneaking
+    back in would quietly return the operations to being undocumented.
+    """
+    assert config["checks"]["status_code_conformance"]["enabled"] is True
+    assert config["checks"]["unsupported_method"]["enabled"] is True
+
+
 def test_the_token_endpoint_stays_out_of_the_run(config):
     """Fuzzing it ends the run: every later request carries a dead token.
 

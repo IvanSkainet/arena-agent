@@ -57,6 +57,7 @@ def build_platform_registries(g: MutableMapping[str, Any]) -> dict[str, Callable
         env.make_event_handlers,
         {
             "require_auth": env.require_auth,
+            "cors_json_response": env._cors_json_response,
             "version": env.VERSION,
             "utc_now": env.utc_now,
             "log_info": env.log.info,

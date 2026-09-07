@@ -15,6 +15,13 @@
 [checks]
 enabled = false
 not_a_server_error.enabled = true
+# Added in the second step of #258. Both were measured at five failures
+# between them when the gate was designed; by the time the first check was
+# required, four had been fixed on the way past by #269, #274 and #280, and
+# the fifth was GET /v1/events answering an undocumented 400 to a plain GET.
+# That one is fixed in this change rather than allowed for here.
+status_code_conformance.enabled = true
+unsupported_method.enabled = true
 
 # A 5xx is the whole point of the gate, with one documented exception: since
 # #260 an operation that needs a local tool answers 503 with `unavailable`
