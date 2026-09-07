@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 from arena.exec.environment import filter_caller_env
@@ -38,6 +38,11 @@ def usable_cwd(raw: str, root: Path,
     out of JSON, `/v1/exec/script` out of `X-Arena-Cwd`, and the fuzzer
     found the second one three commits after the first was fixed.
     """
+    if "\x00" in raw:
+        # Checked before the boundary: a NUL byte makes the string not a path
+        # at all, and answering "outside the root" would be a 403 about a
+        # question that was never asked (cubic).
+        return None, "cwd is not a usable path (embedded NUL)"
     try:
         cwd = _chosen_cwd(raw, root, under_root)
         if cwd is None:
@@ -53,13 +58,19 @@ def _chosen_cwd(raw: str, root: Path,
                 under_root: Callable[[Path, Path], bool] | None) -> Path | None:
     """The directory to run in, or None when the request leaves the sandbox.
 
-    Two profiles, two rules. With `allow_any_cwd` -- the owner profile --
-    going outside the root is the point, and the same request already runs
-    an arbitrary shell command there. Everyone else gets a path *rebuilt*
-    inside the root rather than checked afterwards: four attempts at "build
-    it, then compare" (callback, helper, realpath prefix, relative_to) were
-    all correct and all still py/path-injection to CodeQL, because a
-    comparison is not a construction.
+    Two profiles, two rules. Without a boundary check -- which the handlers
+    pass only when `allow_any_cwd` is off -- the caller is on the owner
+    profile, where leaving the root is the point and the same request runs
+    an arbitrary shell command anyway. cubic read `under_root is None` as
+    "unauthorised request reaches _anywhere"; it cannot, because the
+    handlers derive it from the profile in one line each
+    (`boundary = None if cfg["allow_any_cwd"] else ctx.under_root`), but the
+    assertion below says so in the code rather than in a comment.
+
+    Everyone else gets a path *rebuilt* inside the root rather than checked
+    afterwards: four attempts at "build it, then compare" (callback, helper,
+    realpath prefix, relative_to) were all correct and all still
+    py/path-injection to CodeQL, because a comparison is not a construction.
     """
     if under_root is None:
         return _anywhere(raw, root)
@@ -96,33 +107,31 @@ def _inside_root(raw: str, root: Path) -> Path | None:
 def _relative_parts(raw: str, root: Path) -> list[str] | None:
     """The components of `raw` relative to `root`, or None if it escapes.
 
-    An absolute request is allowed only when it already names somewhere
-    under the root; what comes back is the remainder, so the join above
-    starts from the root either way.
+    `Path`, not `PurePosixPath`: the first version parsed with POSIX rules on
+    every platform, so on Windows `str(root)` kept its backslashes, they were
+    read as ordinary characters, and *every* absolute cwd under the root came
+    back as 403 (cubic and corgea, independently). The platform's own flavour
+    reads both separators the way the filesystem will.
+
+    An absolute request keeps only what is left after the root is removed,
+    and the component filter runs on that remainder too -- `/root/../etc`
+    reduces to `../etc`, which the filter refuses rather than normalises.
     """
-    if _is_absolute(raw):
-        return _under_root_remainder(raw, root)
-    asked = PurePosixPath(raw.replace("\\", "/")) if raw else PurePosixPath()
-    parts = [part for part in asked.parts if part not in (".", "/")]
-    return None if any(map(_escapes, parts)) else parts
-
-
-def _is_absolute(raw: str) -> bool:
-    """A leading separator, or a Windows drive letter."""
-    return raw.startswith("/") or raw[1:2] == ":"
-
-
-def _escapes(part: str) -> bool:
-    """A component that would leave the root, or ask the OS to expand it."""
-    return part == ".." or part.startswith("~")
-
-
-def _under_root_remainder(raw: str, root: Path) -> list[str] | None:
-    """What is left of an absolute request once the root is taken off it."""
-    try:
-        return list(PurePosixPath(raw).relative_to(PurePosixPath(str(root))).parts)
-    except ValueError:
+    asked = Path(raw) if raw else Path()
+    if asked.is_absolute():
+        try:
+            asked = asked.relative_to(root)
+        except ValueError:
+            return None
+    parts = [part for part in asked.parts if part != "."]
+    if any(part == ".." for part in parts):
         return None
+    # No tilde rule here on purpose. Expansion happens in `_anywhere`, which
+    # calls `expanduser`; this branch only joins components onto the root, so
+    # `~cache` is a directory name like any other. The first version refused
+    # every component starting with a tilde and turned an ordinary
+    # `workspace/~cache` into a 403 (cubic).
+    return parts
 
 
 def requested_cwd(data: dict[str, Any], root: Path,

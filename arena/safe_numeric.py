@@ -32,6 +32,26 @@ def _default_or_raise(default: Any) -> Any:
     return default
 
 
+def _finite_default(default: Any, value: Any) -> float:
+    """The caller's default, but only if it is itself a finite number.
+
+    `default` is typed `float | object` because `_NO_DEFAULT` is a sentinel,
+    so isinstance is what narrows it -- not a `# type: ignore`, which
+    AGENTS.md forbids. The finiteness check is the point cubic raised: a
+    caller who passes `float("inf")` or `10**400` as the fallback would
+    otherwise get exactly the non-finite value this function exists to
+    refuse, laundered through the "safe" path.
+    """
+    if isinstance(default, int | float) and not isinstance(default, bool):
+        try:
+            candidate = float(default)
+        except OverflowError:
+            candidate = math.inf
+        if math.isfinite(candidate):
+            return candidate
+    raise ValueError(f"non-finite float rejected: {value!r}")
+
+
 def _clamped(x: float, minimum: float | None, maximum: float | None,
              *, strict: bool) -> float:
     """`x` pulled inside `[minimum, maximum]`, or a refusal if strict.
@@ -116,14 +136,7 @@ def safe_float(
     # (inf, -inf)`, which SonarCloud reads as a bug (S1764, identical
     # sub-expressions around `!=`) rather than as the NaN idiom it is.
     if not math.isfinite(x):
-        # `default` is typed `float | object` only because `_NO_DEFAULT` is a
-        # sentinel object; anything else there is a number the caller passed.
-        # Narrowing with isinstance rather than a `# type: ignore`, which
-        # AGENTS.md forbids (cubic), and a non-number default is treated as
-        # no default rather than quietly becoming one.
-        if isinstance(default, int | float) and not isinstance(default, bool):
-            return float(default)
-        raise ValueError(f"non-finite float rejected: {value!r}")
+        return _finite_default(default, value)
     # Clamp to the boundary rather than falling to the default; a request
     # for "timeout=0.001" against min=0.01 is closer to "operator meant
     # fast" than "operator meant default".
