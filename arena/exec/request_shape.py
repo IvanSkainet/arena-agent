@@ -93,16 +93,29 @@ def _relative_parts(raw: str, root: Path) -> list[str] | None:
     under the root; what comes back is the remainder, so the join above
     starts from the root either way.
     """
-    if raw.startswith("/") or (len(raw) > 1 and raw[1] == ":"):
-        try:
-            return list(PurePosixPath(raw).relative_to(PurePosixPath(str(root))).parts)
-        except ValueError:
-            return None
+    if _is_absolute(raw):
+        return _under_root_remainder(raw, root)
     asked = PurePosixPath(raw.replace("\\", "/")) if raw else PurePosixPath()
     parts = [part for part in asked.parts if part not in (".", "/")]
-    if any(part == ".." or part.startswith("~") for part in parts):
+    return None if any(map(_escapes, parts)) else parts
+
+
+def _is_absolute(raw: str) -> bool:
+    """A leading separator, or a Windows drive letter."""
+    return raw.startswith("/") or raw[1:2] == ":"
+
+
+def _escapes(part: str) -> bool:
+    """A component that would leave the root, or ask the OS to expand it."""
+    return part == ".." or part.startswith("~")
+
+
+def _under_root_remainder(raw: str, root: Path) -> list[str] | None:
+    """What is left of an absolute request once the root is taken off it."""
+    try:
+        return list(PurePosixPath(raw).relative_to(PurePosixPath(str(root))).parts)
+    except ValueError:
         return None
-    return parts
 
 
 def requested_cwd(data: dict[str, Any], root: Path,
