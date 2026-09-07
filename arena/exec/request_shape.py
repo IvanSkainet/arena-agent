@@ -58,14 +58,12 @@ def _chosen_cwd(raw: str, root: Path,
                 under_root: Callable[[Path, Path], bool] | None) -> Path | None:
     """The directory to run in, or None when the request leaves the sandbox.
 
-    Two profiles, two rules. Without a boundary check -- which the handlers
-    pass only when `allow_any_cwd` is off -- the caller is on the owner
-    profile, where leaving the root is the point and the same request runs
-    an arbitrary shell command anyway. cubic read `under_root is None` as
-    "unauthorised request reaches _anywhere"; it cannot, because the
-    handlers derive it from the profile in one line each
-    (`boundary = None if cfg["allow_any_cwd"] else ctx.under_root`), but the
-    assertion below says so in the code rather than in a comment.
+    Two rules, chosen by one setting. `under_root` arrives only when
+    `allow_any_cwd` is off; when the operator has turned that setting on --
+    on any profile, not just owner-shell -- leaving the root is the point of
+    it, and the handler derives the argument from the configuration in one
+    line (`boundary = None if cfg["allow_any_cwd"] else ctx.under_root`), so
+    a request cannot reach the unrestricted branch by itself.
 
     Everyone else gets a path *rebuilt* inside the root rather than checked
     afterwards: four attempts at "build it, then compare" (callback, helper,
@@ -117,7 +115,13 @@ def _relative_parts(raw: str, root: Path) -> list[str] | None:
     and the component filter runs on that remainder too -- `/root/../etc`
     reduces to `../etc`, which the filter refuses rather than normalises.
     """
-    asked = Path(raw) if raw else Path()
+    # Backslashes are normalised on POSIX before parsing: a caller who sends
+    # a Windows-style relative path to a Linux bridge means separators, not
+    # one filename with slashes in it (cubic). On Windows `Path` already
+    # reads both, so the replacement would be wrong there -- hence the
+    # platform check rather than an unconditional replace.
+    text = raw if os.name == "nt" else raw.replace("\\", "/")
+    asked = Path(text) if text else Path()
     if asked.is_absolute():
         try:
             asked = asked.relative_to(root)

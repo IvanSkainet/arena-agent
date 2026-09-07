@@ -129,7 +129,12 @@ def safe_float(
     except (TypeError, ValueError, OverflowError):
         # OverflowError as well: `float(10**400)` is "number too large to
         # convert", which reached /v1/game/boe/wait_inbox as a 500 (cubic).
-        return _default_or_raise(default)
+        # Through `_finite_default`, not straight to the default: a caller
+        # whose fallback is itself `inf` would otherwise get it back from a
+        # function whose whole promise is a finite number.
+        if default is _NO_DEFAULT:
+            raise
+        return _finite_default(default, value)
     # NaN and +/-Inf are both "valid floats" per Python's float() but almost
     # never what an HTTP caller legitimately means. `math.isfinite` covers
     # all three in one word; the previous spelling was `x != x or x in

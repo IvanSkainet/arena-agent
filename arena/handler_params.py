@@ -258,8 +258,11 @@ def body_str_list(body: Mapping[str, Any], name: str) -> list[str]:
     value = body.get(name)
     if value is None:
         return []
-    if not isinstance(value, list):
-        raise BodyFieldError(name, value, expected="an array of strings")
-    if any(not isinstance(item, str) for item in value):
-        raise BodyFieldError(name, value, expected="an array of strings")
-    return list(value)
+    if _is_string_list(value):
+        return list(value)
+    raise BodyFieldError(name, value, expected="an array of strings")
+
+
+def _is_string_list(value: object) -> bool:
+    """A list whose every element is a string -- and not a bare string."""
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
