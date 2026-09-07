@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import atexit
 import contextlib
 import os
 import shutil
@@ -169,12 +170,15 @@ def main() -> int:
     if not args.token:
         parser.error("set ARENA_FUZZ_TOKEN or pass --token")
 
-    # Installed before anything else can block: SIGTERM arriving during the
-    # redirection or the bridge import would otherwise kill the process
-    # outright, past the `finally` below (cubic).
-    _stop_on_sigterm()
     started_in = Path.cwd()
+    # Handler first, directory second, and the directory is remembered in a
+    # module-level name before anything else can raise: a SIGTERM landing
+    # between `mkdtemp` returning and the `try` being entered would
+    # otherwise leave the workspace behind (cubic). `_LEAKED` is what the
+    # last-resort cleanup below reads.
+    _stop_on_sigterm()
     root = Path(tempfile.mkdtemp(prefix="fuzz-root-"))
+    _LEAKED.append(root)
     # Everything after the directory exists is inside the try, including the
     # redirection and the import that follows it: both can raise, and a
     # cleanup that starts later leaves one workspace per failed start
@@ -195,6 +199,8 @@ def main() -> int:
         # to the repository root -- this script can be started anywhere, and
         # moving the process somewhere it never was is a surprise (corgea).
         shutil.rmtree(root, ignore_errors=True)
+        if root in _LEAKED:
+            _LEAKED.remove(root)
         with contextlib.suppress(OSError):
             os.chdir(started_in)
 
@@ -215,6 +221,18 @@ def _serve_until_stopped(root: Path, args: argparse.Namespace) -> int:
     os.chdir(root)
     asyncio.run(_serve(app, args.port))
     return 0
+
+
+# Workspaces created but not yet handed to a `finally`. One entry at a time
+# in practice; a list because atexit has to read it without knowing when.
+_LEAKED: list[Path] = []
+
+
+@atexit.register
+def _remove_any_leaked_workspace() -> None:
+    """Last resort for a workspace whose owner never reached its cleanup."""
+    while _LEAKED:
+        shutil.rmtree(_LEAKED.pop(), ignore_errors=True)
 
 
 def _stop_on_sigterm() -> None:

@@ -236,7 +236,7 @@ def _post(port: int, path: str, body: dict) -> int:
 BRIDGE_WRITES = (
     "token.txt", "audit.jsonl", "bridge.log", "requests.jsonl",
     "webhooks.json", "missions", "reports", "queue", "mission_schedules",
-    "memory", "skills", "hooks", "agents", "subagents",
+    "memory", "skills", "hooks", "agents", "subagents", "relay",
 )
 
 
@@ -249,6 +249,8 @@ def test_the_watched_paths_cover_everything_the_bridge_derives(monkeypatch):
     directory added to the layout fails here rather than quietly falling
     outside the isolation check (cubic).
     """
+    import dataclasses
+
     from arena.paths import ArenaPaths
 
     # `from_env` prefers ARENA_AGENT_HOME over its argument, and another test
@@ -259,12 +261,16 @@ def test_the_watched_paths_cover_everything_the_bridge_derives(monkeypatch):
     # literal "/tmp/..." reads to bandit as code that writes there (B108).
     probe_root = Path(tempfile.gettempdir()) / "arena-paths-probe"
     paths = ArenaPaths.from_env(probe_root)
+    # Every field, read off the dataclass rather than listed by hand: the
+    # hand-written version had already lost `relay_dir` by the time cubic
+    # pointed at it, which is the same failure this test exists to prevent,
+    # one level up. `root_agent` is the workspace itself, not something
+    # inside it.
     derived = {
-        paths.queue, paths.inbox, paths.running, paths.done, paths.failed,
-        paths.skills_dir, paths.hooks_dir, paths.agents_dir,
-        paths.subagents_dir, paths.missions_dir, paths.reports_dir,
-        paths.memory_file, paths.memory_db, paths.webhooks_file,
+        getattr(paths, field.name) for field in dataclasses.fields(paths)
+        if field.name != "root_agent"
     }
+    derived |= _constant_paths(probe_root)
     root = probe_root.as_posix() + "/"
     unwatched = sorted(
         str(path) for path in derived
@@ -274,6 +280,17 @@ def test_the_watched_paths_cover_everything_the_bridge_derives(monkeypatch):
     assert unwatched == [], (
         "these workspace paths are not covered by BRIDGE_WRITES, so the "
         f"isolation test would not notice them: {unwatched}")
+
+
+def _constant_paths(root: Path) -> set[Path]:
+    """The three files `arena.constants` puts beside the source tree.
+
+    `ArenaPaths` does not know about them -- that is exactly why the fuzz
+    runner has to repoint them by hand -- so the coverage check asks for
+    them separately rather than claiming the dataclass covers everything
+    (cubic).
+    """
+    return {root / "token.txt", root / "audit.jsonl", root / "bridge.log"}
 
 
 def _bridge_written_paths() -> set[str]:
