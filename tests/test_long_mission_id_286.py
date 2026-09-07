@@ -31,7 +31,7 @@ from arena.resources.mission_state import (
     get_mission_report,
     get_mission_status,
 )
-from arena.resources.missions_manage import create_mission_from_draft
+from arena.resources.missions_manage import create_mission_from_draft, run_mission
 
 # One ASCII, one that is short in characters and long in bytes -- the second
 # is the shape the fuzzer actually found, and a character-counting guard
@@ -144,3 +144,26 @@ def test_the_unit_follows_the_local_filesystem() -> None:
     emoji = "\U0001f600" * 64
     refused = unusable_directory_name(emoji) is not None
     assert refused is (os.name != "nt")
+
+
+def _never_spawns(*_args, **_kwargs):
+    raise AssertionError("the guard must answer before anything is spawned")
+
+
+@pytest.mark.parametrize("name", [*TOO_LONG, "m\x00x", "m\udb72x"])
+def test_running_an_unusable_mission_id_is_a_400(tmp_path: Path, name: str) -> None:
+    """`run_mission` puts the id in an argv, which is the third way to a 500.
+
+    `mission_manager.py run <id>` is spawned with the id as an argument, so
+    a NUL is `ValueError: embedded null byte` out of `Popen` and a lone
+    surrogate dies encoding the argument -- the same defect as #288 in
+    `/v1/exec`, reached through `/v1/mission/run` and `/v1/mission/rerun`.
+    Found by the #258 gate, which is also why `subprocess_kwargs` here
+    raises: the assertion is that nothing is spawned at all.
+    """
+    result = run_mission(root_agent=tmp_path, mission_id=name,
+                         subprocess_kwargs=_never_spawns)
+
+    assert result["ok"] is False
+    assert result["status"] == 400, result
+    assert "mission id" in result["error"]
