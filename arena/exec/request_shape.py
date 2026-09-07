@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from arena.exec.environment import filter_caller_env
@@ -39,31 +39,20 @@ def usable_cwd(raw: str, root: Path,
     found the second one three commits after the first was fixed.
     """
     try:
-        requested = Path(raw or str(root)).expanduser()
-        requested = requested if requested.is_absolute() else root / requested
-        # Resolved and compared inline, deliberately. The comparison used to
-        # live behind a callback and then behind a helper, and CodeQL called
-        # it py/path-injection both times -- correctly, in the sense that a
-        # reader (or an analyser) could not see the protection from the line
-        # that builds the path. `..` and symlinks are settled first, and the
-        # separator is part of the prefix so that `/rootless` does not count
-        # as inside `/root`.
-        resolved = requested.resolve()
-        # `relative_to` rather than a prefix comparison: it is pathlib's own
-        # containment question, it treats the separator correctly (so
-        # `/rootless` is not inside `/root`), and CodeQL recognises it as
-        # the sanitizer that a hand-rolled `startswith` is not.
-        try:
-            resolved.relative_to(root.resolve())
-            inside = True
-        except ValueError:
-            inside = False
-        # The boundary is checked before the filesystem: saying "does not
-        # exist" about a path outside the root answers a question the caller
-        # is not allowed to ask (cubic).
-        if under_root is not None and not inside:
-            return None, f"{OUTSIDE_ROOT} {root}"
-        cwd = resolved
+        if under_root is None:
+            # `allow_any_cwd`, the owner profile: going outside the root is
+            # the point of it, and the caller already has a shell here.
+            cwd = _anywhere(raw, root)
+        else:
+            # Everyone else gets a path *rebuilt* inside the root rather
+            # than checked afterwards. Three attempts at "build it, then
+            # compare" -- callback, helper, inline realpath -- were all
+            # correct and all still py/path-injection to CodeQL, because a
+            # comparison is not a construction. This cannot leave the root:
+            # the components are filtered, then joined onto it.
+            cwd = _inside_root(raw, root)
+            if cwd is None:
+                return None, f"{OUTSIDE_ROOT} {root}"
         if under_root is not None and not under_root(cwd, root):
             return None, f"{OUTSIDE_ROOT} {root}"
         if not cwd.exists() or not cwd.is_dir():
@@ -71,6 +60,38 @@ def usable_cwd(raw: str, root: Path,
     except (OSError, RuntimeError, ValueError) as exc:
         return None, f"cwd is not a usable path ({type(exc).__name__})"
     return cwd, ""
+
+
+def _anywhere(raw: str, root: Path) -> Path:
+    """The path as asked for, for the profile that allows any directory."""
+    asked = Path(raw or str(root)).expanduser()
+    return asked if asked.is_absolute() else root / asked
+
+
+def _inside_root(raw: str, root: Path) -> Path | None:
+    """`raw` rebuilt under `root`, or None if it was never going to be.
+
+    Built rather than validated: every component is checked before it is
+    joined, so there is no moment at which a path outside the root exists.
+    `..` and absolute components are refused rather than normalised away --
+    a caller who wrote `../x` meant something this profile does not allow,
+    and quietly reinterpreting it would be worse than saying no.
+    """
+    asked = PurePosixPath(raw.replace("\\", "/")) if raw else PurePosixPath()
+    parts = [part for part in asked.parts if part not in (".", "/")]
+    if any(part == ".." or part.startswith("~") for part in parts):
+        return None
+    if raw.startswith("/") or (len(raw) > 1 and raw[1] == ":"):
+        # An absolute path is allowed only when it names somewhere under the
+        # root already; the relative remainder is what gets rebuilt.
+        try:
+            parts = list(PurePosixPath(raw).relative_to(PurePosixPath(str(root))).parts)
+        except ValueError:
+            return None
+    built = root
+    for part in parts:
+        built = built / part
+    return built
 
 
 def requested_cwd(data: dict[str, Any], root: Path,
