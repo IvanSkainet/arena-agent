@@ -6,6 +6,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from arena.handler_params import body_int
+from arena.mission_limits import MAX_MISSION_TIMEOUT_S
 from arena.resources.mission_schedule_store import (
     delete_schedule_def,
     list_schedule_defs,
@@ -44,7 +46,7 @@ def list_mission_schedules_runtime(schedules_dir: Path, payload: dict[str, Any] 
     action = str(payload.get("action", "") or "").strip().lower()
     enabled = payload.get("enabled")
     due_only = bool(payload.get("due_only", False))
-    limit = max(1, min(200, int(payload.get("limit", 100) or 100)))
+    limit = max(1, min(200, body_int(payload, "limit", default=100)))
     items = []
     for schedule in list_schedule_defs(schedules_dir):
         entry = _view(schedule, now=now)
@@ -81,7 +83,12 @@ def tick_mission_schedules_runtime(
     now = dt.datetime.now(dt.timezone.utc)
     schedule_id = str(payload.get("schedule_id", "") or payload.get("id", "") or "").strip()
     force = bool(payload.get("force", False))
-    limit = max(1, min(50, int(payload.get("limit", 10) or 10)))
+    limit = max(1, min(50, body_int(payload, "limit", default=10)))
+    # Parsed here as well as where it is used: this endpoint passes `timeout`
+    # down to run/rerun, so with no schedules due nothing would ever look at
+    # it and a request over the documented maximum would answer 200 (#270).
+    timeout = body_int(payload, "timeout", default=0,
+                       bounds=(0, MAX_MISSION_TIMEOUT_S)) or 180
     schedules = list_schedule_defs(schedules_dir)
     if schedule_id:
         schedules = [item for item in schedules if str(item.get("id", "")) == schedule_id]
@@ -96,9 +103,9 @@ def tick_mission_schedules_runtime(
             continue
         action = str(entry.get("action", "iterate") or "iterate")
         if action == "run":
-            result = run_sync({"mission_id": entry.get("mission_id"), "timeout": payload.get("timeout", 180)})
+            result = run_sync({"mission_id": entry.get("mission_id"), "timeout": timeout})
         elif action == "rerun_failed":
-            result = rerun_sync({"mission_id": entry.get("mission_id"), "failed_only": True, "timeout": payload.get("timeout", 180)})
+            result = rerun_sync({"mission_id": entry.get("mission_id"), "failed_only": True, "timeout": timeout})
         else:
             result = iterate_sync({
                 "mission_id": entry.get("mission_id"),
@@ -113,7 +120,7 @@ def tick_mission_schedules_runtime(
                 "compose_followup": True,
                 "create_followup": True,
                 "run_followup": False,
-                "timeout": payload.get("timeout", 180),
+                "timeout": timeout,
             })
         next_run = now + dt.timedelta(minutes=int(entry.get("every_minutes", 60) or 60))
         updated = write_schedule_result(schedules_dir, entry, last_run_at=_iso(now), next_run_at=_iso(next_run), last_result={"ok": result.get("ok", False), "summary": {k: result.get(k) for k in ("mission_id", "step", "status", "mode") if k in result}})

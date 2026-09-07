@@ -57,6 +57,7 @@ from arena.handler_errors import (
     _JSON_TYPE_NAMES as _JSON_TYPE_NAMES,
     _UNREADABLE as _UNREADABLE,
     BadRequest as BadRequest,
+    BodyFieldError as BodyFieldError,
     JsonBodyError as JsonBodyError,
     QueryParamError as QueryParamError,
 )
@@ -309,173 +310,27 @@ async def parse_json_body(
 
 
 # ---------------------------------------------------------------------------
-# v4.44.0: safe numeric parsing for HTTP handler inputs
+# v4.44.0: safe numeric parsing for HTTP handler inputs. The parsers moved to
+# `safe_numeric` in #270 -- `handler_params` needs them and this module
+# re-exports `handler_params`, so leaving them here made importing either one
+# first a coin toss. Re-exported so no call site had to move.
 # ---------------------------------------------------------------------------
-
-# Sentinel for "no default requested; raise ValueError on bad input".
-_NO_DEFAULT = object()
-
-
-def safe_float(
-    value: Any,
-    *,
-    default: float | object = _NO_DEFAULT,
-    minimum: float | None = None,
-    maximum: float | None = None,
-) -> float:
-    """Parse a caller-supplied value into a bounded, finite float.
-
-    v4.44.0 security-hardening helper. Every HTTP handler that
-    coerces a query-string or JSON-body value into ``float`` used
-    to be a copy of::
-
-        try:
-            x = float(request.query.get("timeout", "1.5"))
-        except (TypeError, ValueError):
-            x = 1.5
-
-    That pattern is unsafe against two attacker-controlled shapes
-    that semgrep (``nan-injection``) rightly complains about:
-
-    * ``float("nan")`` -- passes through
-      ``try/except (TypeError, ValueError)`` because ``NaN`` is a
-      valid float. Downstream comparisons (``if x >= 0``) return
-      ``False`` for both branches, so guard clauses relying on
-      ordering silently break. In our case
-      ``socket.settimeout(nan)`` raises ``ValueError`` server-side
-      and turns a benign probe into a 500, which is a small
-      availability hit -- but nan-in-comparison bugs elsewhere
-      could bypass upper bounds.
-    * ``float("inf")`` -- similar. Passes the ``try/except`` and
-      then either loops forever, raises deep inside a syscall
-      (``ValueError: timestamp out of range for platform time_t``),
-      or converts to an overflow later.
-
-    The safe pattern is: parse, reject NaN/Inf, optionally clamp
-    to a ``[minimum, maximum]`` range. Everything else falls back
-    to the caller-supplied default (or raises ``ValueError`` if
-    the caller wanted strict).
-
-    Args:
-      value: any input, typically a query-string value.
-      default: value to return on parse failure. Omit to make the
-        function raise ``ValueError`` on any bad input.
-      minimum, maximum: inclusive bounds. Out-of-range values are
-        clamped when a ``default`` is provided; otherwise raise.
-
-    Returns:
-      A finite float, either the parsed value clamped into
-      ``[minimum, maximum]`` or ``default``.
-    """
-    try:
-        x = float(value)
-    except (TypeError, ValueError):
-        if default is _NO_DEFAULT:
-            raise
-        return default  # type: ignore[return-value]
-    # NaN and +/-Inf are both "valid floats" per Python's float()
-    # but almost never what an HTTP caller legitimately means.
-    # Reject both.
-    if x != x or x in (float("inf"), float("-inf")):
-        if default is _NO_DEFAULT:
-            raise ValueError(f"non-finite float rejected: {value!r}")
-        return default  # type: ignore[return-value]
-    if minimum is not None and x < minimum:
-        if default is _NO_DEFAULT:
-            raise ValueError(f"below minimum {minimum}: {x}")
-        # Clamp to the boundary rather than falling to the default;
-        # a request for "timeout=0.001" against min=0.01 is closer
-        # to "operator meant fast" than "operator meant default".
-        return float(minimum)
-    if maximum is not None and x > maximum:
-        if default is _NO_DEFAULT:
-            raise ValueError(f"above maximum {maximum}: {x}")
-        return float(maximum)
-    return x
-
-
-def safe_int(
-    value: Any,
-    *,
-    default: int | object = _NO_DEFAULT,
-    minimum: int | None = None,
-    maximum: int | None = None,
-) -> int:
-    """Parse a caller-supplied value into a bounded int.
-
-    v4.44.0 companion to :func:`safe_float`. Same clamp/default
-    semantics. Not vulnerable to NaN/Inf (Python's ``int()`` rejects
-    both), but still worth centralising because HTTP inputs also
-    like to send negative "timeout" or "limit" values that break
-    downstream ``range()`` / ``head[:n]`` slicing invariants.
-    """
-    try:
-        x = int(value)
-    except (TypeError, ValueError):
-        if default is _NO_DEFAULT:
-            raise
-        return default  # type: ignore[return-value]
-    if minimum is not None and x < minimum:
-        if default is _NO_DEFAULT:
-            raise ValueError(f"below minimum {minimum}: {x}")
-        return int(minimum)
-    if maximum is not None and x > maximum:
-        if default is _NO_DEFAULT:
-            raise ValueError(f"above maximum {maximum}: {x}")
-        return int(maximum)
-    return x
-
-
-def query_int(
-    request: web.Request, name: str, *, default: int | None,
-) -> int | None:
-    """Read an integer query parameter, or refuse the request with a 400.
-
-    ``safe_int`` (v4.44.0) already did the parsing. What it could not decide
-    is what a *handler* should do with a bad value, and both of the answers
-    it offers are wrong on their own:
-
-    * ``safe_int(raw, default=50)`` swallows the mistake. A client sending
-      ``?limit=fifty`` gets 200 and the first fifty rows, and goes on sending
-      ``fifty`` forever because nothing ever told it otherwise.
-    * ``safe_int(raw)`` raises ``ValueError``, which the wrappers above turn
-      into ``500 {"error": "ValueError: invalid literal for int() ...",
-      "error_type": "ValueError"}`` -- the bridge blaming itself for the
-      caller's typo, and naming an internal Python class while doing it.
-      That is #254, measured live on the operator's bridge at v4.170.0.
-
-    So: parse strictly, and re-raise the failure as :class:`QueryParamError`,
-    which the decorators answer with 400.
-
-    A missing or empty parameter is not an error. ``?offset=`` means
-    "unspecified" and yields ``default``, which is what it did before -- the
-    old ``int(query.get("offset", [0])[0] or 0)`` reached ``int()`` only for
-    a non-empty value too. Only the parse verdict changes, never the value
-    of a request that already worked.
-
-    Deliberately no ``minimum``/``maximum``: every current caller passes its
-    bad values on to a layer that already clamps them (``?limit=-1`` answers
-    200 with ``limit: 1`` today), and turning those into refusals would be a
-    behaviour change riding along with a bug fix. ``safe_int`` still has the
-    bounds for callers that genuinely need them.
-
-    Args:
-      request: the live aiohttp request.
-      name: query-string key, named in the error so the caller can fix it.
-      default: value for a missing or empty parameter. Keyword-only and
-        required -- pass ``None`` for a genuinely optional one, so that
-        "I forgot a default" cannot pass for "there is none".
-
-    Raises:
-      QueryParamError: the parameter was supplied and does not parse.
-    """
-    raw = request.query.get(name)
-    if raw is None or raw == "":
-        return default
-    try:
-        return safe_int(raw)
-    except (TypeError, ValueError):
-        raise QueryParamError(name) from None
+# Re-exported so that `from arena.handler_helpers import query_int` keeps
+# working: the parameter readers moved to `handler_params` when this module
+# hit the 600-line ceiling, and rewriting forty call sites for a file split
+# would be churn with no defect behind it (#266, #270).
+#
+# Down here rather than at the top because `handler_params` re-exports back
+# into this module. E402 is suppressed with a bare code: SonarCloud's S7632
+# reads trailing prose in a `noqa` as a malformed suppression, which it is.
+from arena.handler_params import (  # noqa: E402
+    body_int as body_int,
+    query_int as query_int,
+)
+from arena.safe_numeric import (  # noqa: E402
+    safe_float as safe_float,
+    safe_int as safe_int,
+)
 
 
 async def json_object_body(

@@ -7,7 +7,8 @@ from arena.desktop.availability import failure_response, is_refusal
 from arena.desktop.text_window_target import resolve_text_window_target
 from arena.desktop.window_catalog import list_desktop_windows, resolve_window_target, window_candidates
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import authed, controlled, json_object_body, query_int
+from arena.handler_helpers import authed, body_int, controlled, json_object_body, query_int
+from arena.handler_params import body_float
 
 
 def _truthy(value: str | None) -> bool:
@@ -60,7 +61,7 @@ def make_desktop_window_handlers(ctx: DesktopHandlerContext):
         desktop_file = str(body.get("desktop_file", "") or "")
         resource_name = str(body.get("resource_name", "") or "")
         display_name = str(body.get("display", "") or "")
-        pid = body.get("pid")
+        pid = body_int(body, "pid", default=None)
         dry_run = bool(body.get("dry_run", False))
 
         text_target = None
@@ -72,18 +73,18 @@ def make_desktop_window_handlers(ctx: DesktopHandlerContext):
                 class_contains=class_contains,
                 desktop_file=desktop_file,
                 resource_name=resource_name,
-                pid=int(pid) if pid is not None else None,
-                scale=body.get("scale"),
-                max_width=body.get("max_width"),
-                quality=int(body.get("quality", 80) or 80),
-                min_confidence=int(body.get("min_confidence", 40) or 40),
-                psm=int(body.get("psm", 11) or 11),
-                max_results=int(body.get("max_results", 20) or 20),
+                pid=pid,
+                scale=body_float(body, "scale", default=None),
+                max_width=body_int(body, "max_width", default=None),
+                quality=body_int(body, "quality", default=80),
+                min_confidence=body_int(body, "min_confidence", default=40),
+                psm=body_int(body, "psm", default=11),
+                max_results=body_int(body, "max_results", default=20),
                 prefer_active_window=bool(body.get("prefer_active_window", True)),
                 within_active_window=bool(body.get("within_active_window", False)),
                 crop_active_window=bool(body.get("crop_active_window", True)),
                 require_active_title=str(body.get("require_active_title", "") or ""),
-                max_window_candidates=int(body.get("max_candidates", 5) or 5),
+                max_window_candidates=body_int(body, "max_candidates", default=5),
                 capture_screenshot=ctx.capture_screenshot,
                 desktop_exec=ctx.desktop_exec,
                 detect_env=ctx.detect_desktop_env,
@@ -111,9 +112,9 @@ def make_desktop_window_handlers(ctx: DesktopHandlerContext):
             class_contains=class_contains,
             desktop_file=desktop_file,
             resource_name=resource_name,
-            pid=int(pid) if pid is not None else None,
+            pid=pid,
             display=display_name,
-            max_candidates=int(body.get("max_candidates", 5) or 5),
+            max_candidates=body_int(body, "max_candidates", default=5),
             desktop_exec=ctx.desktop_exec,
             detect_env=ctx.detect_desktop_env,
             kwin_windows_via_script=ctx.kwin_windows_via_script,

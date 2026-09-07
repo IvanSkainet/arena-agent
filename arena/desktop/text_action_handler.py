@@ -6,7 +6,8 @@ from aiohttp import web
 from arena.desktop.availability import failure_response, is_refusal
 from arena.desktop.text_action import run_text_action
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import controlled, parse_json_body
+from arena.handler_helpers import body_int, controlled, parse_json_body
+from arena.handler_params import body_float
 
 
 def make_desktop_text_action_handler(ctx: DesktopHandlerContext):
@@ -27,27 +28,27 @@ def make_desktop_text_action_handler(ctx: DesktopHandlerContext):
             class_contains=str(body.get("class", "") or ""),
             desktop_file=str(body.get("desktop_file", "") or ""),
             resource_name=str(body.get("resource_name", "") or ""),
-            pid=int(body["pid"]) if body.get("pid") is not None else None,
-            scale=body.get("scale"),
-            max_width=body.get("max_width"),
-            quality=int(body.get("quality", 80) or 80),
-            min_confidence=int(body.get("min_confidence", 40) or 40),
-            psm=int(body.get("psm", 11) or 11),
-            max_results=int(body.get("max_results", 20) or 20),
+            pid=body_int(body, "pid", default=None),
+            scale=body_float(body, "scale", default=None),
+            max_width=body_int(body, "max_width", default=None),
+            quality=body_int(body, "quality", default=80),
+            min_confidence=body_int(body, "min_confidence", default=40),
+            psm=body_int(body, "psm", default=11),
+            max_results=body_int(body, "max_results", default=20),
             prefer_active_window=bool(body.get("prefer_active_window", True)),
             within_active_window=bool(body.get("within_active_window", False)),
             crop_active_window=bool(body.get("crop_active_window", True)),
             require_active_title=str(body.get("require_active_title", "") or ""),
-            max_window_candidates=int(body.get("max_window_candidates", 5) or 5),
+            max_window_candidates=body_int(body, "max_window_candidates", default=5),
             target_position=str(body.get("target_position", "center") or "center"),
-            offset_x=int(body.get("offset_x", 0) or 0),
-            offset_y=int(body.get("offset_y", 0) or 0),
+            offset_x=body_int(body, "offset_x", default=0),
+            offset_y=body_int(body, "offset_y", default=0),
             button=str(body.get("button", "left") or "left"),
             double=bool(body.get("double", False)),
             activate=bool(body.get("activate", True)),
             dry_run=bool(body.get("dry_run", False)),
             verify=bool(body.get("verify", True)),
-            timeout_ms=int(body.get("timeout_ms", 1000) or 1000),
+            timeout_ms=body_int(body, "timeout_ms", default=1000),
             capture_screenshot=ctx.capture_screenshot,
             desktop_exec=ctx.desktop_exec,
             detect_env=ctx.detect_desktop_env,

@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from arena.handler_errors import BodyFieldError
+from arena.handler_params import is_string_list
+
 
 class CognitiveInputError(ValueError):
     """A cognitive endpoint request has an unusable field shape."""
@@ -39,10 +42,18 @@ def optional_text(data: dict[str, Any], field: str) -> str:
 
 
 def optional_string_list(data: dict[str, Any], field: str) -> list[str]:
+    """A list of strings, or the module's own refusal.
+
+    The shape question comes from `handler_params.is_string_list`, shared
+    with the mission endpoints so that the two cannot drift into accepting
+    different things (cubic). The *error* stays local: these endpoints
+    answer with their own sentence, and #270 only changed that for the
+    numeric fields the document promises `field` for.
+    """
     value = data.get(field, [])
     if value is None:
         return []
-    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+    if not is_string_list(value):
         raise CognitiveInputError(f"{field} must be a list of strings")
     return list(value)
 
@@ -57,9 +68,20 @@ def optional_object(data: dict[str, Any], field: str) -> dict[str, Any]:
 
 
 def positive_int(data: dict[str, Any], field: str, default: int) -> int:
+    """A count the caller supplied, refused as a named field if it is not one.
+
+    Raises `BodyFieldError` rather than the local `CognitiveInputError` so
+    that the refusal carries `field` and `received` like every other body
+    rejection since #270 -- the document promises those keys for any
+    operation with a numeric body field, and /v1/plan and /v1/react are two
+    of them. `BodyFieldError` is a ValueError, so the handlers that already
+    catch `CognitiveInputError` (also a ValueError) keep working either way.
+    """
     value = data.get(field, default)
     if value is None:
         return default
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise CognitiveInputError(f"{field} must be a positive integer")
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise BodyFieldError(field, value)
+    if value < 1:
+        raise BodyFieldError(field, value, expected="an integer no smaller than 1")
     return value

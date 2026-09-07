@@ -44,7 +44,6 @@ from arena.exec.client_lifecycle import (
     record_client_disconnect,
 )
 from arena.exec.control_gate import control_injection_response
-from arena.exec.environment import filter_caller_env
 from arena.exec.interpreters import (
     _INTERPRETERS,
     _resolve_interpreter,
@@ -52,6 +51,12 @@ from arena.exec.interpreters import (
     interpreter_command,
     interpreter_path_arg,
     interpreter_runs_here,
+)
+from arena.exec.request_shape import (
+    OUTSIDE_ROOT,
+    limits_and_env,
+    requested_cwd,
+    usable_cwd,
 )
 from arena.exec.runner import run_shell_command_stream
 from arena.handler_context import ExecHandlerContext
@@ -69,6 +74,18 @@ class ExecHandlers:
     script: Callable[..., Any]
     # v4.3.0: NDJSON streaming endpoint.
     stream: Callable[..., Any]
+
+
+def _cwd_refusal(ctx: Any, message: str, request_id: str) -> web.Response:
+    """The 400 or 403 for a `cwd` the request may not have.
+
+    403 when the sandbox says no, 400 when the path itself is unusable --
+    written once because all three exec entry points answer it the same way,
+    and because the status is a decision, not a detail of each handler.
+    """
+    ctx.record_request(is_error=True, count_request=False)
+    status = 403 if message.startswith(OUTSIDE_ROOT) else 400
+    return err_json(ctx, message, status=status, request_id=request_id)
 
 
 def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
@@ -119,23 +136,13 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 return err_json(ctx, reason, status=403, request_id=request_id)
 
         root: Path = cfg["root"]
-        cwd_raw = str(data.get("cwd") or root)
-        cwd = Path(cwd_raw).expanduser()
-        if not cwd.is_absolute():
-            cwd = root / cwd
-        if not cfg["allow_any_cwd"] and not ctx.under_root(cwd, root):
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, f"cwd must be under root {root}", status=403, request_id=request_id)
-        if not cwd.exists() or not cwd.is_dir():
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, f"cwd does not exist: {cwd}", status=400, request_id=request_id)
+        boundary = None if cfg["allow_any_cwd"] else ctx.under_root
+        cwd, cwd_error = requested_cwd(data, root, under_root=boundary)
+        if cwd_error:
+            return _cwd_refusal(ctx, cwd_error, request_id)
+        assert cwd is not None  # pyrefly: the error branch returned already
 
-        timeout = min(int(data.get("timeout") or cfg["timeout"]), cfg["max_timeout"])
-        max_output = min(int(data.get("max_output") or ctx.default_max_output), cfg["max_output"])
-        raw_env = data.get("env")
-        env_extra: dict[str, Any] = dict(raw_env) if isinstance(raw_env, dict) else {}
-        env = os.environ.copy()
-        env.update(filter_caller_env(env_extra))
+        timeout, max_output, env = limits_and_env(data, cfg, ctx)
 
         sem: asyncio.Semaphore = cfg["semaphore"]
         if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:
@@ -276,17 +283,11 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
 
         root: Path = cfg["root"]
         cwd_hdr = (request.headers.get("X-Arena-Cwd") or "").strip()
-        cwd = Path(cwd_hdr).expanduser() if cwd_hdr else root
-        if not cwd.is_absolute():
-            cwd = root / cwd
-        if not cfg["allow_any_cwd"] and not ctx.under_root(cwd, root):
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, f"cwd must be under root {root}",
-                            status=403, request_id=request_id)
-        if not cwd.exists() or not cwd.is_dir():
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, f"cwd does not exist: {cwd}",
-                            status=400, request_id=request_id)
+        boundary = None if cfg["allow_any_cwd"] else ctx.under_root
+        cwd, cwd_error = usable_cwd(cwd_hdr, root, under_root=boundary)
+        if cwd_error:
+            return _cwd_refusal(ctx, cwd_error, request_id)
+        assert cwd is not None  # pyrefly: the error branch returned already
 
         # Concurrency gate: same semaphore as /v1/exec so the two
         # endpoints share fairness rather than doubling capacity.
@@ -445,23 +446,13 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 return err_json(ctx, reason, status=403, request_id=request_id)
 
         root: Path = cfg["root"]
-        cwd_raw = str(data.get("cwd") or root)
-        cwd = Path(cwd_raw).expanduser()
-        if not cwd.is_absolute():
-            cwd = root / cwd
-        if not cfg["allow_any_cwd"] and not ctx.under_root(cwd, root):
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, f"cwd must be under root {root}", status=403, request_id=request_id)
-        if not cwd.exists() or not cwd.is_dir():
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, f"cwd does not exist: {cwd}", status=400, request_id=request_id)
+        boundary = None if cfg["allow_any_cwd"] else ctx.under_root
+        cwd, cwd_error = requested_cwd(data, root, under_root=boundary)
+        if cwd_error:
+            return _cwd_refusal(ctx, cwd_error, request_id)
+        assert cwd is not None  # pyrefly: the error branch returned already
 
-        timeout = min(int(data.get("timeout") or cfg["timeout"]), cfg["max_timeout"])
-        max_output = min(int(data.get("max_output") or ctx.default_max_output), cfg["max_output"])
-        raw_env = data.get("env")
-        env_extra: dict[str, Any] = dict(raw_env) if isinstance(raw_env, dict) else {}
-        env = os.environ.copy()
-        env.update(filter_caller_env(env_extra))
+        timeout, max_output, env = limits_and_env(data, cfg, ctx)
 
         sem: asyncio.Semaphore = cfg["semaphore"]
         if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:

@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
 
-__all__ = ["BadRequest", "JsonBodyError", "QueryParamError"]
+__all__ = ["BadRequest", "BodyFieldError", "JsonBodyError", "QueryParamError"]
 
 
 # "the body could not be read as JSON at all", distinct from any JSON value
@@ -96,3 +96,39 @@ class JsonBodyError(BadRequest):
         self.details = {"received": self.received}
         super().__init__(
             f"request body must be a JSON object, received {self.received}")
+
+
+# The body counterpart adds the one type #259 has no use for: an object is
+# exactly what that check wanted, so it never had to name it, while a field
+# inside the object can perfectly well be one.
+_BODY_TYPE_NAMES: dict[type, str] = {**_JSON_TYPE_NAMES, dict: "object"}
+
+
+class BodyFieldError(BadRequest):
+    """A field in the JSON body is not the integer this endpoint reads (#270).
+
+    The body counterpart of :class:`QueryParamError`, and it can say one
+    thing that one cannot: a query string is text, so the only fault
+    available is "does not parse", while a body field arrives already typed
+    and can be an array where a number was meant. Naming the JSON type turns
+    "must be an integer" into a sentence the caller can act on without
+    guessing which of their fields the server disliked.
+
+    Same rule as #259 on what goes in the envelope: the field name and the
+    JSON type, never the value. The name is the half the caller has to fix,
+    and reflecting attacker-supplied text out of an error body is how an
+    error envelope becomes a gadget.
+    """
+
+    def __init__(self, field: str, received: object = _UNREADABLE,
+                 *, expected: str = "an integer") -> None:
+        self.field = field
+        self.received = (None if received is _UNREADABLE
+                         else _BODY_TYPE_NAMES.get(type(received)))
+        self.details = ({"field": field} if self.received is None
+                        else {"field": field, "received": self.received})
+        # `expected` carries the bound when there is one: "an integer no
+        # greater than 86400" is the whole answer, where "must be an integer"
+        # sent to someone who did send an integer is a riddle.
+        tail = "" if self.received is None else f", received {self.received}"
+        super().__init__(f"body field {field!r} must be {expected}{tail}")

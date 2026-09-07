@@ -7,6 +7,9 @@ import re
 from pathlib import Path
 from typing import Any
 
+from arena.handler_params import body_int
+from arena.mission_limits import MAX_SCHEDULE_EVERY_MINUTES
+
 _ACTIONS = {"run", "rerun_failed", "iterate"}
 
 
@@ -63,7 +66,8 @@ def save_schedule_def(schedules_dir: Path, data: dict[str, Any]) -> dict[str, An
     action = str(data.get("action", "iterate") or "iterate").strip().lower()
     if action not in _ACTIONS:
         return {"ok": False, "error": f"invalid action: {action}", "status": 400}
-    every_minutes = max(1, int(data.get("every_minutes", 60) or 60))
+    every_minutes = max(1, body_int(data, "every_minutes", default=60,
+                                    bounds=(0, MAX_SCHEDULE_EVERY_MINUTES)))
     now = _now()
     schedule_id = str(data.get("schedule_id", "") or data.get("id", "") or "").strip() or _slug(f"{mission_id}-{action}")
     try:
@@ -91,8 +95,8 @@ def save_schedule_def(schedules_dir: Path, data: dict[str, Any]) -> dict[str, An
         "constraints": list(raw_constraints) if isinstance(raw_constraints, (list, tuple)) else [],
         "memory_profile": str(data.get("memory_profile", "") or current.get("memory_profile", "") or ""),
         "template": str(data.get("template", "") or current.get("template", "") or ""),
-        "max_steps": int(data.get("max_steps", current.get("max_steps", 8)) or 8),
-        "max_iterations": int(data.get("max_iterations", current.get("max_iterations", 4)) or 4),
+        "max_steps": body_int(data, "max_steps", default=int(current.get("max_steps", 8) or 8)),
+        "max_iterations": body_int(data, "max_iterations", default=int(current.get("max_iterations", 4) or 4)),
         "created_at": str(current.get("created_at", "") or _iso(now)),
         "updated_at": _iso(now),
         "next_run_at": next_run_at,
