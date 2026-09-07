@@ -35,6 +35,11 @@ def _default_or_raise(default: Any) -> Any:
 def _finite_default(default: Any, value: Any) -> float:
     """The caller's default, but only if it is itself a finite number.
 
+    Called only when a default was supplied -- the strict path raises before
+    reaching here, spelled out at each call site rather than left to the
+    isinstance below, which happened to do the right thing for the sentinel
+    but did not say so (corgea).
+
     `default` is typed `float | object` because `_NO_DEFAULT` is a sentinel,
     so isinstance is what narrows it -- not a `# type: ignore`, which
     AGENTS.md forbids. The finiteness check is the point cubic raised: a
@@ -141,6 +146,8 @@ def safe_float(
     # (inf, -inf)`, which SonarCloud reads as a bug (S1764, identical
     # sub-expressions around `!=`) rather than as the NaN idiom it is.
     if not math.isfinite(x):
+        if default is _NO_DEFAULT:
+            raise ValueError(f"non-finite float rejected: {value!r}")
         return _finite_default(default, value)
     # Clamp to the boundary rather than falling to the default; a request
     # for "timeout=0.001" against min=0.01 is closer to "operator meant
