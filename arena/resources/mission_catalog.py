@@ -5,7 +5,11 @@ from pathlib import Path
 from typing import Any
 
 from arena.jsonshape import loads_object
-from arena.resources.mission_identifier import resolve_mission_name
+from arena.resources.mission_identifier import (
+    NAME_MAX_BYTES,
+    resolve_mission_name,
+    too_long_for_disk,
+)
 
 
 def mission_dir(missions_dir: Path, name: str) -> Path:
@@ -26,6 +30,13 @@ def mission_dir(missions_dir: Path, name: str) -> Path:
     """
     if ".." in name or "/" in name or "\\" in name or name.startswith("."):
         raise ValueError("invalid mission name")
+    if too_long_for_disk(name):
+        # Refused here rather than at the first `stat`: every mission read
+        # funnels through this function, and the filesystem's own answer to
+        # an over-long name is an OSError out of `Path.exists()`, which
+        # reached the client as a 500 (#258 gate, #282).
+        raise ValueError(
+            f"mission name is too long: {NAME_MAX_BYTES} bytes at most")
     return missions_dir / resolve_mission_name(missions_dir, name)
 
 

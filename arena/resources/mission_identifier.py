@@ -59,6 +59,26 @@ def parse_mission_identifier(query_string: str) -> str:
     return ""
 
 
+# What a single path component may weigh on the filesystems this runs on:
+# 255 bytes on ext4, APFS and NTFS alike. Bytes, not characters -- the id
+# that found this was 40 combining-mark-laden characters and 1.6 kB.
+NAME_MAX_BYTES = 255
+
+
+def too_long_for_disk(name: str) -> bool:
+    """Whether this identifier cannot be a directory name at all.
+
+    Asked before anything touches the filesystem, because the answer from
+    the filesystem is `OSError: [Errno 36] File name too long` raised out
+    of `Path.exists()` -- a place no caller expects an exception, so it
+    arrived at the client as a 500 (found by the #258 fuzzing gate).
+
+    `surrogatepass` because a JSON body can carry lone surrogates, and
+    measuring their length must not raise on the way to refusing them.
+    """
+    return len(name.encode("utf-8", "surrogatepass")) > NAME_MAX_BYTES
+
+
 def resolve_mission_name(missions_dir: Path, name: str) -> str:
     """Map a caller-supplied identifier onto the stored mission name.
 

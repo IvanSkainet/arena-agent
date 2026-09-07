@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from arena.missions_cli.templates import TEMPLATES_DATA
+from arena.resources.mission_identifier import NAME_MAX_BYTES, too_long_for_disk
 from arena.resources.mission_state import infer_rerun_step
 
 _TEMPLATE_HINTS = {
@@ -86,6 +87,13 @@ def create_mission_from_draft(*, missions_dir: Path, draft: dict[str, Any], miss
         # and answered 500. Refusing the write is the cheaper half of that
         # fix (the reader is the other half).
         return {"ok": False, "error": "mission id cannot be blank", "status": 400}
+    if too_long_for_disk(mid):
+        # The writer half of #282: `mkdir` on a name the filesystem cannot
+        # hold raises ENAMETOOLONG, which arrived as a 500. The reader half
+        # is in `mission_dir`.
+        return {"ok": False,
+                "error": f"mission id is too long: {NAME_MAX_BYTES} bytes at most",
+                "status": 400}
     path = missions_dir / mid
     if path.exists() and not overwrite:
         return {"ok": False, "error": f"mission already exists: {mid}", "status": 409}
