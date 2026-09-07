@@ -169,6 +169,7 @@ def main() -> int:
     if not args.token:
         parser.error("set ARENA_FUZZ_TOKEN or pass --token")
 
+    started_in = Path.cwd()
     root = Path(tempfile.mkdtemp(prefix="fuzz-root-"))
     # Everything after the directory exists is inside the try, including the
     # redirection and the import that follows it: both can raise, and a
@@ -176,8 +177,17 @@ def main() -> int:
     # (sourcery and cubic, separately).
     try:
         return _serve_until_stopped(root, args)
+    except KeyboardInterrupt:
+        # Ctrl-C or the SIGTERM handler above. Not an error: the job stops
+        # this process when the fuzz run finishes, and a traceback in the
+        # log would read like one.
+        print("bridge stopped", flush=True)
+        return 0
     finally:
-        os.chdir(REPO_ROOT)
+        # Back to wherever the caller was, not to the repository root: this
+        # script can be started from anywhere, and putting the process
+        # somewhere it never was is its own small surprise (corgea).
+        os.chdir(started_in)
         shutil.rmtree(root, ignore_errors=True)
 
 
