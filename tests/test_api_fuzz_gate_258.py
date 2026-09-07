@@ -25,7 +25,6 @@ exists to prevent. PyYAML is in requirements-ci.lock.
 """
 from __future__ import annotations
 
-import contextlib
 import json
 import socket
 import subprocess
@@ -139,19 +138,27 @@ def test_the_run_leaves_nothing_in_the_checkout():
     Skipped where a socket or a process is not available; a CI runner has
     both, and the job that matters runs there.
     """
+    # Captured before the process starts: anything the bridge writes while
+    # starting up is exactly what this test is about, and a baseline taken
+    # after Popen would accept it as pre-existing (CodeRabbit).
+    before = _repository_contents()
     port = _free_port()
     proc = subprocess.Popen(
         [sys.executable, str(SERVER_PATH), "--port", str(port),
          "--token", "isolation-probe"],
         cwd=REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True)
-    before = _repository_contents()
     try:
         _wait_until_listening(proc, port)
         # The two endpoints that wrote outside the workspace before #258:
-        # one issues a token file, the other creates a mission directory.
-        _post(port, "/v1/token/regenerate", {})
-        _post(port, "/v1/mission/compose", {"goal": "isolation", "create": True})
+        # one creates a mission directory, the other issues a token file.
+        # Their status codes are asserted, so a probe that never reached a
+        # handler fails the test instead of passing it quietly -- and the
+        # token endpoint goes last, because it invalidates the credential
+        # the previous line is using.
+        assert _post(port, "/v1/mission/compose",
+                     {"goal": "isolation", "create": True}) == 200
+        assert _post(port, "/v1/token/regenerate", {}) == 200
     finally:
         proc.terminate()
         proc.wait(timeout=30)
@@ -179,14 +186,25 @@ def _wait_until_listening(proc: subprocess.Popen, port: int) -> None:
     raise AssertionError("the bridge did not start within 60s")
 
 
-def _post(port: int, path: str, body: dict) -> None:
+def _post(port: int, path: str, body: dict) -> int:
+    """POST to the bridge and return the status.
+
+    Returns rather than swallows: the first version suppressed every HTTP
+    and URL error, so a bridge that answered 500 -- or was not there at all
+    -- still let the test pass with an empty diff (CodeRabbit). A 4xx is
+    returned as itself so the caller can insist on what it expects.
+    """
     request = urllib.request.Request(
         f"http://127.0.0.1:{port}{path}", data=json.dumps(body).encode(),
         headers={"Authorization": "Bearer isolation-probe",
                  "Content-Type": "application/json"})
-    with contextlib.suppress(urllib.error.HTTPError, urllib.error.URLError):
+    try:
         with urllib.request.urlopen(request, timeout=30) as response:
             response.read()
+            return int(response.status)
+    except urllib.error.HTTPError as err:
+        err.read()
+        return int(err.code)
 
 
 def _repository_contents() -> set[str]:

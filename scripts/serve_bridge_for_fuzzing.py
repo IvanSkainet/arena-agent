@@ -54,6 +54,13 @@ sys.path.insert(0, str(REPO_ROOT))
 
 # Everything below imports the bridge, and the bridge reads its paths at
 # import time, so the redirection has to happen first.
+# Named rather than sprinkled through the code (corgea): the port the job
+# and the config agree on, a request ceiling high enough that the limiter
+# never fires during a run, and the interval the idle loop naps for.
+DEFAULT_PORT = 8899
+NO_RATE_LIMIT = 10 ** 9
+IDLE_SLEEP_S = 3600
+
 FUZZ_ROOT = Path(tempfile.mkdtemp(prefix="fuzz-root-"))
 
 # `ArenaPaths.from_env` reads this, and queue/, missions/, reports/ and
@@ -136,7 +143,7 @@ def _prepare_workspace() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", type=int, default=8899)
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     # Required rather than defaulted: a literal token in a script is a
     # credential in the source tree as far as any scanner is concerned, and
     # they are right often enough that arguing is not worth it. The caller
@@ -145,7 +152,7 @@ def main() -> int:
     args = parser.parse_args()
 
     rate_limit._rl_v2_config["enabled"] = False
-    rate_limit._rate_limit_max = 10 ** 9
+    rate_limit._rate_limit_max = NO_RATE_LIMIT
 
     # No --root option on purpose. It was there for a run against a fixed
     # directory, which nothing needs, and SonarCloud read it exactly right
@@ -153,13 +160,18 @@ def main() -> int:
     # writes files and executes commands relative to it, is a way out of the
     # sandbox for anything -- a person or an agent -- that gets the argument
     # wrong. A directory nobody can name cannot be escaped into.
-    _prepare_workspace()
-    app = build_app(FUZZ_ROOT, args.token)
-    os.chdir(FUZZ_ROOT)
+    # The whole body is inside the try, not just the serving: preparing the
+    # workspace, building the app and the chdir can all fail, and each of
+    # them leaves the temporary directory behind if the cleanup only covers
+    # what comes after (CodeRabbit).
     try:
+        _prepare_workspace()
+        app = build_app(FUZZ_ROOT, args.token)
+        os.chdir(FUZZ_ROOT)
         asyncio.run(_serve(app, args.port))
     finally:
         # One abandoned workspace per run fills /tmp on a laptop (cubic).
+        os.chdir(REPO_ROOT)
         shutil.rmtree(FUZZ_ROOT, ignore_errors=True)
     return 0
 
@@ -170,7 +182,7 @@ async def _serve(app: web.Application, port: int) -> None:
     await web.TCPSite(runner, "127.0.0.1", port).start()
     print(f"bridge listening on 127.0.0.1:{port}", flush=True)
     while True:
-        await asyncio.sleep(3600)
+        await asyncio.sleep(IDLE_SLEEP_S)
 
 
 if __name__ == "__main__":
