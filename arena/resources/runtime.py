@@ -128,7 +128,7 @@ def make_resource_runtime(ctx: ResourceRuntimeContext) -> ResourceRuntime:
         return list_mission_templates()
 
     def _mission_compose_sync(data: dict[str, Any]) -> dict[str, Any]:
-        return compose_mission_draft(goal=str(data.get("goal", "") or ""), context=str(data.get("context", "") or ""), constraints=body_str_list(data, "constraints"), max_steps=body_int(data, "max_steps", default=8), memory_profile=data.get("memory_profile"), title=str(data.get("title", "") or ""), template=str(data.get("template", "") or ""), build_plan=ctx.build_plan)
+        return compose_mission_draft(goal=str(data.get("goal", "") or ""), context=str(data.get("context", "") or ""), constraints=body_str_list(data, "constraints", default=[]), max_steps=body_int(data, "max_steps", default=8), memory_profile=data.get("memory_profile"), title=str(data.get("title", "") or ""), template=str(data.get("template", "") or ""), build_plan=ctx.build_plan)
 
     def _mission_create_sync(data: dict[str, Any]) -> dict[str, Any]:
         composed = data.get("draft") if isinstance(data.get("draft"), dict) else _mission_compose_sync(data).get("draft")

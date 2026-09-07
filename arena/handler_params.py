@@ -18,7 +18,7 @@ from aiohttp import web
 from arena.handler_errors import BodyFieldError, QueryParamError
 from arena.safe_numeric import safe_float, safe_int
 
-__all__ = ["body_float", "body_int", "body_str", "body_str_list", "query_int"]
+__all__ = ["body_float", "body_int", "body_str", "body_str_list", "is_string_list", "query_int"]
 
 
 def query_int(
@@ -242,7 +242,8 @@ def body_float(body: Mapping[str, Any], name: str, *, default: float | None) -> 
         raise BodyFieldError(name, value, expected="a finite number") from None
 
 
-def body_str_list(body: Mapping[str, Any], name: str) -> list[str]:
+def body_str_list(body: Mapping[str, Any], name: str,
+                  *, default: list[str] | None = None) -> list[str] | None:
     """Read a list of strings out of a JSON body, or refuse with a 400.
 
     The third of the family, and found the same way as the first two: the
@@ -250,19 +251,28 @@ def body_str_list(body: Mapping[str, Any], name: str) -> list[str]:
     `data.get("constraints") or []` idiom passed `True` straight through,
     and the planner answered 500 (#270).
 
-    Missing and null mean "none given", as everywhere else here. A list is
-    accepted only if every element is a string -- a list of numbers is a
-    caller mistake, and stringifying it would hide the mistake rather than
-    report it.
+    Missing and null yield `default`, and the two callers want different
+    ones: /v1/mission/compose has nothing to fall back on and wants `[]`,
+    while /v1/mission/followup inherits the source mission's constraints
+    from `None` and would silently discard them if handed an empty list
+    (cubic). A list is accepted only if every element is a string -- a list
+    of numbers is a caller mistake, and stringifying it would hide the
+    mistake rather than report it.
     """
     value = body.get(name)
     if value is None:
-        return []
-    if _is_string_list(value):
+        return default
+    if is_string_list(value):
         return list(value)
     raise BodyFieldError(name, value, expected="an array of strings")
 
 
-def _is_string_list(value: object) -> bool:
-    """A list whose every element is a string -- and not a bare string."""
+def is_string_list(value: object) -> bool:
+    """A list whose every element is a string -- and not a bare string.
+
+    Public because `arena.cognitive_input.optional_string_list` asks the
+    same question for /v1/plan and /v1/react; two spellings of one contract
+    is how mission and cognitive endpoints would come to accept different
+    shapes (cubic).
+    """
     return isinstance(value, list) and all(isinstance(item, str) for item in value)

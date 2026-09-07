@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from arena.handler_errors import BodyFieldError
+from arena.handler_params import is_string_list
 
 
 class CognitiveInputError(ValueError):
@@ -41,10 +42,18 @@ def optional_text(data: dict[str, Any], field: str) -> str:
 
 
 def optional_string_list(data: dict[str, Any], field: str) -> list[str]:
+    """A list of strings, or the module's own refusal.
+
+    The shape question comes from `handler_params.is_string_list`, shared
+    with the mission endpoints so that the two cannot drift into accepting
+    different things (cubic). The *error* stays local: these endpoints
+    answer with their own sentence, and #270 only changed that for the
+    numeric fields the document promises `field` for.
+    """
     value = data.get(field, [])
     if value is None:
         return []
-    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+    if not is_string_list(value):
         raise CognitiveInputError(f"{field} must be a list of strings")
     return list(value)
 
