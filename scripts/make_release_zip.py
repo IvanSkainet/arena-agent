@@ -31,6 +31,11 @@ ROOT = Path(__file__).resolve().parent.parent
 EXCLUDE_TOP = {
     "tests", ".github", "dev", ".git", ".pytest_cache", ".vscode", ".idea",
     ".installer-backup", "backups", "logs", "missions", "reports",
+    # Schemathesis writes its crash cache here on every fuzz run (#258). It
+    # is git-ignored, and the untracked guard inspects ignored files, so
+    # without this line a release cannot be cut on any machine that has run
+    # the gate locally.
+    ".schemathesis",
 }
 EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
 EXCLUDE_SUBDIRS = {"__pycache__", ".pytest_cache", "node_modules", ".mypy_cache"}

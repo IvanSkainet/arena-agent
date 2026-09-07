@@ -1547,6 +1547,84 @@ jobs:
         run: |
           python scripts/namespace_doc_coverage.py --repo-root . --enforce
 
+  api-fuzz:
+    timeout-minutes: 15
+    name: API fuzzing (Schemathesis)
+    runs-on: ubuntu-latest
+    steps:
+      # Harden-Runner in block mode: this job installs from PyPI and then
+      # talks only to 127.0.0.1, so anything leaving the box is wrong.
+      - name: Harden Runner (block mode, egress enforced)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # Two locks: the bridge's own dependencies, and the fuzzer. Schemathesis
+      # is not in requirements-ci.lock on purpose -- see requirements-fuzz.in.
+      - name: Install the bridge and the fuzzer (hash-pinned)
+        run: |
+          python -m pip install --require-hashes -r requirements-ci.lock
+          python -m pip install --require-hashes -r requirements-fuzz.lock
+
+      # The fuzzer needs a real server: it reads /openapi.json over HTTP and
+      # then sends thousands of requests back at the same host. The runner is
+      # headless, so the eight tool-dependent operations answer the
+      # documented 503 -- schemathesis.toml expects exactly those.
+      # Generated, not written down. A fixed string in the workflow is a
+      # known bearer token for a bridge that grants shell, files and desktop
+      # control -- low probability on a private runner bound to 127.0.0.1,
+      # but there is no reason to have one (cubic), and a literal `Bearer`
+      # in a curl line also reads to secret scanners as a leak
+      # (sourcery/betterleaks). Masked so it cannot surface in the log.
+      - name: Start the bridge
+        run: |
+          FUZZ_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+          echo "::add-mask::$FUZZ_TOKEN"
+          echo "FUZZ_TOKEN=$FUZZ_TOKEN" >> "$GITHUB_ENV"
+          ARENA_FUZZ_TOKEN="$FUZZ_TOKEN" python scripts/serve_bridge_for_fuzzing.py --port 8899 &
+          for _ in $(seq 1 30); do
+            if curl -fsS -o /dev/null -H "Authorization: Bearer $FUZZ_TOKEN" \
+                 http://127.0.0.1:8899/openapi.json; then
+              echo "bridge is up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "bridge did not start"; exit 1
+
+      # `--url` is not redundant with the schema location: the document
+      # advertises `servers: [{"url": "http://<hostname>:8765"}]`, the
+      # bridge under test listens on 127.0.0.1:8899, and a Schemathesis
+      # version that preferred `servers` over the location would send every
+      # request into the void and report a green run (cubic).
+      #
+      # Settings live in schemathesis.toml, next to the reasons for them.
+      # `not_a_server_error` only, for now: the other checks have 182 open
+      # findings between them (measured in #258) and each needs its own
+      # cleanup before it can be required.
+      - name: Fuzz the documented API
+        run: |
+          schemathesis run http://127.0.0.1:8899/openapi.json \
+            --url http://127.0.0.1:8899 \
+            --header "Authorization: Bearer $FUZZ_TOKEN" \
+            --seed "${GITHUB_RUN_NUMBER}" \
+            --workers 4
+
   contract:
     timeout-minutes: 5
     name: MCP contract test
@@ -1729,6 +1807,7 @@ jobs:
       - namespace-doc-coverage
       - contract
       - android
+      - api-fuzz
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1743,7 +1822,7 @@ jobs:
         run: >-
           python3 .github/scripts/required_jobs_gate.py
           --expected
-          "changes,actionlint,test,coverage-diff,version-sync,changelog-freshness,catalogue-harden,lint,packaging-e2e,dashboard-browser-e2e,e2e-installed,js-lint,quality-scan,legacy-name-guard,catalogue-consistency,dead-dispatch,json-schema-check,handler-signature,handler-namespace-consistency,namespace-doc-coverage,contract,android"
+          "changes,actionlint,test,coverage-diff,version-sync,changelog-freshness,catalogue-harden,lint,packaging-e2e,dashboard-browser-e2e,e2e-installed,js-lint,quality-scan,legacy-name-guard,catalogue-consistency,dead-dispatch,json-schema-check,handler-signature,handler-namespace-consistency,namespace-doc-coverage,contract,android,api-fuzz"
           --allow-skipped
           "test,coverage-diff,packaging-e2e,dashboard-browser-e2e,e2e-installed,js-lint,quality-scan,android"
           --allow-skipped-when-env DOCS_ONLY
