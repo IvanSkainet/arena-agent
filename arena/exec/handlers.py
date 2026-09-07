@@ -76,6 +76,18 @@ class ExecHandlers:
     stream: Callable[..., Any]
 
 
+def _cwd_refusal(ctx: Any, message: str, request_id: str) -> web.Response:
+    """The 400 or 403 for a `cwd` the request may not have.
+
+    403 when the sandbox says no, 400 when the path itself is unusable --
+    written once because all three exec entry points answer it the same way,
+    and because the status is a decision, not a detail of each handler.
+    """
+    ctx.record_request(is_error=True, count_request=False)
+    status = 403 if message.startswith(OUTSIDE_ROOT) else 400
+    return err_json(ctx, message, status=status, request_id=request_id)
+
+
 def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
     @authed(ctx)
     async def handle_v1_ps(request: web.Request) -> web.Response:
@@ -127,9 +139,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         boundary = None if cfg["allow_any_cwd"] else ctx.under_root
         cwd, cwd_error = requested_cwd(data, root, under_root=boundary)
         if cwd_error:
-            ctx.record_request(is_error=True, count_request=False)
-            status = 403 if cwd_error.startswith(OUTSIDE_ROOT) else 400
-            return err_json(ctx, cwd_error, status=status, request_id=request_id)
+            return _cwd_refusal(ctx, cwd_error, request_id)
         assert cwd is not None  # pyrefly: the error branch returned already
 
         timeout, max_output, env = limits_and_env(data, cfg, ctx)
@@ -276,9 +286,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         boundary = None if cfg["allow_any_cwd"] else ctx.under_root
         cwd, cwd_error = usable_cwd(cwd_hdr, root, under_root=boundary)
         if cwd_error:
-            ctx.record_request(is_error=True, count_request=False)
-            status = 403 if cwd_error.startswith(OUTSIDE_ROOT) else 400
-            return err_json(ctx, cwd_error, status=status, request_id=request_id)
+            return _cwd_refusal(ctx, cwd_error, request_id)
         assert cwd is not None  # pyrefly: the error branch returned already
 
         # Concurrency gate: same semaphore as /v1/exec so the two
@@ -441,9 +449,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         boundary = None if cfg["allow_any_cwd"] else ctx.under_root
         cwd, cwd_error = requested_cwd(data, root, under_root=boundary)
         if cwd_error:
-            ctx.record_request(is_error=True, count_request=False)
-            status = 403 if cwd_error.startswith(OUTSIDE_ROOT) else 400
-            return err_json(ctx, cwd_error, status=status, request_id=request_id)
+            return _cwd_refusal(ctx, cwd_error, request_id)
         assert cwd is not None  # pyrefly: the error branch returned already
 
         timeout, max_output, env = limits_and_env(data, cfg, ctx)
