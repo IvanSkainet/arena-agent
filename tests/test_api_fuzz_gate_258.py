@@ -144,7 +144,7 @@ def test_the_run_leaves_nothing_in_the_checkout():
     # Captured before the process starts: anything the bridge writes while
     # starting up is exactly what this test is about, and a baseline taken
     # after Popen would accept it as pre-existing (CodeRabbit).
-    before = _repository_contents()
+    before = _bridge_written_paths()
     port = _free_port()
     proc = subprocess.Popen(
         [sys.executable, str(SERVER_PATH), "--port", str(port)],
@@ -167,7 +167,7 @@ def test_the_run_leaves_nothing_in_the_checkout():
         proc.terminate()
         proc.wait(timeout=30)
 
-    appeared = sorted(_repository_contents() - before)
+    appeared = sorted(_bridge_written_paths() - before)
     assert appeared == [], f"the fuzz bridge wrote into the checkout: {appeared}"
 
 
@@ -217,20 +217,37 @@ def _post(port: int, path: str, body: dict) -> int:
         return int(err.code)
 
 
-def _repository_contents() -> set[str]:
-    """Every path in the checkout, tracked or not, as git sees it.
+# What a bridge writes when it is pointed at the wrong place. Watching these
+# rather than the whole checkout is deliberate: a full `git status` diff also
+# catches whatever *other* tests are doing at that moment -- on Windows this
+# test failed because a neighbour had just left `scripts/_global_patch_probe.py`
+# behind (#276), which says nothing about the fuzz bridge.
+BRIDGE_WRITES = (
+    "token.txt", "audit.jsonl", "bridge.log", "requests.jsonl",
+    "missions/", "reports/", "queue/", "mission_schedules/", "memory/",
+    "skills/", "hooks/", "agents/", "subagents/",
+)
 
-    `__pycache__` is filtered out: importing the bridge writes bytecode, and
-    that is Python doing its job rather than the bridge writing where it
-    should not (cubic). The probe also runs with PYTHONDONTWRITEBYTECODE, so
-    this is the second of two belts.
+
+def _bridge_written_paths() -> set[str]:
+    """The paths in the checkout that a misdirected bridge would create.
+
+    `__pycache__` is excluded on top of PYTHONDONTWRITEBYTECODE: importing
+    the bridge writes bytecode, and that is Python doing its job rather than
+    the bridge writing where it should not (cubic).
     """
     listing = subprocess.run(
         ["git", "status", "--porcelain", "--ignored=matching"],
         cwd=REPO_ROOT, capture_output=True, text=True, check=True,
         timeout=git_timeout())
-    return {line for line in listing.stdout.splitlines()
-            if "__pycache__" not in line and not line.endswith(".pyc")}
+    seen = set()
+    for line in listing.stdout.splitlines():
+        path = line[3:].strip().strip('"').replace("\\", "/")
+        if "__pycache__" in path or path.endswith(".pyc"):
+            continue
+        if any(path == name or path.startswith(name) for name in BRIDGE_WRITES):
+            seen.add(path)
+    return seen
 
 
 def test_the_job_installs_hashes_and_starts_the_bridge_before_fuzzing(fuzz_job):
