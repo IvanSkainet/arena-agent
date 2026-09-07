@@ -49,44 +49,17 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from aiohttp import web
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-# Everything below imports the bridge, and the bridge reads its paths at
-# import time, so the redirection has to happen first.
 # Named rather than sprinkled through the code (corgea): the port the job
 # and the config agree on, a request ceiling high enough that the limiter
 # never fires during a run, and the interval the idle loop naps for.
 DEFAULT_PORT = 8899
 NO_RATE_LIMIT = 10 ** 9
 IDLE_SLEEP_S = 3600
-
-def _make_fuzz_root() -> Path:
-    """The throwaway workspace, created once per process.
-
-    A module-level `mkdtemp()` fires on import, so anything that imports
-    this file for a docstring or a constant leaves a directory behind
-    (corgea). It is still module-level state -- the redirection below has to
-    happen before the bridge is imported, and that is a property of import
-    order, not of any function -- but now it is created deliberately.
-    """
-    return Path(tempfile.mkdtemp(prefix="fuzz-root-"))
-
-
-FUZZ_ROOT = _make_fuzz_root() if __name__ == "__main__" else Path(tempfile.gettempdir())
-
-# `ArenaPaths.from_env` reads this, and queue/, missions/, reports/ and
-# skills/ all follow from it. The supported way to move the workspace.
-os.environ["ARENA_AGENT_HOME"] = str(FUZZ_ROOT)
-
-import arena.constants as constants  # noqa: E402
-import arena.rate_limit as rate_limit  # noqa: E402
-
-# The three ArenaPaths does not cover: they hang off the source tree rather
-# than the workspace, so neither the variable above nor a chdir moves them.
-constants.APP_DIR = FUZZ_ROOT
-constants.TOKEN_FILE = FUZZ_ROOT / "token.txt"
-constants.AUDIT = FUZZ_ROOT / "audit.jsonl"
 
 
 class _NoFailedAuthMemory(dict):
@@ -119,20 +92,44 @@ class _NoFailedAuthMemory(dict):
         return super().__contains__(key)
 
 
-# Rebound before the bridge is imported: `runtime_deps.core` does
-# `from arena.rate_limit import _rate_limit_store`, and the runtime namespace
-# is built from that module at import time, so a later rebinding reaches
-# nobody -- which is how the first attempt still answered 429.
-rate_limit._rate_limit_store = _NoFailedAuthMemory()
+def _point_the_bridge_at(root: Path) -> None:
+    """Redirect every path the bridge derives, before it derives them.
 
-from aiohttp import web  # noqa: E402
+    Import order is the whole mechanism, which is why the bridge is imported
+    inside `main` and not at the top of this file: `arena.constants` is read
+    when the runtime namespace is built, and `runtime_deps.core` binds
+    `_rate_limit_store` by name at the same moment, so anything done after
+    that import reaches nobody. Importing this module used to have those
+    side effects; now nothing happens until `main` runs (corgea).
 
-from arena.memory.schema import init_memory_db  # noqa: E402
-from arena.paths import ArenaPaths  # noqa: E402
-from tests._live_bridge import build_app  # noqa: E402
+    `ARENA_AGENT_HOME` moves queue/, missions/, reports/ and skills/ -- the
+    supported way. The three constants below hang off the source tree
+    instead of the workspace, so neither that variable nor a chdir moves
+    them, and a fuzz run that reaches POST /v1/token/regenerate would write
+    a live token next to the source without this.
+    """
+    os.environ["ARENA_AGENT_HOME"] = str(root)
+
+    import arena.constants as constants
+    import arena.rate_limit as rate_limit
+
+    constants.APP_DIR = root
+    constants.TOKEN_FILE = root / "token.txt"
+    constants.AUDIT = root / "audit.jsonl"
+
+    # Both limiters, off for the duration: the per-IP one allows 300 requests
+    # a minute against a run that sends thousands, and the failed-auth
+    # throttle answers 429 to an address after ten rejections, which the
+    # coverage phase produces on purpose. Reaching into another module's
+    # private names is not something to do lightly; it is done here because
+    # the alternative -- a configuration switch that only the fuzz job would
+    # ever use -- would put test-only behaviour into the bridge itself.
+    rate_limit._rl_v2_config["enabled"] = False
+    rate_limit._rate_limit_max = NO_RATE_LIMIT
+    rate_limit._rate_limit_store = _NoFailedAuthMemory()
 
 
-def _prepare_workspace() -> None:
+def _prepare_workspace(root: Path) -> None:
     """Create the directory layout a real installation already has.
 
     `tests/_live_bridge.build_app` clears the startup hooks -- the contract
@@ -143,7 +140,10 @@ def _prepare_workspace() -> None:
     `OperationalError: unable to open database file`, and the gate would
     have reported them as defects in the bridge.
     """
-    paths = ArenaPaths.from_env(FUZZ_ROOT)
+    from arena.memory.schema import init_memory_db
+    from arena.paths import ArenaPaths
+
+    paths = ArenaPaths.from_env(root)
     for directory in (paths.queue, paths.inbox, paths.running, paths.done,
                       paths.failed, paths.skills_dir, paths.hooks_dir,
                       paths.agents_dir, paths.subagents_dir,
@@ -163,8 +163,9 @@ def main() -> int:
     parser.add_argument("--token", required=True)
     args = parser.parse_args()
 
-    rate_limit._rl_v2_config["enabled"] = False
-    rate_limit._rate_limit_max = NO_RATE_LIMIT
+    root = Path(tempfile.mkdtemp(prefix="fuzz-root-"))
+    _point_the_bridge_at(root)
+    from tests._live_bridge import build_app
 
     # No --root option on purpose. It was there for a run against a fixed
     # directory, which nothing needs, and SonarCloud read it exactly right
@@ -177,14 +178,14 @@ def main() -> int:
     # them leaves the temporary directory behind if the cleanup only covers
     # what comes after (CodeRabbit).
     try:
-        _prepare_workspace()
-        app = build_app(FUZZ_ROOT, args.token)
-        os.chdir(FUZZ_ROOT)
+        _prepare_workspace(root)
+        app = build_app(root, args.token)
+        os.chdir(root)
         asyncio.run(_serve(app, args.port))
     finally:
         # One abandoned workspace per run fills /tmp on a laptop (cubic).
         os.chdir(REPO_ROOT)
-        shutil.rmtree(FUZZ_ROOT, ignore_errors=True)
+        shutil.rmtree(root, ignore_errors=True)
     return 0
 
 
