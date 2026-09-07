@@ -14,12 +14,17 @@ characters long.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
+from arena.resources.listing import show_mission
 from arena.resources.mission_family import get_mission_family
-from arena.resources.mission_identifier import NAME_MAX_BYTES, too_long_for_disk
+from arena.resources.mission_identifier import (
+    NAME_MAX_UNITS,
+    unusable_directory_name,
+)
 from arena.resources.mission_lineage import get_mission_lineage
 from arena.resources.mission_state import (
     get_mission_history,
@@ -32,7 +37,7 @@ from arena.resources.missions_manage import create_mission_from_draft
 # is the shape the fuzzer actually found, and a character-counting guard
 # would let it straight through.
 TOO_LONG = (
-    "a" * (NAME_MAX_BYTES + 1),
+    "a" * (NAME_MAX_UNITS + 1),
     "Ṱ̺̺̕o͞ ̷i̲̬͇̪͙n̝̗͕v̟̜̘̦͟o̶̙̰̠kè͚̮̺̪̹̱̤ ̖t̝͕̳̣̻̪͞h̼͓̲̦̳̘̲e͇̣̰̦̬͎ ̢̼̻̱̘h͚͎͙̜̣̲ͅi̦̲̣̰̤v̻͍e̺̭̳̪̰-m̢iͅn̖̺̞̲̯̰d̵̼̟͙̩̼̘̳" * 2,
     "\U0001f600" * 64,
 )
@@ -43,6 +48,9 @@ READERS = (
     get_mission_report,
     get_mission_lineage,
     get_mission_family,
+    # Predates `mission_dir` and does its own lookup, which is exactly how
+    # it missed the guard the first time round (cubic, sourcery).
+    show_mission,
 )
 
 
@@ -74,9 +82,9 @@ def test_a_name_at_the_limit_is_still_allowed(tmp_path: Path) -> None:
     An off-by-one here would be invisible in normal use and would refuse
     ids that work, so the boundary is asserted from both sides.
     """
-    at_limit = "a" * NAME_MAX_BYTES
-    assert too_long_for_disk(at_limit) is False
-    assert too_long_for_disk(at_limit + "a") is True
+    at_limit = "a" * NAME_MAX_UNITS
+    assert unusable_directory_name(at_limit) is None
+    assert unusable_directory_name(at_limit + "a") is not None
 
     created = create_mission_from_draft(
         missions_dir=tmp_path, draft={"title": "t"}, mission_id=at_limit)
@@ -85,19 +93,52 @@ def test_a_name_at_the_limit_is_still_allowed(tmp_path: Path) -> None:
     assert get_mission_status(tmp_path, at_limit)["ok"] is True
 
 
-def test_the_limit_is_bytes_not_characters(tmp_path: Path) -> None:
-    """A 100-character id can be 400 bytes, and that is the case that broke."""
-    wide = "\U0001f600" * 100  # 4 bytes each
-    assert len(wide) < NAME_MAX_BYTES
-    assert too_long_for_disk(wide) is True
+def test_the_limit_is_not_counted_in_characters(tmp_path: Path) -> None:
+    """A 100-character id can be 400 bytes, and that is the case that broke.
 
-
-def test_a_lone_surrogate_is_measured_rather_than_raising() -> None:
-    """A JSON body can carry lone surrogates; measuring one must not throw.
-
-    `"\\udb72"` reaches the handler as a real string, and `str.encode()`
-    without `surrogatepass` raises `UnicodeEncodeError` -- which would swap
-    one 500 for another.
+    The unit is the local filesystem's: bytes of UTF-8 on ext4 and APFS,
+    UTF-16 code units on NTFS. Counting characters would let the id that
+    found this straight through on either.
     """
-    assert too_long_for_disk("m\udb72\udc05x") is False
-    assert too_long_for_disk("\udb72" * 256) is True
+    wide = "\U0001f600" * 100
+    assert len(wide) < NAME_MAX_UNITS
+    assert unusable_directory_name(wide) is not None
+
+
+@pytest.mark.parametrize("name", ["m\x00x", "\x00", "mission\x00.json"])
+def test_a_nul_is_refused_rather_than_reaching_mkdir(tmp_path: Path, name: str) -> None:
+    """`mkdir` answers a NUL with `ValueError`, which left as a 500 (cubic)."""
+    assert unusable_directory_name(name) is not None
+    created = create_mission_from_draft(
+        missions_dir=tmp_path, draft={"title": "t"}, mission_id=name)
+    assert created["status"] == 400
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("name", ["m\udb72x", "\udc05", "\udb72" * 3])
+def test_an_unpaired_surrogate_is_refused(tmp_path: Path, name: str) -> None:
+    """Short enough to pass a length check, fatal at `fsencode`.
+
+    A JSON body can carry a lone surrogate, and encoding one for the
+    filesystem raises `UnicodeEncodeError` -- the same 500 by another
+    route, which is why the guard is about the characters and not only
+    the length (sourcery, cubic).
+    """
+    assert unusable_directory_name(name) is not None
+    created = create_mission_from_draft(
+        missions_dir=tmp_path, draft={"title": "t"}, mission_id=name)
+    assert created["status"] == 400
+    assert get_mission_status(tmp_path, name)["status"] == 400
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_unit_follows_the_local_filesystem() -> None:
+    """NTFS counts UTF-16 code units, ext4 counts bytes; 64 emoji differ.
+
+    256 bytes and 128 units: refused on Linux, legal on Windows. Refusing
+    it everywhere would have the bridge turn down ids its own filesystem
+    would accept (cubic).
+    """
+    emoji = "\U0001f600" * 64
+    refused = unusable_directory_name(emoji) is not None
+    assert refused is (os.name != "nt")

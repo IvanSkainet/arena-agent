@@ -10,7 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from arena.resources.mission_catalog import summarize_mission_dir
-from arena.resources.mission_identifier import resolve_mission_name
+from arena.resources.mission_identifier import (
+    resolve_mission_name,
+    unusable_directory_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +169,12 @@ def show_mission(missions_dir: Path, name: str) -> dict[str, Any]:
     """
     if ".." in name or "/" in name or "\\" in name or name.startswith("."):
         return {"ok": False, "error": "invalid mission name"}
+    # #286: this reader predates `mission_dir` and does its own lookup, so
+    # it also missed that function's guard -- an id the filesystem cannot
+    # hold reached `Path.exists()` here and left as a 500 (cubic, sourcery).
+    unusable = unusable_directory_name(name)
+    if unusable:
+        return {"ok": False, "error": unusable, "status": 400}
     name = resolve_mission_name(missions_dir, name)
     try:
         resolved_root = missions_dir.resolve(strict=True)

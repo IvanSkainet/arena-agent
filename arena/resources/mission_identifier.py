@@ -29,6 +29,7 @@ per-handler parsing, and that is how the three surfaces drifted apart.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from urllib.parse import parse_qs
 
@@ -59,24 +60,44 @@ def parse_mission_identifier(query_string: str) -> str:
     return ""
 
 
-# What a single path component may weigh on the filesystems this runs on:
-# 255 bytes on ext4, APFS and NTFS alike. Bytes, not characters -- the id
-# that found this was 40 combining-mark-laden characters and 1.6 kB.
-NAME_MAX_BYTES = 255
+# What a single path component may weigh. 255 of them either way, but the
+# unit differs: ext4 and APFS count bytes of UTF-8, NTFS counts UTF-16 code
+# units, so `"\U0001f600" * 64` is 256 bytes (refused on Linux) and 128
+# units (accepted on Windows). Measuring in the local unit rather than the
+# strictest one keeps the bridge from refusing ids that its own filesystem
+# would have taken (cubic, sourcery).
+NAME_MAX_UNITS = 255
 
 
-def too_long_for_disk(name: str) -> bool:
-    """Whether this identifier cannot be a directory name at all.
+def _component_units(name: str) -> int:
+    """How long this name is in the unit the local filesystem counts in."""
+    if os.name == "nt":
+        return len(name.encode("utf-16-le", "surrogatepass")) // 2
+    return len(name.encode("utf-8", "surrogatepass"))
 
-    Asked before anything touches the filesystem, because the answer from
-    the filesystem is `OSError: [Errno 36] File name too long` raised out
-    of `Path.exists()` -- a place no caller expects an exception, so it
-    arrived at the client as a 500 (found by the #258 fuzzing gate).
 
-    `surrogatepass` because a JSON body can carry lone surrogates, and
-    measuring their length must not raise on the way to refusing them.
+def unusable_directory_name(name: str) -> str | None:
+    """Why this identifier cannot be a directory name, or None if it can.
+
+    Asked before anything touches the filesystem, because the filesystem's
+    own answers arrive as exceptions from places no caller expects one --
+    `Path.exists()` raising `OSError: [Errno 36]` for an over-long name,
+    `mkdir` raising `ValueError` for an embedded NUL, `os.fsencode`
+    raising `UnicodeEncodeError` for a lone surrogate. All three left as
+    500s (#286, then sourcery and cubic on the first fix).
+
+    `surrogatepass` on the measurement so that counting a lone surrogate
+    does not raise on the way to refusing it.
     """
-    return len(name.encode("utf-8", "surrogatepass")) > NAME_MAX_BYTES
+    if "\x00" in name:
+        return "mission name contains a NUL character"
+    if any(0xD800 <= ord(ch) <= 0xDFFF for ch in name):
+        # A lone surrogate survives JSON decoding and dies at `fsencode`.
+        return "mission name contains an unpaired surrogate"
+    if _component_units(name) > NAME_MAX_UNITS:
+        unit = "UTF-16 code units" if os.name == "nt" else "bytes"
+        return f"mission name is too long: {NAME_MAX_UNITS} {unit} at most"
+    return None
 
 
 def resolve_mission_name(missions_dir: Path, name: str) -> str:
