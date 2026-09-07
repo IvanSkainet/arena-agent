@@ -90,15 +90,49 @@ async def _download_is_a_4xx(tmp_path: Path, path: str) -> None:
 
 
 @pytest.mark.parametrize("path", UNEXPANDABLE)
-def test_the_resolver_says_400_and_names_no_builtin(tmp_path: Path, path: str) -> None:
-    """Unit half: the status is the caller's, and the message is about paths."""
+def test_the_resolver_refuses_without_raising(tmp_path: Path, path: str) -> None:
+    """Unit half: an answer, whichever answer the local platform justifies.
+
+    Which refusal is right depends on what `expanduser` does here. POSIX
+    raises for a user with no home, so the path never becomes a path and
+    the honest reply is 400. Windows has no user database to consult and
+    hands the string back unchanged, so it resolves, lands outside the
+    home and is a 403 -- the same 403 `~nobody/x` has always got.
+
+    Pinning 400 everywhere would be pinning the author's platform; what
+    the endpoint owes the caller is a refusal it can act on and never an
+    exception, so that is what is asserted.
+    """
     resolved, error, status = resolve_home_path(
         path, root=tmp_path, home=tmp_path)
 
     assert resolved is None
-    assert status == 400, (status, error)
+    assert status in (400, 403), (status, error)
     assert error is not None
-    assert "not a usable path" in error
+    assert error in ("path outside home directory",) or "not a usable path" in error
+
+
+def test_a_path_the_platform_cannot_expand_is_a_400(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The 400 itself, on every platform rather than only the raising ones.
+
+    On POSIX `~Qm` produces the RuntimeError by itself; on Windows there
+    is no user database to consult and the string comes back unchanged.
+    Leaving the assertion to the platform would leave the guard untested
+    on half of CI, so the raise is induced instead -- what matters is that
+    whatever `expanduser` throws leaves as a refusal, not as a 500.
+    """
+    def refuses_to_expand(self: Path) -> Path:
+        raise RuntimeError("Could not determine home directory.")
+
+    monkeypatch.setattr(
+        "arena.files.sandbox.Path.expanduser", refuses_to_expand, raising=True)
+
+    resolved, error, status = resolve_home_path("~Qm", root=tmp_path, home=tmp_path)
+
+    assert resolved is None
+    assert status == 400, (status, error)
+    assert error is not None and "not a usable path" in error
 
 
 def test_the_forms_that_already_worked_still_work(tmp_path: Path) -> None:
