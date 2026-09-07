@@ -52,7 +52,12 @@ from arena.exec.interpreters import (
     interpreter_path_arg,
     interpreter_runs_here,
 )
-from arena.exec.request_shape import limits_and_env, requested_cwd, usable_cwd
+from arena.exec.request_shape import (
+    OUTSIDE_ROOT,
+    limits_and_env,
+    requested_cwd,
+    usable_cwd,
+)
 from arena.exec.runner import run_shell_command_stream
 from arena.handler_context import ExecHandlerContext
 from arena.handler_helpers import authed, err_json, parse_json_body
@@ -123,7 +128,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         cwd, cwd_error = requested_cwd(data, root, under_root=boundary)
         if cwd_error:
             ctx.record_request(is_error=True, count_request=False)
-            status = 403 if cwd_error.startswith("cwd must be under") else 400
+            status = 403 if cwd_error.startswith(OUTSIDE_ROOT) else 400
             return err_json(ctx, cwd_error, status=status, request_id=request_id)
         assert cwd is not None  # pyrefly: the error branch returned already
 
@@ -272,7 +277,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         cwd, cwd_error = usable_cwd(cwd_hdr, root, under_root=boundary)
         if cwd_error:
             ctx.record_request(is_error=True, count_request=False)
-            status = 403 if cwd_error.startswith("cwd must be under") else 400
+            status = 403 if cwd_error.startswith(OUTSIDE_ROOT) else 400
             return err_json(ctx, cwd_error, status=status, request_id=request_id)
         assert cwd is not None  # pyrefly: the error branch returned already
 
@@ -437,7 +442,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         cwd, cwd_error = requested_cwd(data, root, under_root=boundary)
         if cwd_error:
             ctx.record_request(is_error=True, count_request=False)
-            status = 403 if cwd_error.startswith("cwd must be under") else 400
+            status = 403 if cwd_error.startswith(OUTSIDE_ROOT) else 400
             return err_json(ctx, cwd_error, status=status, request_id=request_id)
         assert cwd is not None  # pyrefly: the error branch returned already
 

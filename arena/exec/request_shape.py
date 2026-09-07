@@ -16,7 +16,11 @@ from arena.exec.environment import filter_caller_env
 from arena.handler_errors import BodyFieldError
 from arena.handler_params import body_int, body_str
 
-__all__ = ["limits_and_env", "requested_cwd", "usable_cwd"]
+__all__ = ["OUTSIDE_ROOT", "limits_and_env", "requested_cwd", "usable_cwd"]
+
+# Said three times otherwise, which SonarCloud counts (S1192) and which is
+# also how two of the three drifted apart in the first place.
+OUTSIDE_ROOT = "cwd must be under root"
 
 
 def usable_cwd(raw: str, root: Path,
@@ -37,17 +41,37 @@ def usable_cwd(raw: str, root: Path,
     try:
         cwd = Path(raw or str(root)).expanduser()
         cwd = cwd if cwd.is_absolute() else root / cwd
+        # Normalised here, not merely handed to the caller's check: `..` and
+        # symlinks are resolved before anything looks at the path, so the
+        # comparison below is between two real locations. CodeQL reads the
+        # unresolved version as py/path-injection, and it is right to --
+        # `under_root` arrives as a callback, which no analyser can follow.
+        cwd = Path(os.path.realpath(cwd))
         # The sandbox boundary is checked before the filesystem is: saying
         # "does not exist" about a path outside the root answers a question
-        # the caller is not allowed to ask (cubic). The check is passed in
-        # because it belongs to the handler's context, not to this module.
+        # the caller is not allowed to ask (cubic).
+        if under_root is not None and not _inside(cwd, root):
+            return None, f"{OUTSIDE_ROOT} {root}"
         if under_root is not None and not under_root(cwd, root):
-            return None, f"cwd must be under root {root}"
+            return None, f"{OUTSIDE_ROOT} {root}"
         if not cwd.exists() or not cwd.is_dir():
             return None, f"cwd does not exist: {cwd}"
     except (OSError, RuntimeError, ValueError) as exc:
         return None, f"cwd is not a usable path ({type(exc).__name__})"
     return cwd, ""
+
+
+def _inside(candidate: Path, root: Path) -> bool:
+    """Whether `candidate` is `root` or something under it, both resolved.
+
+    `os.path.commonpath` rather than a string prefix: `/rootless` starts
+    with `/root` and is not inside it.
+    """
+    real_root = Path(os.path.realpath(root))
+    try:
+        return os.path.commonpath([str(candidate), str(real_root)]) == str(real_root)
+    except ValueError:  # different drives on Windows
+        return False
 
 
 def requested_cwd(data: dict[str, Any], root: Path,
