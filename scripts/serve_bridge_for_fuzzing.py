@@ -182,7 +182,7 @@ def main() -> int:
     _stop_on_sigterm()
     root: Path | None = None
     # The creation is inside the try as well. A SIGTERM held across the two
-    # statements is delivered when `_sigterm_held` unblocks it, so the
+    # statements is delivered when `_signals_held` unblocks it, so the
     # KeyboardInterrupt comes out of the `with`, not out of the serve call
     # -- outside the try that would be a traceback instead of "bridge
     # stopped", and no `finally` (cubic). Everything after the directory
@@ -190,7 +190,7 @@ def main() -> int:
     # it can both raise, and a cleanup that starts later leaves one
     # workspace per failed start (sourcery and cubic, separately).
     try:
-        with _sigterm_held():
+        with _signals_held():
             root = Path(tempfile.mkdtemp(prefix="fuzz-root-"))
             _LEAKED.append(root)
         return _serve_until_stopped(root, args)
@@ -213,7 +213,7 @@ def main() -> int:
             # `ignore_errors` means rmtree can come back having removed
             # nothing, and dropping the entry then would take the atexit
             # fallback's only copy of the path with it (cubic).
-            if not root.exists():
+            if not root.exists() and root in _LEAKED:
                 _LEAKED.remove(root)
         with contextlib.suppress(OSError):
             os.chdir(started_in)
@@ -243,15 +243,19 @@ _LEAKED: list[Path] = []
 
 
 @contextlib.contextmanager
-def _sigterm_held() -> Iterator[None]:
-    """Delay SIGTERM until the block finishes.
+def _signals_held() -> Iterator[None]:
+    """Delay SIGTERM and SIGINT until the block finishes.
 
     The gap between `mkdtemp` returning and the path being recorded is two
     bytecodes wide and still real: a signal landing in it raises out of a
     frame that knows the directory, into cleanup that does not, and the
-    workspace stays on disk (cubic). Blocking the signal makes the pair
-    atomic as far as the handler is concerned; a SIGTERM that arrives
+    workspace stays on disk (cubic). Blocking the signals makes the pair
+    atomic as far as the handlers are concerned; one that arrives
     meanwhile is delivered on the way out.
+
+    SIGINT is held for the same reason as SIGTERM, a round later (cubic):
+    Ctrl-C between `mkdtemp` returning and the registration landing loses
+    the path just as thoroughly, and Ctrl-C is how a person stops this.
 
     POSIX only. On Windows `pthread_sigmask` does not exist and CI does not
     send SIGTERM there, so the block is a no-op rather than an error.
@@ -260,11 +264,12 @@ def _sigterm_held() -> Iterator[None]:
     if mask is None:
         yield
         return
-    mask(signal.SIG_BLOCK, {signal.SIGTERM})
+    held = {signal.SIGTERM, signal.SIGINT}
+    mask(signal.SIG_BLOCK, held)
     try:
         yield
     finally:
-        mask(signal.SIG_UNBLOCK, {signal.SIGTERM})
+        mask(signal.SIG_UNBLOCK, held)
 
 
 @atexit.register
