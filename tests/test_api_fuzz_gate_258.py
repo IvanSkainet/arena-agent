@@ -35,10 +35,14 @@ import urllib.request
 from pathlib import Path
 
 import pytest
-import tomllib
 import yaml
 
 from tests._git_budget import git_timeout
+
+try:  # 3.11+ ships it; the 3.10 matrix cell installs tomli instead
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - only on Python 3.10
+    import tomli as tomllib
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = REPO_ROOT / "schemathesis.toml"
@@ -194,8 +198,14 @@ def _post(port: int, path: str, body: dict) -> int:
     -- still let the test pass with an empty diff (CodeRabbit). A 4xx is
     returned as itself so the caller can insist on what it expects.
     """
+    url = f"http://127.0.0.1:{port}{path}"
+    # The scheme is checked rather than assumed: bandit's B310 is about
+    # `urlopen` accepting `file:` and custom schemes, and a test that builds
+    # its own URL is exactly where a typo would go unnoticed.
+    if not url.startswith("http://127.0.0.1:"):  # pragma: no cover - a typo guard
+        raise AssertionError(f"probe URL is not local: {url}")
     request = urllib.request.Request(
-        f"http://127.0.0.1:{port}{path}", data=json.dumps(body).encode(),
+        url, data=json.dumps(body).encode(),
         headers={"Authorization": "Bearer isolation-probe",
                  "Content-Type": "application/json"})
     try:
