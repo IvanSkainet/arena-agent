@@ -39,19 +39,24 @@ def usable_cwd(raw: str, root: Path,
     found the second one three commits after the first was fixed.
     """
     try:
-        cwd = Path(raw or str(root)).expanduser()
-        cwd = cwd if cwd.is_absolute() else root / cwd
-        # Normalised here, not merely handed to the caller's check: `..` and
-        # symlinks are resolved before anything looks at the path, so the
-        # comparison below is between two real locations. CodeQL reads the
-        # unresolved version as py/path-injection, and it is right to --
-        # `under_root` arrives as a callback, which no analyser can follow.
-        cwd = Path(os.path.realpath(cwd))
-        # The sandbox boundary is checked before the filesystem is: saying
-        # "does not exist" about a path outside the root answers a question
-        # the caller is not allowed to ask (cubic).
-        if under_root is not None and not _inside(cwd, root):
+        requested = Path(raw or str(root)).expanduser()
+        requested = requested if requested.is_absolute() else root / requested
+        # Resolved and compared inline, deliberately. The comparison used to
+        # live behind a callback and then behind a helper, and CodeQL called
+        # it py/path-injection both times -- correctly, in the sense that a
+        # reader (or an analyser) could not see the protection from the line
+        # that builds the path. `..` and symlinks are settled first, and the
+        # separator is part of the prefix so that `/rootless` does not count
+        # as inside `/root`.
+        real_root = os.path.realpath(root)
+        real_cwd = os.path.realpath(requested)
+        inside = real_cwd == real_root or real_cwd.startswith(real_root + os.sep)
+        # The boundary is checked before the filesystem: saying "does not
+        # exist" about a path outside the root answers a question the caller
+        # is not allowed to ask (cubic).
+        if under_root is not None and not inside:
             return None, f"{OUTSIDE_ROOT} {root}"
+        cwd = Path(real_cwd)
         if under_root is not None and not under_root(cwd, root):
             return None, f"{OUTSIDE_ROOT} {root}"
         if not cwd.exists() or not cwd.is_dir():
@@ -59,19 +64,6 @@ def usable_cwd(raw: str, root: Path,
     except (OSError, RuntimeError, ValueError) as exc:
         return None, f"cwd is not a usable path ({type(exc).__name__})"
     return cwd, ""
-
-
-def _inside(candidate: Path, root: Path) -> bool:
-    """Whether `candidate` is `root` or something under it, both resolved.
-
-    `os.path.commonpath` rather than a string prefix: `/rootless` starts
-    with `/root` and is not inside it.
-    """
-    real_root = Path(os.path.realpath(root))
-    try:
-        return os.path.commonpath([str(candidate), str(real_root)]) == str(real_root)
-    except ValueError:  # different drives on Windows
-        return False
 
 
 def requested_cwd(data: dict[str, Any], root: Path,
@@ -132,10 +124,14 @@ def _caller_env(data: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise BodyFieldError("env", raw, expected="an object")
     for key, value in raw.items():
-        if "\x00" in f"{key}={value}":
-            raise BodyFieldError(
-                "env", raw, expected="an object without NUL bytes")
-        if not str(key) or "=" in str(key):
-            raise BodyFieldError(
-                "env", raw, expected="an object whose names contain no '='")
+        _check_env_pair(raw, str(key), f"{key}={value}")
     return dict(raw)
+
+
+def _check_env_pair(raw: dict[str, Any], name: str, pair: str) -> None:
+    """One name/value pair, refused if `subprocess` would reject it."""
+    if "\x00" in pair:
+        raise BodyFieldError("env", raw, expected="an object without NUL bytes")
+    if not name or "=" in name:
+        raise BodyFieldError(
+            "env", raw, expected="an object whose names contain no '='")
