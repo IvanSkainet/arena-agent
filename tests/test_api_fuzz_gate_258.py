@@ -30,6 +30,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -250,14 +251,17 @@ def test_the_watched_paths_cover_everything_the_bridge_derives():
     """
     from arena.paths import ArenaPaths
 
-    paths = ArenaPaths.from_env(Path("/tmp/probe-root"))
+    # A name, not a real directory: `from_env` only joins strings, and a
+    # literal "/tmp/..." reads to bandit as code that writes there (B108).
+    probe_root = Path(tempfile.gettempdir()) / "arena-paths-probe"
+    paths = ArenaPaths.from_env(probe_root)
     derived = {
         paths.queue, paths.inbox, paths.running, paths.done, paths.failed,
         paths.skills_dir, paths.hooks_dir, paths.agents_dir,
         paths.subagents_dir, paths.missions_dir, paths.reports_dir,
         paths.memory_file, paths.memory_db, paths.webhooks_file,
     }
-    root = "/tmp/probe-root/"
+    root = probe_root.as_posix() + "/"
     unwatched = sorted(
         str(path) for path in derived
         if not any(str(path).replace("\\", "/").startswith(root + name)
