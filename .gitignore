@@ -97,6 +97,10 @@ queue/failed/*.json
 # inbox was missing from this list, and a task created while testing by hand
 # rode into a commit on #261 before a reviewer caught it
 queue/inbox/*.json
+# queue/running was missed when the other three were listed, so any local
+# test run leaves files here and the release-zip guard then refuses to build
+# ("the working tree has untracked files"). Same family as #263.
+queue/running/*.json
 !queue/inbox/.gitkeep
 queue/tasks-archive-*.tgz
 
@@ -157,3 +161,9 @@ coverage.xml
 # committed binary would be a second source of truth nobody diffs.
 android_app/build/
 .mutation-sweep-original
+
+# Schemathesis keeps a cache of the failures it has seen, so that a rerun can
+# start from them. Six of those files reached master during the #258
+# measurement: machine-generated, meaningless without the run that produced
+# them, and rewritten by every subsequent one.
+.schemathesis/
