@@ -209,7 +209,10 @@ def _post(port: int, path: str, body: dict) -> int:
         headers={"Authorization": "Bearer isolation-probe",
                  "Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        # The scheme is asserted above and the host is 127.0.0.1; bandit's
+        # B310 is about `urlopen` reaching `file:` or a custom scheme, which
+        # this cannot.
+        with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310  # nosec B310
             response.read()
             return int(response.status)
     except urllib.error.HTTPError as err:
