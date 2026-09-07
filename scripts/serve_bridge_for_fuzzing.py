@@ -49,6 +49,7 @@ import shutil
 import signal
 import sys
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -171,16 +172,17 @@ def main() -> int:
         parser.error("set ARENA_FUZZ_TOKEN or pass --token")
 
     started_in = Path.cwd()
-    # Handler first, directory second, and the name of the directory is a
-    # function of the pid rather than something `mkdtemp` invents: cubic
-    # pointed out that remembering the path in a variable still leaves a
-    # window -- SIGTERM between the directory existing and the assignment
-    # landing -- and a name the cleanup can recompute has no window at all.
-    # Before the handler is installed there is nothing on disk to lose.
+    # Handler first, then the workspace with the signal held off. A
+    # pid-derived name closed the SIGTERM window but opened a worse hole
+    # (cubic, twice): the directory holds `token.txt`, the audit log and
+    # every `ARENA_AGENT_HOME` file, so it has to be 0o700 and it has to
+    # have a name no other local user can guess ahead of the run.
+    # `mkdtemp` gives both; blocking SIGTERM across the two statements
+    # gives what the pid name was for.
     _stop_on_sigterm()
-    root = _workspace_for_this_process()
-    shutil.rmtree(root, ignore_errors=True)  # a pid can come round again
-    root.mkdir(parents=True)
+    with _sigterm_held():
+        root = Path(tempfile.mkdtemp(prefix="fuzz-root-"))
+        _LEAKED.append(root)
     # Everything after the directory exists is inside the try, including the
     # redirection and the import that follows it: both can raise, and a
     # cleanup that starts later leaves one workspace per failed start
@@ -201,6 +203,8 @@ def main() -> int:
         # to the repository root -- this script can be started anywhere, and
         # moving the process somewhere it never was is a surprise (corgea).
         shutil.rmtree(root, ignore_errors=True)
+        if root in _LEAKED:
+            _LEAKED.remove(root)
         with contextlib.suppress(OSError):
             os.chdir(started_in)
 
@@ -223,21 +227,41 @@ def _serve_until_stopped(root: Path, args: argparse.Namespace) -> int:
     return 0
 
 
-def _workspace_for_this_process() -> Path:
-    """Where this run keeps its throwaway workspace.
+# Workspaces created but not yet handed to a `finally`. One entry at a time
+# in practice; a list because atexit has to read it without knowing when.
+_LEAKED: list[Path] = []
 
-    Derived from the pid rather than handed out by `mkdtemp`, so the
-    cleanup below can name the directory without having been told about
-    it -- no variable to assign, no window between the directory existing
-    and something remembering it (cubic).
+
+@contextlib.contextmanager
+def _sigterm_held() -> Iterator[None]:
+    """Delay SIGTERM until the block finishes.
+
+    The gap between `mkdtemp` returning and the path being recorded is two
+    bytecodes wide and still real: a signal landing in it raises out of a
+    frame that knows the directory, into cleanup that does not, and the
+    workspace stays on disk (cubic). Blocking the signal makes the pair
+    atomic as far as the handler is concerned; a SIGTERM that arrives
+    meanwhile is delivered on the way out.
+
+    POSIX only. On Windows `pthread_sigmask` does not exist and CI does not
+    send SIGTERM there, so the block is a no-op rather than an error.
     """
-    return Path(tempfile.gettempdir()) / f"fuzz-root-{os.getpid()}"
+    mask = getattr(signal, "pthread_sigmask", None)
+    if mask is None:
+        yield
+        return
+    mask(signal.SIG_BLOCK, {signal.SIGTERM})
+    try:
+        yield
+    finally:
+        mask(signal.SIG_UNBLOCK, {signal.SIGTERM})
 
 
 @atexit.register
 def _remove_any_leaked_workspace() -> None:
     """Last resort for a workspace whose owner never reached its cleanup."""
-    shutil.rmtree(_workspace_for_this_process(), ignore_errors=True)
+    while _LEAKED:
+        shutil.rmtree(_LEAKED.pop(), ignore_errors=True)
 
 
 def _stop_on_sigterm() -> None:

@@ -177,6 +177,49 @@ def test_the_run_leaves_nothing_in_the_checkout():
     assert appeared == [], f"the fuzz bridge wrote into the checkout: {appeared}"
 
 
+@pytest.mark.timeout(120)
+@pytest.mark.skipif(os.name != "posix",
+                    reason="SIGTERM and mode bits are the POSIX half of this")
+def test_the_workspace_is_private_and_goes_away_when_the_run_is_killed():
+    """Both halves of what the temporary workspace has to guarantee.
+
+    It holds `token.txt`, the audit log and every `ARENA_AGENT_HOME` file
+    while the run lasts, in a directory other local users can list -- so
+    0o700, not the umask default (cubic). And CI stops this process with
+    SIGTERM, which by default takes the workspace to the grave with it,
+    one directory per run.
+
+    A source-text check would have missed both: the mode came from
+    `mkdtemp`, which an edit replaced, and the signal path only exists in
+    a live process.
+    """
+    import glob
+    import signal
+    import stat
+
+    pattern = str(Path(tempfile.gettempdir()) / "fuzz-root-*")
+    before = set(glob.glob(pattern))
+    port = _free_port()
+    proc = subprocess.Popen(
+        [sys.executable, str(SERVER_PATH), "--port", str(port)],
+        cwd=REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True,
+        env={**os.environ, "ARENA_FUZZ_TOKEN": "workspace-probe",
+             "PYTHONDONTWRITEBYTECODE": "1"})
+    try:
+        _wait_until_listening(proc, port)
+        created = sorted(set(glob.glob(pattern)) - before)
+        assert len(created) == 1, f"expected one workspace, got {created}"
+        mode = stat.S_IMODE(os.stat(created[0]).st_mode)
+        assert mode == 0o700, f"workspace is {oct(mode)}, not 0o700"
+    finally:
+        proc.send_signal(signal.SIGTERM)
+        proc.wait(timeout=60)
+
+    left = sorted(set(glob.glob(pattern)) - before)
+    assert left == [], f"SIGTERM left the workspace behind: {left}"
+
+
 def _free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
