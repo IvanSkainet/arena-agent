@@ -180,14 +180,19 @@ def main() -> int:
     # `mkdtemp` gives both; blocking SIGTERM across the two statements
     # gives what the pid name was for.
     _stop_on_sigterm()
-    with _sigterm_held():
-        root = Path(tempfile.mkdtemp(prefix="fuzz-root-"))
-        _LEAKED.append(root)
-    # Everything after the directory exists is inside the try, including the
-    # redirection and the import that follows it: both can raise, and a
-    # cleanup that starts later leaves one workspace per failed start
-    # (sourcery and cubic, separately).
+    root: Path | None = None
+    # The creation is inside the try as well. A SIGTERM held across the two
+    # statements is delivered when `_sigterm_held` unblocks it, so the
+    # KeyboardInterrupt comes out of the `with`, not out of the serve call
+    # -- outside the try that would be a traceback instead of "bridge
+    # stopped", and no `finally` (cubic). Everything after the directory
+    # exists belongs here too: the redirection and the import that follows
+    # it can both raise, and a cleanup that starts later leaves one
+    # workspace per failed start (sourcery and cubic, separately).
     try:
+        with _sigterm_held():
+            root = Path(tempfile.mkdtemp(prefix="fuzz-root-"))
+            _LEAKED.append(root)
         return _serve_until_stopped(root, args)
     except KeyboardInterrupt:
         # Ctrl-C or the SIGTERM handler above. Not an error: the job stops
@@ -202,9 +207,14 @@ def main() -> int:
         # expensive half (cubic). Back to where the caller was rather than
         # to the repository root -- this script can be started anywhere, and
         # moving the process somewhere it never was is a surprise (corgea).
-        shutil.rmtree(root, ignore_errors=True)
-        if root in _LEAKED:
-            _LEAKED.remove(root)
+        if root is not None:
+            shutil.rmtree(root, ignore_errors=True)
+            # Deregistered only once the directory is actually gone:
+            # `ignore_errors` means rmtree can come back having removed
+            # nothing, and dropping the entry then would take the atexit
+            # fallback's only copy of the path with it (cubic).
+            if not root.exists():
+                _LEAKED.remove(root)
         with contextlib.suppress(OSError):
             os.chdir(started_in)
 
