@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from arena.handler_params import body_int
+from arena.handler_params import body_int, body_str_list
 from arena.mission_limits import MAX_MISSION_TIMEOUT_S
 from arena.resources.listing import list_agents, list_hooks, list_missions, list_reports, list_subagents, show_mission
 from arena.resources.mission_catalog import catalog_missions
@@ -128,7 +128,7 @@ def make_resource_runtime(ctx: ResourceRuntimeContext) -> ResourceRuntime:
         return list_mission_templates()
 
     def _mission_compose_sync(data: dict[str, Any]) -> dict[str, Any]:
-        return compose_mission_draft(goal=str(data.get("goal", "") or ""), context=str(data.get("context", "") or ""), constraints=data.get("constraints") or [], max_steps=body_int(data, "max_steps", default=8), memory_profile=data.get("memory_profile"), title=str(data.get("title", "") or ""), template=str(data.get("template", "") or ""), build_plan=ctx.build_plan)
+        return compose_mission_draft(goal=str(data.get("goal", "") or ""), context=str(data.get("context", "") or ""), constraints=body_str_list(data, "constraints"), max_steps=body_int(data, "max_steps", default=8), memory_profile=data.get("memory_profile"), title=str(data.get("title", "") or ""), template=str(data.get("template", "") or ""), build_plan=ctx.build_plan)
 
     def _mission_create_sync(data: dict[str, Any]) -> dict[str, Any]:
         composed = data.get("draft") if isinstance(data.get("draft"), dict) else _mission_compose_sync(data).get("draft")

@@ -18,7 +18,7 @@ from aiohttp import web
 from arena.handler_errors import BodyFieldError, QueryParamError
 from arena.safe_numeric import safe_float, safe_int
 
-__all__ = ["body_float", "body_int", "body_str", "query_int"]
+__all__ = ["body_float", "body_int", "body_str", "body_str_list", "query_int"]
 
 
 def query_int(
@@ -240,3 +240,26 @@ def body_float(body: Mapping[str, Any], name: str, *, default: float | None) -> 
         return safe_float(value)
     except (TypeError, ValueError, OverflowError):
         raise BodyFieldError(name, value, expected="a finite number") from None
+
+
+def body_str_list(body: Mapping[str, Any], name: str) -> list[str]:
+    """Read a list of strings out of a JSON body, or refuse with a 400.
+
+    The third of the family, and found the same way as the first two: the
+    fuzzing gate sent `{"constraints": true}` to /v1/mission/create, the
+    `data.get("constraints") or []` idiom passed `True` straight through,
+    and the planner answered 500 (#270).
+
+    Missing and null mean "none given", as everywhere else here. A list is
+    accepted only if every element is a string -- a list of numbers is a
+    caller mistake, and stringifying it would hide the mistake rather than
+    report it.
+    """
+    value = body.get(name)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise BodyFieldError(name, value, expected="an array of strings")
+    if any(not isinstance(item, str) for item in value):
+        raise BodyFieldError(name, value, expected="an array of strings")
+    return list(value)

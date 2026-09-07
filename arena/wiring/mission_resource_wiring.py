@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from arena.handler_params import body_int
+from arena.handler_params import body_int, body_str_list
 from arena.mission_limits import MAX_MISSION_TIMEOUT_S
 
 
@@ -12,7 +12,7 @@ def build_resource_registry(env, registry: dict[str, Any]) -> None:
         return env.propose_mission_bundle(
             goal=str(data.get("goal", "") or ""),
             context=str(data.get("context", "") or ""),
-            constraints=data.get("constraints") or [],
+            constraints=body_str_list(data, "constraints"),
             max_steps=body_int(data, "max_steps", default=8),
             max_iterations=body_int(data, "max_iterations", default=4),
             memory_profile=data.get("memory_profile"),
@@ -63,7 +63,7 @@ def build_resource_registry(env, registry: dict[str, Any]) -> None:
             goal=str(data.get("goal", "") or data.get("followup_goal", "") or ""),
             title=str(data.get("title", "") or data.get("followup_title", "") or ""),
             notes=str(data.get("notes", "") or ""),
-            constraints=data.get("constraints"),
+            constraints=body_str_list(data, "constraints"),
             max_steps=body_int(data, "max_steps", default=8),
             max_iterations=body_int(data, "max_iterations", default=4),
             memory_profile=data.get("memory_profile"),
@@ -96,7 +96,7 @@ def build_resource_registry(env, registry: dict[str, Any]) -> None:
             followup_goal=str(data.get("followup_goal", "") or data.get("goal", "") or ""),
             followup_title=str(data.get("followup_title", "") or data.get("title", "") or ""),
             followup_mission_id=str(data.get("followup_mission_id", "") or ""),
-            constraints=data.get("constraints"),
+            constraints=body_str_list(data, "constraints"),
             max_steps=body_int(data, "max_steps", default=8),
             max_iterations=body_int(data, "max_iterations", default=4),
             memory_profile=data.get("memory_profile"),
