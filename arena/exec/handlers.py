@@ -56,6 +56,7 @@ from arena.exec.request_shape import (
     OUTSIDE_ROOT,
     limits_and_env,
     requested_cwd,
+    unusable_command,
     usable_cwd,
 )
 from arena.exec.runner import run_shell_command_stream
@@ -109,6 +110,13 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         if not cmd:
             ctx.record_request(is_error=True, count_request=False)
             return err_json(ctx, "missing cmd", status=400, request_id=request_id)
+
+        bad_cmd = unusable_command(cmd)
+        if bad_cmd:
+            # Refused before the audit log, which would otherwise carry the
+            # NUL into the journal (#288).
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(ctx, bad_cmd, status=400, request_id=request_id)
 
         reason = ctx.blocked_reason(cmd)
         if reason:
@@ -419,6 +427,13 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         if not cmd:
             ctx.record_request(is_error=True, count_request=False)
             return err_json(ctx, "missing cmd", status=400, request_id=request_id)
+
+        bad_cmd = unusable_command(cmd)
+        if bad_cmd:
+            # Refused before the audit log, which would otherwise carry the
+            # NUL into the journal (#288).
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(ctx, bad_cmd, status=400, request_id=request_id)
 
         reason = ctx.blocked_reason(cmd)
         if reason:

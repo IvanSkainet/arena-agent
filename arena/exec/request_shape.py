@@ -16,11 +16,28 @@ from arena.exec.environment import filter_caller_env
 from arena.handler_errors import BodyFieldError
 from arena.handler_params import body_int, body_str
 
-__all__ = ["OUTSIDE_ROOT", "limits_and_env", "requested_cwd", "usable_cwd"]
+__all__ = ["OUTSIDE_ROOT", "limits_and_env", "requested_cwd", "unusable_command",
+           "usable_cwd"]
 
 # Said three times otherwise, which SonarCloud counts (S1192) and which is
 # also how two of the three drifted apart in the first place.
 OUTSIDE_ROOT = "cwd must be under root"
+
+
+def unusable_command(cmd: str) -> str | None:
+    """Why `subprocess` would refuse this command line, or None.
+
+    A NUL cannot travel through `execve`, so `subprocess` answers it with
+    `ValueError: embedded null byte` -- thrown from the spawn, long after
+    the handler has decided the request is fine, and so returned as a 500
+    (#288, found by the #258 fuzzing gate).
+
+    `cwd` has had this check since #270; `cmd` reaches the same syscall by
+    the same route and did not, which is the whole of the bug.
+    """
+    if "\x00" in cmd:
+        return "cmd is not a usable command (embedded NUL)"
+    return None
 
 
 def usable_cwd(raw: str, root: Path,
