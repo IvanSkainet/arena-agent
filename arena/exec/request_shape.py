@@ -48,15 +48,22 @@ def usable_cwd(raw: str, root: Path,
         # that builds the path. `..` and symlinks are settled first, and the
         # separator is part of the prefix so that `/rootless` does not count
         # as inside `/root`.
-        real_root = os.path.realpath(root)
-        real_cwd = os.path.realpath(requested)
-        inside = real_cwd == real_root or real_cwd.startswith(real_root + os.sep)
+        resolved = requested.resolve()
+        # `relative_to` rather than a prefix comparison: it is pathlib's own
+        # containment question, it treats the separator correctly (so
+        # `/rootless` is not inside `/root`), and CodeQL recognises it as
+        # the sanitizer that a hand-rolled `startswith` is not.
+        try:
+            resolved.relative_to(root.resolve())
+            inside = True
+        except ValueError:
+            inside = False
         # The boundary is checked before the filesystem: saying "does not
         # exist" about a path outside the root answers a question the caller
         # is not allowed to ask (cubic).
         if under_root is not None and not inside:
             return None, f"{OUTSIDE_ROOT} {root}"
-        cwd = Path(real_cwd)
+        cwd = resolved
         if under_root is not None and not under_root(cwd, root):
             return None, f"{OUTSIDE_ROOT} {root}"
         if not cwd.exists() or not cwd.is_dir():
