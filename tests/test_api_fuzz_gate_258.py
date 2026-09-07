@@ -240,7 +240,7 @@ BRIDGE_WRITES = (
 )
 
 
-def test_the_watched_paths_cover_everything_the_bridge_derives():
+def test_the_watched_paths_cover_everything_the_bridge_derives(monkeypatch):
     """`BRIDGE_WRITES` against the bridge's own idea of its workspace.
 
     A hardcoded list is only as good as the day it was written; this asks
@@ -251,6 +251,10 @@ def test_the_watched_paths_cover_everything_the_bridge_derives():
     """
     from arena.paths import ArenaPaths
 
+    # `from_env` prefers ARENA_AGENT_HOME over its argument, and another test
+    # in the same session may have set it -- on CI that turned this check
+    # into a comparison against someone else's temporary directory.
+    monkeypatch.delenv("ARENA_AGENT_HOME", raising=False)
     # A name, not a real directory: `from_env` only joins strings, and a
     # literal "/tmp/..." reads to bandit as code that writes there (B108).
     probe_root = Path(tempfile.gettempdir()) / "arena-paths-probe"
