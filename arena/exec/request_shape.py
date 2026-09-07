@@ -39,27 +39,34 @@ def usable_cwd(raw: str, root: Path,
     found the second one three commits after the first was fixed.
     """
     try:
-        if under_root is None:
-            # `allow_any_cwd`, the owner profile: going outside the root is
-            # the point of it, and the caller already has a shell here.
-            cwd = _anywhere(raw, root)
-        else:
-            # Everyone else gets a path *rebuilt* inside the root rather
-            # than checked afterwards. Three attempts at "build it, then
-            # compare" -- callback, helper, inline realpath -- were all
-            # correct and all still py/path-injection to CodeQL, because a
-            # comparison is not a construction. This cannot leave the root:
-            # the components are filtered, then joined onto it.
-            cwd = _inside_root(raw, root)
-            if cwd is None:
-                return None, f"{OUTSIDE_ROOT} {root}"
-        if under_root is not None and not under_root(cwd, root):
+        cwd = _chosen_cwd(raw, root, under_root)
+        if cwd is None:
             return None, f"{OUTSIDE_ROOT} {root}"
         if not cwd.exists() or not cwd.is_dir():
             return None, f"cwd does not exist: {cwd}"
     except (OSError, RuntimeError, ValueError) as exc:
         return None, f"cwd is not a usable path ({type(exc).__name__})"
     return cwd, ""
+
+
+def _chosen_cwd(raw: str, root: Path,
+                under_root: Callable[[Path, Path], bool] | None) -> Path | None:
+    """The directory to run in, or None when the request leaves the sandbox.
+
+    Two profiles, two rules. With `allow_any_cwd` -- the owner profile --
+    going outside the root is the point, and the same request already runs
+    an arbitrary shell command there. Everyone else gets a path *rebuilt*
+    inside the root rather than checked afterwards: four attempts at "build
+    it, then compare" (callback, helper, realpath prefix, relative_to) were
+    all correct and all still py/path-injection to CodeQL, because a
+    comparison is not a construction.
+    """
+    if under_root is None:
+        return _anywhere(raw, root)
+    cwd = _inside_root(raw, root)
+    if cwd is None or not under_root(cwd, root):
+        return None
+    return cwd
 
 
 def _anywhere(raw: str, root: Path) -> Path:
