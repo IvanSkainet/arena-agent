@@ -79,6 +79,13 @@ def compose_mission_draft(*, goal: str, context: str = "", constraints: list[str
 def create_mission_from_draft(*, missions_dir: Path, draft: dict[str, Any], mission_id: str = "", overwrite: bool = False) -> dict[str, Any]:
     title = str(draft.get("title", "") or draft.get("goal", "") or "mission")
     mid = mission_id or dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + _slug(title) + "-" + uuid.uuid4().hex[:6]
+    if not mid.strip():
+        # A name that is only whitespace creates a mission nothing can
+        # address afterwards: `str.strip()` treats U+0085 and its relatives
+        # as whitespace, so `/v1/mission/family` read the id back as empty
+        # and answered 500. Refusing the write is the cheaper half of that
+        # fix (the reader is the other half).
+        return {"ok": False, "error": "mission id cannot be blank", "status": 400}
     path = missions_dir / mid
     if path.exists() and not overwrite:
         return {"ok": False, "error": f"mission already exists: {mid}", "status": 409}

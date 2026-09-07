@@ -15,7 +15,13 @@ def get_mission_family(missions_dir: Path, name: str) -> dict[str, Any]:
     root = lineage.get("root") or lineage.get("mission") or {}
     root_id = str(root.get("id") or root.get("name") or "").strip()
     if not root_id:
-        return {"ok": False, "error": "family root unavailable", "status": 500}
+        # A mission whose id is entirely whitespace -- `str.strip()` removes
+        # U+0085 and friends, not just spaces -- leaves nothing to group a
+        # family by. That is a property of the stored mission, not a failure
+        # of this bridge, so it is a 404 rather than the 500 it used to be
+        # (found by the #258 fuzzing gate on its first CI run).
+        return {"ok": False, "error": f"mission {name!r} has no usable id",
+                "status": 404}
     members = []
     if missions_dir.exists():
         for path in sorted(missions_dir.iterdir()):
