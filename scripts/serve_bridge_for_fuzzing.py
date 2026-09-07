@@ -169,6 +169,10 @@ def main() -> int:
     if not args.token:
         parser.error("set ARENA_FUZZ_TOKEN or pass --token")
 
+    # Installed before anything else can block: SIGTERM arriving during the
+    # redirection or the bridge import would otherwise kill the process
+    # outright, past the `finally` below (cubic).
+    _stop_on_sigterm()
     started_in = Path.cwd()
     root = Path(tempfile.mkdtemp(prefix="fuzz-root-"))
     # Everything after the directory exists is inside the try, including the
@@ -184,11 +188,15 @@ def main() -> int:
         print("bridge stopped", flush=True)
         return 0
     finally:
-        # Back to wherever the caller was, not to the repository root: this
-        # script can be started from anywhere, and putting the process
-        # somewhere it never was is its own small surprise (corgea).
-        os.chdir(started_in)
+        # Cleanup first, chdir second, and the chdir is allowed to fail: the
+        # directory the caller started in can disappear while the bridge
+        # runs, and losing the workspace because of that would be the more
+        # expensive half (cubic). Back to where the caller was rather than
+        # to the repository root -- this script can be started anywhere, and
+        # moving the process somewhere it never was is a surprise (corgea).
         shutil.rmtree(root, ignore_errors=True)
+        with contextlib.suppress(OSError):
+            os.chdir(started_in)
 
 
 def _serve_until_stopped(root: Path, args: argparse.Namespace) -> int:
@@ -202,7 +210,6 @@ def _serve_until_stopped(root: Path, args: argparse.Namespace) -> int:
     # writes files and executes commands relative to it, is a way out of the
     # sandbox for anything -- a person or an agent -- that gets the argument
     # wrong. A directory nobody can name cannot be escaped into.
-    _stop_on_sigterm()
     _prepare_workspace(root)
     app = build_app(root, args.token)
     os.chdir(root)

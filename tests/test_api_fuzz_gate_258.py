@@ -160,8 +160,13 @@ def test_the_run_leaves_nothing_in_the_checkout():
         # handler fails the test instead of passing it quietly -- and the
         # token endpoint goes last, because it invalidates the credential
         # the previous line is using.
+        # Three endpoints, three different destinations: a mission directory,
+        # an audit line, and the token file. The audit one matters because a
+        # sabotage test showed the check passing when only `TOKEN_FILE` was
+        # redirected back -- nothing had written an audit entry yet.
         assert _post(port, "/v1/mission/compose",
                      {"goal": "isolation", "create": True}) == 200
+        assert _post(port, "/v1/exec", {"cmd": "echo isolation"}) == 200
         assert _post(port, "/v1/token/regenerate", {}) == 200
     finally:
         proc.terminate()
@@ -222,11 +227,45 @@ def _post(port: int, path: str, body: dict) -> int:
 # catches whatever *other* tests are doing at that moment -- on Windows this
 # test failed because a neighbour had just left `scripts/_global_patch_probe.py`
 # behind (#276), which says nothing about the fuzz bridge.
+#
+# The completeness of this list is not assumed, it is checked: the test below
+# derives the same set from `ArenaPaths` plus the three `arena.constants`
+# files, so a new workspace directory in the bridge cannot slip past the
+# isolation gate unnoticed (cubic).
 BRIDGE_WRITES = (
     "token.txt", "audit.jsonl", "bridge.log", "requests.jsonl",
-    "missions/", "reports/", "queue/", "mission_schedules/", "memory/",
-    "skills/", "hooks/", "agents/", "subagents/",
+    "webhooks.json", "missions", "reports", "queue", "mission_schedules",
+    "memory", "skills", "hooks", "agents", "subagents",
 )
+
+
+def test_the_watched_paths_cover_everything_the_bridge_derives():
+    """`BRIDGE_WRITES` against the bridge's own idea of its workspace.
+
+    A hardcoded list is only as good as the day it was written; this asks
+    `ArenaPaths` -- the thing that actually decides where the bridge puts
+    its state -- and requires every entry it produces to be watched. A new
+    directory added to the layout fails here rather than quietly falling
+    outside the isolation check (cubic).
+    """
+    from arena.paths import ArenaPaths
+
+    paths = ArenaPaths.from_env(Path("/tmp/probe-root"))
+    derived = {
+        paths.queue, paths.inbox, paths.running, paths.done, paths.failed,
+        paths.skills_dir, paths.hooks_dir, paths.agents_dir,
+        paths.subagents_dir, paths.missions_dir, paths.reports_dir,
+        paths.memory_file, paths.memory_db, paths.webhooks_file,
+    }
+    root = "/tmp/probe-root/"
+    unwatched = sorted(
+        str(path) for path in derived
+        if not any(str(path).replace("\\", "/").startswith(root + name)
+                   for name in BRIDGE_WRITES)
+    )
+    assert unwatched == [], (
+        "these workspace paths are not covered by BRIDGE_WRITES, so the "
+        f"isolation test would not notice them: {unwatched}")
 
 
 def _bridge_written_paths() -> set[str]:
@@ -234,7 +273,9 @@ def _bridge_written_paths() -> set[str]:
 
     `__pycache__` is excluded on top of PYTHONDONTWRITEBYTECODE: importing
     the bridge writes bytecode, and that is Python doing its job rather than
-    the bridge writing where it should not (cubic).
+    the bridge writing where it should not (cubic). Nothing in
+    `BRIDGE_WRITES` can be a `.pyc`, so the exclusion cannot hide a real
+    leak -- it only keeps the check from arguing with the interpreter.
     """
     listing = subprocess.run(
         ["git", "status", "--porcelain", "--ignored=matching"],
@@ -245,7 +286,7 @@ def _bridge_written_paths() -> set[str]:
         path = line[3:].strip().strip('"').replace("\\", "/")
         if "__pycache__" in path or path.endswith(".pyc"):
             continue
-        if any(path == name or path.startswith(name) for name in BRIDGE_WRITES):
+        if any(path == name or path.startswith(name + "/") for name in BRIDGE_WRITES):
             seen.add(path)
     return seen
 
@@ -308,9 +349,14 @@ def test_the_bridge_token_is_generated_rather_than_written_down(fuzz_job):
     assert "::add-mask::" in runs
     envs = " ".join(str(step.get("env", "")) for step in fuzz_job["steps"])
     assert "ci-fuzz-token" not in runs + envs
-    # Handed over in the environment, not in argv: /proc/<pid>/cmdline is
-    # readable by anything else on the runner for the whole job (cubic).
+    # The bridge takes it from the environment: its process runs for the
+    # whole job, so its /proc/<pid>/cmdline is what anything else on the
+    # runner can read at leisure (cubic). curl and schemathesis still
+    # interpolate it into their own argv, and that is a different exposure:
+    # those processes live for seconds, and the alternative -- a config file
+    # or a header file on disk -- trades one readable place for another.
     assert "ARENA_FUZZ_TOKEN=" in runs
+    assert "serve_bridge_for_fuzzing.py --port 8899 &" in runs
     assert "--token" not in runs
 
 
