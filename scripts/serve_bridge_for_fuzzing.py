@@ -61,7 +61,19 @@ DEFAULT_PORT = 8899
 NO_RATE_LIMIT = 10 ** 9
 IDLE_SLEEP_S = 3600
 
-FUZZ_ROOT = Path(tempfile.mkdtemp(prefix="fuzz-root-"))
+def _make_fuzz_root() -> Path:
+    """The throwaway workspace, created once per process.
+
+    A module-level `mkdtemp()` fires on import, so anything that imports
+    this file for a docstring or a constant leaves a directory behind
+    (corgea). It is still module-level state -- the redirection below has to
+    happen before the bridge is imported, and that is a property of import
+    order, not of any function -- but now it is created deliberately.
+    """
+    return Path(tempfile.mkdtemp(prefix="fuzz-root-"))
+
+
+FUZZ_ROOT = _make_fuzz_root() if __name__ == "__main__" else Path(tempfile.gettempdir())
 
 # `ArenaPaths.from_env` reads this, and queue/, missions/, reports/ and
 # skills/ all follow from it. The supported way to move the workspace.
@@ -177,12 +189,22 @@ def main() -> int:
 
 
 async def _serve(app: web.Application, port: int) -> None:
+    """Serve until interrupted, then shut the runner down properly.
+
+    The loop has no exit of its own -- the job kills the process when the
+    fuzz run finishes -- but Ctrl-C and SIGTERM arrive as CancelledError or
+    KeyboardInterrupt, and without the cleanup aiohttp leaves the socket and
+    its connections to the garbage collector (corgea).
+    """
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "127.0.0.1", port).start()
     print(f"bridge listening on 127.0.0.1:{port}", flush=True)
-    while True:
-        await asyncio.sleep(IDLE_SLEEP_S)
+    try:
+        while True:
+            await asyncio.sleep(IDLE_SLEEP_S)
+    finally:
+        await runner.cleanup()
 
 
 if __name__ == "__main__":
