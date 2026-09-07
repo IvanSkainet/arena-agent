@@ -171,14 +171,16 @@ def main() -> int:
         parser.error("set ARENA_FUZZ_TOKEN or pass --token")
 
     started_in = Path.cwd()
-    # Handler first, directory second, and the directory is remembered in a
-    # module-level name before anything else can raise: a SIGTERM landing
-    # between `mkdtemp` returning and the `try` being entered would
-    # otherwise leave the workspace behind (cubic). `_LEAKED` is what the
-    # last-resort cleanup below reads.
+    # Handler first, directory second, and the name of the directory is a
+    # function of the pid rather than something `mkdtemp` invents: cubic
+    # pointed out that remembering the path in a variable still leaves a
+    # window -- SIGTERM between the directory existing and the assignment
+    # landing -- and a name the cleanup can recompute has no window at all.
+    # Before the handler is installed there is nothing on disk to lose.
     _stop_on_sigterm()
-    root = Path(tempfile.mkdtemp(prefix="fuzz-root-"))
-    _LEAKED.append(root)
+    root = _workspace_for_this_process()
+    shutil.rmtree(root, ignore_errors=True)  # a pid can come round again
+    root.mkdir(parents=True)
     # Everything after the directory exists is inside the try, including the
     # redirection and the import that follows it: both can raise, and a
     # cleanup that starts later leaves one workspace per failed start
@@ -199,8 +201,6 @@ def main() -> int:
         # to the repository root -- this script can be started anywhere, and
         # moving the process somewhere it never was is a surprise (corgea).
         shutil.rmtree(root, ignore_errors=True)
-        if root in _LEAKED:
-            _LEAKED.remove(root)
         with contextlib.suppress(OSError):
             os.chdir(started_in)
 
@@ -223,16 +223,21 @@ def _serve_until_stopped(root: Path, args: argparse.Namespace) -> int:
     return 0
 
 
-# Workspaces created but not yet handed to a `finally`. One entry at a time
-# in practice; a list because atexit has to read it without knowing when.
-_LEAKED: list[Path] = []
+def _workspace_for_this_process() -> Path:
+    """Where this run keeps its throwaway workspace.
+
+    Derived from the pid rather than handed out by `mkdtemp`, so the
+    cleanup below can name the directory without having been told about
+    it -- no variable to assign, no window between the directory existing
+    and something remembering it (cubic).
+    """
+    return Path(tempfile.gettempdir()) / f"fuzz-root-{os.getpid()}"
 
 
 @atexit.register
 def _remove_any_leaked_workspace() -> None:
     """Last resort for a workspace whose owner never reached its cleanup."""
-    while _LEAKED:
-        shutil.rmtree(_LEAKED.pop(), ignore_errors=True)
+    shutil.rmtree(_workspace_for_this_process(), ignore_errors=True)
 
 
 def _stop_on_sigterm() -> None:
@@ -246,8 +251,18 @@ def _stop_on_sigterm() -> None:
     def _raise(signum: int, frame: object) -> None:  # noqa: ARG001
         raise KeyboardInterrupt(f"signal {signum}")
 
-    with contextlib.suppress(ValueError):  # not the main thread
+    try:
         signal.signal(signal.SIGTERM, _raise)
+    except ValueError:
+        # Only reachable off the main thread, where the interpreter refuses
+        # to install handlers. Silence would be wrong: the workspace cleanup
+        # depends on this handler, and a run without it leaks a directory
+        # per SIGTERM with nothing in the log to say why (corgea).
+        print(
+            "warning: SIGTERM handler not installed (not the main thread); "
+            "a terminated run may leave its workspace behind",
+            file=sys.stderr, flush=True,
+        )
 
 
 async def _serve(app: web.Application, port: int) -> None:
