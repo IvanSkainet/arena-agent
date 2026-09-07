@@ -77,21 +77,32 @@ def _inside_root(raw: str, root: Path) -> Path | None:
     a caller who wrote `../x` meant something this profile does not allow,
     and quietly reinterpreting it would be worse than saying no.
     """
-    asked = PurePosixPath(raw.replace("\\", "/")) if raw else PurePosixPath()
-    parts = [part for part in asked.parts if part not in (".", "/")]
-    if any(part == ".." or part.startswith("~") for part in parts):
+    parts = _relative_parts(raw, root)
+    if parts is None:
         return None
-    if raw.startswith("/") or (len(raw) > 1 and raw[1] == ":"):
-        # An absolute path is allowed only when it names somewhere under the
-        # root already; the relative remainder is what gets rebuilt.
-        try:
-            parts = list(PurePosixPath(raw).relative_to(PurePosixPath(str(root))).parts)
-        except ValueError:
-            return None
     built = root
     for part in parts:
         built = built / part
     return built
+
+
+def _relative_parts(raw: str, root: Path) -> list[str] | None:
+    """The components of `raw` relative to `root`, or None if it escapes.
+
+    An absolute request is allowed only when it already names somewhere
+    under the root; what comes back is the remainder, so the join above
+    starts from the root either way.
+    """
+    if raw.startswith("/") or (len(raw) > 1 and raw[1] == ":"):
+        try:
+            return list(PurePosixPath(raw).relative_to(PurePosixPath(str(root))).parts)
+        except ValueError:
+            return None
+    asked = PurePosixPath(raw.replace("\\", "/")) if raw else PurePosixPath()
+    parts = [part for part in asked.parts if part not in (".", "/")]
+    if any(part == ".." or part.startswith("~") for part in parts):
+        return None
+    return parts
 
 
 def requested_cwd(data: dict[str, Any], root: Path,
