@@ -55,8 +55,8 @@ from arena.exec.interpreters import (
 from arena.exec.request_shape import (
     OUTSIDE_ROOT,
     limits_and_env,
+    requested_command,
     requested_cwd,
-    unusable_command,
     usable_cwd,
 )
 from arena.exec.runner import run_shell_command_stream
@@ -106,12 +106,10 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         assert data is not None  # the guard above already proved this
 
         request_id = str(data.get("request_id") or uuid.uuid4())
-        cmd = str(data.get("cmd", "")).strip()
-        # One branch for both refusals: absent, or present and unspawnable.
-        # A NUL cannot cross `execve` and is refused here rather than at the
-        # spawn, before the audit call, so the journal never carries one
-        # (#288).
-        unusable = "missing cmd" if not cmd else unusable_command(cmd)
+        # Absent, or present and unspawnable: a NUL cannot cross `execve`,
+        # and refusing it here rather than at the spawn keeps it out of the
+        # audit journal as well as out of the 500s (#288).
+        cmd, unusable = requested_command(data)
         if unusable:
             ctx.record_request(is_error=True, count_request=False)
             return err_json(ctx, unusable, status=400, request_id=request_id)
@@ -421,12 +419,10 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         assert data is not None  # the guard above already proved this
 
         request_id = str(data.get("request_id") or uuid.uuid4())
-        cmd = str(data.get("cmd", "")).strip()
-        # One branch for both refusals: absent, or present and unspawnable.
-        # A NUL cannot cross `execve` and is refused here rather than at the
-        # spawn, before the audit call, so the journal never carries one
-        # (#288).
-        unusable = "missing cmd" if not cmd else unusable_command(cmd)
+        # Absent, or present and unspawnable: a NUL cannot cross `execve`,
+        # and refusing it here rather than at the spawn keeps it out of the
+        # audit journal as well as out of the 500s (#288).
+        cmd, unusable = requested_command(data)
         if unusable:
             ctx.record_request(is_error=True, count_request=False)
             return err_json(ctx, unusable, status=400, request_id=request_id)

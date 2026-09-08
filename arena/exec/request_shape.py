@@ -16,8 +16,8 @@ from arena.exec.environment import filter_caller_env
 from arena.handler_errors import BodyFieldError
 from arena.handler_params import body_int, body_str
 
-__all__ = ["OUTSIDE_ROOT", "limits_and_env", "requested_cwd", "unusable_command",
-           "usable_cwd"]
+__all__ = ["OUTSIDE_ROOT", "limits_and_env", "requested_command", "requested_cwd",
+           "unusable_command", "usable_cwd"]
 
 # Said three times otherwise, which SonarCloud counts (S1192) and which is
 # also how two of the three drifted apart in the first place.
@@ -38,6 +38,20 @@ def unusable_command(cmd: str) -> str | None:
     if "\x00" in cmd:
         return "cmd is not a usable command (embedded NUL)"
     return None
+
+
+def requested_command(data: dict[str, Any]) -> tuple[str, str | None]:
+    """The command line to run, or why this body does not carry one.
+
+    Both JSON exec handlers read `cmd` identically and refuse it for the
+    same two reasons, so they ask here rather than each keeping a pair of
+    branches -- which is how `/v1/exec/stream` came to be a copy of
+    `/v1/exec` twenty lines long in the first place.
+    """
+    cmd = str(data.get("cmd", "")).strip()
+    if not cmd:
+        return cmd, "missing cmd"
+    return cmd, unusable_command(cmd)
 
 
 def usable_cwd(raw: str, root: Path,
