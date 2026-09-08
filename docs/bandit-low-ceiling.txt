@@ -1,8 +1,9 @@
-646  # bandit LOW ceiling. Ratchet: may fall, never rise. 262 of these are
+645  # bandit LOW ceiling. Ratchet: may fall, never rise. 261 of these are
      # B110 try_except_pass. Scope is arena/ + scripts/ + bin/ + skills/ --
      # everything make_release_zip.py ships. It was arena/ only until #242,
      # which found 7 HIGH and 22 MEDIUM across the unscanned trees. The
      # 490 -> 647 rise was that scope change, not new debt; 647 -> 646 is one
-     # `except Exception: continue` removed from the digest reader in #270. Lower this whenever
+     # `except Exception: continue` removed from the digest reader in #270,
+     # 646 -> 645 the swallowed json.loads in the event read loop (#258). Lower this whenever
      # you reduce the count. Per-test ceilings live in
      # bandit-low-ceilings.json and must sum to this number.
