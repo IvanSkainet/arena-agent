@@ -186,16 +186,30 @@ def test_a_malformed_frame_is_never_a_command() -> None:
     assert _client_command(b"\xff\xfe") is None
     assert _client_command('{"command": 7}') is None
     assert _client_command("{}") is None
-    # The C scanner has far more headroom than `sys.getrecursionlimit()`
-    # suggests: 8x the limit still parses, and only past ~16x does
-    # `json.loads` raise RecursionError. A shallower case would go down the
-    # `not isinstance(data, dict)` path and pass even with the catch
-    # reverted, pinning nothing (cubic).
+    # A deeply nested frame is answered, not raised through. Which
+    # exception the parser picks is CPython's business and it changed in
+    # 3.14 (the old assertion demanded RecursionError and went red there),
+    # so this half only pins our side: no escape, no command.
     limit = sys.getrecursionlimit()
     deep = "[" * (limit * 24) + "]" * (limit * 24)
-    with pytest.raises(RecursionError):
-        json.loads(deep)
     assert _client_command(deep) is None
+
+
+def test_a_parser_recursion_error_is_caught_not_raised(monkeypatch) -> None:
+    """The RecursionError arm of the catch, pinned without CPython's help.
+
+    Real deep input only raises RecursionError on some interpreter
+    versions, so the arm is exercised directly: if it were dropped from
+    the `except` clause this call would raise instead of answering None.
+    """
+    from arena.events import handlers as events_handlers
+
+    def explode(_raw: object) -> object:
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(events_handlers.json, "loads", explode)
+
+    assert events_handlers._client_command('{"command": "ping"}') is None
 
 
 def test_an_event_that_will_not_serialize_does_not_kill_the_stream(bridge) -> None:
