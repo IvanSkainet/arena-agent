@@ -73,6 +73,10 @@ jobs:
         run: |
           python -m pip install --require-hashes -r requirements-ci.lock
           python -m pip install --require-hashes -r requirements-bench.lock
+          # NOSONAR githubactions:S8544 -- nothing is resolved here: --no-deps
+          # installs this repository's own source tree and pulls no
+          # dependency at all. Everything that could float was installed by
+          # the two --require-hashes lines above. Same line as ci.yml:190.
           python -m pip install --no-deps --no-build-isolation -e .
 
       - name: Verify the benchmarked package imports
