@@ -89,9 +89,12 @@ def make_event_handlers(ctx: EventHandlerContext) -> EventHandlers:
         426 without a handshake -- is in `_upgraded_socket` (#258).
         """
         opened, refusal = await _upgraded_socket(ctx, request)
-        if refusal is not None:
-            return refusal
-        assert opened is not None  # the refusal above already proved this
+        if opened is None:
+            # `refusal` is always set when the socket is not -- spelled as
+            # a check on the socket rather than an assert, since asserts
+            # vanish under PYTHONOPTIMIZE and this one guards a return
+            # value (aikido).
+            return refusal or _needs_upgrade(ctx, "the handshake did not complete")
         ws = opened
 
         # Send welcome message.

@@ -92,14 +92,14 @@ def test_the_503_exceptions_are_exactly_the_operations_that_need_a_tool():
 
 
 def test_the_gate_still_watches_for_server_errors(config):
-    """The one check the measurement said was ready.
+    """The check the measurement said was ready first.
 
     `[checks] enabled = false` switches everything off, so a typo in the
     line that switches this one back on would leave a job that runs, passes,
     and asserts nothing at all.
     """
     checks = config["checks"]
-    assert checks["enabled"] is False, "the other checks are not ready yet (#258)"
+    assert checks["enabled"] is False, "the remaining checks are not ready yet (#258)"
     assert checks["not_a_server_error"]["enabled"] is True
 
 
@@ -189,7 +189,10 @@ def test_the_run_leaves_nothing_in_the_checkout():
     assert appeared == [], f"the fuzz bridge wrote into the checkout: {appeared}"
 
 
-@pytest.mark.timeout(120)
+# 240 rather than the ini default: the body waits up to 120s for SIGTERM to
+# be honoured, and a deadline shorter than that wait would have pytest-timeout
+# kill the test before the diagnostic below could run (cubic).
+@pytest.mark.timeout(240)
 @pytest.mark.skipif(os.name != "posix",
                     reason="SIGTERM and mode bits are the POSIX half of this")
 def test_the_workspace_is_private_and_goes_away_when_the_run_is_killed():

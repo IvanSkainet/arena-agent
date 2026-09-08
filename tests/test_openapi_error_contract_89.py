@@ -306,3 +306,46 @@ def test_authenticated_operations_keep_the_global_security_requirement(spec):
     wrong = [f"{m.upper()} {p}" for p, m, o in _authenticated(spec)
              if o.get("security") == []]
     assert wrong == [], f"authenticated operations wrongly marked public: {wrong}"
+
+
+def test_the_conflict_and_not_found_answers_of_the_file_routes_are_documented(spec):
+    """Runtime statuses aikido found undocumented on the #258 gate.
+
+    `validate_edit_target` / `validate_view_target` answer 404 for a missing
+    file, `validate_create_target` answers 409 for one that already exists,
+    and `safe_edit` answers 409 when `old_text` is ambiguous or the file moved
+    under a preview. All of them were absent from the document, so
+    `status_code_conformance` had a real finding waiting behind whichever
+    generated path hit them first.
+    """
+    expected = {
+        ("/v1/fs/edit", "patch"): {"404", "409"},
+        ("/v1/fs/view", "post"): {"404"},
+        ("/v1/fs/create", "post"): {"409"},
+        ("/v1/fs/edit/apply", "post"): {"404", "409"},
+        ("/v1/fs/edit/rollback", "post"): {"404", "409"},
+        # `require_active_title` refuses with 409 when the foreground window
+        # is not the one asked for (cubic).
+        ("/v1/desktop/window_action", "post"): {"409"},
+    }
+    for (path, method), codes in expected.items():
+        responses = spec["paths"][path][method]["responses"]
+        missing = codes - set(responses)
+        assert missing == set(), f"{method.upper()} {path} does not document {sorted(missing)}"
+        for code in codes:
+            body = responses[code].get("content", {}).get("application/json", {})
+            assert body.get("schema"), f"{method.upper()} {path} {code} has no JSON schema"
+
+
+def test_the_websocket_connection_header_is_not_pinned_to_one_exact_value(spec):
+    """`keep-alive, Upgrade` is what browsers and proxies actually send.
+
+    The parameter used to declare `enum: ["Upgrade"]` while
+    `_is_websocket_upgrade` accepts the token anywhere in the list, so the
+    document forbade a handshake the bridge honours (aikido).
+    """
+    params = spec["paths"]["/v1/events"]["get"]["parameters"]
+    connection = [p for p in params if p["name"] == "Connection"]
+    assert connection, "the handshake requires a Connection header"
+    assert "enum" not in connection[0]["schema"]
+    assert "Upgrade" in connection[0]["description"]
