@@ -121,7 +121,11 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
             )
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, ctx.mission_show_sync, name)
-        return ctx.cors_json_response(result, status=200 if result.get("ok") else 404)
+        # `int(result.get("status", 404))`, as every other mission read
+        # does: hardcoding 404 turned the 400 this reader now returns for
+        # an unusable id back into "not found" (cubic, #286).
+        return ctx.cors_json_response(
+            result, status=200 if result.get("ok") else int(result.get("status", 404)))
 
     async def _mission_get(sync_fn, request: web.Request) -> web.Response:
         r = ctx.require_auth(request)

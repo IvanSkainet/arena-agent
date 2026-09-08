@@ -16,11 +16,48 @@ from arena.exec.environment import filter_caller_env
 from arena.handler_errors import BodyFieldError
 from arena.handler_params import body_int, body_str
 
-__all__ = ["OUTSIDE_ROOT", "limits_and_env", "requested_cwd", "usable_cwd"]
+__all__ = ["OUTSIDE_ROOT", "limits_and_env", "requested_command", "requested_cwd",
+           "unusable_command", "usable_cwd"]
 
 # Said three times otherwise, which SonarCloud counts (S1192) and which is
 # also how two of the three drifted apart in the first place.
 OUTSIDE_ROOT = "cwd must be under root"
+
+
+def unusable_command(cmd: str) -> str | None:
+    """Why `subprocess` would refuse this command line, or None.
+
+    A NUL cannot travel through `execve`, so `subprocess` answers it with
+    `ValueError: embedded null byte` -- thrown from the spawn, long after
+    the handler has decided the request is fine, and so returned as a 500
+    (#288, found by the #258 fuzzing gate).
+
+    `cwd` has had this check since #270; `cmd` reaches the same syscall by
+    the same route and did not, which is the whole of the bug.
+    """
+    if "\x00" in cmd:
+        return "cmd is not a usable command (embedded NUL)"
+    if any(0xD800 <= ord(ch) <= 0xDFFF for ch in cmd):
+        # A lone surrogate survives JSON and dies encoding the argument:
+        # `UnicodeEncodeError` out of `create_subprocess_shell` for the
+        # streaming handler and out of `Popen` for the other, both 500s
+        # (cubic). Short enough to pass every other check.
+        return "cmd is not a usable command (unpaired surrogate)"
+    return None
+
+
+def requested_command(data: dict[str, Any]) -> tuple[str, str | None]:
+    """The command line to run, or why this body does not carry one.
+
+    Both JSON exec handlers read `cmd` identically and refuse it for the
+    same two reasons, so they ask here rather than each keeping a pair of
+    branches -- which is how `/v1/exec/stream` came to be a copy of
+    `/v1/exec` twenty lines long in the first place.
+    """
+    cmd = str(data.get("cmd", "")).strip()
+    if not cmd:
+        return cmd, "missing cmd"
+    return cmd, unusable_command(cmd)
 
 
 def usable_cwd(raw: str, root: Path,
