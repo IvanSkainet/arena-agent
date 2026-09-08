@@ -17,9 +17,9 @@ annotated-types==0.8.0 \
     --hash=sha256:13b2beaad985e05e2d6407ee4c4f35590b11f8d693a258a561055cac8f64cab7 \
     --hash=sha256:f072f4d804ea359e4eaf198b1af7a8b0943881a87f31bb764f8bf219bb9419e0
     # via pydantic
-boto3==1.43.84 \
-    --hash=sha256:4d46d5689b82d05c3a1ed6de285c1f8f05cceffd5eec930a5423105ee6a9e0d1 \
-    --hash=sha256:973e9982a3a819644c71d7fe4f9e67b4f833d33760ba418c2a0680aa5afed1f0
+boto3==1.43.89 \
+    --hash=sha256:c28abbe472e9b7cad08807356311aeec51bde5218c18489da827045d2267bfd9 \
+    --hash=sha256:fe4190afe63eb562b6ba6a3911cf4427473b35fa047adde093bf696d3ae09fc0
     # via guarddog
 botocore==1.43.84 \
     --hash=sha256:1518d98de94e4bf034da94c2a7b7acccea58619146db14c8327b2769919a4dd8 \
