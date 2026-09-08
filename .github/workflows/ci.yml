@@ -282,9 +282,17 @@ jobs:
           path: test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
           retention-days: 5
 
+      # Not blanket-tolerant: the ubuntu-latest / 3.12 cell is the one whose
+      # coverage.xml a blocking job consumes (coverage-diff downloads exactly
+      # that artifact name). If its upload silently no-ops, coverage-diff
+      # fails later with "Unable to find any artifacts" -- the red moves
+      # rather than disappearing, and it lands further from the cause. So
+      # that one cell keeps failing on its own upload; the other fourteen,
+      # whose coverage.xml nobody downloads, do not.
       - name: Upload coverage report
         if: always()
-        continue-on-error: true
+        continue-on-error: >-
+          ${{ !(matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-xml-${{ matrix.os }}-${{ matrix.python-version }}
