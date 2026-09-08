@@ -92,15 +92,27 @@ def test_the_503_exceptions_are_exactly_the_operations_that_need_a_tool():
 
 
 def test_the_gate_still_watches_for_server_errors(config):
-    """The one check the measurement said was ready.
+    """The check the measurement said was ready first.
 
     `[checks] enabled = false` switches everything off, so a typo in the
     line that switches this one back on would leave a job that runs, passes,
     and asserts nothing at all.
     """
     checks = config["checks"]
-    assert checks["enabled"] is False, "the other checks are not ready yet (#258)"
+    assert checks["enabled"] is False, "the remaining checks are not ready yet (#258)"
     assert checks["not_a_server_error"]["enabled"] is True
+
+
+def test_the_second_batch_of_checks_is_on(config):
+    """Step 2 of #258: the answer has to be one the document admits to.
+
+    Turning these on took a fix per finding rather than an allowance
+    (GET /v1/events answering an undocumented 400, plus 35 status codes
+    the document simply never mentioned), so an `enabled = false` sneaking
+    back in would quietly return the operations to being undocumented.
+    """
+    assert config["checks"]["status_code_conformance"]["enabled"] is True
+    assert config["checks"]["unsupported_method"]["enabled"] is True
 
 
 def test_the_token_endpoint_stays_out_of_the_run(config):
@@ -177,7 +189,10 @@ def test_the_run_leaves_nothing_in_the_checkout():
     assert appeared == [], f"the fuzz bridge wrote into the checkout: {appeared}"
 
 
-@pytest.mark.timeout(120)
+# 240 rather than the ini default: the body waits up to 120s for SIGTERM to
+# be honoured, and a deadline shorter than that wait would have pytest-timeout
+# kill the test before the diagnostic below could run (cubic).
+@pytest.mark.timeout(240)
 @pytest.mark.skipif(os.name != "posix",
                     reason="SIGTERM and mode bits are the POSIX half of this")
 def test_the_workspace_is_private_and_goes_away_when_the_run_is_killed():
@@ -214,7 +229,18 @@ def test_the_workspace_is_private_and_goes_away_when_the_run_is_killed():
         assert mode == 0o700, f"workspace is {oct(mode)}, not 0o700"
     finally:
         proc.send_signal(signal.SIGTERM)
-        proc.wait(timeout=60)
+        try:
+            proc.wait(timeout=120)
+        except subprocess.TimeoutExpired:
+            # Twice on loaded runners the wait expired and the report was
+            # `TimeoutExpired` with no hint of why -- the bridge's own log
+            # is the only thing that says whether it hung in the cleanup or
+            # never saw the signal. Killed here so the process does not
+            # outlive the session either way.
+            proc.kill()
+            raise AssertionError(
+                "SIGTERM did not stop the bridge within 120s; "
+                f"log: {proc.communicate()[0]}") from None
 
     left = sorted(set(glob.glob(pattern)) - before)
     assert left == [], f"SIGTERM left the workspace behind: {left}"

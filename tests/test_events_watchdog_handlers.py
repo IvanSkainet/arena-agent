@@ -24,6 +24,11 @@ def test_event_handlers_factory_outputs():
         version=ub.VERSION,
         utc_now=ub.utc_now,
         log_info=ub.log.info,
+        # #258: the handler answers a non-handshake GET with a JSON 426,
+        # so it needs the CORS-aware response builder the other handlers
+        # take. Built by hand here, which is why adding the field breaks
+        # this test and not the wiring.
+        cors_json_response=ub._cors_json_response,
     )
     handlers = make_event_handlers(ctx)
     assert callable(handlers.events)

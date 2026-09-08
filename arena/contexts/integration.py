@@ -91,6 +91,7 @@ class EventHandlerContext:
     """Dependencies for realtime event WebSocket handlers."""
 
     require_auth: Callable[[web.Request], web.Response | None]
+    cors_json_response: Callable[..., web.Response]
     version: str
     utc_now: Callable[[], str]
     log_info: Callable[..., None]

@@ -336,7 +336,56 @@ def validate_upload_target(target: str, *, root: Path, home: Path, bridge_py: Pa
     execw = _execution_on_write_error(target_path, home, action="uploading")
     if execw is not None:
         return None, execw[0], execw[1]
+    shape = _writable_shape_error(target_path, action="upload")
+    if shape is not None:
+        return None, shape[0], shape[1]
     return target_path, None, 200
+
+
+def _target_shape_error(target_path: Path, *,
+                        action: str) -> tuple[str, int] | None:
+    """The target itself, when it cannot hold bytes."""
+    if target_path.is_dir():
+        return f"{action} path is a directory, not a file", 400
+    if target_path.exists() and not target_path.is_file():
+        # A FIFO is not a directory and not a missing file, so it used to
+        # reach `write_bytes()` and park the event loop there until a
+        # reader appeared -- one request stalling the bridge (cubic).
+        return f"{action} path is not a regular file", 400
+    return None
+
+
+def _parent_shape_error(target_path: Path, *,
+                        action: str) -> tuple[str, int] | None:
+    """The first parent component that cannot become a directory."""
+    for parent in target_path.parents:
+        if parent.is_dir():
+            return None  # a symlink to a real directory is fine
+        if parent.exists() or parent.is_symlink():
+            # `exists()` follows symlinks, so a dangling one answered False
+            # to every shape check and the refusal still arrived as a 500
+            # out of `mkdir(parents=True)` (cubic).
+            return (f"{action} path is not usable: {parent.name} "
+                    "is not a directory"), 400
+    return None
+
+
+def _writable_shape_error(target_path: Path, *,
+                          action: str) -> tuple[str, int] | None:
+    """Refuse targets that cannot be a file, before anyone writes bytes.
+
+    Found by the Schemathesis gate (#258): ``?path=~`` reached
+    ``write_bytes()`` on a directory and the IsADirectoryError surfaced as
+    an opaque 500. The same hole exists one level up -- a parent component
+    that is not a directory makes ``mkdir(parents=True)`` raise. Every one
+    of these is a caller mistake, so it gets a 400 that names the problem
+    instead of "Internal error".
+    """
+    try:
+        return (_target_shape_error(target_path, action=action)
+                or _parent_shape_error(target_path, action=action))
+    except OSError as exc:
+        return f"{action} path is not usable ({type(exc).__name__})", 400
 
 
 def validate_download_target(target: str, *, root: Path, home: Path) -> tuple[Path | None, str | None, int]:
