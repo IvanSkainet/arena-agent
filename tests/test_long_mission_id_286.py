@@ -246,3 +246,45 @@ async def _show_answers_400(tmp_path: Path) -> None:
     assert response.status == 400, payload
     assert payload["ok"] is False
     assert "too long" in payload["error"]
+
+
+# What NTFS refuses, checked with `os.name` forced rather than left to the
+# platform: CI runs Linux for most cells, so without this the Windows rules
+# ship untested on the machine that actually runs the bridge (cubic). The
+# same monkeypatch is used by tests/test_exec_interpreters_parity_v4_169_37.
+NT_REFUSED = (
+    "q?x", "x|y", 'a"b', "a<b", "a>b", "a:b", "a*b",
+    "CON", "con", "PRN.txt", "CON .txt", "COM1", "COM¹", "LPT9", "CONIN$",
+    "t.", "t ", "a\x01b",
+)
+
+NT_ACCEPTED = ("ok-mission", "mission-2026-09-08", "CONSOLE", "COMET", "a.b.c")
+
+
+@pytest.mark.parametrize("name", NT_REFUSED)
+def test_the_windows_rules_hold_with_os_name_forced(
+        name: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every NTFS rule, exercised on whichever platform is running the test."""
+    monkeypatch.setattr(os, "name", "nt")
+    assert unusable_directory_name(name) is not None, name
+
+
+@pytest.mark.parametrize("name", NT_ACCEPTED)
+def test_the_windows_rules_do_not_over_reject(
+        name: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`CONSOLE` is not `CON`, and a dot inside a name is not a trailing one.
+
+    The over-rejection side matters more than it looks: a guard that
+    refuses ordinary ids turns a 500 into a permanent 400, which is worse
+    for the caller than the crash it replaced.
+    """
+    monkeypatch.setattr(os, "name", "nt")
+    assert unusable_directory_name(name) is None, name
+
+
+@pytest.mark.parametrize("name", ["q?x", "CON", "t ", "a<b"])
+def test_posix_accepts_what_windows_refuses(
+        name: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The other half of per-platform: ext4 takes these, so the guard must."""
+    monkeypatch.setattr(os, "name", "posix")
+    assert unusable_directory_name(name) is None, name

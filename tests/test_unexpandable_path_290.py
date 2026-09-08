@@ -185,3 +185,19 @@ def test_a_resolve_that_raises_is_refused_rather_than_escaping(
     assert resolved is None
     assert status == 400, (status, error)
     assert error is not None and "not a usable path" in error
+
+
+@pytest.mark.parametrize("path", ["a\x00b", "\x00", "x/\x00y"])
+def test_a_nul_in_the_path_is_a_400_and_not_a_403(tmp_path: Path, path: str) -> None:
+    """`resolve()` raises ValueError on a NUL, which read as "outside home".
+
+    The boundary check answers `ValueError` with 403, so a NUL arrived as
+    a refusal about permissions rather than about the string -- an answer
+    that sends the caller looking for an access problem it does not have
+    (cubic). `usable_cwd` has made the same call since #270.
+    """
+    resolved, error, status = resolve_home_path(path, root=tmp_path, home=tmp_path)
+
+    assert resolved is None
+    assert status == 400, (status, error)
+    assert error is not None and "NUL" in error

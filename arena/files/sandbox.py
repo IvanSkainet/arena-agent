@@ -84,6 +84,12 @@ def resolve_home_path(
         return None, "missing path", 400
     if ".." in Path(target).parts:
         return None, "path traversal not allowed", 400
+    if "\x00" in target:
+        # `resolve()` answers a NUL with `ValueError`, which the boundary
+        # check below reads as "outside the home" -- a 403 about a question
+        # nobody asked. A string with a NUL in it is not a path at all, the
+        # same call `usable_cwd` makes since #270 (cubic).
+        return None, "path is not a usable path (embedded NUL)", 400
     try:
         target_path = Path(target).expanduser()
     except (RuntimeError, OSError, ValueError) as exc:

@@ -83,9 +83,11 @@ def _component_units(name: str) -> int:
 # is worse than a refusal because two ids then name one directory (cubic).
 _NT_FORBIDDEN_CHARS = frozenset('<>:"/\\|?*')
 _NT_DEVICE_NAMES = frozenset({
-    "CON", "PRN", "AUX", "NUL",
-    *(f"COM{d}" for d in "123456789"),
-    *(f"LPT{d}" for d in "123456789"),
+    "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
+    # Superscript digits are the forms `COM¹` takes on a keyboard that has
+    # them; Windows treats them as the reserved device just the same.
+    *(f"COM{d}" for d in "123456789¹²³"),
+    *(f"LPT{d}" for d in "123456789¹²³"),
 })
 
 
@@ -104,7 +106,9 @@ def _nt_refusal(name: str) -> str | None:
         # Windows strips these silently, so `mission.` and `mission` would
         # be the same directory -- a rename the caller never asked for.
         return "ends with a dot or a space, which Windows drops silently"
-    if name.split(".", 1)[0].upper() in _NT_DEVICE_NAMES:
+    # `CON .txt` is still the console: Windows ignores trailing spaces and
+    # dots in the stem when it matches a device name (cubic).
+    if name.split(".", 1)[0].rstrip(" .").upper() in _NT_DEVICE_NAMES:
         return "is a reserved DOS device name on Windows"
     return None
 
