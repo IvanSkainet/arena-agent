@@ -114,8 +114,9 @@ def test_ceiling_may_not_drift_upward(gate):
     is the rule's verdict on the vendor rather than on the pin -- the action
     is fixed to the v5.2.1 commit SHA like the other seven, and
     scripts/action_runtime_ratchet.py records what that SHA declares. The
-    ninth finding is the same accepted `untrusted_checkout_exec` in
-    boe-contract that was already here; no new category appears.
+    only new finding is that one: the total goes 8 -> 9 because a creator
+    was added, not because a category was. The `untrusted_checkout_exec` in
+    boe-contract is the same accepted one as before.
     """
     assert gate._ceiling() <= 9, (
         "the poutine ceiling may only be lowered; raising it needs a written "
