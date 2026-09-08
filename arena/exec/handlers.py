@@ -107,16 +107,14 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
 
         request_id = str(data.get("request_id") or uuid.uuid4())
         cmd = str(data.get("cmd", "")).strip()
-        if not cmd:
+        # One branch for both refusals: absent, or present and unspawnable.
+        # A NUL cannot cross `execve` and is refused here rather than at the
+        # spawn, before the audit call, so the journal never carries one
+        # (#288).
+        unusable = "missing cmd" if not cmd else unusable_command(cmd)
+        if unusable:
             ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, "missing cmd", status=400, request_id=request_id)
-
-        bad_cmd = unusable_command(cmd)
-        if bad_cmd:
-            # Refused before the audit log, which would otherwise carry the
-            # NUL into the journal (#288).
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, bad_cmd, status=400, request_id=request_id)
+            return err_json(ctx, unusable, status=400, request_id=request_id)
 
         reason = ctx.blocked_reason(cmd)
         if reason:
@@ -424,16 +422,14 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
 
         request_id = str(data.get("request_id") or uuid.uuid4())
         cmd = str(data.get("cmd", "")).strip()
-        if not cmd:
+        # One branch for both refusals: absent, or present and unspawnable.
+        # A NUL cannot cross `execve` and is refused here rather than at the
+        # spawn, before the audit call, so the journal never carries one
+        # (#288).
+        unusable = "missing cmd" if not cmd else unusable_command(cmd)
+        if unusable:
             ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, "missing cmd", status=400, request_id=request_id)
-
-        bad_cmd = unusable_command(cmd)
-        if bad_cmd:
-            # Refused before the audit log, which would otherwise carry the
-            # NUL into the journal (#288).
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, bad_cmd, status=400, request_id=request_id)
+            return err_json(ctx, unusable, status=400, request_id=request_id)
 
         reason = ctx.blocked_reason(cmd)
         if reason:

@@ -48,12 +48,12 @@ PATH_ENDPOINTS = (
 
 
 @pytest.mark.parametrize("path", UNEXPANDABLE)
-@pytest.mark.parametrize("method,endpoint,body", PATH_ENDPOINTS,
-                         ids=[e for _, e, _ in PATH_ENDPOINTS])
+@pytest.mark.parametrize("endpoint", PATH_ENDPOINTS, ids=[e for _, e, _ in PATH_ENDPOINTS])
 def test_a_path_that_cannot_expand_is_a_4xx(
-        tmp_path: Path, method: str, endpoint: str, body, path: str) -> None:
+        tmp_path: Path, endpoint: tuple, path: str) -> None:
     """Refused, and refused without naming a Python exception class."""
-    asyncio.run(_no_endpoint_answers_5xx(tmp_path, method, endpoint, body(path)))
+    method, route, body = endpoint
+    asyncio.run(_no_endpoint_answers_5xx(tmp_path, method, route, body(path)))
 
 
 async def _no_endpoint_answers_5xx(
