@@ -5,7 +5,10 @@ from pathlib import Path
 from typing import Any
 
 from arena.jsonshape import loads_object
-from arena.resources.mission_identifier import resolve_mission_name
+from arena.resources.mission_identifier import (
+    resolve_mission_name,
+    unusable_directory_name,
+)
 
 
 def mission_dir(missions_dir: Path, name: str) -> Path:
@@ -26,6 +29,13 @@ def mission_dir(missions_dir: Path, name: str) -> Path:
     """
     if ".." in name or "/" in name or "\\" in name or name.startswith("."):
         raise ValueError("invalid mission name")
+    unusable = unusable_directory_name(name)
+    if unusable:
+        # Refused here rather than at the first `stat`: every mission read
+        # funnels through this function, and the filesystem's own answers
+        # to a name it cannot hold arrive as exceptions from inside
+        # `Path.exists()`, which reached the client as 500s (#286).
+        raise ValueError(unusable)
     return missions_dir / resolve_mission_name(missions_dir, name)
 
 

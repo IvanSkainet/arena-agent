@@ -29,6 +29,7 @@ per-handler parsing, and that is how the three surfaces drifted apart.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from urllib.parse import parse_qs
 
@@ -57,6 +58,93 @@ def parse_mission_identifier(query_string: str) -> str:
         if value:
             return value
     return ""
+
+
+# What a single path component may weigh. 255 of them either way, but the
+# unit differs: ext4 and APFS count bytes of UTF-8, NTFS counts UTF-16 code
+# units, so `"\U0001f600" * 64` is 256 bytes (refused on Linux) and 128
+# units (accepted on Windows). Measuring in the local unit rather than the
+# strictest one keeps the bridge from refusing ids that its own filesystem
+# would have taken (cubic, sourcery).
+NAME_MAX_UNITS = 255
+
+
+def _component_units(name: str) -> int:
+    """How long this name is in the unit the local filesystem counts in."""
+    if os.name == "nt":
+        return len(name.encode("utf-16-le", "surrogatepass")) // 2
+    return len(name.encode("utf-8", "surrogatepass"))
+
+
+# What Windows refuses in a path component, and Linux does not. `mkdir`
+# answers each of these with an exception rather than a False, measured on
+# the bridge's own host: `q?x` and `x|y` are WinError 123, `CON` is
+# WinError 267, `a:b` is WinError 3, and `"t "` silently becomes `t`, which
+# is worse than a refusal because two ids then name one directory (cubic).
+_NT_FORBIDDEN_CHARS = frozenset('<>:"/\\|?*')
+_NT_DEVICE_NAMES = frozenset({
+    "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
+    # Superscript digits are the forms `COM¹` takes on a keyboard that has
+    # them; Windows treats them as the reserved device just the same.
+    *(f"COM{d}" for d in "123456789¹²³"),
+    *(f"LPT{d}" for d in "123456789¹²³"),
+})
+
+
+def _nt_refusal(name: str) -> str | None:
+    """Why NTFS will not take this component, or None. Only asked on nt.
+
+    Checked per-platform for the same reason the length is: `report?` is a
+    perfectly good directory name on ext4, and refusing it everywhere would
+    have the bridge turn down ids its own filesystem accepts.
+    """
+    if any(ch in _NT_FORBIDDEN_CHARS for ch in name):
+        return "contains a character Windows forbids in a name: <>:\"/\\|?*"
+    if any(ord(ch) < 32 for ch in name):
+        return "contains a control character Windows forbids in a name"
+    if name[-1] in ". " if name else False:
+        # Windows strips these silently, so `mission.` and `mission` would
+        # be the same directory -- a rename the caller never asked for.
+        return "ends with a dot or a space, which Windows drops silently"
+    # `CON .txt` is still the console: Windows ignores trailing spaces and
+    # dots in the stem when it matches a device name (cubic).
+    if name.split(".", 1)[0].rstrip(" .").upper() in _NT_DEVICE_NAMES:
+        return "is a reserved DOS device name on Windows"
+    return None
+
+
+def unusable_directory_name(name: str, *, label: str = "mission name") -> str | None:
+    """Why this identifier cannot be a directory name, or None if it can.
+
+    Asked before anything touches the filesystem, because the filesystem's
+    own answers arrive as exceptions from places no caller expects one --
+    `Path.exists()` raising `OSError: [Errno 36]` for an over-long name,
+    `mkdir` raising `ValueError` for an embedded NUL, `os.fsencode`
+    raising `UnicodeEncodeError` for a lone surrogate, and on Windows
+    `WinError 123` for `?` or `|` and `WinError 267` for `CON`. All of
+    them left as 500s (#286, then sourcery and cubic over two reviews).
+
+    `label` names the field in the message, because the writer calls its
+    parameter `mission_id` and the readers call it `name`; rewriting the
+    string afterwards coupled the caller to this function's wording
+    (cubic).
+
+    `surrogatepass` on the measurement so that counting a lone surrogate
+    does not raise on the way to refusing it.
+    """
+    if "\x00" in name:
+        return f"{label} contains a NUL character"
+    if any(0xD800 <= ord(ch) <= 0xDFFF for ch in name):
+        # A lone surrogate survives JSON decoding and dies at `fsencode`.
+        return f"{label} contains an unpaired surrogate"
+    if _component_units(name) > NAME_MAX_UNITS:
+        unit = "UTF-16 code units" if os.name == "nt" else "bytes"
+        return f"{label} is too long: {NAME_MAX_UNITS} {unit} at most"
+    if os.name == "nt":
+        nt_reason = _nt_refusal(name)
+        if nt_reason:
+            return f"{label} {nt_reason}"
+    return None
 
 
 def resolve_mission_name(missions_dir: Path, name: str) -> str:
