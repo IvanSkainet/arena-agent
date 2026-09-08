@@ -685,9 +685,9 @@ six==1.17.0 \
     --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274 \
     --hash=sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81
     # via python-dateutil
-tarsafe==0.0.5 \
-    --hash=sha256:1a6aa8255c181d6070db3b083f6d969602c6306ba3dc7c836a288cc26a5c5bff \
-    --hash=sha256:cbdffc260d8a33f0e35ed7b70b2e2f56ad40e77019e5384bbe1cfc1ccccac79a
+tarsafe==0.0.6 \
+    --hash=sha256:1636ed0a0ae4995862dbc647cf6e4ba49724d045f125f9d952216089a4bd6c79 \
+    --hash=sha256:f6724cd2482c574933db91b5edf2fe13bb5accafed686c2874d95ccef01d3f34
     # via guarddog
 termcolor==3.3.0 \
     --hash=sha256:348871ca648ec6a9a983a13ab626c0acce02f515b9e1983332b17af7979521c5 \
