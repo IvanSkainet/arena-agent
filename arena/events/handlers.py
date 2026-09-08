@@ -38,6 +38,39 @@ def _is_websocket_upgrade(request: web.Request) -> bool:
             and "upgrade" in tokens)
 
 
+async def _upgraded_socket(
+        ctx: EventHandlerContext, request: web.Request,
+) -> tuple[web.WebSocketResponse | None, web.StreamResponse | None]:
+    """The open socket, or the HTTP answer to send instead.
+
+    Three ways a request never becomes a stream, all of them answered
+    before a frame is sent (#258):
+
+    * no credential -- a 401 in HTTP, like every other operation. The
+      handshake used to complete and then say `unauthorized` in a
+      WebSocket frame: an anonymous caller got a live socket, the
+      failed-auth throttle never saw the attempt, and a client reading
+      status codes saw a success;
+    * no upgrade headers -- a 426, since aiohttp's own answer is a
+      plain-text 400 ("No WebSocket UPGRADE hdr"), neither the JSON shape
+      every other error uses nor a code the document mentions;
+    * upgrade headers but an incomplete handshake (no `Sec-WebSocket-Key`,
+      an unsupported version) -- the same 426, with aiohttp's reason
+      attached.
+    """
+    refusal = ctx.require_auth(request)
+    if refusal:
+        return None, refusal
+    if not _is_websocket_upgrade(request):
+        return None, _needs_upgrade(ctx, "send Upgrade: websocket to connect")
+    ws = web.WebSocketResponse()
+    try:
+        await ws.prepare(request)
+    except web.HTTPException as exc:
+        return None, _needs_upgrade(ctx, str(exc.text or exc.reason))
+    return ws, None
+
+
 @dataclass(frozen=True)
 class EventHandlers:
     events: Callable[..., Any]
@@ -52,37 +85,14 @@ def make_event_handlers(ctx: EventHandlerContext) -> EventHandlers:
         error, skill_run, exec, memory_update, browser_browse, alert,
         and file_watch_change.
 
-        Two answers before the upgrade, both added in #258 because the
-        fuzzing gate reads the document and this operation did not keep to
-        it:
-
-        * No credential is a 401 in HTTP, like every other operation. It
-          used to complete the handshake and then say `unauthorized` in a
-          WebSocket frame -- an anonymous caller got a live socket, the
-          failed-auth throttle never saw the attempt, and a client reading
-          status codes saw a success.
-        * A plain GET is a 426. aiohttp answers its own 400 with a
-          plain-text body ("No WebSocket UPGRADE hdr"), which is neither
-          the JSON shape every other error uses nor a code the document
-          mentions.
+        What answers before the stream opens -- 401 without a credential,
+        426 without a handshake -- is in `_upgraded_socket` (#258).
         """
-        r = ctx.require_auth(request)
-        if r:
-            return r
-
-        if not _is_websocket_upgrade(request):
-            return _needs_upgrade(ctx, "send Upgrade: websocket to connect")
-
-        ws = web.WebSocketResponse()
-        try:
-            await ws.prepare(request)
-        except web.HTTPException as exc:
-            # The headers said "upgrade" but the handshake was incomplete --
-            # no `Sec-WebSocket-Key`, an unsupported version. aiohttp raises
-            # its own plain-text 400 for those, which is the same
-            # undocumented answer in a different disguise, so it becomes the
-            # same 426 with the reason attached.
-            return _needs_upgrade(ctx, str(exc.text or exc.reason))
+        opened, refusal = await _upgraded_socket(ctx, request)
+        if refusal is not None:
+            return refusal
+        assert opened is not None  # the refusal above already proved this
+        ws = opened
 
         # Send welcome message.
         await ws.send_json({"type": "connected", "ts": ctx.utc_now(),
