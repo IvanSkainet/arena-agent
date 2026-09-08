@@ -215,9 +215,11 @@ def test_the_message_names_the_field_the_caller_used() -> None:
     that word (cubic).
     """
     long_name = "a" * (NAME_MAX_UNITS + 1)
-    assert unusable_directory_name(long_name).startswith("mission name")
-    assert unusable_directory_name(
-        long_name, label="mission id").startswith("mission id")
+    default_label = unusable_directory_name(long_name)
+    explicit_label = unusable_directory_name(long_name, label="mission id")
+
+    assert default_label is not None and default_label.startswith("mission name")
+    assert explicit_label is not None and explicit_label.startswith("mission id")
 
     written = create_mission_from_draft(
         missions_dir=Path("/nonexistent"), draft={"title": "t"}, mission_id=long_name)
