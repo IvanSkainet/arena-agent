@@ -73,7 +73,13 @@ async def _upgraded_socket(
 
 async def _forward_events(ctx: EventHandlerContext, ws: web.WebSocketResponse,
                           q: "asyncio.Queue[Any]") -> None:
-    """Pump the subscriber queue into the socket, pinging when it is idle."""
+    """Pump the subscriber queue into the socket, pinging when it is idle.
+
+    Any send failure ends the forwarder -- a socket that cannot take a
+    frame is a socket that is gone -- but it says which one it was first.
+    A stream that stops with no line in the log leaves an operator with a
+    disconnected client and no cause (corgea).
+    """
     while not ws.closed:
         try:
             payload = await asyncio.wait_for(q.get(), timeout=30)
@@ -84,10 +90,30 @@ async def _forward_events(ctx: EventHandlerContext, ws: web.WebSocketResponse,
                 continue
             try:
                 await ws.send_json({"type": "ping", "ts": ctx.utc_now()})
-            except Exception:
+            except Exception as exc:
+                ctx.log_info("[Events] Keepalive ping failed, closing stream: %r", exc)
                 break
-        except Exception:
+        except Exception as exc:
+            ctx.log_info("[Events] Event forwarding stopped: %r", exc)
             break
+
+
+def _client_command(raw: Any) -> str | None:
+    """The `command` field of a client frame, or None if there is not one.
+
+    Anything a client sends can be malformed, so a frame that is not JSON,
+    not an object, or has no command is simply not a command. Returning
+    None says that without a swallowed exception in the read loop, which
+    is the shape bandit counts (B110/B112).
+    """
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    command = data.get("command")
+    return command if isinstance(command, str) else None
 
 
 async def _read_client_messages(ctx: EventHandlerContext, ws: web.WebSocketResponse) -> None:
@@ -98,12 +124,17 @@ async def _read_client_messages(ctx: EventHandlerContext, ws: web.WebSocketRespo
     """
     async for msg in ws:
         if msg.type == aiohttp.WSMsgType.TEXT:
-            try:
-                data = json.loads(msg.data)
-            except Exception:
+            if _client_command(msg.data) != "ping":
                 continue
-            if data.get("command") == "ping":
+            try:
                 await ws.send_json({"type": "pong", "ts": ctx.utc_now()})
+            except Exception as exc:
+                # A failed reply ends the read loop rather than escaping it:
+                # an exception here would skip the forwarder's cancellation
+                # in `_stream_until_closed` and leave that task waiting on a
+                # queue nobody publishes to any more (cubic).
+                ctx.log_info("[Events] Pong failed, closing stream: %r", exc)
+                break
         elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSE):
             break
 
@@ -113,15 +144,15 @@ async def _stream_until_closed(ctx: EventHandlerContext, ws: web.WebSocketRespon
     q: asyncio.Queue[Any] = asyncio.Queue(maxsize=500)
     EVENT_SUBSCRIBERS.append(q)
     ctx.log_info("[Events] Subscriber connected (total=%d)", len(EVENT_SUBSCRIBERS))
+    forward_task = asyncio.create_task(_forward_events(ctx, ws, q))
     try:
-        forward_task = asyncio.create_task(_forward_events(ctx, ws, q))
         await _read_client_messages(ctx, ws)
+    finally:
         forward_task.cancel()
         try:
             await forward_task
         except asyncio.CancelledError:
             pass
-    finally:
         if q in EVENT_SUBSCRIBERS:
             EVENT_SUBSCRIBERS.remove(q)
         ctx.log_info("[Events] Subscriber disconnected (total=%d)", len(EVENT_SUBSCRIBERS))

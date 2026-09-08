@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -349,3 +350,61 @@ def test_the_websocket_connection_header_is_not_pinned_to_one_exact_value(spec):
     assert connection, "the handshake requires a Connection header"
     assert "enum" not in connection[0]["schema"]
     assert "Upgrade" in connection[0]["description"]
+
+
+async def _probe_file_route_conflicts(root: Path) -> list[str]:
+    """Drive each documented 404/409 file path and report what was served."""
+    token = "contract-token-never-presented"
+    existing = root / "already-here.txt"
+    existing.write_text("one\ntwo\n", encoding="utf-8")
+    missing = root / "not-here.txt"
+    ambiguous = root / "twice.txt"
+    ambiguous.write_text("same\nsame\n", encoding="utf-8")
+    headers = {"Authorization": f"Bearer {token}"}
+    cases = [
+        ("PATCH", "/v1/fs/edit", {"path": str(missing), "old_text": "a", "new_text": "b"}, 404),
+        ("PATCH", "/v1/fs/edit", {"path": str(existing), "old_text": "nope", "new_text": "b"}, 404),
+        ("PATCH", "/v1/fs/edit", {"path": str(ambiguous), "old_text": "same", "new_text": "b"}, 409),
+        ("POST", "/v1/fs/view", {"path": str(missing)}, 404),
+        ("POST", "/v1/fs/create", {"path": str(existing), "content": "x"}, 409),
+        ("POST", "/v1/fs/edit/apply", {"preview_id": "no-such-preview"}, 404),
+        ("POST", "/v1/fs/edit/rollback", {"rollback_id": "no-such-rollback"}, 404),
+    ]
+    server = TestServer(_build_app(root))
+    await server.start_server()
+    client = TestClient(server)
+    await client.start_server()
+    wrong = []
+    try:
+        for method, path, body, expected in cases:
+            response = await client.request(method, path, json=body, headers=headers)
+            if response.status != expected:
+                wrong.append(f"{method} {path} {body} -> {response.status} "
+                             f"{await response.text()}, expected {expected}")
+    finally:
+        await client.close()
+        await server.close()
+        rl = getattr(ub, "_rate_limit_store", None)
+        if isinstance(rl, dict):
+            rl.clear()
+    return wrong
+
+
+def test_the_documented_404_and_409_are_what_the_file_routes_actually_serve():
+    """The half that matters, for the codes added in #258.
+
+    Documenting a status the handler never returns is the same defect as
+    the reverse, and the fuzz gate only compares what it happens to
+    generate. This drives each one on purpose (cubic).
+    """
+    # The file routes refuse anything outside the home directory before they
+    # look at whether it exists, and `Path.home()` is read at import time in
+    # places, so a monkeypatched HOME is not enough: the probe files go in a
+    # directory under the real home and are removed afterwards.
+    workspace = Path.home() / ".arena-contract-probe-258"
+    workspace.mkdir(exist_ok=True)
+    try:
+        wrong = asyncio.run(_probe_file_route_conflicts(workspace))
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+    assert wrong == [], f"served statuses do not match the document: {wrong}"

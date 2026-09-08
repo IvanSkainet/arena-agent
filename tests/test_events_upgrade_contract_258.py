@@ -131,3 +131,38 @@ def test_connection_header_may_be_a_list(bridge) -> None:
             return hello
 
     assert bridge(check)["type"] == "connected"
+
+
+def test_the_handshake_headers_are_matched_case_insensitively(bridge) -> None:
+    """RFC 6455 4.2.1 says both values are ASCII case-insensitive.
+
+    `_is_websocket_upgrade` lowercases before comparing, so `WebSocket` and
+    `keep-alive, UPGRADE` are a valid handshake; the document used to say
+    `enum: ["websocket"]`, which told generated clients otherwise
+    (coderabbit).
+    """
+    async def check(session, base):
+        async with session.ws_connect(
+                f"{base}/v1/events",
+                headers={"Authorization": f"Bearer {TOKEN}",
+                         "Upgrade": "WebSocket",
+                         "Connection": "keep-alive, UPGRADE"}) as ws:
+            hello = await asyncio.wait_for(ws.receive_json(), timeout=10)
+            await ws.close()
+            return hello
+
+    assert bridge(check)["type"] == "connected"
+
+
+def test_the_document_does_not_pin_either_header_to_one_spelling() -> None:
+    """The document has to agree with the case-insensitive match above."""
+    from types import SimpleNamespace
+
+    from arena.public.openapi import build_openapi_spec
+
+    spec = build_openapi_spec(
+        SimpleNamespace(version="t", hostname=lambda: "h", bridge_port=lambda: 8765))
+    params = {p["name"]: p for p in spec["paths"]["/v1/events"]["get"]["parameters"]}
+    for name in ("Upgrade", "Connection"):
+        assert "enum" not in params[name]["schema"], f"{name} is pinned to one spelling"
+        assert params[name].get("description"), f"{name} states no requirement"
