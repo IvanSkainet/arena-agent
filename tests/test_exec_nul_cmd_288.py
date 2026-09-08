@@ -42,10 +42,15 @@ NUL_COMMANDS = (
     "·\r\xba\x00\xdd",  # the shape the fuzzer actually generated
 )
 
+# A lone surrogate is the other thing a JSON body can carry and `execve`
+# cannot: `create_subprocess_shell` raises `UnicodeEncodeError` encoding
+# the argument, which was the same 500 by another route (cubic).
+SURROGATE_COMMANDS = ("\udb72", "echo \udb72x", "\udc05 hi")
+
 EXEC_PATHS = ("/v1/exec", "/v1/exec/stream")
 
 
-@pytest.mark.parametrize("cmd", NUL_COMMANDS)
+@pytest.mark.parametrize("cmd", NUL_COMMANDS + SURROGATE_COMMANDS)
 @pytest.mark.parametrize("path", EXEC_PATHS)
 def test_a_nul_in_cmd_is_a_400(tmp_path: Path, path: str, cmd: str) -> None:
     """Both JSON exec endpoints read `cmd` the same way and must refuse alike."""
@@ -60,7 +65,7 @@ async def _refusal_is_a_400(tmp_path: Path, path: str, cmd: str) -> None:
 
     assert response.status == 400, payload
     assert payload["ok"] is False
-    assert "NUL" in payload["error"], payload
+    assert "not a usable command" in payload["error"], payload
 
 
 def test_the_audit_journal_never_receives_the_nul(tmp_path: Path) -> None:
@@ -102,12 +107,12 @@ async def _a_real_command_runs(tmp_path: Path) -> None:
     assert "hi" in payload["stdout"]
 
 
-@pytest.mark.parametrize("cmd", NUL_COMMANDS)
+@pytest.mark.parametrize("cmd", NUL_COMMANDS + SURROGATE_COMMANDS)
 def test_the_guard_names_the_reason(cmd: str) -> None:
     """`unusable_command` answers with the reason, mirroring `usable_cwd`."""
     reason = unusable_command(cmd)
     assert reason is not None
-    assert "NUL" in reason
+    assert "not a usable command" in reason
 
 
 def test_an_ordinary_command_is_not_refused() -> None:

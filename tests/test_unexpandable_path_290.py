@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
@@ -44,6 +45,10 @@ PATH_ENDPOINTS = (
     ("PATCH", "/v1/fs/edit", lambda p: {"path": p, "find": "a", "replace": "b"}),
     ("POST", "/v1/fs/view", lambda p: {"path": p}),
     ("POST", "/v1/fs/create", lambda p: {"path": p, "content": "x"}),
+    # Reads its path out of the query string, through
+    # `validate_upload_target`, and so was missing from the first sweep
+    # even though it shares the function (cubic).
+    ("POST", "/v1/upload?path={path}", lambda p: {"content": "x"}),
 )
 
 
@@ -53,7 +58,8 @@ def test_a_path_that_cannot_expand_is_a_4xx(
         tmp_path: Path, endpoint: tuple, path: str) -> None:
     """Refused, and refused without naming a Python exception class."""
     method, route, body = endpoint
-    asyncio.run(_no_endpoint_answers_5xx(tmp_path, method, route, body(path)))
+    asyncio.run(_no_endpoint_answers_5xx(
+        tmp_path, method, route.replace("{path}", quote(path, safe="")), body(path)))
 
 
 async def _no_endpoint_answers_5xx(
@@ -156,3 +162,26 @@ def test_the_forms_that_already_worked_still_work(tmp_path: Path) -> None:
         "../x", root=tmp_path, home=tmp_path)
     assert traversal_status == 400
     assert traversal_error == "path traversal not allowed"
+
+
+def test_a_resolve_that_raises_is_refused_rather_than_escaping(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`resolve()` is a syscall too, and guarding only the expansion is half.
+
+    Non-strict `resolve()` swallows ENAMETOOLONG on the platforms in CI,
+    but not ELOOP, a vanished mount or a permission error on an
+    intermediate directory -- and those arrive after the expansion has
+    already succeeded, which is the half the first fix left in place
+    (cubic). Induced rather than waited for, since which errno a given
+    kernel produces is not the thing under test.
+    """
+    def raises(self: Path, *args: object, **kwargs: object) -> Path:
+        raise OSError(40, "Too many levels of symbolic links")
+
+    monkeypatch.setattr("arena.files.sandbox.Path.resolve", raises, raising=True)
+
+    resolved, error, status = resolve_home_path("x", root=tmp_path, home=tmp_path)
+
+    assert resolved is None
+    assert status == 400, (status, error)
+    assert error is not None and "not a usable path" in error

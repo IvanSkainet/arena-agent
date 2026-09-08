@@ -181,7 +181,15 @@ def show_mission(missions_dir: Path, name: str) -> dict[str, Any]:
     except (OSError, RuntimeError, ValueError):
         return {"ok": False, "error": f"mission '{name}' not found"}
     for ext in ("", ".json", ".yaml", ".yml", ".md", ".txt"):
-        path = missions_dir / f"{name}{ext}"
+        candidate = f"{name}{ext}"
+        # The suffix is five bytes the caller never sent: a 255-byte id is
+        # legal, `<id>.yaml` is 260 and `Path.exists()` answers that with
+        # `OSError: [Errno 36]` rather than False. Skipping the candidate
+        # is the right answer either way -- a file whose name the
+        # filesystem cannot hold is a file that is not there (cubic).
+        if unusable_directory_name(candidate):
+            continue
+        path = missions_dir / candidate
         if not path.exists() or not path.is_file():
             continue
         contained, reason = _classify(path, resolved_root)

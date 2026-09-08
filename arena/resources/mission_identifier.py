@@ -76,27 +76,70 @@ def _component_units(name: str) -> int:
     return len(name.encode("utf-8", "surrogatepass"))
 
 
-def unusable_directory_name(name: str) -> str | None:
+# What Windows refuses in a path component, and Linux does not. `mkdir`
+# answers each of these with an exception rather than a False, measured on
+# the bridge's own host: `q?x` and `x|y` are WinError 123, `CON` is
+# WinError 267, `a:b` is WinError 3, and `"t "` silently becomes `t`, which
+# is worse than a refusal because two ids then name one directory (cubic).
+_NT_FORBIDDEN_CHARS = frozenset('<>:"/\\|?*')
+_NT_DEVICE_NAMES = frozenset({
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{d}" for d in "123456789"),
+    *(f"LPT{d}" for d in "123456789"),
+})
+
+
+def _nt_refusal(name: str) -> str | None:
+    """Why NTFS will not take this component, or None. Only asked on nt.
+
+    Checked per-platform for the same reason the length is: `report?` is a
+    perfectly good directory name on ext4, and refusing it everywhere would
+    have the bridge turn down ids its own filesystem accepts.
+    """
+    if any(ch in _NT_FORBIDDEN_CHARS for ch in name):
+        return "contains a character Windows forbids in a name: <>:\"/\\|?*"
+    if any(ord(ch) < 32 for ch in name):
+        return "contains a control character Windows forbids in a name"
+    if name[-1] in ". " if name else False:
+        # Windows strips these silently, so `mission.` and `mission` would
+        # be the same directory -- a rename the caller never asked for.
+        return "ends with a dot or a space, which Windows drops silently"
+    if name.split(".", 1)[0].upper() in _NT_DEVICE_NAMES:
+        return "is a reserved DOS device name on Windows"
+    return None
+
+
+def unusable_directory_name(name: str, *, label: str = "mission name") -> str | None:
     """Why this identifier cannot be a directory name, or None if it can.
 
     Asked before anything touches the filesystem, because the filesystem's
     own answers arrive as exceptions from places no caller expects one --
     `Path.exists()` raising `OSError: [Errno 36]` for an over-long name,
     `mkdir` raising `ValueError` for an embedded NUL, `os.fsencode`
-    raising `UnicodeEncodeError` for a lone surrogate. All three left as
-    500s (#286, then sourcery and cubic on the first fix).
+    raising `UnicodeEncodeError` for a lone surrogate, and on Windows
+    `WinError 123` for `?` or `|` and `WinError 267` for `CON`. All of
+    them left as 500s (#286, then sourcery and cubic over two reviews).
+
+    `label` names the field in the message, because the writer calls its
+    parameter `mission_id` and the readers call it `name`; rewriting the
+    string afterwards coupled the caller to this function's wording
+    (cubic).
 
     `surrogatepass` on the measurement so that counting a lone surrogate
     does not raise on the way to refusing it.
     """
     if "\x00" in name:
-        return "mission name contains a NUL character"
+        return f"{label} contains a NUL character"
     if any(0xD800 <= ord(ch) <= 0xDFFF for ch in name):
         # A lone surrogate survives JSON decoding and dies at `fsencode`.
-        return "mission name contains an unpaired surrogate"
+        return f"{label} contains an unpaired surrogate"
     if _component_units(name) > NAME_MAX_UNITS:
         unit = "UTF-16 code units" if os.name == "nt" else "bytes"
-        return f"mission name is too long: {NAME_MAX_UNITS} {unit} at most"
+        return f"{label} is too long: {NAME_MAX_UNITS} {unit} at most"
+    if os.name == "nt":
+        nt_reason = _nt_refusal(name)
+        if nt_reason:
+            return f"{label} {nt_reason}"
     return None
 
 

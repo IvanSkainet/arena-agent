@@ -14,6 +14,7 @@ characters long.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 
@@ -32,6 +33,7 @@ from arena.resources.mission_state import (
     get_mission_status,
 )
 from arena.resources.missions_manage import create_mission_from_draft, run_mission
+from tests._live_bridge import auth_header, json_payload, running_client
 
 # One ASCII, one that is short in characters and long in bytes -- the second
 # is the shape the fuzzer actually found, and a character-counting guard
@@ -167,3 +169,80 @@ def test_running_an_unusable_mission_id_is_a_400(tmp_path: Path, name: str) -> N
     assert result["ok"] is False
     assert result["status"] == 400, result
     assert "mission id" in result["error"]
+
+
+def test_a_legal_id_survives_the_suffixes_show_mission_tries(tmp_path: Path) -> None:
+    """255 bytes is legal, `<id>.yaml` is 260, and `exists()` raises on it.
+
+    `show_mission` probes six extensions before it looks for a directory,
+    so a caller could store a mission under a perfectly good id and get a
+    500 reading it back -- the suffix is five bytes the caller never sent
+    (cubic).
+    """
+    at_limit = "a" * NAME_MAX_UNITS
+    created = create_mission_from_draft(
+        missions_dir=tmp_path, draft={"title": "t"}, mission_id=at_limit)
+    assert created["ok"] is True
+
+    shown = show_mission(tmp_path, at_limit)
+
+    assert shown["ok"] is True, shown
+    assert shown["is_dir"] is True
+
+
+@pytest.mark.parametrize("name", ["q?x", "x|y", "CON", "PRN.txt", "a:b", "t.", "t "],
+                         ids=["question", "pipe", "con", "prn-ext", "colon",
+                              "trailing-dot", "trailing-space"])
+def test_windows_refuses_names_posix_accepts(name: str) -> None:
+    """NTFS has rules ext4 does not, and `mkdir` states them as exceptions.
+
+    Measured on the bridge's own host: `q?x` and `x|y` are WinError 123,
+    `CON` is WinError 267, `a:b` is WinError 3. A trailing dot or space is
+    worse than an error -- Windows strips it, so two ids name one
+    directory. None of that is true on ext4, where `report?` is a fine
+    name, so the check is per-platform exactly as the length is (cubic).
+    """
+    refused = unusable_directory_name(name) is not None
+    assert refused is (os.name == "nt")
+
+
+def test_the_message_names_the_field_the_caller_used() -> None:
+    """Readers say `name`, the writer says `id`, and neither rewrites text.
+
+    The writer used to patch the reader's wording with
+    `str.replace("name", "id", 1)`, which silently produced "mission id
+    contains..." only for as long as every message happened to start with
+    that word (cubic).
+    """
+    long_name = "a" * (NAME_MAX_UNITS + 1)
+    assert unusable_directory_name(long_name).startswith("mission name")
+    assert unusable_directory_name(
+        long_name, label="mission id").startswith("mission id")
+
+    written = create_mission_from_draft(
+        missions_dir=Path("/nonexistent"), draft={"title": "t"}, mission_id=long_name)
+    assert written["error"].startswith("mission id")
+
+
+def test_the_show_endpoint_returns_the_status_the_reader_chose(tmp_path: Path) -> None:
+    """`/v1/mission/show` hardcoded 404 and swallowed this reader's 400.
+
+    Every other mission read passes `int(result["status"])` through; this
+    one wrote `404` as a literal, so an unusable id came back as "not
+    found" -- which tells the caller to look for a mission rather than to
+    fix the id it sent (cubic).
+    """
+    asyncio.run(_show_answers_400(tmp_path))
+
+
+async def _show_answers_400(tmp_path: Path) -> None:
+    token = "mission-show-status-286"
+    async with running_client(tmp_path, token) as client:
+        response = await client.get(
+            "/v1/mission/show", params={"name": "a" * (NAME_MAX_UNITS + 1)},
+            headers=auth_header(token))
+        payload = await json_payload(response)
+
+    assert response.status == 400, payload
+    assert payload["ok"] is False
+    assert "too long" in payload["error"]

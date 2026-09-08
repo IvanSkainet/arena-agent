@@ -99,6 +99,12 @@ def resolve_home_path(
         target_path.resolve().relative_to(home.resolve())
     except ValueError:
         return None, "path outside home directory", 403
+    except (OSError, RuntimeError) as exc:
+        # `resolve()` is a syscall too: an over-long component is
+        # `OSError: [Errno 36]` and a broken mount is an OSError as well,
+        # neither of which the caller can read as "outside the home"
+        # (cubic). Same refusal as the expansion above, same reason.
+        return None, f"path is not a usable path ({type(exc).__name__})", 400
     return target_path, None, 200
 
 

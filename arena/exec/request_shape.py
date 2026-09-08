@@ -37,6 +37,12 @@ def unusable_command(cmd: str) -> str | None:
     """
     if "\x00" in cmd:
         return "cmd is not a usable command (embedded NUL)"
+    if any(0xD800 <= ord(ch) <= 0xDFFF for ch in cmd):
+        # A lone surrogate survives JSON and dies encoding the argument:
+        # `UnicodeEncodeError` out of `create_subprocess_shell` for the
+        # streaming handler and out of `Popen` for the other, both 500s
+        # (cubic). Short enough to pass every other check.
+        return "cmd is not a usable command (unpaired surrogate)"
     return None
 
 
