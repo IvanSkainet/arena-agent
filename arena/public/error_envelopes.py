@@ -68,7 +68,9 @@ _BODY_FIELD_ERROR_ENVELOPE = {
         **_ERROR_ENVELOPE["properties"],
         "field": {
             "type": "string",
-            "description": "Name of the body field that is not an integer.",
+            "description": ("Name of the body field whose value has the wrong "
+                            "type -- a number field that got something "
+                            "other than a number, and so on."),
         },
         "received": {
             "type": "string",

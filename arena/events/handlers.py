@@ -95,13 +95,15 @@ async def _forward_events(ctx: EventHandlerContext, ws: web.WebSocketResponse,
             if not ws.closed:
                 try:
                     await ws.send_json(payload)
-                except (TypeError, ValueError) as exc:
+                except (TypeError, ValueError, RecursionError) as exc:
                     # `emit_event` accepts any object, so one event carrying a
                     # datetime used to end the whole stream: the forwarder
                     # exited while the read loop kept the socket open, and the
                     # subscriber silently stopped receiving. A payload that
                     # cannot be encoded is dropped, and the next one is sent
-                    # (coderabbit).
+                    # (coderabbit). RecursionError joins the pair because a
+                    # deeply nested payload fails the same way -- encoding --
+                    # and would otherwise skip this arm entirely (cubic).
                     ctx.log_info("[Events] Dropped an event that will not serialize: %r", exc)
                     continue
         except asyncio.TimeoutError:

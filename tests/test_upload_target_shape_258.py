@@ -13,6 +13,8 @@ Two shapes are refused here:
 """
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from arena.files.sandbox import validate_upload_target
@@ -94,6 +96,46 @@ def test_overwriting_an_existing_file_still_passes(sandbox):
     (sandbox["root"] / "old.bin").write_bytes(b"old")
 
     path, err, status = _validate("~/workspace/old.bin", sandbox)
+
+    assert err is None
+    assert status == 200
+    assert path is not None
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs only")
+def test_a_fifo_target_is_refused_before_it_can_park_the_loop(sandbox):
+    """A FIFO is not a directory and not a missing file, so every earlier
+    check waves it through -- and then `write_bytes()` blocks until a
+    reader shows up, with the event loop inside it (cubic)."""
+    fifo = sandbox["root"] / "pipe"
+    os.mkfifo(fifo)
+
+    path, err, status = _validate("~/workspace/pipe", sandbox)
+
+    assert path is None
+    assert status == 400
+    assert err == "upload path is not a regular file"
+
+
+def test_a_dangling_symlink_parent_is_refused(sandbox):
+    """`exists()` follows symlinks, so a broken one answered False to both
+    shape checks and the refusal arrived as a 500 out of mkdir (cubic)."""
+    (sandbox["root"] / "gone").symlink_to(sandbox["root"] / "nothing-here")
+
+    path, err, status = _validate("~/workspace/gone/file.bin", sandbox)
+
+    assert path is None
+    assert status == 400
+    assert "gone" in (err or "")
+
+
+def test_a_symlink_to_a_real_directory_still_passes(sandbox):
+    """The refusal is about broken links, not about links."""
+    real = sandbox["root"] / "real"
+    real.mkdir()
+    (sandbox["root"] / "link").symlink_to(real, target_is_directory=True)
+
+    path, err, status = _validate("~/workspace/link/file.bin", sandbox)
 
     assert err is None
     assert status == 200

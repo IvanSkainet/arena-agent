@@ -356,12 +356,20 @@ def _writable_shape_error(target_path: Path, *,
     try:
         if target_path.is_dir():
             return f"{action} path is a directory, not a file", 400
+        if target_path.exists() and not target_path.is_file():
+            # A FIFO passes every check above and then parks the event loop
+            # inside a synchronous `write_bytes()` until someone opens the
+            # read end -- one request stalls the whole bridge (cubic).
+            return f"{action} path is not a regular file", 400
         for parent in target_path.parents:
             if parent.is_dir():
-                break
-            if parent.exists():
+                break  # a symlink to a real directory is fine
+            if parent.exists() or parent.is_symlink():
+                # `exists()` follows symlinks, so a dangling one answers
+                # False to both shape checks and the refusal used to arrive
+                # as a 500 out of `mkdir(parents=True)` (cubic).
                 return (f"{action} path is not usable: {parent.name} "
-                        "is a file, not a directory"), 400
+                        "is not a directory"), 400
     except OSError as exc:
         return f"{action} path is not usable ({type(exc).__name__})", 400
     return None
