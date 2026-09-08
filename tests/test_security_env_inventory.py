@@ -38,7 +38,10 @@ def test_real_security_inventory_matches_source_exactly() -> None:
     source = source_references(ROOT)
     documented = documented_inventory(ROOT.joinpath("SECURITY.md").read_text(encoding="utf-8"))
     assert set(source) == set(documented)
-    assert len(source) == 75
+    # 76 since #258 added ARENA_FUZZ_TOKEN: the fuzz gate hands its bridge a
+    # token through the environment rather than argv, and a security-relevant
+    # variable that nobody wrote down is exactly what this count is for.
+    assert len(source) == 76
 
 
 def test_security_weakening_and_credential_inputs_are_classified() -> None:

@@ -45,6 +45,11 @@ CI_BLOCKING = {
     "namespace-doc-coverage",
     "contract",
     "android",
+    # Runtime testing, added with the Schemathesis gate (#258): the only job
+    # here that sends a real request to a running bridge and reads the
+    # answer. It found ten 5xx on its first gated run that fourteen source
+    # scanners had not, because the defects are not visible in the source.
+    "api-fuzz",
 }
 SECURITY_BLOCKING = {
     "bandit",

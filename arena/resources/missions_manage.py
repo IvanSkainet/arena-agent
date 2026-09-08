@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from arena.missions_cli.templates import TEMPLATES_DATA
+from arena.resources.mission_identifier import unusable_directory_name
 from arena.resources.mission_state import infer_rerun_step
 
 _TEMPLATE_HINTS = {
@@ -79,6 +80,20 @@ def compose_mission_draft(*, goal: str, context: str = "", constraints: list[str
 def create_mission_from_draft(*, missions_dir: Path, draft: dict[str, Any], mission_id: str = "", overwrite: bool = False) -> dict[str, Any]:
     title = str(draft.get("title", "") or draft.get("goal", "") or "mission")
     mid = mission_id or dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + _slug(title) + "-" + uuid.uuid4().hex[:6]
+    if not mid.strip():
+        # A name that is only whitespace creates a mission nothing can
+        # address afterwards: `str.strip()` treats U+0085 and its relatives
+        # as whitespace, so `/v1/mission/family` read the id back as empty
+        # and answered 500. Refusing the write is the cheaper half of that
+        # fix (the reader is the other half).
+        return {"ok": False, "error": "mission id cannot be blank", "status": 400}
+    unusable = unusable_directory_name(mid, label="mission id")
+    if unusable:
+        # The writer half of #286: `mkdir` on a name the filesystem cannot
+        # hold raises -- ENAMETOOLONG, "embedded null character",
+        # `UnicodeEncodeError` -- and all three arrived as 500s. The reader
+        # half is in `mission_dir`.
+        return {"ok": False, "error": unusable, "status": 400}
     path = missions_dir / mid
     if path.exists() and not overwrite:
         return {"ok": False, "error": f"mission already exists: {mid}", "status": 409}
@@ -104,6 +119,14 @@ def create_mission_from_draft(*, missions_dir: Path, draft: dict[str, Any], miss
 def run_mission(*, root_agent: Path, mission_id: str, step: int | None = None, timeout: int = 180, subprocess_kwargs: Callable[[], dict[str, Any]]) -> dict[str, Any]:
     if not str(mission_id or "").strip():
         return {"ok": False, "error": "missing mission_id", "status": 400}
+    unusable = unusable_directory_name(mission_id, label="mission id")
+    if unusable:
+        # The id goes into the argv of `mission_manager.py`, so the same
+        # names the filesystem cannot hold `execve` cannot carry either: a
+        # NUL is `ValueError: embedded null byte` out of `Popen` (#288 in
+        # `/v1/exec`, this is the mission spelling of it), and a lone
+        # surrogate dies encoding the argument. Both were 500s.
+        return {"ok": False, "error": unusable, "status": 400}
     script = root_agent / "scripts" / "mission_manager.py"
     cmd = [sys.executable, str(script), "run", mission_id, "--timeout", str(int(timeout or 180))]
     if step is not None:

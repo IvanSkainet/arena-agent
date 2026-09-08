@@ -254,7 +254,9 @@ It MUST NOT include (excluded automatically by the script):
 
 - `tests/`, `.github/`, `dev/`, `.git/`;
 - caches and generated test reports (`__pycache__/`, `*.pyc`, `.pytest_cache/`,
-  `.mypy_cache/`, `node_modules/`, `.coverage*`, `coverage.xml`);
+  `.mypy_cache/`, `node_modules/`, `.coverage*`, `coverage.xml`,
+  `.schemathesis/` -- the fuzz gate's crash cache, written by every local
+  run of the #258 job);
 - runtime state: `token.txt`, `audit.jsonl`, `bridge.log`, `requests.jsonl`,
   `queue/{inbox,running,done,failed}/*`, `memory/{facts,history}.jsonl`,
   `memory/sessions/`, `missions/*`, `reports/*`;

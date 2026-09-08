@@ -205,6 +205,7 @@ Area Network (LAN) webhooks are stated explicitly.
 | `ARENA_IMAGE_DIR` | operational | exact | Overrides image preprocessing storage. |
 | `ARENA_INPUT_HELPER_PORT` | security | exact | Selects the authenticated input-helper port. |
 | `ARENA_INPUT_HELPER_TOKEN` | security | exact | Supplies the input-helper bearer credential through inherited environment. |
+| `ARENA_FUZZ_TOKEN` | security | exact | Bearer token for the throwaway bridge the fuzzing gate starts; read from the environment so it never appears in `/proc/<pid>/cmdline`. |
 | `ARENA_INSECURE_TLS` | security | exact | Disables strict TLS verification for agentctl; public transports should not use it. |
 | `ARENA_KWIN_ACTION_` | operational | prefix | Prefix for per-action KWin helper command overrides. |
 | `ARENA_KWIN_FOCUS_` | operational | prefix | Prefix for KWin focus helper overrides. |
