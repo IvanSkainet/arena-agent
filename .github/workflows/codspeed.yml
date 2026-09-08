@@ -73,15 +73,17 @@ jobs:
         run: |
           python -m pip install --require-hashes -r requirements-ci.lock
           python -m pip install --require-hashes -r requirements-bench.lock
-          # S8544 reads this as "dependencies without locked versions".
-          # Nothing is resolved here: --no-deps installs this repository's
-          # own source tree and pulls no dependency at all; everything that
-          # could float came from the two --require-hashes lines above.
-          # Same line as ci.yml:190, which predates the rule's new-code
-          # window. Suppressed inline below, where Sonar reads the marker.
-          python -m pip install --no-deps --no-build-isolation -e .  # NOSONAR
 
+      # The bridge is imported from the checkout, not installed. `pip install
+      # -e .` would add nothing here -- the benchmarks import `arena` modules
+      # directly and touch no console script or package metadata -- while
+      # being the one line in this file that runs a resolver, which is what
+      # Sonar's githubactions:S8544 objects to (and what NOSONAR does not
+      # suppress for this analyzer). PYTHONPATH is set explicitly rather than
+      # relying on `python -m` prepending the working directory.
       - name: Verify the benchmarked package imports
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: python -c "import arena; print(arena.__file__)"
 
       # -o addopts='': the repository-wide addopts turn on coverage tracing,
@@ -92,6 +94,8 @@ jobs:
       # run log readable and the measurement environment reproducible.
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@373d6868929f444bc08d901fd0eb0ad52a8875ea # v5.2.1
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         with:
           mode: simulation
           run: >-
