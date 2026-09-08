@@ -5,16 +5,23 @@
 # together. Everything here is a decision that had to be made once and
 # written down, rather than re-argued on each red build.
 
-# One check to begin with. Everything else Schemathesis can assert -- 62
-# operations "mostly rejecting generated data", missing-header handling,
-# positive-data acceptance -- is real feedback and none of it is a defect
-# this bridge has agreed to fix yet, so turning it on now would mean a gate
-# that is red on day one and therefore ignored by day three. The measurement
-# behind that number is in #258; the other checks come one PR at a time,
-# each with its own cleanup.
+# Three checks so far, one batch per PR. The ones still off -- 62 operations
+# "mostly rejecting generated data", missing-header handling, positive-data
+# acceptance -- are real feedback and none of it is a defect this bridge has
+# agreed to fix yet, so turning them on now would mean a gate that is red on
+# day one and therefore ignored by day three. The measurement behind those
+# numbers is in #258; the rest come one PR at a time, each with its own
+# cleanup.
 [checks]
 enabled = false
 not_a_server_error.enabled = true
+# Added in the second step of #258. Both were measured at five failures
+# between them when the gate was designed; by the time the first check was
+# required, four had been fixed on the way past by #269, #274 and #280, and
+# the fifth was GET /v1/events answering an undocumented 400 to a plain GET.
+# That one is fixed in this change rather than allowed for here.
+status_code_conformance.enabled = true
+unsupported_method.enabled = true
 
 # A 5xx is the whole point of the gate, with one documented exception: since
 # #260 an operation that needs a local tool answers 503 with `unavailable`
