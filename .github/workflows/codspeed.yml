@@ -22,9 +22,13 @@ on:
   pull_request:
     branches: [master]
 
+# cancel-in-progress only for pull requests. A master run is not a draft to
+# be superseded: it publishes the baseline measurement that every later pull
+# request is compared against, so cancelling it because a second commit landed
+# leaves that commit's base without numbers.
 concurrency:
   group: codspeed-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Read-only at workflow level; the OIDC scope the benchmark job needs is
 # granted on the job itself so nothing added later inherits it.

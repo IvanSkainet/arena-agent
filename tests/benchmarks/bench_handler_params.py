@@ -63,6 +63,7 @@ REQUEST_BODY: dict[str, object] = {
 }
 # Every field is a shape the readers must refuse rather than coerce.
 BAD_BODY: dict[str, object] = {
+    "mission_id": 4711,
     "timeout_s": [],
     "max_retries": True,
     "priority": "not-a-number",
@@ -129,6 +130,7 @@ def test_body_readers_refusal_path(benchmark) -> None:
     def refuse_all() -> int:
         refused = 0
         for name, read in (
+            ("mission_id", lambda: body_str(BAD_BODY, "mission_id", default="")),
             ("timeout_s", lambda: body_int(BAD_BODY, "timeout_s", default=60)),
             ("max_retries", lambda: body_int(BAD_BODY, "max_retries", default=0)),
             ("priority", lambda: body_int(BAD_BODY, "priority", default=0)),
@@ -142,7 +144,7 @@ def test_body_readers_refusal_path(benchmark) -> None:
             assert name
         return refused
 
-    assert benchmark(refuse_all) == 5
+    assert benchmark(refuse_all) == 6
 
 
 def test_is_string_list(benchmark) -> None:
