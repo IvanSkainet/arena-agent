@@ -377,6 +377,30 @@ async def _probe_file_route_conflicts(root: Path) -> list[str]:
     await client.start_server()
     wrong = []
     try:
+        # The stale halves of the two 409s: a preview and a rollback that
+        # were valid when they were made and are not any more, because the
+        # file moved underneath them. Unknown ids alone would leave both
+        # branches untested (coderabbit).
+        stale = root / "moves-underneath.txt"
+        stale.write_text("before\n", encoding="utf-8")
+        preview = await (await client.request(
+            "PATCH", "/v1/fs/edit",
+            json={"path": str(stale), "old_text": "before", "new_text": "after",
+                  "preview": True},
+            headers=headers)).json()
+        applied = await (await client.request(
+            "PATCH", "/v1/fs/edit",
+            json={"path": str(stale), "old_text": "before", "new_text": "after"},
+            headers=headers)).json()
+        stale.write_text("something else entirely\n", encoding="utf-8")
+        if preview.get("preview_id"):
+            cases.append(("POST", "/v1/fs/edit/apply",
+                          {"preview_id": preview["preview_id"]}, 409))
+        if applied.get("rollback_id"):
+            cases.append(("POST", "/v1/fs/edit/rollback",
+                          {"rollback_id": applied["rollback_id"]}, 409))
+        if len(cases) != 9:
+            wrong.append(f"the stale cases were never set up: {preview}, {applied}")
         for method, path, body, expected in cases:
             response = await client.request(method, path, json=body, headers=headers)
             if response.status != expected:

@@ -13,6 +13,13 @@ from aiohttp import web
 from arena.events.runtime import EVENT_SUBSCRIBERS
 from arena.handler_context import EventHandlerContext
 
+# How many events may pile up for one subscriber before `emit_event` starts
+# dropping them, and how long the forwarder waits on an empty queue before
+# sending a keepalive frame. Named rather than inline so the two knobs of
+# this stream are visible in one place (corgea).
+SUBSCRIBER_QUEUE_SIZE = 500
+IDLE_PING_SECONDS = 30
+
 
 def _needs_upgrade(ctx: EventHandlerContext, why: str) -> web.Response:
     """The one answer for every request that is not a WebSocket handshake."""
@@ -75,16 +82,28 @@ async def _forward_events(ctx: EventHandlerContext, ws: web.WebSocketResponse,
                           q: "asyncio.Queue[Any]") -> None:
     """Pump the subscriber queue into the socket, pinging when it is idle.
 
-    Any send failure ends the forwarder -- a socket that cannot take a
+    A transport failure ends the forwarder -- a socket that cannot take a
     frame is a socket that is gone -- but it says which one it was first.
     A stream that stops with no line in the log leaves an operator with a
-    disconnected client and no cause (corgea).
+    disconnected client and no cause (corgea). An event that cannot be
+    encoded is the other case, and it is not fatal: that one payload is
+    dropped and the stream carries on (coderabbit).
     """
     while not ws.closed:
         try:
-            payload = await asyncio.wait_for(q.get(), timeout=30)
+            payload = await asyncio.wait_for(q.get(), timeout=IDLE_PING_SECONDS)
             if not ws.closed:
-                await ws.send_json(payload)
+                try:
+                    await ws.send_json(payload)
+                except (TypeError, ValueError) as exc:
+                    # `emit_event` accepts any object, so one event carrying a
+                    # datetime used to end the whole stream: the forwarder
+                    # exited while the read loop kept the socket open, and the
+                    # subscriber silently stopped receiving. A payload that
+                    # cannot be encoded is dropped, and the next one is sent
+                    # (coderabbit).
+                    ctx.log_info("[Events] Dropped an event that will not serialize: %r", exc)
+                    continue
         except asyncio.TimeoutError:
             if ws.closed:
                 continue
@@ -144,7 +163,7 @@ async def _read_client_messages(ctx: EventHandlerContext, ws: web.WebSocketRespo
 
 async def _stream_until_closed(ctx: EventHandlerContext, ws: web.WebSocketResponse) -> None:
     """Subscribe, run both directions of the stream, unsubscribe."""
-    q: asyncio.Queue[Any] = asyncio.Queue(maxsize=500)
+    q: asyncio.Queue[Any] = asyncio.Queue(maxsize=SUBSCRIBER_QUEUE_SIZE)
     EVENT_SUBSCRIBERS.append(q)
     ctx.log_info("[Events] Subscriber connected (total=%d)", len(EVENT_SUBSCRIBERS))
     forward_task = asyncio.create_task(_forward_events(ctx, ws, q))

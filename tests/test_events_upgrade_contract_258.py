@@ -186,5 +186,47 @@ def test_a_malformed_frame_is_never_a_command() -> None:
     assert _client_command(b"\xff\xfe") is None
     assert _client_command('{"command": 7}') is None
     assert _client_command("{}") is None
+    # The C scanner has far more headroom than `sys.getrecursionlimit()`
+    # suggests: 8x the limit still parses, and only past ~16x does
+    # `json.loads` raise RecursionError. A shallower case would go down the
+    # `not isinstance(data, dict)` path and pass even with the catch
+    # reverted, pinning nothing (cubic).
     limit = sys.getrecursionlimit()
-    assert _client_command("[" * (limit * 4) + "]" * (limit * 4)) is None
+    deep = "[" * (limit * 24) + "]" * (limit * 24)
+    with pytest.raises(RecursionError):
+        json.loads(deep)
+    assert _client_command(deep) is None
+
+
+def test_an_event_that_will_not_serialize_does_not_kill_the_stream(bridge) -> None:
+    """One bad payload is one dropped event, not a dead subscriber.
+
+    `emit_event` puts whatever it is given on the queue without checking
+    that it can be encoded, so an event carrying a `datetime` used to end
+    the forwarder while the socket stayed open: the subscriber received
+    nothing further and never learned why (coderabbit).
+    """
+    from datetime import datetime
+
+    from arena.events.runtime import EVENT_SUBSCRIBERS
+
+    async def check(session, base):
+        async with session.ws_connect(
+                f"{base}/v1/events",
+                headers={"Authorization": f"Bearer {TOKEN}"}) as ws:
+            await asyncio.wait_for(ws.receive_json(), timeout=10)  # the welcome
+            for _ in range(50):  # the subscriber registers on the server side
+                if EVENT_SUBSCRIBERS:
+                    break
+                await asyncio.sleep(0.05)
+            assert EVENT_SUBSCRIBERS, "the stream never subscribed"
+            queue = EVENT_SUBSCRIBERS[-1]
+            queue.put_nowait({"type": "unserializable", "data": {"when": datetime.now()}})
+            queue.put_nowait({"type": "after", "data": {"ok": True}})
+            received = await asyncio.wait_for(ws.receive_json(), timeout=10)
+            await ws.close()
+            return received
+
+    received = bridge(check)
+    assert received["type"] == "after", (
+        f"the event after the unserializable one never arrived: {received}")

@@ -3,6 +3,14 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+from arena.public.error_envelopes import (
+    _BODY_FIELD_ERROR_ENVELOPE,
+    _ERROR_ENVELOPE,
+    _JSON_BODY_ERROR_ENVELOPE,
+    _QUERY_PARAM_ERROR_ENVELOPE,
+    _UNAVAILABLE_ENVELOPE,
+)
+
 
 def _text_schema(*, required: bool = False) -> dict:
     schema: dict = {"type": "string"}
@@ -94,103 +102,6 @@ _PUBLIC_PATHS = frozenset({
     "/gui/assets/manifest.json", "/mcp", "/messages",
 })
 
-_ERROR_ENVELOPE = {
-    "type": "object",
-    "properties": {
-        "ok": {"type": "boolean", "enum": [False]},
-        "error": {"type": "string"},
-        "request_id": {"type": "string"},
-    },
-    "required": ["ok", "error"],
-}
-
-
-# The parse-failure 400 carries one field the universal envelope does not:
-# the name of the parameter that failed. A generated client can highlight
-# that field; a client reading only `error` has to parse English.
-_QUERY_PARAM_ERROR_ENVELOPE = {
-    "type": "object",
-    "properties": {
-        **_ERROR_ENVELOPE["properties"],
-        "param": {
-            "type": "string",
-            "description": "Name of the query parameter that failed to parse.",
-        },
-    },
-    "required": ["ok", "error", "param"],
-}
-
-
-# The other refusal that names its cause: a body that parsed as JSON but is
-# not an object. `received` carries the JSON type that arrived -- one of five
-# fixed words, never the value the caller sent.
-_JSON_BODY_ERROR_ENVELOPE = {
-    "type": "object",
-    "properties": {
-        **_ERROR_ENVELOPE["properties"],
-        "received": {
-            "type": "string",
-            "enum": ["null", "boolean", "number", "string", "array"],
-            "description": (
-                "The JSON type of the body that arrived. Absent when the "
-                "body did not parse as JSON at all, since then there is no "
-                "type to name."),
-        },
-    },
-    # `received` is deliberately not required: the same 400 also answers a
-    # body that is not JSON at all, and promising a field that arrives only
-    # sometimes is the same untruth as omitting one that always does.
-    "required": ["ok", "error"],
-}
-
-
-# The body-field refusal (#270). `field` is always there -- the parse either
-# failed on a named field or did not happen -- and `received` names the JSON
-# type that arrived. Six words here rather than the five above: a field
-# inside the object can be an object, which is exactly what the body-shape
-# check was looking for and so never had to name.
-_BODY_FIELD_ERROR_ENVELOPE = {
-    "type": "object",
-    "properties": {
-        **_ERROR_ENVELOPE["properties"],
-        "field": {
-            "type": "string",
-            "description": "Name of the body field that is not an integer.",
-        },
-        "received": {
-            "type": "string",
-            "enum": ["null", "boolean", "number", "string", "array", "object"],
-            "description": "The JSON type of the value that arrived.",
-        },
-    },
-    "required": ["ok", "error", "field"],
-}
-
-
-# The third refusal that names its cause, and the only 5xx that does: the
-# machine has no tool for this. `unavailable` lists what to install -- any
-# one of them is enough -- so a client can say "install tesseract" instead of
-# reading the sentence (#260).
-_UNAVAILABLE_ENVELOPE = {
-    "type": "object",
-    "properties": {
-        **_ERROR_ENVELOPE["properties"],
-        "unavailable": {
-            "type": "array",
-            "items": {"type": "string"},
-            "minItems": 1,
-            "description": (
-                "The tools blocking this call right now, in the order the "
-                "bridge prefers them: installing any one of these clears "
-                "this particular blocker. It does not promise the call then "
-                "succeeds -- an operation built on several tools (OCR reads "
-                "a screenshot before it reads text) reports one layer at a "
-                "time, and the next call may name a tool from the next "
-                "layer."),
-        },
-    },
-    "required": ["ok", "error", "unavailable"],
-}
 
 
 # The operations that run something the host may simply not have, and every
@@ -215,6 +126,20 @@ _NEEDS_LOCAL_TOOL = {
     ("post", "/v1/desktop/focus"): _OCR_NEEDS,
     ("post", "/v1/desktop/window_action"): _OCR_NEEDS,
 }
+
+
+# The active-window guard, spelled once. Seven operations take
+# `require_active_title` and answer 409 when the foreground window does not
+# match, and SonarCloud counts each repeated sentence as its own literal.
+_ACTIVE_TITLE_GUARD = ("Refuse with 409 unless the foreground window title "
+                       "contains this")
+# focus and window_action only consult the field while resolving a window
+# from `query` text, so their wording has to be narrower than the rest.
+_ACTIVE_TITLE_GUARD_ON_QUERY = (
+    _ACTIVE_TITLE_GUARD + ". Checked while resolving a window from `query` text; "
+    "a window selected by id or title alone does not consult it.")
+_ACTIVE_TITLE_CONFLICT = ("require_active_title was supplied and the foreground "
+                          "window does not match")
 
 
 def _error_response(description: str, schema: dict | None = None) -> dict:
@@ -539,13 +464,13 @@ def build_openapi_spec(ctx) -> dict:
             "/v1/desktop/displays": {"get": {"summary": "List desktop displays/outputs", "tags": ["Desktop"], "responses": {"200": {"description": "Display geometry and output metadata"}}}},
             "/v1/desktop/windows": {"get": {"summary": "List desktop windows", "tags": ["Desktop"], "parameters": [{"name": "title", "in": "query", "schema": {"type": "string"}}, {"name": "class", "in": "query", "schema": {"type": "string"}}, {"name": "desktop_file", "in": "query", "schema": {"type": "string"}}, {"name": "resource_name", "in": "query", "schema": {"type": "string"}}, {"name": "pid", "in": "query", "schema": {"type": "integer"}}, {"name": "display", "in": "query", "schema": {"type": "string"}}, {"name": "active_only", "in": "query", "schema": {"type": "boolean"}}, {"name": "include_displays", "in": "query", "schema": {"type": "boolean"}}], "responses": {"200": {"description": "Window list"}}}},
             "/v1/desktop/active_window": {"get": {"summary": "Get active desktop window", "tags": ["Desktop"], "responses": {"200": {"description": "Active window details"}}}},
-            "/v1/desktop/focus": {"post": {"summary": "Focus a desktop window by id, semantic filters, or OCR text query", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": "Refuse with 409 unless the foreground window title contains this. Checked while resolving a window from `query` text; a window selected by id or title alone does not consult it."}, "id": {"type": "string"}, "query": {"type": "string"}, "title": {"type": "string"}, "class": {"type": "string"}, "desktop_file": {"type": "string"}, "resource_name": {"type": "string"}, "pid": {"type": "integer"}, "display": {"type": "string"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": True}, "within_active_window": {"type": "boolean", "default": False}, "crop_active_window": {"type": "boolean", "default": True}, "verify": {"type": "boolean", "default": True}, "timeout_ms": {"type": "integer", "default": 1500}, "dry_run": {"type": "boolean", "default": False}}}}}}, "responses": {"409": _error_response("require_active_title was supplied and the foreground window does not match"), "200": {"description": "Focus result"}, "404": {"description": "No window matched"}}}},
-            "/v1/desktop/window_action": {"post": {"summary": "Move, resize, minimize, maximize, restore, close, center, snap, move to another display, or toggle fullscreen on a desktop window", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": "Refuse with 409 unless the foreground window title contains this. Checked while resolving a window from `query` text; a window selected by id or title alone does not consult it."}, "action": {"type": "string", "enum": ["minimize", "restore", "maximize", "unmaximize", "fullscreen", "unfullscreen", "close", "center", "move_to_display", "snap_left", "snap_right", "snap_top", "snap_bottom", "snap_top_left", "snap_top_right", "snap_bottom_left", "snap_bottom_right", "move", "resize", "move_resize"]}, "id": {"type": "string"}, "query": {"type": "string"}, "title": {"type": "string"}, "class": {"type": "string"}, "desktop_file": {"type": "string"}, "resource_name": {"type": "string"}, "pid": {"type": "integer"}, "display": {"type": "string"}, "target_display": {"type": "string"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": True}, "within_active_window": {"type": "boolean", "default": False}, "crop_active_window": {"type": "boolean", "default": True}, "x": {"type": "integer"}, "y": {"type": "integer"}, "width": {"type": "integer"}, "height": {"type": "integer"}, "verify": {"type": "boolean", "default": True}, "timeout_ms": {"type": "integer", "default": 1000}, "dry_run": {"type": "boolean", "default": False}}, "required": ["action"]}}}}, "responses": {"200": {"description": "Window action result"}, "404": {"description": "No window matched"}, "409": _error_response("require_active_title was supplied and the active window does not match")}}},
-            "/v1/desktop/resolve_text_target": {"post": {"summary": "Resolve OCR text into a containing window target", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": "Refuse with 409 unless the foreground window title contains this"}, "query": {"type": "string"}, "display": {"type": "string"}, "title": {"type": "string"}, "class": {"type": "string"}, "desktop_file": {"type": "string"}, "resource_name": {"type": "string"}, "pid": {"type": "integer"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": True}, "within_active_window": {"type": "boolean", "default": False}, "crop_active_window": {"type": "boolean", "default": True}}, "required": ["query"]}}}}, "responses": {"409": _error_response("require_active_title was supplied and the foreground window does not match"), "200": {"description": "Resolved text target"}, "404": {"description": "No text or containing window matched"}}}},
-            "/v1/desktop/text_action": {"post": {"summary": "Resolve visible text and run a high-level desktop action", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": "Refuse with 409 unless the foreground window title contains this"}, "action": {"type": "string", "enum": ["resolve", "focus", "click", "center", "move_to_display", "snap_left", "snap_right", "snap_top", "snap_bottom", "snap_top_left", "snap_top_right", "snap_bottom_left", "snap_bottom_right", "minimize", "restore", "maximize", "unmaximize", "fullscreen", "unfullscreen", "close", "move", "resize", "move_resize"], "default": "resolve"}, "query": {"type": "string"}, "display": {"type": "string"}, "target_display": {"type": "string"}, "title": {"type": "string"}, "class": {"type": "string"}, "desktop_file": {"type": "string"}, "resource_name": {"type": "string"}, "pid": {"type": "integer"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": True}, "within_active_window": {"type": "boolean", "default": False}, "crop_active_window": {"type": "boolean", "default": True}, "target_position": {"type": "string", "enum": ["center", "left", "right", "top", "bottom"], "default": "center"}, "offset_x": {"type": "integer", "default": 0}, "offset_y": {"type": "integer", "default": 0}, "button": {"type": "string", "default": "left"}, "double": {"type": "boolean", "default": False}, "activate": {"type": "boolean", "default": True}, "verify": {"type": "boolean", "default": True}, "timeout_ms": {"type": "integer", "default": 1000}, "dry_run": {"type": "boolean", "default": False}}, "required": ["query"]}}}}, "responses": {"409": _error_response("require_active_title was supplied and the foreground window does not match"), "200": {"description": "Resolved text workflow result"}, "404": {"description": "No text or containing window matched"}}}},
-            "/v1/desktop/ocr": {"post": {"summary": "Run OCR on a fresh desktop screenshot", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": "Refuse with 409 unless the foreground window title contains this"}, "query": {"type": "string"}, "display": {"type": "string"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": False}, "within_active_window": {"type": "boolean", "default": False}}}}}}, "responses": {"409": _error_response("require_active_title was supplied and the foreground window does not match"), "200": {"description": "OCR text, words, and optional matches"}, "404": {"description": "Unknown display, or no match for the query"}}}},
-            "/v1/desktop/find_text": {"post": {"summary": "Find text on the current desktop", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": "Refuse with 409 unless the foreground window title contains this"}, "query": {"type": "string"}, "display": {"type": "string"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": False}, "within_active_window": {"type": "boolean", "default": False}}, "required": ["query"]}}}}, "responses": {"409": _error_response("require_active_title was supplied and the foreground window does not match"), "200": {"description": "Match results"}, "404": {"description": "No match found"}}}},
-            "/v1/desktop/click_text": {"post": {"summary": "Find text on the current desktop and click the best match", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": "Refuse with 409 unless the foreground window title contains this"}, "query": {"type": "string"}, "display": {"type": "string"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": True}, "within_active_window": {"type": "boolean", "default": False}, "target_position": {"type": "string", "enum": ["center", "left", "right", "top", "bottom"], "default": "center"}, "offset_x": {"type": "integer", "default": 0}, "offset_y": {"type": "integer", "default": 0}, "button": {"type": "string", "default": "left"}, "double": {"type": "boolean", "default": False}, "activate": {"type": "boolean", "default": True}, "dry_run": {"type": "boolean", "default": False}}, "required": ["query"]}}}}, "responses": {"409": _error_response("require_active_title was supplied and the foreground window does not match"), "200": {"description": "Click result"}, "404": {"description": "No match found"}}}},
+            "/v1/desktop/focus": {"post": {"summary": "Focus a desktop window by id, semantic filters, or OCR text query", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": _ACTIVE_TITLE_GUARD_ON_QUERY}, "id": {"type": "string"}, "query": {"type": "string"}, "title": {"type": "string"}, "class": {"type": "string"}, "desktop_file": {"type": "string"}, "resource_name": {"type": "string"}, "pid": {"type": "integer"}, "display": {"type": "string"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": True}, "within_active_window": {"type": "boolean", "default": False}, "crop_active_window": {"type": "boolean", "default": True}, "verify": {"type": "boolean", "default": True}, "timeout_ms": {"type": "integer", "default": 1500}, "dry_run": {"type": "boolean", "default": False}}}}}}, "responses": {"409": _error_response(_ACTIVE_TITLE_CONFLICT), "200": {"description": "Focus result"}, "404": {"description": "No window matched"}}}},
+            "/v1/desktop/window_action": {"post": {"summary": "Move, resize, minimize, maximize, restore, close, center, snap, move to another display, or toggle fullscreen on a desktop window", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": _ACTIVE_TITLE_GUARD_ON_QUERY}, "action": {"type": "string", "enum": ["minimize", "restore", "maximize", "unmaximize", "fullscreen", "unfullscreen", "close", "center", "move_to_display", "snap_left", "snap_right", "snap_top", "snap_bottom", "snap_top_left", "snap_top_right", "snap_bottom_left", "snap_bottom_right", "move", "resize", "move_resize"]}, "id": {"type": "string"}, "query": {"type": "string"}, "title": {"type": "string"}, "class": {"type": "string"}, "desktop_file": {"type": "string"}, "resource_name": {"type": "string"}, "pid": {"type": "integer"}, "display": {"type": "string"}, "target_display": {"type": "string"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": True}, "within_active_window": {"type": "boolean", "default": False}, "crop_active_window": {"type": "boolean", "default": True}, "x": {"type": "integer"}, "y": {"type": "integer"}, "width": {"type": "integer"}, "height": {"type": "integer"}, "verify": {"type": "boolean", "default": True}, "timeout_ms": {"type": "integer", "default": 1000}, "dry_run": {"type": "boolean", "default": False}}, "required": ["action"]}}}}, "responses": {"200": {"description": "Window action result"}, "404": {"description": "No window matched"}, "409": _error_response("require_active_title was supplied and the active window does not match")}}},
+            "/v1/desktop/resolve_text_target": {"post": {"summary": "Resolve OCR text into a containing window target", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": _ACTIVE_TITLE_GUARD}, "query": {"type": "string"}, "display": {"type": "string"}, "title": {"type": "string"}, "class": {"type": "string"}, "desktop_file": {"type": "string"}, "resource_name": {"type": "string"}, "pid": {"type": "integer"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": True}, "within_active_window": {"type": "boolean", "default": False}, "crop_active_window": {"type": "boolean", "default": True}}, "required": ["query"]}}}}, "responses": {"409": _error_response(_ACTIVE_TITLE_CONFLICT), "200": {"description": "Resolved text target"}, "404": {"description": "No text or containing window matched"}}}},
+            "/v1/desktop/text_action": {"post": {"summary": "Resolve visible text and run a high-level desktop action", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": _ACTIVE_TITLE_GUARD}, "action": {"type": "string", "enum": ["resolve", "focus", "click", "center", "move_to_display", "snap_left", "snap_right", "snap_top", "snap_bottom", "snap_top_left", "snap_top_right", "snap_bottom_left", "snap_bottom_right", "minimize", "restore", "maximize", "unmaximize", "fullscreen", "unfullscreen", "close", "move", "resize", "move_resize"], "default": "resolve"}, "query": {"type": "string"}, "display": {"type": "string"}, "target_display": {"type": "string"}, "title": {"type": "string"}, "class": {"type": "string"}, "desktop_file": {"type": "string"}, "resource_name": {"type": "string"}, "pid": {"type": "integer"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": True}, "within_active_window": {"type": "boolean", "default": False}, "crop_active_window": {"type": "boolean", "default": True}, "target_position": {"type": "string", "enum": ["center", "left", "right", "top", "bottom"], "default": "center"}, "offset_x": {"type": "integer", "default": 0}, "offset_y": {"type": "integer", "default": 0}, "button": {"type": "string", "default": "left"}, "double": {"type": "boolean", "default": False}, "activate": {"type": "boolean", "default": True}, "verify": {"type": "boolean", "default": True}, "timeout_ms": {"type": "integer", "default": 1000}, "dry_run": {"type": "boolean", "default": False}}, "required": ["query"]}}}}, "responses": {"409": _error_response(_ACTIVE_TITLE_CONFLICT), "200": {"description": "Resolved text workflow result"}, "404": {"description": "No text or containing window matched"}}}},
+            "/v1/desktop/ocr": {"post": {"summary": "Run OCR on a fresh desktop screenshot", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": _ACTIVE_TITLE_GUARD}, "query": {"type": "string"}, "display": {"type": "string"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": False}, "within_active_window": {"type": "boolean", "default": False}}}}}}, "responses": {"409": _error_response(_ACTIVE_TITLE_CONFLICT), "200": {"description": "OCR text, words, and optional matches"}, "404": {"description": "Unknown display, or no match for the query"}}}},
+            "/v1/desktop/find_text": {"post": {"summary": "Find text on the current desktop", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": _ACTIVE_TITLE_GUARD}, "query": {"type": "string"}, "display": {"type": "string"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": False}, "within_active_window": {"type": "boolean", "default": False}}, "required": ["query"]}}}}, "responses": {"409": _error_response(_ACTIVE_TITLE_CONFLICT), "200": {"description": "Match results"}, "404": {"description": "No match found"}}}},
+            "/v1/desktop/click_text": {"post": {"summary": "Find text on the current desktop and click the best match", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": _ACTIVE_TITLE_GUARD}, "query": {"type": "string"}, "display": {"type": "string"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": True}, "within_active_window": {"type": "boolean", "default": False}, "target_position": {"type": "string", "enum": ["center", "left", "right", "top", "bottom"], "default": "center"}, "offset_x": {"type": "integer", "default": 0}, "offset_y": {"type": "integer", "default": 0}, "button": {"type": "string", "default": "left"}, "double": {"type": "boolean", "default": False}, "activate": {"type": "boolean", "default": True}, "dry_run": {"type": "boolean", "default": False}}, "required": ["query"]}}}}, "responses": {"409": _error_response(_ACTIVE_TITLE_CONFLICT), "200": {"description": "Click result"}, "404": {"description": "No match found"}}}},
             "/v1/browser/head": {"get": {"summary": "HTTP HEAD request", "tags": ["Browser"], "parameters": [{"name": "url", "in": "query", "required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "HEAD result"}, "400": {"description": "Missing or unusable url parameter"}}}},
             "/v1/tasks": {"get": {"summary": "List tasks", "tags": ["Tasks"], "responses": {"200": {"description": "Task list"}}}, "post": {"summary": "Create task", "tags": ["Tasks"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"cmd": {"type": "string"}, "title": {"type": "string"}}}}}}, "responses": {"200": {"description": "Task created"}}}},
             "/v1/mission/status": {"get": {"summary": "Get structured mission status", "tags": ["Planner"], "parameters": [{"name": "name", "in": "query", "required": False, "schema": {"type": "string"}, "description": "Mission name or id. Either this or mission_id is required; a short scenario name resolves to its stored mission."}, {"name": "mission_id", "in": "query", "required": False, "schema": {"type": "string"}, "description": "Alias of name (#130)."}], "responses": {"200": {"description": "Mission status"}, "404": {"description": "Mission not found"}, "400": {"description": "Missing or unusable mission id"}}}},
