@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -306,3 +308,131 @@ def test_authenticated_operations_keep_the_global_security_requirement(spec):
     wrong = [f"{m.upper()} {p}" for p, m, o in _authenticated(spec)
              if o.get("security") == []]
     assert wrong == [], f"authenticated operations wrongly marked public: {wrong}"
+
+
+def test_the_conflict_and_not_found_answers_of_the_file_routes_are_documented(spec):
+    """Runtime statuses aikido found undocumented on the #258 gate.
+
+    `validate_edit_target` / `validate_view_target` answer 404 for a missing
+    file, `validate_create_target` answers 409 for one that already exists,
+    and `safe_edit` answers 409 when `old_text` is ambiguous or the file moved
+    under a preview. All of them were absent from the document, so
+    `status_code_conformance` had a real finding waiting behind whichever
+    generated path hit them first.
+    """
+    expected = {
+        ("/v1/fs/edit", "patch"): {"404", "409"},
+        ("/v1/fs/view", "post"): {"404"},
+        ("/v1/fs/create", "post"): {"409"},
+        ("/v1/fs/edit/apply", "post"): {"404", "409"},
+        ("/v1/fs/edit/rollback", "post"): {"404", "409"},
+        # `require_active_title` refuses with 409 when the foreground window
+        # is not the one asked for (cubic).
+        ("/v1/desktop/window_action", "post"): {"409"},
+    }
+    for (path, method), codes in expected.items():
+        responses = spec["paths"][path][method]["responses"]
+        missing = codes - set(responses)
+        assert missing == set(), f"{method.upper()} {path} does not document {sorted(missing)}"
+        for code in codes:
+            body = responses[code].get("content", {}).get("application/json", {})
+            assert body.get("schema"), f"{method.upper()} {path} {code} has no JSON schema"
+
+
+def test_the_websocket_connection_header_is_not_pinned_to_one_exact_value(spec):
+    """`keep-alive, Upgrade` is what browsers and proxies actually send.
+
+    The parameter used to declare `enum: ["Upgrade"]` while
+    `_is_websocket_upgrade` accepts the token anywhere in the list, so the
+    document forbade a handshake the bridge honours (aikido).
+    """
+    params = spec["paths"]["/v1/events"]["get"]["parameters"]
+    connection = [p for p in params if p["name"] == "Connection"]
+    assert connection, "the handshake requires a Connection header"
+    assert "enum" not in connection[0]["schema"]
+    assert "Upgrade" in connection[0]["description"]
+
+
+async def _probe_file_route_conflicts(root: Path) -> list[str]:
+    """Drive each documented 404/409 file path and report what was served."""
+    token = "contract-token-never-presented"
+    existing = root / "already-here.txt"
+    existing.write_text("one\ntwo\n", encoding="utf-8")
+    missing = root / "not-here.txt"
+    ambiguous = root / "twice.txt"
+    ambiguous.write_text("same\nsame\n", encoding="utf-8")
+    headers = {"Authorization": f"Bearer {token}"}
+    cases = [
+        ("PATCH", "/v1/fs/edit", {"path": str(missing), "old_text": "a", "new_text": "b"}, 404),
+        ("PATCH", "/v1/fs/edit", {"path": str(existing), "old_text": "nope", "new_text": "b"}, 404),
+        ("PATCH", "/v1/fs/edit", {"path": str(ambiguous), "old_text": "same", "new_text": "b"}, 409),
+        ("POST", "/v1/fs/view", {"path": str(missing)}, 404),
+        ("POST", "/v1/fs/create", {"path": str(existing), "content": "x"}, 409),
+        ("POST", "/v1/fs/edit/apply", {"preview_id": "no-such-preview"}, 404),
+        ("POST", "/v1/fs/edit/rollback", {"rollback_id": "no-such-rollback"}, 404),
+    ]
+    server = TestServer(_build_app(root))
+    await server.start_server()
+    client = TestClient(server)
+    await client.start_server()
+    wrong = []
+    try:
+        # The stale halves of the two 409s: a preview and a rollback that
+        # were valid when they were made and are not any more, because the
+        # file moved underneath them. Unknown ids alone would leave both
+        # branches untested (coderabbit).
+        stale = root / "moves-underneath.txt"
+        stale.write_text("before\n", encoding="utf-8")
+        preview = await (await client.request(
+            "PATCH", "/v1/fs/edit",
+            json={"path": str(stale), "old_text": "before", "new_text": "after",
+                  "preview": True},
+            headers=headers)).json()
+        applied = await (await client.request(
+            "PATCH", "/v1/fs/edit",
+            json={"path": str(stale), "old_text": "before", "new_text": "after"},
+            headers=headers)).json()
+        stale.write_text("something else entirely\n", encoding="utf-8")
+        if preview.get("preview_id"):
+            cases.append(("POST", "/v1/fs/edit/apply",
+                          {"preview_id": preview["preview_id"]}, 409))
+        if applied.get("rollback_id"):
+            cases.append(("POST", "/v1/fs/edit/rollback",
+                          {"rollback_id": applied["rollback_id"]}, 409))
+        if len(cases) != 9:
+            wrong.append(f"the stale cases were never set up: {preview}, {applied}")
+        for method, path, body, expected in cases:
+            response = await client.request(method, path, json=body, headers=headers)
+            if response.status != expected:
+                wrong.append(f"{method} {path} {body} -> {response.status} "
+                             f"{await response.text()}, expected {expected}")
+    finally:
+        await client.close()
+        await server.close()
+        rl = getattr(ub, "_rate_limit_store", None)
+        if isinstance(rl, dict):
+            rl.clear()
+    return wrong
+
+
+def test_the_documented_404_and_409_are_what_the_file_routes_actually_serve():
+    """The half that matters, for the codes added in #258.
+
+    Documenting a status the handler never returns is the same defect as
+    the reverse, and the fuzz gate only compares what it happens to
+    generate. This drives each one on purpose (cubic).
+    """
+    # The file routes refuse anything outside the home directory before they
+    # look at whether it exists, and `Path.home()` is read at import time in
+    # places, so a monkeypatched HOME is not enough: the probe files go in a
+    # directory under the real home and are removed afterwards.
+    # A fixed name would be a destructive test: `mkdir(exist_ok=True)` would
+    # adopt whatever is already at that path -- a leftover run, another CI
+    # job sharing the home, a real directory -- and the rmtree below would
+    # take its contents with it (aikido, cubic).
+    workspace = Path(tempfile.mkdtemp(prefix=".arena-contract-probe-258-", dir=Path.home()))
+    try:
+        wrong = asyncio.run(_probe_file_route_conflicts(workspace))
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+    assert wrong == [], f"served statuses do not match the document: {wrong}"

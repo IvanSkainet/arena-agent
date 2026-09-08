@@ -1614,9 +1614,10 @@ jobs:
       # request into the void and report a green run (cubic).
       #
       # Settings live in schemathesis.toml, next to the reasons for them.
-      # `not_a_server_error` only, for now: the other checks have 182 open
+      # Required so far: `not_a_server_error`, `status_code_conformance` and
+      # `unsupported_method`. The checks still switched off have 182 open
       # findings between them (measured in #258) and each needs its own
-      # cleanup before it can be required.
+      # cleanup before it can join, one PR at a time.
       - name: Fuzz the documented API
         run: |
           schemathesis run http://127.0.0.1:8899/openapi.json \

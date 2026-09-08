@@ -7,6 +7,28 @@ from typing import Any, Callable
 from arena.wiring.env import RuntimeEnv
 
 
+def _event_handlers(env: Any) -> dict[str, Any]:
+    """The `/v1/events` wiring, lifted out of the registry builder.
+
+    Its own function because `build_platform_registries` is already a long
+    one, and #258 added a dependency to this block: the handler answers a
+    non-handshake GET with a JSON 426 and so needs the CORS response
+    builder the other contexts take.
+    """
+    return env.build_context_handlers(
+        env.EventHandlerContext,
+        env.make_event_handlers,
+        {
+            "require_auth": env.require_auth,
+            "cors_json_response": env._cors_json_response,
+            "version": env.VERSION,
+            "utc_now": env.utc_now,
+            "log_info": env.log.info,
+        },
+        {"handle_v1_events": "events"},
+    )
+
+
 def build_platform_registries(g: MutableMapping[str, Any]) -> dict[str, Callable]:
     env = RuntimeEnv(g)
     registry: dict[str, Callable] = {}
@@ -52,18 +74,7 @@ def build_platform_registries(g: MutableMapping[str, Any]) -> dict[str, Callable
     registry.update(_grpc_handler_registry)
 
 
-    _event_handler_registry = env.build_context_handlers(
-        env.EventHandlerContext,
-        env.make_event_handlers,
-        {
-            "require_auth": env.require_auth,
-            "version": env.VERSION,
-            "utc_now": env.utc_now,
-            "log_info": env.log.info,
-        },
-        {"handle_v1_events": "events"},
-    )
-    registry.update(_event_handler_registry)
+    registry.update(_event_handlers(env))
 
 
     _watchdog_handler_registry = env.build_context_handlers(
