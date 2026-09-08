@@ -226,7 +226,18 @@ def test_the_workspace_is_private_and_goes_away_when_the_run_is_killed():
         assert mode == 0o700, f"workspace is {oct(mode)}, not 0o700"
     finally:
         proc.send_signal(signal.SIGTERM)
-        proc.wait(timeout=60)
+        try:
+            proc.wait(timeout=120)
+        except subprocess.TimeoutExpired:
+            # Twice on loaded runners the wait expired and the report was
+            # `TimeoutExpired` with no hint of why -- the bridge's own log
+            # is the only thing that says whether it hung in the cleanup or
+            # never saw the signal. Killed here so the process does not
+            # outlive the session either way.
+            proc.kill()
+            raise AssertionError(
+                "SIGTERM did not stop the bridge within 120s; "
+                f"log: {proc.communicate()[0]}") from None
 
     left = sorted(set(glob.glob(pattern)) - before)
     assert left == [], f"SIGTERM left the workspace behind: {left}"
