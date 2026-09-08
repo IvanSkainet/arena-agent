@@ -1,0 +1,21 @@
+# Hash-locked tooling for the CodSpeed benchmark job ONLY.
+#
+# Regenerate: uv pip compile --universal --generate-hashes --strip-extras \
+#   --python-version 3.10 \
+#   --output-file=requirements-bench.lock requirements-bench.in
+#
+# Kept out of requirements-ci.lock deliberately, for the same reason as the
+# fuzz and mutation locks: pytest-codspeed carries a compiled tracer and a
+# `cffi` dependency that exactly one job on one OS needs, and adding it to the
+# CI lock would install it on all fifteen matrix cells to be imported by none.
+#
+# The benchmark job installs this lock *next to* requirements-ci.lock (it needs
+# pytest and the bridge's runtime dependencies to import `arena`), so the two
+# resolutions have to agree on every package they share --
+# scripts/lock_conflict_ratchet.py fails the build if they do not. The `-c`
+# below is what keeps them agreeing when the lock is regenerated: uv reads the
+# constraint out of the input file, so the plain `uv pip compile` the relock
+# workflow runs resolves against the CI pins without anyone remembering a flag.
+-c requirements-ci.lock
+
+pytest-codspeed==5.0.3

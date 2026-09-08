@@ -1,0 +1,95 @@
+# .github/workflows/codspeed.yml
+#
+# Continuous performance measurement for the bridge's hot, CPU-bound paths.
+#
+# Why a workflow of its own rather than another job in ci.yml: CodSpeed
+# compares a pull request against the last measurement of its base commit, so
+# the benchmarks have to run on `push` to master as well as on the pull
+# request. ci.yml's expensive jobs are gated behind the `changes` scope sensor,
+# and a base commit whose benchmark run was skipped leaves every later PR with
+# nothing to compare against.
+#
+# What is measured: `tests/benchmarks/bench_*.py`, via pytest-codspeed. Those
+# files are deliberately NOT named `test_*.py` -- `python_files` in
+# pyproject.toml only collects that prefix, so the ordinary test matrix (which
+# does not install pytest-codspeed, and where the `benchmark` fixture therefore
+# does not exist) never picks them up.
+name: CodSpeed
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: codspeed-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only at workflow level; the OIDC scope the benchmark job needs is
+# granted on the job itself so nothing added later inherits it.
+permissions:
+  contents: read
+
+jobs:
+  benchmarks:
+    timeout-minutes: 20
+    name: Run benchmarks (CPU simulation)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read  # checkout only
+      # Token-less authentication to CodSpeed: the action exchanges this OIDC
+      # token for a short-lived upload credential, so no CODSPEED_TOKEN secret
+      # has to exist in the repository at all.
+      id-token: write  # OIDC exchange for the CodSpeed upload credential
+    steps:
+      # Audit mode, not block: the CodSpeed runner downloads its own installer
+      # and its instrument (valgrind) from endpoints that are not enumerated
+      # here, and a benchmark job that fails closed on an unlisted CDN host
+      # would be a flaky gate rather than a security control. Same choice as
+      # the ci.yml test matrix, which installs from PyPI on five platforms.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # Both locks land in one environment on purpose: requirements-ci.lock
+      # carries pytest and the bridge's runtime dependencies (importing
+      # `arena` needs them), requirements-bench.lock adds pytest-codspeed on
+      # top. requirements-bench.in is resolved under `-c requirements-ci.lock`,
+      # and scripts/lock_conflict_ratchet.py fails the build if the two ever
+      # disagree on a shared package.
+      - name: Install the benchmark environment (hash-locked)
+        run: |
+          python -m pip install --require-hashes -r requirements-ci.lock
+          python -m pip install --require-hashes -r requirements-bench.lock
+          python -m pip install --no-deps --no-build-isolation -e .
+
+      - name: Verify the benchmarked package imports
+        run: python -c "import arena; print(arena.__file__)"
+
+      # -o addopts='': the repository-wide addopts turn on coverage tracing,
+      # which would be measured together with the code under test and would
+      # dominate every result.
+      # -p no:randomly: pytest-randomly (in the CI lock) shuffles collection
+      # order; benchmark identity is by node id, but a stable order keeps the
+      # run log readable and the measurement environment reproducible.
+      - name: Run the benchmarks
+        uses: CodSpeedHQ/action@373d6868929f444bc08d901fd0eb0ad52a8875ea # v5.2.1
+        with:
+          mode: simulation
+          run: >-
+            python -m pytest tests/benchmarks --codspeed
+            -o python_files='bench_*.py'
+            -o addopts=''
+            -p no:randomly

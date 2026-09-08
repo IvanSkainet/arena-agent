@@ -1,3 +1,8 @@
-8  # poutine finding ceiling. Ratchet: may fall, never rise.
-   # 7x unverified-creator (all SHA-pinned), 1x untrusted_checkout_exec
+9  # poutine finding ceiling. Ratchet: may fall, never rise.
+   # 8x unverified-creator (all SHA-pinned), 1x untrusted_checkout_exec
    # in boe-contract (path-filtered, pip from a pinned lock).
+   # 8 -> 9 with the CodSpeed benchmark workflow: CodSpeedHQ/action is the
+   # eighth unverified creator, pinned to the v5.2.1 commit SHA like every
+   # other one. Note the gate reads this file from the BASE revision, so the
+   # pull request that adds the action necessarily runs against the old
+   # ceiling and reports one over; it is green from the merge onward.
