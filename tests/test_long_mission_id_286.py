@@ -1,0 +1,292 @@
+"""A mission id longer than a filename is refused, not answered with a 500 (#286).
+
+Found by the #258 fuzzing gate while the second batch of checks was being
+prepared: `POST /v1/mission/rerun` with a 40-character id built out of
+combining marks -- 1.6 kB once encoded -- answered 500. The filesystem's
+own refusal, `OSError: [Errno 36] File name too long`, came out of
+`Path.exists()`, which is not a place any caller expects an exception.
+
+Same shape as #280, so the same two halves: the reader refuses the lookup
+before touching the disk, and the writer refuses to create a directory the
+filesystem cannot hold. The limit is 255 *bytes* per path component on
+ext4, APFS and NTFS alike, which is why the id that found this is only 40
+characters long.
+"""
+from __future__ import annotations
+
+import asyncio
+import os
+from pathlib import Path
+
+import pytest
+
+from arena.resources.listing import show_mission
+from arena.resources.mission_family import get_mission_family
+from arena.resources.mission_identifier import (
+    NAME_MAX_UNITS,
+    unusable_directory_name,
+)
+from arena.resources.mission_lineage import get_mission_lineage
+from arena.resources.mission_state import (
+    get_mission_history,
+    get_mission_report,
+    get_mission_status,
+)
+from arena.resources.missions_manage import create_mission_from_draft, run_mission
+from tests._live_bridge import auth_header, json_payload, running_client
+
+# One ASCII, one that is short in characters and long in bytes -- the second
+# is the shape the fuzzer actually found, and a character-counting guard
+# would let it straight through. Each of the three is over the limit in
+# *both* units, so the parametrisation reads the same on ext4 and on NTFS;
+# the byte/unit difference has a test of its own at the bottom.
+TOO_LONG = (
+    "a" * (NAME_MAX_UNITS + 1),
+    "Ṱ̺̺̕o͞ ̷i̲̬͇̪͙n̝̗͕v̟̜̘̦͟o̶̙̰̠kè͚̮̺̪̹̱̤ ̖t̝͕̳̣̻̪͞h̼͓̲̦̳̘̲e͇̣̰̦̬͎ ̢̼̻̱̘h͚͎͙̜̣̲ͅi̦̲̣̰̤v̻͍e̺̭̳̪̰-m̢iͅn̖̺̞̲̯̰d̵̼̟͙̩̼̘̳" * 3,
+    "\U0001f600" * 128,
+)
+
+READERS = (
+    get_mission_status,
+    get_mission_history,
+    get_mission_report,
+    get_mission_lineage,
+    get_mission_family,
+    # Predates `mission_dir` and does its own lookup, which is exactly how
+    # it missed the guard the first time round (cubic, sourcery).
+    show_mission,
+)
+
+
+@pytest.mark.parametrize("reader", READERS, ids=lambda f: f.__name__)
+@pytest.mark.parametrize("name", TOO_LONG, ids=("ascii", "combining", "emoji"))
+def test_reading_an_over_long_mission_id_is_a_400(
+        tmp_path: Path, reader, name: str) -> None:
+    """Every mission read funnels through `mission_dir`, so every one is covered."""
+    result = reader(tmp_path, name)
+    assert result["ok"] is False
+    assert result["status"] == 400, result
+    assert "too long" in result["error"]
+
+
+@pytest.mark.parametrize("name", TOO_LONG, ids=("ascii", "combining", "emoji"))
+def test_creating_an_over_long_mission_id_is_a_400(tmp_path: Path, name: str) -> None:
+    """The writer half: `mkdir` would raise ENAMETOOLONG, so it is never called."""
+    result = create_mission_from_draft(
+        missions_dir=tmp_path, draft={"title": "t"}, mission_id=name)
+    assert result["ok"] is False
+    assert result["status"] == 400, result
+    assert "too long" in result["error"]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_name_at_the_limit_is_still_allowed(tmp_path: Path) -> None:
+    """255 bytes is a legal filename, and the guard stops one byte later.
+
+    An off-by-one here would be invisible in normal use and would refuse
+    ids that work, so the boundary is asserted from both sides.
+    """
+    at_limit = "a" * NAME_MAX_UNITS
+    assert unusable_directory_name(at_limit) is None
+    assert unusable_directory_name(at_limit + "a") is not None
+
+    created = create_mission_from_draft(
+        missions_dir=tmp_path, draft={"title": "t"}, mission_id=at_limit)
+    assert created["ok"] is True
+    assert (tmp_path / at_limit).is_dir()
+    assert get_mission_status(tmp_path, at_limit)["ok"] is True
+
+
+def test_the_limit_is_not_counted_in_characters(tmp_path: Path) -> None:
+    """A 200-character id can be 800 bytes, and that is the case that broke.
+
+    The unit is the local filesystem's: bytes of UTF-8 on ext4 and APFS,
+    UTF-16 code units on NTFS. Counting characters would let the id that
+    found this straight through on either.
+    """
+    wide = "\U0001f600" * 200
+    assert len(wide) < NAME_MAX_UNITS
+    assert unusable_directory_name(wide) is not None
+
+
+@pytest.mark.parametrize("name", ["m\x00x", "\x00", "mission\x00.json"])
+def test_a_nul_is_refused_rather_than_reaching_mkdir(tmp_path: Path, name: str) -> None:
+    """`mkdir` answers a NUL with `ValueError`, which left as a 500 (cubic)."""
+    assert unusable_directory_name(name) is not None
+    created = create_mission_from_draft(
+        missions_dir=tmp_path, draft={"title": "t"}, mission_id=name)
+    assert created["status"] == 400
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("name", ["m\udb72x", "\udc05", "\udb72" * 3])
+def test_an_unpaired_surrogate_is_refused(tmp_path: Path, name: str) -> None:
+    """Short enough to pass a length check, fatal at `fsencode`.
+
+    A JSON body can carry a lone surrogate, and encoding one for the
+    filesystem raises `UnicodeEncodeError` -- the same 500 by another
+    route, which is why the guard is about the characters and not only
+    the length (sourcery, cubic).
+    """
+    assert unusable_directory_name(name) is not None
+    created = create_mission_from_draft(
+        missions_dir=tmp_path, draft={"title": "t"}, mission_id=name)
+    assert created["status"] == 400
+    assert get_mission_status(tmp_path, name)["status"] == 400
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_unit_follows_the_local_filesystem() -> None:
+    """NTFS counts UTF-16 code units, ext4 counts bytes; 64 emoji differ.
+
+    256 bytes and 128 units: refused on Linux, legal on Windows. Refusing
+    it everywhere would have the bridge turn down ids its own filesystem
+    would accept (cubic).
+    """
+    emoji = "\U0001f600" * 64
+    refused = unusable_directory_name(emoji) is not None
+    assert refused is (os.name != "nt")
+
+
+def _never_spawns(*_args, **_kwargs):
+    raise AssertionError("the guard must answer before anything is spawned")
+
+
+@pytest.mark.parametrize("name", [*TOO_LONG, "m\x00x", "m\udb72x"])
+def test_running_an_unusable_mission_id_is_a_400(tmp_path: Path, name: str) -> None:
+    """`run_mission` puts the id in an argv, which is the third way to a 500.
+
+    `mission_manager.py run <id>` is spawned with the id as an argument, so
+    a NUL is `ValueError: embedded null byte` out of `Popen` and a lone
+    surrogate dies encoding the argument -- the same defect as #288 in
+    `/v1/exec`, reached through `/v1/mission/run` and `/v1/mission/rerun`.
+    Found by the #258 gate, which is also why `subprocess_kwargs` here
+    raises: the assertion is that nothing is spawned at all.
+    """
+    result = run_mission(root_agent=tmp_path, mission_id=name,
+                         subprocess_kwargs=_never_spawns)
+
+    assert result["ok"] is False
+    assert result["status"] == 400, result
+    assert "mission id" in result["error"]
+
+
+def test_a_legal_id_survives_the_suffixes_show_mission_tries(tmp_path: Path) -> None:
+    """255 bytes is legal, `<id>.yaml` is 260, and `exists()` raises on it.
+
+    `show_mission` probes six extensions before it looks for a directory,
+    so a caller could store a mission under a perfectly good id and get a
+    500 reading it back -- the suffix is five bytes the caller never sent
+    (cubic).
+    """
+    at_limit = "a" * NAME_MAX_UNITS
+    created = create_mission_from_draft(
+        missions_dir=tmp_path, draft={"title": "t"}, mission_id=at_limit)
+    assert created["ok"] is True
+
+    shown = show_mission(tmp_path, at_limit)
+
+    assert shown["ok"] is True, shown
+    assert shown["is_dir"] is True
+
+
+@pytest.mark.parametrize("name", ["q?x", "x|y", "CON", "PRN.txt", "a:b", "t.", "t "],
+                         ids=["question", "pipe", "con", "prn-ext", "colon",
+                              "trailing-dot", "trailing-space"])
+def test_windows_refuses_names_posix_accepts(name: str) -> None:
+    """NTFS has rules ext4 does not, and `mkdir` states them as exceptions.
+
+    Measured on the bridge's own host: `q?x` and `x|y` are WinError 123,
+    `CON` is WinError 267, `a:b` is WinError 3. A trailing dot or space is
+    worse than an error -- Windows strips it, so two ids name one
+    directory. None of that is true on ext4, where `report?` is a fine
+    name, so the check is per-platform exactly as the length is (cubic).
+    """
+    refused = unusable_directory_name(name) is not None
+    assert refused is (os.name == "nt")
+
+
+def test_the_message_names_the_field_the_caller_used() -> None:
+    """Readers say `name`, the writer says `id`, and neither rewrites text.
+
+    The writer used to patch the reader's wording with
+    `str.replace("name", "id", 1)`, which silently produced "mission id
+    contains..." only for as long as every message happened to start with
+    that word (cubic).
+    """
+    long_name = "a" * (NAME_MAX_UNITS + 1)
+    default_label = unusable_directory_name(long_name)
+    explicit_label = unusable_directory_name(long_name, label="mission id")
+
+    assert default_label is not None and default_label.startswith("mission name")
+    assert explicit_label is not None and explicit_label.startswith("mission id")
+
+    written = create_mission_from_draft(
+        missions_dir=Path("/nonexistent"), draft={"title": "t"}, mission_id=long_name)
+    assert written["error"].startswith("mission id")
+
+
+def test_the_show_endpoint_returns_the_status_the_reader_chose(tmp_path: Path) -> None:
+    """`/v1/mission/show` hardcoded 404 and swallowed this reader's 400.
+
+    Every other mission read passes `int(result["status"])` through; this
+    one wrote `404` as a literal, so an unusable id came back as "not
+    found" -- which tells the caller to look for a mission rather than to
+    fix the id it sent (cubic).
+    """
+    asyncio.run(_show_answers_400(tmp_path))
+
+
+async def _show_answers_400(tmp_path: Path) -> None:
+    token = "mission-show-status-286"
+    async with running_client(tmp_path, token) as client:
+        response = await client.get(
+            "/v1/mission/show", params={"name": "a" * (NAME_MAX_UNITS + 1)},
+            headers=auth_header(token))
+        payload = await json_payload(response)
+
+    assert response.status == 400, payload
+    assert payload["ok"] is False
+    assert "too long" in payload["error"]
+
+
+# What NTFS refuses, checked with `os.name` forced rather than left to the
+# platform: CI runs Linux for most cells, so without this the Windows rules
+# ship untested on the machine that actually runs the bridge (cubic). The
+# same monkeypatch is used by tests/test_exec_interpreters_parity_v4_169_37.
+NT_REFUSED = (
+    "q?x", "x|y", 'a"b', "a<b", "a>b", "a:b", "a*b",
+    "CON", "con", "PRN.txt", "CON .txt", "COM1", "COM¹", "LPT9", "CONIN$",
+    "t.", "t ", "a\x01b",
+)
+
+NT_ACCEPTED = ("ok-mission", "mission-2026-09-08", "CONSOLE", "COMET", "a.b.c")
+
+
+@pytest.mark.parametrize("name", NT_REFUSED)
+def test_the_windows_rules_hold_with_os_name_forced(
+        name: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every NTFS rule, exercised on whichever platform is running the test."""
+    monkeypatch.setattr(os, "name", "nt")
+    assert unusable_directory_name(name) is not None, name
+
+
+@pytest.mark.parametrize("name", NT_ACCEPTED)
+def test_the_windows_rules_do_not_over_reject(
+        name: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`CONSOLE` is not `CON`, and a dot inside a name is not a trailing one.
+
+    The over-rejection side matters more than it looks: a guard that
+    refuses ordinary ids turns a 500 into a permanent 400, which is worse
+    for the caller than the crash it replaced.
+    """
+    monkeypatch.setattr(os, "name", "nt")
+    assert unusable_directory_name(name) is None, name
+
+
+@pytest.mark.parametrize("name", ["q?x", "CON", "t ", "a<b"])
+def test_posix_accepts_what_windows_refuses(
+        name: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The other half of per-platform: ext4 takes these, so the guard must."""
+    monkeypatch.setattr(os, "name", "posix")
+    assert unusable_directory_name(name) is None, name
