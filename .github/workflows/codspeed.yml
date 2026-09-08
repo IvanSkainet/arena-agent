@@ -73,11 +73,13 @@ jobs:
         run: |
           python -m pip install --require-hashes -r requirements-ci.lock
           python -m pip install --require-hashes -r requirements-bench.lock
-          # NOSONAR githubactions:S8544 -- nothing is resolved here: --no-deps
-          # installs this repository's own source tree and pulls no
-          # dependency at all. Everything that could float was installed by
-          # the two --require-hashes lines above. Same line as ci.yml:190.
-          python -m pip install --no-deps --no-build-isolation -e .
+          # S8544 reads this as "dependencies without locked versions".
+          # Nothing is resolved here: --no-deps installs this repository's
+          # own source tree and pulls no dependency at all; everything that
+          # could float came from the two --require-hashes lines above.
+          # Same line as ci.yml:190, which predates the rule's new-code
+          # window. Suppressed inline below, where Sonar reads the marker.
+          python -m pip install --no-deps --no-build-isolation -e .  # NOSONAR
 
       - name: Verify the benchmarked package imports
         run: python -c "import arena; print(arena.__file__)"
