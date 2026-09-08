@@ -52,6 +52,15 @@ def make_browser_fetch_handlers(ctx: BrowserFetchHandlerContext) -> BrowserFetch
             try:
                 loop = asyncio.get_running_loop()
                 result = await loop.run_in_executor(ctx.executor, sync_fn, url)
+                if result.get("ok") is False:
+                    # A url the validator refused came back as 200 with
+                    # `ok: false` inside, so the document's 400 described
+                    # nothing and a client reading status codes saw a
+                    # success (#258, aikido and cubic). The refusal keeps
+                    # whatever status the reader chose, 400 by default.
+                    ctx.record_request(is_error=True, count_request=False)
+                    return ctx.cors_json_response(
+                        result, status=int(result.get("status", 400)))
                 return ctx.cors_json_response(result)
             except Exception as e:
                 ctx.record_request(is_error=True, count_request=False)
