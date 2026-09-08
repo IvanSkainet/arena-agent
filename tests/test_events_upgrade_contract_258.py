@@ -195,21 +195,32 @@ def test_a_malformed_frame_is_never_a_command() -> None:
     assert _client_command(deep) is None
 
 
-def test_a_parser_recursion_error_is_caught_not_raised(monkeypatch) -> None:
-    """The RecursionError arm of the catch, pinned without CPython's help.
+def test_the_recursion_error_arm_of_the_catch_is_still_there() -> None:
+    """The RecursionError arm, pinned without patching anything.
 
     Real deep input only raises RecursionError on some interpreter
-    versions, so the arm is exercised directly: if it were dropped from
-    the `except` clause this call would raise instead of answering None.
+    versions (3.14 answers it differently), and patching `json.loads`
+    through the production alias is exactly the process-wide-escape
+    flake the global-patch ratchet exists to stop (#230, #235). So the
+    arm is read off the source: drop `RecursionError` from the `except`
+    clause and this goes red.
     """
+    import ast
+    import inspect
+
     from arena.events import handlers as events_handlers
 
-    def explode(_raw: object) -> object:
-        raise RecursionError("maximum recursion depth exceeded")
+    tree = ast.parse(inspect.getsource(events_handlers._client_command))
+    caught = {
+        name.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ExceptHandler) and node.type is not None
+        for name in ast.walk(node.type)
+        if isinstance(name, ast.Name)
+    }
 
-    monkeypatch.setattr(events_handlers.json, "loads", explode)
-
-    assert events_handlers._client_command('{"command": "ping"}') is None
+    assert "RecursionError" in caught
+    assert {"TypeError", "ValueError"} <= caught
 
 
 def test_an_event_that_will_not_serialize_does_not_kill_the_stream(bridge) -> None:
