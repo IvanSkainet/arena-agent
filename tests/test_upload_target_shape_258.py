@@ -117,10 +117,18 @@ def test_a_fifo_target_is_refused_before_it_can_park_the_loop(sandbox):
     assert err == "upload path is not a regular file"
 
 
+def _symlink_or_skip(link, target, *, directory: bool = False) -> None:
+    """Make a symlink, or skip: unprivileged Windows cannot make them."""
+    try:
+        link.symlink_to(target, target_is_directory=directory)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"this account cannot create symlinks: {exc}")
+
+
 def test_a_dangling_symlink_parent_is_refused(sandbox):
     """`exists()` follows symlinks, so a broken one answered False to both
     shape checks and the refusal arrived as a 500 out of mkdir (cubic)."""
-    (sandbox["root"] / "gone").symlink_to(sandbox["root"] / "nothing-here")
+    _symlink_or_skip(sandbox["root"] / "gone", sandbox["root"] / "nothing-here")
 
     path, err, status = _validate("~/workspace/gone/file.bin", sandbox)
 
@@ -133,7 +141,7 @@ def test_a_symlink_to_a_real_directory_still_passes(sandbox):
     """The refusal is about broken links, not about links."""
     real = sandbox["root"] / "real"
     real.mkdir()
-    (sandbox["root"] / "link").symlink_to(real, target_is_directory=True)
+    _symlink_or_skip(sandbox["root"] / "link", real, directory=True)
 
     path, err, status = _validate("~/workspace/link/file.bin", sandbox)
 
