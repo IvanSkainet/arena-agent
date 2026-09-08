@@ -84,13 +84,33 @@ def resolve_home_path(
         return None, "missing path", 400
     if ".." in Path(target).parts:
         return None, "path traversal not allowed", 400
-    target_path = Path(target).expanduser()
+    if "\x00" in target:
+        # `resolve()` answers a NUL with `ValueError`, which the boundary
+        # check below reads as "outside the home" -- a 403 about a question
+        # nobody asked. A string with a NUL in it is not a path at all, the
+        # same call `usable_cwd` makes since #270 (cubic).
+        return None, "path is not a usable path (embedded NUL)", 400
+    try:
+        target_path = Path(target).expanduser()
+    except (RuntimeError, OSError, ValueError) as exc:
+        # `~Qm` names a user who has no home, and `expanduser` answers that
+        # with `RuntimeError` rather than a string -- a 500 out of a request
+        # the caller could fix (#290, found by the #258 fuzzing gate). Same
+        # shape as the `cwd` guard in #270: the filesystem's refusals arrive
+        # as exceptions, and every one of them is the caller's to correct.
+        return None, f"path is not a usable path ({type(exc).__name__})", 400
     if not target_path.is_absolute():
         target_path = root / target_path
     try:
         target_path.resolve().relative_to(home.resolve())
     except ValueError:
         return None, "path outside home directory", 403
+    except (OSError, RuntimeError) as exc:
+        # `resolve()` is a syscall too: an over-long component is
+        # `OSError: [Errno 36]` and a broken mount is an OSError as well,
+        # neither of which the caller can read as "outside the home"
+        # (cubic). Same refusal as the expansion above, same reason.
+        return None, f"path is not a usable path ({type(exc).__name__})", 400
     return target_path, None, 200
 
 
