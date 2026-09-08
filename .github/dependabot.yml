@@ -72,6 +72,13 @@ updates:
         # was closed. The [tool.mypy] SECTION in pyproject.toml stays --
         # it is pyrefly's config, guarded by
         # scripts/pyrefly_preset_ratchet.py.
+      - dependency-name: "disposable-email-domains"
+        # Not ours to choose: guarddog 3.2.0 pins it to
+        # ">=0.0.237,<0.0.238", so any bump makes the GuardDog job fail
+        # with ResolutionImpossible before it scans anything. Dependabot
+        # proposed 0.0.246 on #285 and that is exactly what happened. The
+        # constraint lifts when guarddog widens its own range, not when we
+        # decide to.
       - dependency-name: "websockets"
         # websockets 17.0 requires Python >= 3.11; this package promises
         # requires-python = ">=3.10" and CI keeps a 3.10 matrix cell to

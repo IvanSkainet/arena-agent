@@ -365,9 +365,9 @@ cryptography==50.0.1 \
     --hash=sha256:fd3718b960d0b5dd213cdf03f3bcb7000e69dda0de8b956061947ff6bcff5558 \
     --hash=sha256:ff838d62ec1bfce4f9ba7fa16f4a7b554cd8d0c299e6be37502161a660c84eef
     # via nono-py
-disposable-email-domains==0.0.246 \
-    --hash=sha256:2f4983d8a432b4e7d5e037881dd5459ed7f1cb5e4a6fcce6bf61e5f136956800 \
-    --hash=sha256:655ac4c83d6ed593f5d556688de05002de662dc370df3e47afbe5837b0fa27b4
+disposable-email-domains==0.0.237 \
+    --hash=sha256:80a055f2b20260510169b9f966a0d06f2a05d73a214b7e15f1545e0fccf87a58 \
+    --hash=sha256:d1bde8c216d117e001da3aa0d3f22dce2bbd7044e44e8dfbebc1aca33e0779a7
     # via guarddog
 guarddog==3.2.0 \
     --hash=sha256:1937f9012ecec16ceab2725c7b4508e0a5e8399652d1287c9f14fd641dfc7f73 \
