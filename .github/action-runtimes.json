@@ -23,5 +23,5 @@
   "sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6": "composite",
   "step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c": "node24",
   "trufflesecurity/trufflehog@20652fbbdefffcdaa493a5bf57ab2ac6b1db715b": "composite",
-  "zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054": "composite"
+  "zizmorcore/zizmor-action@70fb788f84895a7701f5643d103d587e460b5c99": "composite"
 }
