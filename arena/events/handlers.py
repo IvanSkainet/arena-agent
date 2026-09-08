@@ -108,7 +108,10 @@ def _client_command(raw: Any) -> str | None:
     """
     try:
         data = json.loads(raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, RecursionError):
+        # RecursionError belongs here: a deeply nested frame is malformed
+        # input like any other, and letting it escape would end the stream
+        # a client could keep alive by sending garbage (cubic).
         return None
     if not isinstance(data, dict):
         return None

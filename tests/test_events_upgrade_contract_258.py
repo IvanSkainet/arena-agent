@@ -166,3 +166,25 @@ def test_the_document_does_not_pin_either_header_to_one_spelling() -> None:
     for name in ("Upgrade", "Connection"):
         assert "enum" not in params[name]["schema"], f"{name} is pinned to one spelling"
         assert params[name].get("description"), f"{name} states no requirement"
+
+
+def test_a_malformed_frame_is_never_a_command() -> None:
+    """Everything a client can send that is not `{"command": "..."}`.
+
+    The deep-nesting case is the one that bit: `json.loads` raises
+    RecursionError rather than ValueError there, and an uncaught one would
+    end a stream on input a client controls (cubic).
+    """
+    import sys
+
+    from arena.events.handlers import _client_command
+
+    assert _client_command('{"command": "ping"}') == "ping"
+    assert _client_command("null") is None
+    assert _client_command("[1, 2, 3]") is None
+    assert _client_command("not json at all") is None
+    assert _client_command(b"\xff\xfe") is None
+    assert _client_command('{"command": 7}') is None
+    assert _client_command("{}") is None
+    limit = sys.getrecursionlimit()
+    assert _client_command("[" * (limit * 4) + "]" * (limit * 4)) is None

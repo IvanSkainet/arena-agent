@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -401,8 +402,11 @@ def test_the_documented_404_and_409_are_what_the_file_routes_actually_serve():
     # look at whether it exists, and `Path.home()` is read at import time in
     # places, so a monkeypatched HOME is not enough: the probe files go in a
     # directory under the real home and are removed afterwards.
-    workspace = Path.home() / ".arena-contract-probe-258"
-    workspace.mkdir(exist_ok=True)
+    # A fixed name would be a destructive test: `mkdir(exist_ok=True)` would
+    # adopt whatever is already at that path -- a leftover run, another CI
+    # job sharing the home, a real directory -- and the rmtree below would
+    # take its contents with it (aikido, cubic).
+    workspace = Path(tempfile.mkdtemp(prefix=".arena-contract-probe-258-", dir=Path.home()))
     try:
         wrong = asyncio.run(_probe_file_route_conflicts(workspace))
     finally:
