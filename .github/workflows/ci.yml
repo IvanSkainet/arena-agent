@@ -263,21 +263,33 @@ jobs:
           --strict-markers -ra \
           --junitxml=test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
 
+      # continue-on-error on both uploads: GitHub's artifact backend answered
+      # `FinalizeArtifact: (403) Forbidden` on three jobs in one day while the
+      # tests themselves passed, and a red matrix cell that means "the upload
+      # service hiccuped" sends the next reader hunting a regression that does
+      # not exist (#308). The verdict these jobs exist for -- the test result
+      # and the per-platform --cov-fail-under -- is decided before this step.
+      #
+      # retention-days: 5 rather than 14 -- both files are read within the run
+      # (Codecov) or within a day of it, and 15 matrix cells x 2 artifacts x
+      # dozens of runs is how the repository accumulated 15,592 artifacts.
       - name: Upload test results
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: test-results-${{ matrix.os }}-${{ matrix.python-version }}
           path: test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
-          retention-days: 14
+          retention-days: 5
 
       - name: Upload coverage report
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-xml-${{ matrix.os }}-${{ matrix.python-version }}
           path: coverage.xml
-          retention-days: 14
+          retention-days: 5
 
       # P3 (user decision 2026-08-02): external coverage trends via
       # Codecov. All 15 matrix legs upload; Codecov merges the flags.
@@ -780,12 +792,14 @@ jobs:
 
       - name: Upload failure screenshots
         if: failure()
+        continue-on-error: true  # diagnostics; see #308
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dashboard-e2e-artifacts
           path: |
             /tmp/pytest-of-runner/**/*.png
           if-no-files-found: ignore
+          retention-days: 7
 
   # ----------------------------------------------------------------
   # Installed-artifact E2E (blocking), Tier-2. The packaging job above
