@@ -337,3 +337,87 @@ def test_ten_starved_queries_finish_well_inside_the_outer_budget(monkeypatch):
     assert calls == 10
     # Without the pass budget this would be 10 x per-call timeout.
     assert elapsed < 1.0, elapsed
+
+
+# Every module the bound is supposed to protect. `status.py` is the one
+# that shells out during `agentctl status`; the list is here so that a new
+# unbounded call in a sibling is a failure rather than an omission.
+_NO_UNBOUNDED_SUBPROCESS = ("arena/agentctl_extras/status.py",)
+
+
+def test_no_subprocess_call_in_status_runs_without_a_timeout():
+    """A bound that only some calls carry is not a bound.
+
+    This exists because the branch lost the tailscale fix once already: an
+    automated commit reverted it to
+
+        subprocess.run("tailscale funnel status || tailscale serve status",
+                       shell=True)
+
+    -- shell form, no timeout at all -- and every test here stayed green,
+    because they all ask about the hwinfo call sites specifically. A wedged
+    tailscale daemon hangs `agentctl status` again, which is the failure
+    #323 was filed about, restored in the neighbouring block.
+
+    So the question is asked of the whole module: any `subprocess.run` that
+    can block has to say for how long. Nothing here is timing-dependent --
+    it reads the source -- so it costs nothing to keep.
+    """
+    offenders = []
+    for relative in _NO_UNBOUNDED_SUBPROCESS:
+        source = (REPO / relative).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        seen = 0
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if _dotted_name(node.func) not in ("subprocess.run", "subprocess.check_output"):
+                continue
+            seen += 1
+            if not any(kw.arg == "timeout" for kw in node.keywords):
+                offenders.append(f"{relative}:{node.lineno} {ast.unparse(node)[:60]}")
+        assert seen, (
+            f"{relative}: no subprocess call found at all -- this scan has "
+            "gone blind and would pass no matter what the module does"
+        )
+    assert not offenders, (
+        "every blocking subprocess call must carry a timeout; found: "
+        f"{offenders}"
+    )
+
+
+def test_status_does_not_reach_for_a_shell():
+    """`shell=True` and a timeout do not compose.
+
+    `subprocess.run(..., shell=True, timeout=N)` kills the shell it
+    spawned, not the process underneath: the child is reparented and keeps
+    running after the call has returned. So on this path a shell is not
+    merely a lint preference -- it silently defeats the bound the test
+    above checks for.
+    """
+    offenders = []
+    for relative in _NO_UNBOUNDED_SUBPROCESS:
+        source = (REPO / relative).read_text(encoding="utf-8")
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.Call):
+                continue
+            for keyword in node.keywords:
+                if keyword.arg != "shell":
+                    continue
+                if not (isinstance(keyword.value, ast.Constant) and keyword.value.value is False):
+                    offenders.append(f"{relative}:{node.lineno}")
+    assert not offenders, (
+        "shell=True defeats the timeout, since it is the shell that gets "
+        f"killed and not the child; found: {offenders}"
+    )
+
+
+def _dotted_name(node: ast.AST) -> str:
+    """`subprocess.run` for an Attribute chain, `run` for a bare Name."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+    return ".".join(reversed(parts))

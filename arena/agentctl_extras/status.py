@@ -24,6 +24,11 @@ from arena.agentctl_extras.common import (
 # stays above the collector's internal budget, so the two cannot invert.
 HWINFO_SUBPROCESS_TIMEOUT_S = 60
 
+# `tailscale ... status` talks to a local daemon and answers immediately or
+# not at all. Unbounded, a wedged daemon hangs `agentctl status` with the
+# section header already printed and no way to tell what it is waiting on.
+TAILSCALE_STATUS_TIMEOUT_S = 10
+
 
 def _gpu_entries(raw):
     """Yield (name, vram) for whatever shape hwinfo reported.
@@ -114,10 +119,22 @@ def run_status(args=None):
     print("### tailscale funnel")
     if shutil.which("tailscale"):
         try:
-            if platform.system() == "Windows":
-                subprocess.run("tailscale funnel status 2>nul || tailscale serve status 2>nul", shell=True)  # nosec B604 -- fixed literal command string, no interpolation of any kind, so there is nothing for a shell to inject; `shell=True` is needed only for the `||` fallback / redirection.
-            else:
-                subprocess.run("tailscale funnel status 2>/dev/null || tailscale serve status 2>/dev/null || true", shell=True)  # nosec B604 -- fixed literal command string, no interpolation of any kind, so there is nothing for a shell to inject; `shell=True` is needed only for the `||` fallback / redirection.
+            # argv form, no shell. `subprocess.run(..., shell=True)` with a
+            # timeout kills the shell it spawned, not the `tailscale` process
+            # underneath it: the child is reparented and keeps running after
+            # `agentctl status` has returned. The `||` fallback that needed a
+            # shell is a plain `if` here, and the redirections are just
+            # capture_output. Restored after an automated commit reverted it
+            # to the shell form, unbounded, on this same branch (#323).
+            for verb in ("funnel", "serve"):
+                done = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
+                    ["tailscale", verb, "status"],
+                    capture_output=True, text=True, check=False,
+                    timeout=TAILSCALE_STATUS_TIMEOUT_S,
+                )
+                if done.returncode == 0:
+                    print(done.stdout, end="")
+                    break
         except Exception as e:
             print(f"Failed to check Tailscale: {e}")
     else:
