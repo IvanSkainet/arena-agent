@@ -69,6 +69,10 @@ def test_pass_budget_fits_inside_the_outer_budget():
 # The one name a hwinfo call site may bind `timeout=` to.
 _REQUIRED_BOUND = "HWINFO_SUBPROCESS_TIMEOUT_S"
 
+# The module that defines it. Its own `HWINFO_SUBPROCESS_TIMEOUT_S = 60` is
+# the single source the other callers import.
+_DEFINING_MODULE = "arena/agentctl_extras/status.py"
+
 
 def test_every_hwinfo_call_binds_the_shared_bound():
     """Not merely "no literal" -- that name, specifically.
@@ -93,26 +97,50 @@ def test_every_hwinfo_call_binds_the_shared_bound():
     )
 
 
-def test_the_bound_is_not_aliased_to_something_smaller():
+def test_the_bound_is_not_rebound_to_something_smaller():
     """Checking the name at the call site is not enough on its own.
 
-    `from ... import TAILSCALE_STATUS_TIMEOUT_S as HWINFO_SUBPROCESS_TIMEOUT_S`
-    satisfies the call-site check while binding 10 s -- below the 20 s pass
-    budget. So the import has to be checked too: whatever the callers bind
-    under this name must be the constant of that name.
+    The call site can be made to *look* right while binding 10 s, and there
+    is more than one way to do it:
+
+        from ... import TAILSCALE_STATUS_TIMEOUT_S as HWINFO_SUBPROCESS_TIMEOUT_S
+        import somewhere as HWINFO_SUBPROCESS_TIMEOUT_S
+        HWINFO_SUBPROCESS_TIMEOUT_S = TAILSCALE_STATUS_TIMEOUT_S
+
+    The first version of this test only looked at `ast.ImportFrom`, so the
+    plain assignment walked straight past it -- verified by mutation, the
+    suite stayed green. Every binding of the name is checked now: whatever a
+    caller binds under it must be the constant of that name, imported from
+    the module that defines it.
     """
     for relative in HWINFO_CALLERS:
+        if relative == _DEFINING_MODULE:
+            # Where the constant is defined, `NAME = 60` is the definition,
+            # not a rebinding. Everywhere else it is one.
+            continue
         source = (REPO / relative).read_text(encoding="utf-8")
         for node in ast.walk(ast.parse(source)):
-            if not isinstance(node, ast.ImportFrom):
-                continue
-            for alias in node.names:
-                if alias.asname == _REQUIRED_BOUND:
-                    assert alias.name == _REQUIRED_BOUND, (
-                        f"{relative}:{node.lineno} imports {alias.name} under "
-                        f"the name {_REQUIRED_BOUND}. The call site then looks "
-                        "correct while binding a different, smaller bound."
-                    )
+            _assert_binding_is_the_real_constant(node, relative)
+
+
+def _assert_binding_is_the_real_constant(node: ast.AST, relative: str) -> None:
+    """Fail if `node` binds the required name to anything else."""
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        for alias in node.names:
+            if alias.asname == _REQUIRED_BOUND and alias.name != _REQUIRED_BOUND:
+                raise AssertionError(
+                    f"{relative}:{node.lineno} imports {alias.name} under the "
+                    f"name {_REQUIRED_BOUND}. The call site then looks correct "
+                    "while binding a different, smaller bound."
+                )
+    elif isinstance(node, ast.Assign):
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id == _REQUIRED_BOUND:
+                raise AssertionError(
+                    f"{relative}:{node.lineno} assigns to {_REQUIRED_BOUND} "
+                    f"({ast.unparse(node.value)}). The name must come from "
+                    "arena.agentctl_extras.status, not be rebound locally."
+                )
 
 
 def _timeout_argument(call: ast.Call) -> str | None:
