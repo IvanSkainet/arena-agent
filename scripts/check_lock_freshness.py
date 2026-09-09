@@ -151,6 +151,25 @@ def check_pair(stem: str) -> list[str]:
     return check_paths(ROOT / f"{stem}.in", ROOT / f"{stem}.lock")
 
 
+def check_extra_pairs() -> list[str]:
+    """The pairs that do not live in the root, listed in EXTRA_PAIRS.
+
+    A missing entry is a failure, not a skip: an entry listed here and then
+    deleted is exactly the drift this guard exists to notice.
+    """
+    problems: list[str] = []
+    for in_path, lock_path in EXTRA_PAIRS:
+        if not in_path.exists():
+            problems.append(
+                f"{in_path.relative_to(ROOT).as_posix()} is listed in "
+                "EXTRA_PAIRS but does not exist — if the pair moved, move the "
+                "entry with it; if it is gone, delete the entry deliberately."
+            )
+            continue
+        problems.extend(check_paths(in_path, lock_path))
+    return problems
+
+
 def main() -> int:
     stems = sorted(p.with_suffix("").name for p in ROOT.glob("requirements-*.in"))
     if not stems:
@@ -161,17 +180,7 @@ def main() -> int:
     all_problems: list[str] = []
     for stem in stems:
         all_problems.extend(check_pair(stem))
-    for in_path, lock_path in EXTRA_PAIRS:
-        # Fail closed rather than skip: an entry listed here and then deleted
-        # is exactly the drift this guard is for.
-        if not in_path.exists():
-            all_problems.append(
-                f"{in_path.relative_to(ROOT).as_posix()} is listed in "
-                "EXTRA_PAIRS but does not exist — if the pair moved, move the "
-                "entry with it; if it is gone, delete the entry deliberately."
-            )
-            continue
-        all_problems.extend(check_paths(in_path, lock_path))
+    all_problems.extend(check_extra_pairs())
 
     if all_problems:
         print("LOCK FRESHNESS FAILURES:", file=sys.stderr)
