@@ -76,6 +76,26 @@ def _effective_queue_rules(config: dict) -> list[dict]:
     return [{**defaults, **rule} for rule in config.get("queue_rules") or []]
 
 
+def _reacts_to_label(rule: dict, label: str) -> bool:
+    """True when `rule` fires *because* `label` is present.
+
+    A substring test is not enough: `-label = dequeued-by-queue` and
+    `label != dequeued-by-queue` both contain the label while meaning the
+    opposite, so a rule that fires on everything EXCEPT dequeued pull
+    requests would have satisfied the gate. Mergify writes a positive label
+    condition as `label = <name>` or `label=<name>`, and negates it with a
+    leading `-` or with `!=`.
+    """
+    for condition in rule.get("conditions") or []:
+        text = str(condition).strip()
+        if text.startswith("-") or "!=" in text:
+            continue
+        key, separator, value = text.partition("=")
+        if separator and key.strip() == "label" and value.strip() == label:
+            return True
+    return False
+
+
 def _copied_check_conditions(rule: dict, field: str) -> list[str]:
     """Conditions in `field` that restate a required check.
 
@@ -259,8 +279,7 @@ def test_a_dequeued_pull_request_is_labelled() -> None:
     explaining = [
         rule
         for rule in config.get("pull_request_rules") or []
-        if any(label in str(condition) for condition in rule.get("conditions") or [])
-        and "comment" in (rule.get("actions") or {})
+        if _reacts_to_label(rule, label) and "comment" in (rule.get("actions") or {})
     ]
     assert explaining, (
         f"no pull request rule comments when {label!r} is applied; the "
