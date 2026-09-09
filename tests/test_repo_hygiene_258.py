@@ -63,13 +63,57 @@ def _tracked_files() -> list[pathlib.Path]:
     """
     result = subprocess.run(
         ["git", "ls-files", "-z"],
-        cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+        cwd=REPO_ROOT, capture_output=True, check=True,
     )
-    return [
+    # Decoded explicitly as UTF-8, not via `text=True`. That would use
+    # locale.getpreferredencoding(), which is cp1252 on the Windows machine
+    # this suite also runs on: a tracked filename with non-ASCII bytes would
+    # decode into a garbled string, `is_file()` would return False, and the
+    # file would drop out of both gates below with no error and no failure.
+    # git emits pathnames as raw UTF-8 under `-z`.
+    paths = [
         REPO_ROOT / name
-        for name in result.stdout.split("\0")
-        if name and (REPO_ROOT / name).is_file()
+        for name in result.stdout.decode("utf-8").split("\0")
+        if name
     ]
+
+    # Fail loudly rather than filtering. A tracked path that does not resolve
+    # to a file is either a broken symlink or a decoding problem, and both
+    # are reasons to look -- silently dropping the entry is how a
+    # fail-closed check turns into one that passes on less and less.
+    missing = [str(path) for path in paths if not _exists(path)]
+    assert not missing, f"git tracks paths that are not files here: {missing}"
+    return [path for path in paths if path.is_file()]
+
+
+def _exists(path: pathlib.Path) -> bool:
+    """`is_file()` follows symlinks, so a broken link needs asking twice."""
+    return path.is_file() or path.is_symlink()
+
+
+def _first_marker(path: pathlib.Path) -> str | None:
+    """`path:line` of the first conflict marker, or None.
+
+    Lifted out of the test so the loop over files stays flat: the guard, the
+    decode, the line walk and the prefix test are four levels in one
+    function otherwise, which is what CodeScene flags as a bumpy road.
+    """
+    if path.suffix.lower() in SKIP_SUFFIXES:
+        return None
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    # errors="replace", not a UTF-8 decode that gives up. A latin-1 or
+    # cp1252 .md is a real text file, conflict markers are pure ASCII, and
+    # bailing out on the decode would skip exactly the silent-commit case
+    # this test exists to catch. Undecodable bytes become U+FFFD, which
+    # cannot start a line with a marker prefix.
+    text = raw.decode("utf-8", errors="replace")
+    for number, line in enumerate(text.splitlines(), start=1):
+        if line.startswith(CONFLICT_PREFIXES):
+            return f"{path.relative_to(REPO_ROOT)}:{number}"
+    return None
 
 
 def test_no_tracked_file_is_oversized() -> None:
@@ -90,18 +134,11 @@ def test_no_tracked_file_is_oversized() -> None:
 
 def test_no_tracked_file_carries_a_conflict_marker() -> None:
     """A marker in a non-Python file lands without any syntax error to catch it."""
-    offenders = []
-    for path in _tracked_files():
-        if path.suffix.lower() in SKIP_SUFFIXES:
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
-            continue  # binary or unreadable: no lines to inspect
-        for number, line in enumerate(text.splitlines(), start=1):
-            if line.startswith(CONFLICT_PREFIXES):
-                offenders.append(f"{path.relative_to(REPO_ROOT)}:{number}")
-                break
+    offenders = [
+        found
+        for path in _tracked_files()
+        if (found := _first_marker(path)) is not None
+    ]
     assert not offenders, (
         f"conflict markers left in tracked files: {offenders}. In Python "
         "these produce a syntax error, but in Markdown, JSON or a workflow's "
