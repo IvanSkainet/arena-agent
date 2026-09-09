@@ -72,6 +72,43 @@ def _regeneration_step(workflow: str) -> str:
     return rest if end == -1 else rest[:end]
 
 
+def _header_lines(text: str) -> list[str]:
+    """The comment block at the top of the file, uncommented."""
+    lines = []
+    for raw in text.splitlines():
+        if not raw.startswith("#"):
+            break
+        lines.append(raw.lstrip("#").strip())
+    return lines
+
+
+def _join_continuations(lines: list[str]) -> list[str]:
+    """Fold shell line continuations into one line each."""
+    joined, pending = [], ""
+    for line in lines:
+        pending = f"{pending} {line}".strip() if pending else line
+        if pending.endswith("\\"):
+            continue
+        joined.append(" ".join(pending.replace("\\", " ").split()))
+        pending = ""
+    if pending:
+        joined.append(" ".join(pending.replace("\\", " ").split()))
+    return joined
+
+
+def _documented_commands(text: str) -> list[str]:
+    """The regeneration commands a header tells the reader to run."""
+    starts = ("uv pip compile", "python -m pip")
+    lines = _header_lines(text)
+    keep, taking = [], False
+    for line in lines:
+        taking = taking or line.startswith(starts)
+        if taking:
+            keep.append(line)
+            taking = line.endswith("\\")
+    return _join_continuations(keep)
+
+
 def _freshness_module():
     """A fresh instance of the gate, so mutating it cannot leak between tests."""
     spec = importlib.util.spec_from_file_location("check_lock_freshness", FRESHNESS)
@@ -311,21 +348,8 @@ def test_both_headers_give_the_same_regeneration_command() -> None:
     and the lock is the file someone opens when they set out to bump
     guarddog. Two headers, one command.
     """
-    def commands(text: str) -> list[str]:
-        out, joining = [], ""
-        for raw in text.splitlines():
-            if not raw.startswith("#"):
-                break
-            line = raw.lstrip("#").strip()
-            if joining or line.startswith(("uv pip compile", "python -m pip")):
-                joining = f"{joining} {line}".strip() if joining else line
-                if not joining.endswith("\\"):
-                    out.append(" ".join(joining.replace("\\", " ").split()))
-                    joining = ""
-        return out
-
-    from_in = commands(LOCK_IN.read_text(encoding="utf-8"))
-    from_lock = commands(LOCK.read_text(encoding="utf-8"))
+    from_in = _documented_commands(LOCK_IN.read_text(encoding="utf-8"))
+    from_lock = _documented_commands(LOCK.read_text(encoding="utf-8"))
     assert from_in, "requirements.in documents no regeneration command"
     assert from_in == from_lock, (
         "the two headers give different commands:\n"
