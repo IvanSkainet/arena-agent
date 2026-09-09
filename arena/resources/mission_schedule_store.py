@@ -9,6 +9,7 @@ from typing import Any
 
 from arena.handler_params import body_int
 from arena.mission_limits import MAX_SCHEDULE_EVERY_MINUTES
+from arena.resources.mission_identifier import unusable_directory_name
 
 _ACTIONS = {"run", "rerun_failed", "iterate"}
 
@@ -25,9 +26,33 @@ def _iso(value: dt.datetime) -> str:
 
 
 def _schedule_path(schedules_dir: Path, schedule_id: str) -> Path:
+    """Where this schedule lives, or ValueError if the id cannot name a file.
+
+    The traversal guard below was the whole check, so anything the
+    filesystem refused for another reason arrived as an unhandled OSError
+    from `write_text` -- a 500 where the caller already had a 400 to
+    return. Schemathesis found it with a schedule id of combining marks:
+    252 characters, 432 UTF-8 bytes, past the 255-byte component limit on
+    ext4 (#327).
+
+    Length is not measured here, because measuring it in characters is
+    the bug. `unusable_directory_name` counts in the unit the local
+    filesystem counts in -- bytes on ext4 and APFS, UTF-16 code units on
+    NTFS -- and also answers for NULs, unpaired surrogates and the names
+    Windows reserves (#286). Missions have asked it since then; schedules
+    kept their own four conditions and drifted.
+
+    It is asked about `f"{schedule_id}.json"` rather than the bare id: the
+    suffix is part of the component the filesystem measures, so an id that
+    fits with five bytes to spare does not.
+    """
     if ".." in schedule_id or "/" in schedule_id or "\\" in schedule_id or schedule_id.startswith("."):
         raise ValueError("invalid schedule id")
-    return schedules_dir / f"{schedule_id}.json"
+    filename = f"{schedule_id}.json"
+    unusable = unusable_directory_name(filename, label="schedule id")
+    if unusable:
+        raise ValueError(unusable)
+    return schedules_dir / filename
 
 
 
