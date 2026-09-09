@@ -23,13 +23,22 @@ from arena.resources.mission_schedule_store import (
     save_schedule_def,
 )
 
-# 147 characters, 252 bytes -- 257 with the `.json` suffix. Sized so that
-# a character count of the whole filename stays under 255 while the byte
-# count goes over it: a fix that clamps `len(name)` lets this through and
-# still hits the OSError. The fuzzer's own id was longer and happened to
-# be over both limits, which would have let a character-based fix look
-# correct.
-_COMBINING_ID = "T\u033a\u033a\u0315o\u035e i\u0332\u032c\u0347\u032a\u0359n\u031d\u0317\u0355v\u031f\u031c\u0318" * 7
+# 128 characters, 517 UTF-8 bytes, 261 UTF-16 code units -- 133/517/261
+# once `.json` is appended.
+#
+# Three constraints have to hold at once, and the first fixture here only
+# met two. It used combining marks, which are cheap in UTF-16 and dear in
+# UTF-8: 152 characters, 257 bytes, but only 152 UTF-16 units. That is
+# over the ext4 limit and *under* the NTFS one, so Windows accepted the
+# name, the save succeeded, and five jobs went red -- correctly, because
+# `unusable_directory_name` measures in the local unit and Windows really
+# can store that name.
+#
+# An astral character costs four UTF-8 bytes and two UTF-16 units, so it
+# is over both limits at once while staying short in characters. That
+# keeps the property the test is here for: a fix that clamps `len(name)`
+# lets this through and still hits the OSError.
+_COMBINING_ID = "\U0001f600" * 128
 
 
 def test_the_id_from_the_fuzzer_is_short_in_characters_and_long_in_bytes():
@@ -42,7 +51,11 @@ def test_the_id_from_the_fuzzer_is_short_in_characters_and_long_in_bytes():
     """
     filename = f"{_COMBINING_ID}.json"
     assert len(filename) < 255, "a character count would now catch it too"
-    assert len(filename.encode("utf-8")) > 255, "no longer over the byte limit"
+    assert len(filename.encode("utf-8")) > 255, "no longer over the ext4 limit"
+    assert len(filename.encode("utf-16-le")) // 2 > 255, (
+        "no longer over the NTFS limit -- this test would then assert that "
+        "Windows refuses a name Windows can store"
+    )
 
 
 def test_saving_an_over_long_schedule_id_answers_400(tmp_path: Path):
