@@ -34,6 +34,17 @@ regexes = [
   # by concatenation and is an obvious placeholder, not a real PAT. Pinned
   # to the literal so a genuine token in that file is still caught.
   '''ghp_secret123''',
+  # Superseded commit 6781199 on the codspeed benchmark branch. The first
+  # cut of tests/benchmarks/bench_redaction.py inlined two credential-shape
+  # fixtures; HEAD assembles them instead (AGENTS.md: never inline a
+  # credential-shape string as a fixture), but gitleaks-action scans the
+  # pull request as `commits[0]^..commits[-1]`, so the retired commit is
+  # still read. Both values are synthetic -- a run of hex digits and the
+  # alphabet after a `ghp_` prefix. Pinned to the exact literals, so a
+  # genuine credential in that file or anywhere else is still reported,
+  # and safe to delete once this branch is squash-merged.
+  '''^9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4$''',
+  '''^ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345$''',
 ]
 
 # Rule-scoped, not file-scoped. `generic-api-key` fires on
