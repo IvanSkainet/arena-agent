@@ -40,6 +40,10 @@ GIT_MODULES = (
     # bridge, to prove the run wrote nothing outside its temporary root.
     # Two `git status` calls, both with a timeout (#258).
     "test_api_fuzz_gate_258.py",
+    # Asks git which files are tracked, so the size and conflict-marker
+    # gates look at what a clone actually receives rather than at whatever
+    # build output happens to sit in the working tree (#258).
+    "test_repo_hygiene_258.py",
 )
 
 # Modules that invoke git without any timeout at all. Listed rather than
