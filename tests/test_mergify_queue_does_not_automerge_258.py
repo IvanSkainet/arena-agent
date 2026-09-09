@@ -86,14 +86,23 @@ def _reacts_to_label(rule: dict, label: str) -> bool:
     condition as `label = <name>` or `label=<name>`, and negates it with a
     leading `-` or with `!=`.
     """
-    for condition in rule.get("conditions") or []:
-        text = str(condition).strip()
-        if text.startswith("-") or "!=" in text:
-            continue
-        key, separator, value = text.partition("=")
-        if separator and key.strip() == "label" and value.strip() == label:
-            return True
-    return False
+    return any(
+        _is_positive_label_condition(condition, label)
+        for condition in rule.get("conditions") or []
+    )
+
+
+def _is_positive_label_condition(condition: object, label: str) -> bool:
+    """True for `label = <label>`, false for its negations."""
+    text = str(condition).strip()
+    if text.startswith("-"):
+        return False
+    if "!=" in text:
+        return False
+    key, separator, value = text.partition("=")
+    if not separator:
+        return False
+    return key.strip() == "label" and value.strip() == label
 
 
 def _copied_check_conditions(rule: dict, field: str) -> list[str]:
