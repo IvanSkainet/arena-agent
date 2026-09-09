@@ -77,12 +77,11 @@ _DEFINING_MODULE = "arena/agentctl_extras/status.py"
 def test_every_hwinfo_call_binds_the_shared_bound():
     """Not merely "no literal" -- that name, specifically.
 
-    Rejecting literals is not enough. `status.py` also defines
-    TAILSCALE_STATUS_TIMEOUT_S = 10, and a call site could bind that by
-    mistake: it is a named constant, so a literal check passes, and it is
-    below PS_PASS_BUDGET_S, so the collector would be killed mid-pass on
-    every slow run. That is the drift of #323 restored under a different
-    spelling, which is why the name is asserted and not just the shape.
+    Rejecting literals is not enough: a call site could bind some other
+    named constant below PS_PASS_BUDGET_S, so a literal check would pass
+    while the collector was still killed mid-pass. That is the drift of
+    #323 restored under a different spelling, which is why the name is
+    asserted and not just the shape.
     """
     offenders = []
     for relative in HWINFO_CALLERS:
@@ -103,9 +102,9 @@ def test_the_bound_is_not_rebound_to_something_smaller():
     The call site can be made to *look* right while binding 10 s, and there
     is more than one way to do it:
 
-        from ... import TAILSCALE_STATUS_TIMEOUT_S as HWINFO_SUBPROCESS_TIMEOUT_S
+        from ... import SMALLER_TIMEOUT_S as HWINFO_SUBPROCESS_TIMEOUT_S
         import somewhere as HWINFO_SUBPROCESS_TIMEOUT_S
-        HWINFO_SUBPROCESS_TIMEOUT_S = TAILSCALE_STATUS_TIMEOUT_S
+        HWINFO_SUBPROCESS_TIMEOUT_S = SMALLER_TIMEOUT_S
 
     The first version of this test only looked at `ast.ImportFrom`, so the
     plain assignment walked straight past it -- verified by mutation, the
@@ -217,11 +216,10 @@ def _is_hwinfo_run(node: ast.AST) -> bool:
 
 
 # argv variables that hold an hwinfo command at the two call sites. Matching
-# the enclosing function alone swept up the neighbouring tailscale and git
-# calls, which legitimately carry their own small literals; matching on the
-# string "hwinfo" inside the call matched nothing, because both sites build
-# argv in a variable. The variable name is the thing that actually
-# identifies these two calls.
+# the enclosing function alone swept up neighbouring subprocess calls with
+# their own legitimate literals; matching on the string "hwinfo" inside the
+# call matched nothing, because both sites build argv in a variable. The
+# variable name is the thing that actually identifies these two calls.
 _HWINFO_ARGV_NAMES = {"hw_script", "cmd"}
 
 

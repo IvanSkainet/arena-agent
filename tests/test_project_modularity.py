@@ -152,6 +152,7 @@ def test_no_removed_cdp_browser_modules_references_remain():
 
 
 def test_modularized_cli_wrappers_import_cleanly(tmp_path):
+    """CLI wrappers must start, import their implementation, and exit cleanly."""
     import os
     import subprocess
     import sys
@@ -202,7 +203,6 @@ def test_dashboard_javascript_assets_have_valid_syntax():
         if cp.returncode != 0:
             failures.append((str(path.relative_to(ROOT)), cp.stderr[-1000:]))
     assert failures == []
-
 
 
 
