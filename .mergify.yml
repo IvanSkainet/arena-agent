@@ -1,0 +1,135 @@
+# Mergify merge queue. Item 2 of #258.
+#
+# The cost this removes is measured, not hypothetical. The `master` ruleset
+# sets `strict_required_status_checks_policy: true`, so every merge makes
+# every other open pull request out of date, and each one then has to be
+# updated by hand (`gh pr update-branch`) and re-run through a matrix of
+# ~80 checks. With two or three PRs in flight that is most of an evening,
+# and the update is the step most likely to be skipped -- which is exactly
+# how a branch gets merged on a green run of an older base.
+#
+# A queue does the same work serially and by itself: it takes the pull
+# request, rebases it on the current master, waits for the checks on THAT
+# revision, and merges only if they pass. If they do not, the queue removes
+# the pull request from the queue instead of landing it. Removed, not
+# closed: the pull request stays open with its work intact, and the rule at
+# the bottom of this file labels and explains it. Closing someone's branch
+# because master moved under it would destroy the thing worth keeping.
+#
+# ---------------------------------------------------------------------------
+# What is deliberately NOT enabled here
+# ---------------------------------------------------------------------------
+#
+# `merge_protections_settings.auto_merge_conditions` is absent, and must
+# stay absent. It would merge a pull request the moment the checks go
+# green, and green CI is not this project's merge criterion: every merge
+# also requires a full pytest run on the operator's Windows machine,
+# compared against a same-day master baseline BY TEST ID, because a large
+# set of tests only fails on real hardware and never in CI. No condition
+# expressible in this file can observe that run. Auto-merge would quietly
+# replace the merge criterion with a weaker one that looks identical from
+# the outside -- the green-checkmark fallacy AGENTS.md is about.
+#
+# So entry into the queue stays manual: the queue is asked for by comment
+# (`@mergifyio queue`) or by ticking the box Mergify posts on the pull
+# request, after the live run has been compared and the review threads are
+# resolved. What the queue automates is the update-and-recheck dance after
+# that decision, which is mechanical and is the part that actually costs
+# time.
+#
+# ---------------------------------------------------------------------------
+# Why there is no list of required checks below
+# ---------------------------------------------------------------------------
+#
+# `branch_protection_injection_mode` defaults to `queue`, which injects the
+# repository's own branch-protection conditions as queue and merge
+# conditions. The `master` ruleset already lists 32 required contexts, and
+# copying them here would create a second list that drifts from the first:
+# a check added to the ruleset but forgotten here would silently stop
+# gating queued merges, which is the failure mode this project keeps
+# finding (#307 was the same shape -- a file that left one gate's reach and
+# nobody noticed). One list, in the ruleset, is the point.
+queue_rules:
+  - name: default
+    # Serial, one pull request at a time. `batch_size` and speculative
+    # checks exist to merge faster by testing several PRs together; this
+    # repository merges a handful of pull requests a week and pays for CI
+    # in wall-clock minutes on a shared runner pool, so parallelism would
+    # buy nothing and would make a batch failure require bisection to
+    # attribute. One at a time is also what makes the queue's report
+    # unambiguous: if it goes red, it is this pull request against this
+    # master.
+    batch_size: 1
+
+    # Squash, matching how every merge here is done by hand today (and what
+    # the ruleset allows). The pull request bodies carry the reasoning; the
+    # per-commit history inside a branch is working notes.
+    merge_method: squash
+
+    # Rebase, not merge, when bringing a queued pull request up to date.
+    # `update_method` defaults to `merge` unless `merge_method` is
+    # `fast-forward`, so leaving it out would have Mergify merge master INTO
+    # the branch: the checks would then run on a commit that exists nowhere
+    # after the squash, and the run would be one merge commit removed from
+    # what actually lands. Rebase tests the post-merge state directly, which
+    # is the entire reason for putting a queue in front of a ruleset that
+    # already requires an up-to-date branch.
+    update_method: rebase
+
+    # A bounded timeout, not `auto`. `auto` calibrates from this queue's own
+    # history and applies NO timeout until it has gathered enough -- and a
+    # queue that merges a handful of pull requests a week takes months to
+    # get there. During that whole warm-up a single stuck check would park
+    # the serial queue indefinitely, which is the one failure mode a serial
+    # queue cannot absorb: nothing else merges behind it.
+    #
+    # 90 minutes against measured runtimes of the last 11 successful `ci.yml`
+    # runs: median 24 min, slowest 33. That is roughly 3x the worst observed
+    # run, so a genuinely slow morning is not dequeued, while a hung job is
+    # capped at an hour and a half instead of forever. Revisit if the matrix
+    # grows -- the number is a measurement, not a preference.
+    checks_timeout: 90 min
+
+merge_queue:
+  # Speculative checks off. Same reasoning as batch_size above: with one
+  # pull request in the queue at a time there is nothing to speculate
+  # about, and each extra parallel check is a full matrix run.
+  max_parallel_checks: 1
+  mode: serial
+
+  # A pull request the queue rejected must be visibly rejected. Without a
+  # label the only trace is a comment that scrolls away, and the next
+  # reader sees an open pull request with green checks -- from its old
+  # base, which is the exact confusion the queue exists to prevent.
+  dequeued_label: dequeued-by-queue
+  checking_label: queued
+
+# Branch cleanup is NOT done here. Mergify's `delete_head_branch` action is
+# deprecated in favour of GitHub's own "Automatically delete head branches"
+# repository setting, which has been enabled on this repository
+# (`delete_branch_on_merge: true`) as part of this change. GitHub's setting
+# also covers merges that never touch Mergify, which the action could not.
+pull_request_rules:
+  # Reporting only. Every merge here is preceded by a live test run that
+  # Mergify cannot see, so nothing in this file may decide to merge.
+  - name: say so when the queue rejects a pull request
+    description: >-
+      The dequeued label is a state, not an explanation. A pull request
+      dropped by the queue failed against the CURRENT master, which usually
+      means something merged underneath it -- worth saying plainly, because
+      the pull request's own last CI run is green and looks authoritative.
+    conditions:
+      - label = dequeued-by-queue
+      - -closed
+    actions:
+      comment:
+        message: >-
+          Очередь сняла этот PR: на актуальном `master` проверки не прошли.
+          Собственный последний прогон на ветке при этом зелёный — он был на
+          старой базе, поэтому ориентироваться на него нельзя.
+
+
+          Что смотреть: результат прогона очереди (ссылка в чеке
+          `Mergify Merge Queue`), а не чеки на самом PR. После починки —
+          заново в очередь, но только после live-прогона на машине
+          оператора и сверки падений по id с baseline на master.
