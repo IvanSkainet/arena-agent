@@ -29,6 +29,13 @@ lock resolves the full dependency graph means running the resolver, which is
 the generator's job; the real proof stays the `--require-hashes` install on
 the oldest supported interpreter.
 
+Pairs are discovered as `requirements-*.in` in the repository root, plus the
+explicit entries in EXTRA_PAIRS. The explicit list exists because
+`ci/guarddog/requirements.{in,txt}` is deliberately outside the root -- it is
+excluded from Dependabot so its per-package bumps stop breaking the required
+GuardDog check (#307) -- and a lock that no gate reads is a lock that can
+drift. Discovery by glob would have silently dropped it the moment it moved.
+
 Usage:  python3 scripts/check_lock_freshness.py
 """
 
@@ -39,6 +46,22 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# (.in, .lock) pairs that do not follow the root `requirements-<name>.{in,lock}`
+# convention. Listed by hand, not globbed: each one is outside the root for a
+# reason recorded next to it, and a gate that discovers its own inputs stops
+# noticing when one disappears.
+EXTRA_PAIRS: tuple[tuple[Path, Path], ...] = (
+    # Outside the root so Dependabot's pip ecosystem cannot propose
+    # per-package bumps of guarddog's own transitive pins -- those made
+    # `pip install --require-hashes` fail with ResolutionImpossible before
+    # the scanner ran, turning the required GuardDog check red while no
+    # malware scan happened (#285, #307). The lock is regenerated whole,
+    # alongside a guarddog bump; this pair is still checked here so a
+    # hand-edited pin cannot pass unnoticed.
+    (ROOT / "ci" / "guarddog" / "requirements.in",
+     ROOT / "ci" / "guarddog" / "requirements.txt"),
+)
 
 # Requirement line in a `.in`: name==version, optional extras/marker.
 IN_REQ = re.compile(
@@ -90,11 +113,10 @@ def parse_lock(path: Path) -> tuple[dict[str, str], set[str]]:
     return pins, hashed
 
 
-def check_pair(stem: str) -> list[str]:
-    in_path = ROOT / f"{stem}.in"
-    lock_path = ROOT / f"{stem}.lock"
+def check_paths(in_path: Path, lock_path: Path) -> list[str]:
+    label = in_path.relative_to(ROOT).as_posix()
     if not in_path.exists() or not lock_path.exists():
-        return [f"{stem}: missing .in or .lock of the pair"]
+        return [f"{label}: missing .in or .lock of the pair"]
 
     declared = parse_in(in_path)
     pinned, hashed = parse_lock(lock_path)
@@ -124,6 +146,11 @@ def check_pair(stem: str) -> list[str]:
     return problems
 
 
+def check_pair(stem: str) -> list[str]:
+    """Root-convention pair: `requirements-<stem>.in` / `.lock`."""
+    return check_paths(ROOT / f"{stem}.in", ROOT / f"{stem}.lock")
+
+
 def main() -> int:
     stems = sorted(p.with_suffix("").name for p in ROOT.glob("requirements-*.in"))
     if not stems:
@@ -134,6 +161,17 @@ def main() -> int:
     all_problems: list[str] = []
     for stem in stems:
         all_problems.extend(check_pair(stem))
+    for in_path, lock_path in EXTRA_PAIRS:
+        # Fail closed rather than skip: an entry listed here and then deleted
+        # is exactly the drift this guard is for.
+        if not in_path.exists():
+            all_problems.append(
+                f"{in_path.relative_to(ROOT).as_posix()} is listed in "
+                "EXTRA_PAIRS but does not exist — if the pair moved, move the "
+                "entry with it; if it is gone, delete the entry deliberately."
+            )
+            continue
+        all_problems.extend(check_paths(in_path, lock_path))
 
     if all_problems:
         print("LOCK FRESHNESS FAILURES:", file=sys.stderr)
@@ -141,8 +179,9 @@ def main() -> int:
             print(f"  - {p}", file=sys.stderr)
         return 1
 
-    print(f"OK: {len(stems)} .in/.lock pair(s) agree, every pin is hashed "
-          f"({', '.join(stems)})")
+    names = stems + [p.relative_to(ROOT).as_posix() for p, _ in EXTRA_PAIRS]
+    print(f"OK: {len(names)} .in/.lock pair(s) agree, every pin is hashed "
+          f"({', '.join(names)})")
     return 0
 
 

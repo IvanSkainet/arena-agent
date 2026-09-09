@@ -30,6 +30,8 @@ kind of regression a gate is for.
 
 from __future__ import annotations
 
+import fnmatch
+import importlib.util
 import pathlib
 
 try:
@@ -49,6 +51,8 @@ OLD_LOCK = REPO_ROOT / "requirements-guarddog.txt"
 DEPENDABOT = REPO_ROOT / ".github" / "dependabot.yml"
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "guarddog.yml"
 RATCHET = REPO_ROOT / "scripts" / "pinned_pip_ratchet.py"
+FRESHNESS = REPO_ROOT / "scripts" / "check_lock_freshness.py"
+RELOCK = REPO_ROOT / ".github" / "workflows" / "relock-dependabot.yml"
 
 # guarddog's own transitive pins. Neither is a dependency this project
 # chose, and neither may come back as a Dependabot ignore entry: an ignore
@@ -123,16 +127,97 @@ def test_the_lock_is_not_swept_up_by_the_relock_workflow() -> None:
     """`requirements-*.in` is regenerated wholesale; this input must not be.
 
     `.github/workflows/relock-dependabot.yml` loops over
-    ``requirements-*.in`` in the repository root and recompiles each with
+    ``requirements-*.in`` in its working directory and recompiles each with
     uv. Running that over guarddog's input would re-resolve the scanner's
-    closure on a schedule nobody reviewed -- the exact floating behaviour
-    the lock exists to prevent. The subdirectory keeps it out of the glob;
-    this asserts that rather than trusting it.
+    closure on a schedule nobody reviewed -- the floating behaviour the lock
+    exists to prevent.
+
+    Asserting `LOCK_IN.name not in glob("requirements-*.in")` would prove
+    nothing: the file is called `requirements.in`, with no hyphen, so it
+    fails that glob wherever it sits. The real question is whether the
+    workflow's loop could reach it, so the loop's own glob is applied to the
+    path relative to the directory the workflow runs in.
     """
     assert LOCK_IN.is_file(), "ci/guarddog/requirements.in is missing"
-    swept = {p.name for p in REPO_ROOT.glob("requirements-*.in")}
-    assert LOCK_IN.name not in swept
-    assert not any(p.samefile(LOCK_IN) for p in REPO_ROOT.glob("requirements-*.in"))
+    workflow = RELOCK.read_text(encoding="utf-8")
+    pattern_line = "for in_file in requirements-*.in; do"
+    assert pattern_line in workflow, (
+        "relock-dependabot.yml no longer loops over requirements-*.in; this "
+        "gate is asserting against a pattern that is gone, re-derive it"
+    )
+    # The loop runs in the checkout root with no `cd`, so its glob is
+    # non-recursive and anchored there. Both facts are load-bearing: a `cd`
+    # or an `**` would change which files it reaches.
+    assert "\n          cd " not in workflow, (
+        "the relock workflow now changes directory; re-check which files its "
+        "requirements-*.in loop can reach"
+    )
+    relative = LOCK_IN.relative_to(REPO_ROOT)
+    assert not fnmatch.fnmatch(relative.as_posix(), "requirements-*.in"), (
+        f"{relative.as_posix()} matches the relock loop's glob"
+    )
+    # And the decisive one: enumerate what that loop would actually pick up.
+    reachable = {p.relative_to(REPO_ROOT) for p in REPO_ROOT.glob("requirements-*.in")}
+    assert relative not in reachable, (
+        f"{relative.as_posix()} is reachable by the relock loop; renaming it "
+        "to requirements-<something>.in in the root would put guarddog's "
+        "closure back on an unreviewed regeneration schedule"
+    )
+    assert reachable, (
+        "the relock loop reaches no .in files at all -- this gate is looking "
+        "in the wrong place and would pass by default"
+    )
+
+
+def test_the_pair_is_still_covered_by_the_freshness_gate() -> None:
+    """Out of Dependabot's reach must not mean out of every gate's reach.
+
+    `scripts/check_lock_freshness.py` discovers root `requirements-*.in`
+    files by glob. Moving this pair out of the root removed it from that
+    discovery, which would let a hand-edited transitive pin -- a plausible
+    looking one-line diff -- land without proving it came from a whole-lock
+    regeneration. The script therefore carries an explicit EXTRA_PAIRS entry,
+    and this asserts the pair is really in it rather than trusting the
+    comment.
+    """
+    spec = importlib.util.spec_from_file_location("check_lock_freshness", FRESHNESS)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    covered = {
+        pathlib.Path(in_path).resolve() for in_path, _ in module.EXTRA_PAIRS
+    }
+    assert LOCK_IN.resolve() in covered, (
+        "ci/guarddog/requirements.in is not in check_lock_freshness.EXTRA_PAIRS; "
+        "the pair sits outside the root glob, so nothing else checks that the "
+        "lock still matches its input"
+    )
+    # The gate must agree with reality right now, not merely mention the path.
+    assert module.check_paths(LOCK_IN, LOCK) == []
+
+
+def test_dependabot_is_told_to_skip_the_directory() -> None:
+    """The move alone is not the fix; `exclude-paths` is the other half.
+
+    `directory: "/"` does not confine the pip ecosystem to the root -- it
+    scans subdirectories too (dependabot-core#11360 asked for the opposite
+    behaviour and the change was reverted). So relocating the lock without
+    excluding it would leave the bot finding the file at its new path and
+    resuming exactly the per-package bumps that broke the required GuardDog
+    check. `exclude-paths` applies before manifest parsing, so nothing under
+    the excluded prefix is listed, parsed, or turned into a pull request.
+    """
+    patterns = _pip_ecosystem().get("exclude-paths") or []
+    relative = LOCK.relative_to(REPO_ROOT).as_posix()
+    assert any(fnmatch.fnmatch(relative, pattern) for pattern in patterns), (
+        f"{relative} is not covered by exclude-paths {patterns!r}. The "
+        "subdirectory alone does not hide it: the pip ecosystem scans below "
+        "its directory, so without this the per-package bumps come back."
+    )
+    assert any(
+        fnmatch.fnmatch(LOCK_IN.relative_to(REPO_ROOT).as_posix(), pattern)
+        for pattern in patterns
+    ), "the input is excluded too, or Dependabot will parse it instead"
 
 
 def test_the_input_pins_guarddog_exactly() -> None:
