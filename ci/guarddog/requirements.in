@@ -1,0 +1,13 @@
+# Input for ci/guarddog/requirements.txt. One line, on purpose: everything
+# else in that lock is guarddog's own transitive closure, resolved by
+# pip-compile and never edited by hand.
+#
+# Bumping guarddog means regenerating the whole lock in the same commit:
+#
+#     pip-compile --generate-hashes --strip-extras \
+#       -o ci/guarddog/requirements.txt ci/guarddog/requirements.in
+#
+# The 3.x floor is not cosmetic -- 2.7.0 and below carry
+# GHSA-xg9w-vg3g-6m68, a path traversal in safe_extract() that hands a
+# scanned package arbitrary file write on the scanner host.
+guarddog==3.2.0

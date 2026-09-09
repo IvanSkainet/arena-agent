@@ -34,7 +34,7 @@ Shell line continuations are joined before matching. Reading a workflow
 line by line, as this gate first did, splits
 
     python -m pip install \\
-      --require-hashes -r requirements-guarddog.txt
+      --require-hashes -r ci/guarddog/requirements.txt
 
 into a first line that has no ``--require-hashes`` on it, and the gate
 failed a compliant install (#231: sixteen red checks in #228, all

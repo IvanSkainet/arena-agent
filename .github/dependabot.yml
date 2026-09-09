@@ -44,6 +44,16 @@ updates:
       include: "scope"
     # Don't update GitHub Actions here — every workflow action is pinned to a
     # reviewed commit SHA, and tag-only bumps are intentionally rejected.
+    #
+    # Every entry below is a decision of OURS about a dependency WE chose.
+    # `tarsafe` and `disposable-email-domains` used to sit here too, and they
+    # were neither: they are guarddog's own transitive pins, and they only
+    # appeared because the scanner's compiled lock sat in this directory and
+    # got treated as an ordinary requirements file. That lock now lives in
+    # `ci/guarddog/requirements.txt`, outside the `directory: "/"` this
+    # ecosystem watches, so the bot no longer proposes per-package bumps that
+    # cannot resolve (#307). Keep it that way: name-by-name ignores did not
+    # scale, because guarddog's transitive set changes with every release.
     ignore:
       - dependency-name: "aiohttp"
         # v4.61.0 baseline; bump manually after testing the websocket
@@ -72,17 +82,6 @@ updates:
         # was closed. The [tool.mypy] SECTION in pyproject.toml stays --
         # it is pyrefly's config, guarded by
         # scripts/pyrefly_preset_ratchet.py.
-      - dependency-name: "tarsafe"
-        # Same cause as disposable-email-domains below: guarddog 3.2.0
-        # pins tarsafe to ">=0.0.5,<0.0.6". Proposed as 0.0.6 on #285 and
-        # the GuardDog job refused to install at all.
-      - dependency-name: "disposable-email-domains"
-        # Not ours to choose: guarddog 3.2.0 pins it to
-        # ">=0.0.237,<0.0.238", so any bump makes the GuardDog job fail
-        # with ResolutionImpossible before it scans anything. Dependabot
-        # proposed 0.0.246 on #285 and that is exactly what happened. The
-        # constraint lifts when guarddog widens its own range, not when we
-        # decide to.
       - dependency-name: "websockets"
         # websockets 17.0 requires Python >= 3.11; this package promises
         # requires-python = ">=3.10" and CI keeps a 3.10 matrix cell to
