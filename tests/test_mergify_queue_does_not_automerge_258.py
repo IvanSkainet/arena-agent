@@ -54,6 +54,27 @@ DECIDING_ACTIONS = ("merge", "queue")
 # way to turn this on.
 AUTO_MERGE_KEYS = ("auto_merge", "auto_merge_conditions")
 
+# The third spelling, and the one easiest to miss because it lives on the
+# queue rule rather than in the settings block. Mergify's published schema
+# still carries `queue_rules[].autoqueue` (marked deprecated, not removed),
+# and it does exactly what this file forbids: adds a pull request to the
+# queue by itself as soon as the queue conditions go green.
+AUTOQUEUE_KEY = "autoqueue"
+
+
+def _effective_queue_rules(config: dict) -> list[dict]:
+    """Queue rules with `defaults.queue_rule` folded in.
+
+    Mergify applies `defaults.queue_rule` to any field a rule omits. Reading
+    the raw mappings therefore checks the wrong object: a repository-wide
+    default of `batch_size: 2` or `branch_protection_injection_mode: none`
+    would take effect while every assertion below, falling back to the
+    schema default for the missing key, still passed. The gate would be
+    green about a configuration that is not the one Mergify runs.
+    """
+    defaults = (config.get("defaults") or {}).get("queue_rule") or {}
+    return [{**defaults, **rule} for rule in config.get("queue_rules") or []]
+
 
 def _copied_check_conditions(rule: dict, field: str) -> list[str]:
     """Conditions in `field` that restate a required check.
@@ -78,6 +99,38 @@ def _config() -> dict:
     loaded = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
     assert isinstance(loaded, dict), f".mergify.yml is not a mapping: {type(loaded)}"
     return loaded
+
+
+def test_there_is_a_queue_rule_to_check() -> None:
+    """Every invariant below iterates queue rules, so an empty list is green.
+
+    `queue_rules: []` -- or the key deleted outright -- would satisfy each
+    per-rule assertion vacuously while leaving no queue at all. A gate that
+    passes hardest when there is nothing to gate is worse than no gate: it
+    reports success from the place nobody is looking.
+    """
+    rules = _effective_queue_rules(_config())
+    assert rules, (
+        "no queue rules in .mergify.yml; every per-rule assertion in this "
+        "file would then pass vacuously and the queue would not exist"
+    )
+
+
+def test_autoqueue_is_not_set_on_any_queue_rule() -> None:
+    """The queue-rule spelling of auto-merge, checked on effective rules.
+
+    `autoqueue: true` on a queue rule adds pull requests to the queue on
+    green conditions with nobody asking -- the same substitution of criteria
+    that `auto_merge_conditions` would make, one level down and easier to
+    miss. Deprecated is not removed: Mergify's schema still accepts it.
+    """
+    for rule in _effective_queue_rules(_config()):
+        assert not rule.get(AUTOQUEUE_KEY), (
+            f"queue rule {rule.get('name')!r} sets {AUTOQUEUE_KEY}. Pull "
+            "requests would then enter the queue on green CI alone, without "
+            "the live run on the operator's machine that is the actual merge "
+            "criterion here."
+        )
 
 
 def test_auto_merge_is_not_configured() -> None:
@@ -127,7 +180,7 @@ def test_the_queue_stays_serial() -> None:
     assert queue.get("mode", "serial") == "serial", (
         f"merge_queue.mode must be serial, got {queue.get('mode')!r}"
     )
-    for rule in config.get("queue_rules") or []:
+    for rule in _effective_queue_rules(config):
         assert rule.get("batch_size", 1) == 1, (
             f"queue rule {rule.get('name')!r} batches "
             f"{rule.get('batch_size')!r} pull requests; a batch failure then "
@@ -145,7 +198,7 @@ def test_required_checks_are_not_duplicated_into_this_file() -> None:
     stop gating queued merges. That is the same shape as #307: something
     leaves one gate's reach and nobody notices.
     """
-    for rule in _config().get("queue_rules") or []:
+    for rule in _effective_queue_rules(_config()):
         assert rule.get("branch_protection_injection_mode", "queue") == "queue", (
             f"queue rule {rule.get('name')!r} disables branch-protection "
             "injection; the ruleset's required checks would then not gate "
@@ -161,6 +214,27 @@ def test_required_checks_are_not_duplicated_into_this_file() -> None:
             )
 
 
+def test_the_queue_rebases_rather_than_merges_master_in() -> None:
+    """The queue must test the post-merge state, not a throwaway merge.
+
+    `update_method` defaults to `merge` unless `merge_method` is
+    `fast-forward`. Left unset with `merge_method: squash`, Mergify would
+    merge master INTO the branch and run the checks on a commit that exists
+    nowhere afterwards -- one merge commit removed from what actually lands.
+    Rebasing checks the state that will exist on master, which is the whole
+    argument for putting a queue in front of an already-strict ruleset.
+    """
+    for rule in _effective_queue_rules(_config()):
+        if rule.get("merge_method") == "fast-forward":
+            continue  # already defaults to rebase
+        assert rule.get("update_method") == "rebase", (
+            f"queue rule {rule.get('name')!r} has update_method "
+            f"{rule.get('update_method')!r}; with merge_method "
+            f"{rule.get('merge_method')!r} the queue would merge master into "
+            "the branch and verify a commit that never reaches master"
+        )
+
+
 def test_a_dequeued_pull_request_is_labelled() -> None:
     """A rejection has to be visible on the pull request itself.
 
@@ -169,8 +243,27 @@ def test_a_dequeued_pull_request_is_labelled() -> None:
     away, and the next reader sees an open, green, apparently mergeable pull
     request. That is precisely the confusion the queue was added to prevent.
     """
-    queue = _config().get("merge_queue") or {}
-    assert queue.get("dequeued_label"), (
+    config = _config()
+    queue = config.get("merge_queue") or {}
+    label = queue.get("dequeued_label")
+    assert label, (
         "merge_queue.dequeued_label is unset or empty; a dropped pull request "
         "would look identical to a healthy one"
+    )
+
+    # The label is a state; the explanation comes from a separate rule that
+    # comments on it. Checking only the label would let that rule be deleted
+    # with this gate still green -- and the label alone tells a reader that
+    # something happened, not that the pull request's own green checks are
+    # from a base that no longer exists.
+    explaining = [
+        rule
+        for rule in config.get("pull_request_rules") or []
+        if any(label in str(condition) for condition in rule.get("conditions") or [])
+        and "comment" in (rule.get("actions") or {})
+    ]
+    assert explaining, (
+        f"no pull request rule comments when {label!r} is applied; the "
+        "rejection would be a bare label, and the pull request would still "
+        "be showing green checks from its old base"
     )

@@ -10,8 +10,11 @@
 #
 # A queue does the same work serially and by itself: it takes the pull
 # request, rebases it on the current master, waits for the checks on THAT
-# revision, and merges only if they pass. If they do not, the queue drops
-# the pull request instead of landing it.
+# revision, and merges only if they pass. If they do not, the queue removes
+# the pull request from the queue instead of landing it. Removed, not
+# closed: the pull request stays open with its work intact, and the rule at
+# the bottom of this file labels and explains it. Closing someone's branch
+# because master moved under it would destroy the thing worth keeping.
 #
 # ---------------------------------------------------------------------------
 # What is deliberately NOT enabled here
@@ -63,12 +66,29 @@ queue_rules:
     # per-commit history inside a branch is working notes.
     merge_method: squash
 
-    # Let Mergify compute the checks timeout from observed CI runtime
-    # rather than guessing one. This matrix runs ~80 checks across five
-    # Python versions and three operating systems, and the slow cell moves
-    # around; a hardcoded number would either dequeue healthy pull requests
-    # on a slow morning or wait out a genuinely stuck run.
-    checks_timeout: auto
+    # Rebase, not merge, when bringing a queued pull request up to date.
+    # `update_method` defaults to `merge` unless `merge_method` is
+    # `fast-forward`, so leaving it out would have Mergify merge master INTO
+    # the branch: the checks would then run on a commit that exists nowhere
+    # after the squash, and the run would be one merge commit removed from
+    # what actually lands. Rebase tests the post-merge state directly, which
+    # is the entire reason for putting a queue in front of a ruleset that
+    # already requires an up-to-date branch.
+    update_method: rebase
+
+    # A bounded timeout, not `auto`. `auto` calibrates from this queue's own
+    # history and applies NO timeout until it has gathered enough -- and a
+    # queue that merges a handful of pull requests a week takes months to
+    # get there. During that whole warm-up a single stuck check would park
+    # the serial queue indefinitely, which is the one failure mode a serial
+    # queue cannot absorb: nothing else merges behind it.
+    #
+    # 90 minutes against measured runtimes of the last 11 successful `ci.yml`
+    # runs: median 24 min, slowest 33. That is roughly 3x the worst observed
+    # run, so a genuinely slow morning is not dequeued, while a hung job is
+    # capped at an hour and a half instead of forever. Revisit if the matrix
+    # grows -- the number is a measurement, not a preference.
+    checks_timeout: 90 min
 
 merge_queue:
   # Speculative checks off. Same reasoning as batch_size above: with one
@@ -84,20 +104,14 @@ merge_queue:
   dequeued_label: dequeued-by-queue
   checking_label: queued
 
+# Branch cleanup is NOT done here. Mergify's `delete_head_branch` action is
+# deprecated in favour of GitHub's own "Automatically delete head branches"
+# repository setting, which has been enabled on this repository
+# (`delete_branch_on_merge: true`) as part of this change. GitHub's setting
+# also covers merges that never touch Mergify, which the action could not.
 pull_request_rules:
-  # Housekeeping only. Every merge here is preceded by a live test run that
+  # Reporting only. Every merge here is preceded by a live test run that
   # Mergify cannot see, so nothing in this file may decide to merge.
-  - name: delete the head branch once it is merged
-    description: >-
-      Branches are deleted at merge time when merging by hand
-      (`gh pr merge --delete-branch`). Merges that go through the queue take
-      a different path, so without this the branch survives its pull
-      request.
-    conditions:
-      - merged
-    actions:
-      delete_head_branch:
-
   - name: say so when the queue rejects a pull request
     description: >-
       The dequeued label is a state, not an explanation. A pull request
