@@ -133,15 +133,29 @@ def run_status(args=None):
             # shell is a plain `if` here, and the redirections are just
             # capture_output. Restored after an automated commit reverted it
             # to the shell form, unbounded, on this same branch (#323).
+            # The timeout is caught per verb, not around the loop. The
+            # shell version fell through to `serve` whenever `funnel`
+            # failed for any reason; catching only outside would make a
+            # `funnel` that hangs skip `serve` entirely, which is a
+            # narrower fallback than the one being replaced (cubic).
+            reported = False
             for verb in ("funnel", "serve"):
-                done = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
-                    ["tailscale", verb, "status"],
-                    capture_output=True, text=True, check=False,
-                    timeout=TAILSCALE_STATUS_TIMEOUT_S,
-                )
+                try:
+                    done = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
+                        ["tailscale", verb, "status"],
+                        capture_output=True, text=True, check=False,
+                        timeout=TAILSCALE_STATUS_TIMEOUT_S,
+                    )
+                except subprocess.TimeoutExpired:
+                    print(f"tailscale {verb} status: timed out after "
+                          f"{TAILSCALE_STATUS_TIMEOUT_S}s")
+                    continue
                 if done.returncode == 0:
                     print(done.stdout, end="")
+                    reported = True
                     break
+            if not reported:
+                print("tailscale: neither funnel nor serve reported a status")
         except Exception as e:
             print(f"Failed to check Tailscale: {e}")
     else:

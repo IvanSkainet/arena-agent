@@ -395,15 +395,21 @@ def test_no_subprocess_call_in_status_runs_without_a_timeout():
     for relative in _NO_UNBOUNDED_SUBPROCESS:
         source = (REPO / relative).read_text(encoding="utf-8")
         tree = ast.parse(source)
+        aliases = _subprocess_aliases(tree)
         seen = 0
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            if _dotted_name(node.func) not in _BLOCKING_SUBPROCESS_CALLS:
+            if _resolved_call_name(node.func, aliases) not in _BLOCKING_SUBPROCESS_CALLS:
                 continue
             seen += 1
-            if not any(kw.arg == "timeout" for kw in node.keywords):
-                offenders.append(f"{relative}:{node.lineno} {ast.unparse(node)[:60]}")
+            bound = next((kw for kw in node.keywords if kw.arg == "timeout"), None)
+            if bound is None:
+                offenders.append(f"{relative}:{node.lineno} no timeout")
+            elif isinstance(bound.value, ast.Constant) and bound.value.value is None:
+                # `timeout=None` is what subprocess means by "wait forever".
+                # Spelling the keyword is not the same as bounding the call.
+                offenders.append(f"{relative}:{node.lineno} timeout=None")
         assert seen, (
             f"{relative}: no subprocess call found at all -- this scan has "
             "gone blind and would pass no matter what the module does"
@@ -438,6 +444,38 @@ def test_status_does_not_reach_for_a_shell():
         "shell=True defeats the timeout, since it is the shell that gets "
         f"killed and not the child; found: {offenders}"
     )
+
+
+def _subprocess_aliases(tree: ast.Module) -> dict[str, str]:
+    """Every local name that reaches into `subprocess`, mapped to it.
+
+    `import subprocess as sp` and `from subprocess import call` both hide
+    a blocking call from a scan that matches the literal text
+    `subprocess.call` -- verified by mutation, both walked past the gate.
+    The names a module chose are read from the module itself rather than
+    assumed (cubic).
+    """
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "subprocess":
+                    aliases[alias.asname or alias.name] = "subprocess"
+        elif isinstance(node, ast.ImportFrom) and node.module == "subprocess":
+            for alias in node.names:
+                aliases[alias.asname or alias.name] = f"subprocess.{alias.name}"
+    return aliases
+
+
+def _resolved_call_name(func: ast.AST, aliases: dict[str, str]) -> str:
+    """`subprocess.run` however this module happens to spell it."""
+    if isinstance(func, ast.Name):
+        return aliases.get(func.id, func.id)
+    dotted = _dotted_name(func)
+    head, _, rest = dotted.partition(".")
+    if rest and head in aliases:
+        return f"{aliases[head]}.{rest}"
+    return dotted
 
 
 def _dotted_name(node: ast.AST) -> str:
