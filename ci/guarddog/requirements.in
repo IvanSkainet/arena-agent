@@ -12,6 +12,8 @@
 #       --python-version 3.12 \
 #       -o ci/guarddog/requirements.txt ci/guarddog/requirements.in
 #
+# Keep these two commands identical to the block in requirements.txt.
+#
 # 3.12 because that is the interpreter .github/workflows/guarddog.yml runs
 # the scanner on -- unlike the CI locks, this toolchain is never installed
 # on the 3.10 matrix cell, so resolving for 3.10 would pin backports the

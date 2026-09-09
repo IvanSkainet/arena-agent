@@ -153,11 +153,14 @@ def hash_problems(
     unhashed = sorted(set(pinned) - hashed)
     if not unhashed:
         return []
-    return [
+    shown = ", ".join(unhashed[:5])
+    ellipsis = "..." if len(unhashed) > 5 else ""
+    message = (
         f"{lock_path.name}: {len(unhashed)} pin(s) carry no --hash= "
-        f"({', '.join(unhashed[:5])}{'...' if len(unhashed) > 5 else ''}). "
+        f"({shown}{ellipsis}). "
         "A --require-hashes install aborts on the first one."
-    ]
+    )
+    return [message]
 
 
 def check_paths(in_path: Path, lock_path: Path) -> list[str]:

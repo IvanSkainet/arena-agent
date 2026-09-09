@@ -228,7 +228,9 @@ def test_the_pair_is_still_covered_by_the_freshness_gate() -> None:
     assert module.check_paths(LOCK_IN, LOCK) == []
 
 
-def test_the_freshness_entry_point_really_checks_the_pair(tmp_path) -> None:
+def test_the_freshness_entry_point_really_checks_the_pair(
+    tmp_path, monkeypatch
+) -> None:
     """Exercise `main()`, not just the data it reads.
 
     Asserting membership in EXTRA_PAIRS proves the tuple exists; it does not
@@ -246,8 +248,11 @@ def test_the_freshness_entry_point_really_checks_the_pair(tmp_path) -> None:
     broken_in.write_text("guarddog==999.999.999\n", encoding="utf-8")
     broken_lock.write_text(LOCK.read_text(encoding="utf-8"), encoding="utf-8")
 
-    module.EXTRA_PAIRS = ((broken_in, broken_lock),)
-    module.ROOT = tmp_path
+    # monkeypatch.setattr rather than plain assignment: it restores the
+    # module on teardown, and it does not make a type checker object to
+    # setting an attribute on ModuleType.
+    monkeypatch.setattr(module, "EXTRA_PAIRS", ((broken_in, broken_lock),))
+    monkeypatch.setattr(module, "ROOT", tmp_path)
     problems = module.check_extra_pairs()
     assert problems, (
         "check_extra_pairs() reported nothing for a lock that pins a different "
@@ -257,10 +262,9 @@ def test_the_freshness_entry_point_really_checks_the_pair(tmp_path) -> None:
 
     # The real entry point, with the real repository pairs plus the broken
     # one, must exit non-zero. This is what catches the loop being removed.
-    module.ROOT = REPO_ROOT
-    module.EXTRA_PAIRS = (
-        (LOCK_IN, LOCK),
-        (broken_in, broken_lock),
+    monkeypatch.setattr(module, "ROOT", REPO_ROOT)
+    monkeypatch.setattr(
+        module, "EXTRA_PAIRS", ((LOCK_IN, LOCK), (broken_in, broken_lock))
     )
     assert module.main() == 1, (
         "main() returned success while an EXTRA_PAIRS entry was stale -- the "
@@ -269,7 +273,7 @@ def test_the_freshness_entry_point_really_checks_the_pair(tmp_path) -> None:
 
     # Control: with only the genuine pair, the same entry point passes. Without
     # this the assertion above would also hold for a main() that always fails.
-    module.EXTRA_PAIRS = ((LOCK_IN, LOCK),)
+    monkeypatch.setattr(module, "EXTRA_PAIRS", ((LOCK_IN, LOCK),))
     assert module.main() == 0
 
 
@@ -295,6 +299,43 @@ def test_dependabot_is_told_to_skip_the_directory() -> None:
         fnmatch.fnmatch(LOCK_IN.relative_to(REPO_ROOT).as_posix(), pattern)
         for pattern in patterns
     ), "the input is excluded too, or Dependabot will parse it instead"
+
+
+def test_both_headers_give_the_same_regeneration_command() -> None:
+    """The lock is opened first; it must not send the reader somewhere else.
+
+    Both files document how to rebuild the pair, and the previous revision
+    of this change updated only one of them: the input said `uv pip compile
+    --python-version 3.12`, the lock still said bare `pip-compile`. Following
+    the lock's copy produces a differently resolved, non-reproducible file --
+    and the lock is the file someone opens when they set out to bump
+    guarddog. Two headers, one command.
+    """
+    def commands(text: str) -> list[str]:
+        out, joining = [], ""
+        for raw in text.splitlines():
+            if not raw.startswith("#"):
+                break
+            line = raw.lstrip("#").strip()
+            if joining or line.startswith(("uv pip compile", "python -m pip")):
+                joining = f"{joining} {line}".strip() if joining else line
+                if not joining.endswith("\\"):
+                    out.append(" ".join(joining.replace("\\", " ").split()))
+                    joining = ""
+        return out
+
+    from_in = commands(LOCK_IN.read_text(encoding="utf-8"))
+    from_lock = commands(LOCK.read_text(encoding="utf-8"))
+    assert from_in, "requirements.in documents no regeneration command"
+    assert from_in == from_lock, (
+        "the two headers give different commands:\n"
+        f"  requirements.in:  {from_in}\n"
+        f"  requirements.txt: {from_lock}"
+    )
+    assert any("uv pip compile" in c for c in from_in), (
+        "the documented command must be the hash-locked uv one; pip-compile "
+        "is neither pinned nor installed in this repository"
+    )
 
 
 def test_the_input_pins_guarddog_exactly() -> None:

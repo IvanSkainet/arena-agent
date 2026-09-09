@@ -10,7 +10,6 @@
 # nor installed here, so a command naming it is not reproducible in a
 # clean checkout):
 #
-#     echo "guarddog==<version>" > ci/guarddog/requirements.in
 #     python -m pip install --require-hashes -r requirements-relock.lock
 #     uv pip compile --universal --generate-hashes --strip-extras \
 #       --python-version 3.12 \
@@ -19,8 +18,10 @@
 # 3.12 is the interpreter .github/workflows/guarddog.yml runs the scanner
 # on. Unlike the CI locks this toolchain never lands on the 3.10 matrix
 # cell, so resolving for 3.10 would pin backports the scanner never uses.
-# Keep this block identical to the one in requirements.in: two headers
-# giving different commands is how a non-reproducible lock gets committed.
+# Keep the two compile commands identical to the ones in requirements.in:
+# two headers giving different commands is how a non-reproducible lock gets
+# committed. Editing the version happens in requirements.in, which is the
+# file that carries it.
 #
 # It lives here, and not in the repository root as
 # `requirements-guarddog.txt`, because it is not one of this project's
