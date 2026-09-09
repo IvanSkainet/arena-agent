@@ -117,10 +117,21 @@ def run_status(args=None):
     print("### tailscale funnel")
     if shutil.which("tailscale"):
         try:
-            if platform.system() == "Windows":
-                subprocess.run("tailscale funnel status 2>nul || tailscale serve status 2>nul", shell=True, timeout=TAILSCALE_STATUS_TIMEOUT_S)  # nosec B604 -- fixed literal command string, no interpolation of any kind, so there is nothing for a shell to inject; `shell=True` is needed only for the `||` fallback / redirection.
-            else:
-                subprocess.run("tailscale funnel status 2>/dev/null || tailscale serve status 2>/dev/null || true", shell=True, timeout=TAILSCALE_STATUS_TIMEOUT_S)  # nosec B604 -- fixed literal command string, no interpolation of any kind, so there is nothing for a shell to inject; `shell=True` is needed only for the `||` fallback / redirection.
+            # argv form, no shell. `subprocess.run(..., shell=True)` with a
+            # timeout kills the shell it spawned, not the `tailscale` process
+            # underneath it: the child is reparented and keeps running after
+            # `agentctl status` has returned. The `||` fallback that needed a
+            # shell is a plain `if` here, and the redirections are just
+            # capture_output.
+            for verb in ("funnel", "serve"):
+                done = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
+                    ["tailscale", verb, "status"],
+                    capture_output=True, text=True, check=False,
+                    timeout=TAILSCALE_STATUS_TIMEOUT_S,
+                )
+                if done.returncode == 0:
+                    print(done.stdout, end="")
+                    break
         except Exception as e:
             print(f"Failed to check Tailscale: {e}")
     else:
@@ -143,6 +154,17 @@ def run_status(args=None):
             # this waiting forever and `agentctl status` hangs with no
             # output and nothing to point at. HWINFO_SUBPROCESS_TIMEOUT_S
             # is the same outer bound the tests use, from one place.
+            #
+            # What this bound does NOT do is reap descendants. If the pass is
+            # stuck inside a `powershell.exe` query when the timeout fires,
+            # Python is killed and that query is reparented, still running.
+            # It is bounded on its own (PS_TIMEOUT_S, argv form, no shell) so
+            # it exits by itself within seconds rather than leaking
+            # indefinitely -- but for the interval between the two it
+            # outlives its caller. Killing the tree needs a process group on
+            # POSIX and a Job object on Windows, which is a larger change
+            # than a status command warrants; the bound here is what stops
+            # the hang, not a claim that nothing survives it.
             res_hw = subprocess.run(
                 [sys.executable, hw_script],
                 capture_output=True, text=True,

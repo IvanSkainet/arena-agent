@@ -66,25 +66,68 @@ def test_pass_budget_fits_inside_the_outer_budget():
     )
 
 
-def test_no_hwinfo_caller_uses_a_literal_timeout():
-    """A hand-picked number at a call site is how the budgets inverted.
+# The one name a hwinfo call site may bind `timeout=` to.
+_REQUIRED_BOUND = "HWINFO_SUBPROCESS_TIMEOUT_S"
 
-    Both callers must reference the shared constant. A literal would drift
-    from `PS_PASS_BUDGET_S` silently -- and would fail the way #323 did, as
-    an intermittent red on whichever runner was busiest, not as a clear
-    error here.
+
+def test_every_hwinfo_call_binds_the_shared_bound():
+    """Not merely "no literal" -- that name, specifically.
+
+    Rejecting literals is not enough. `status.py` also defines
+    TAILSCALE_STATUS_TIMEOUT_S = 10, and a call site could bind that by
+    mistake: it is a named constant, so a literal check passes, and it is
+    below PS_PASS_BUDGET_S, so the collector would be killed mid-pass on
+    every slow run. That is the drift of #323 restored under a different
+    spelling, which is why the name is asserted and not just the shape.
     """
     offenders = []
     for relative in HWINFO_CALLERS:
         source = (REPO / relative).read_text(encoding="utf-8")
         for node in _hwinfo_run_calls(source):
-            for keyword in node.keywords:
-                if keyword.arg == "timeout" and isinstance(keyword.value, ast.Constant):
-                    offenders.append(f"{relative}:{node.lineno} timeout={keyword.value.value}")
+            bound = _timeout_argument(node)
+            if bound != _REQUIRED_BOUND:
+                offenders.append(f"{relative}:{node.lineno} timeout={bound}")
     assert not offenders, (
-        "hwinfo subprocess calls with a literal timeout instead of "
-        f"HWINFO_SUBPROCESS_TIMEOUT_S: {offenders}"
+        f"hwinfo subprocess calls must pass timeout={_REQUIRED_BOUND}; "
+        f"found: {offenders}"
     )
+
+
+def test_the_bound_is_not_aliased_to_something_smaller():
+    """Checking the name at the call site is not enough on its own.
+
+    `from ... import TAILSCALE_STATUS_TIMEOUT_S as HWINFO_SUBPROCESS_TIMEOUT_S`
+    satisfies the call-site check while binding 10 s -- below the 20 s pass
+    budget. So the import has to be checked too: whatever the callers bind
+    under this name must be the constant of that name.
+    """
+    for relative in HWINFO_CALLERS:
+        source = (REPO / relative).read_text(encoding="utf-8")
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            for alias in node.names:
+                if alias.asname == _REQUIRED_BOUND:
+                    assert alias.name == _REQUIRED_BOUND, (
+                        f"{relative}:{node.lineno} imports {alias.name} under "
+                        f"the name {_REQUIRED_BOUND}. The call site then looks "
+                        "correct while binding a different, smaller bound."
+                    )
+
+
+def _timeout_argument(call: ast.Call) -> str | None:
+    """How `timeout=` is written at this call site, as source text."""
+    for keyword in call.keywords:
+        if keyword.arg != "timeout":
+            continue
+        if isinstance(keyword.value, ast.Name):
+            return keyword.value.id
+        if isinstance(keyword.value, ast.Attribute):
+            return keyword.value.attr
+        if isinstance(keyword.value, ast.Constant):
+            return repr(keyword.value.value)
+        return ast.dump(keyword.value)
+    return None
 
 
 def test_the_caller_scan_finds_something_in_every_caller():
@@ -118,13 +161,17 @@ def _hwinfo_run_calls(source: str) -> list[ast.Call]:
     for node in ast.walk(ast.parse(source)):
         if not isinstance(node, ast.FunctionDef) or node.name not in _HWINFO_CALL_SITES:
             continue
-        for sub in ast.walk(node):
-            if (isinstance(sub, ast.Call)
-                    and isinstance(sub.func, ast.Attribute)
-                    and sub.func.attr == "run"
-                    and _runs_hwinfo(sub)):
-                calls.append(sub)
+        calls.extend(sub for sub in ast.walk(node) if _is_hwinfo_run(sub))
     return calls
+
+
+def _is_hwinfo_run(node: ast.AST) -> bool:
+    """A `subprocess.run(...)` whose argv is an hwinfo command."""
+    if not isinstance(node, ast.Call):
+        return False
+    if not isinstance(node.func, ast.Attribute) or node.func.attr != "run":
+        return False
+    return _runs_hwinfo(node)
 
 
 # argv variables that hold an hwinfo command at the two call sites. Matching
