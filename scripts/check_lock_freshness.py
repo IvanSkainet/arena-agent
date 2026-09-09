@@ -113,15 +113,14 @@ def parse_lock(path: Path) -> tuple[dict[str, str], set[str]]:
     return pins, hashed
 
 
-def check_paths(in_path: Path, lock_path: Path) -> list[str]:
-    label = in_path.relative_to(ROOT).as_posix()
-    if not in_path.exists() or not lock_path.exists():
-        return [f"{label}: missing .in or .lock of the pair"]
-
-    declared = parse_in(in_path)
-    pinned, hashed = parse_lock(lock_path)
+def pin_problems(
+    declared: dict[str, str],
+    pinned: dict[str, str],
+    in_path: Path,
+    lock_path: Path,
+) -> list[str]:
+    """Checks 1 and 2: every declared requirement is pinned, at that version."""
     problems: list[str] = []
-
     for name, want in declared.items():
         got = pinned.get(name)
         if got is None:
@@ -135,15 +134,34 @@ def check_paths(in_path: Path, lock_path: Path) -> list[str]:
                 f"{in_path.name} wants '{name}=={want}' but {lock_path.name} "
                 f"pins {got} — stale lock; regenerate it."
             )
-
-    unhashed = sorted(set(pinned) - hashed)
-    if unhashed:
-        problems.append(
-            f"{lock_path.name}: {len(unhashed)} pin(s) carry no --hash= "
-            f"({', '.join(unhashed[:5])}{'...' if len(unhashed) > 5 else ''}). "
-            "A --require-hashes install aborts on the first one."
-        )
     return problems
+
+
+def hash_problems(
+    pinned: dict[str, str], hashed: set[str], lock_path: Path
+) -> list[str]:
+    """Check 3: a hash-mode install aborts on the first unhashed requirement."""
+    unhashed = sorted(set(pinned) - hashed)
+    if not unhashed:
+        return []
+    return [
+        f"{lock_path.name}: {len(unhashed)} pin(s) carry no --hash= "
+        f"({', '.join(unhashed[:5])}{'...' if len(unhashed) > 5 else ''}). "
+        "A --require-hashes install aborts on the first one."
+    ]
+
+
+def check_paths(in_path: Path, lock_path: Path) -> list[str]:
+    label = in_path.relative_to(ROOT).as_posix()
+    if not in_path.exists() or not lock_path.exists():
+        return [f"{label}: missing .in or .lock of the pair"]
+
+    declared = parse_in(in_path)
+    pinned, hashed = parse_lock(lock_path)
+    return (
+        pin_problems(declared, pinned, in_path, lock_path)
+        + hash_problems(pinned, hashed, lock_path)
+    )
 
 
 def check_pair(stem: str) -> list[str]:
