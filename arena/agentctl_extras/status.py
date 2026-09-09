@@ -85,6 +85,51 @@ def _os_label() -> str:
     return "Windows 11" if build >= 22000 else "Windows 10"
 
 
+
+def _print_tailscale_status() -> None:
+    """Print `tailscale funnel status`, falling back to `serve status`.
+
+    argv form, no shell. `subprocess.run(..., shell=True)` with a timeout
+    kills the shell it spawned, not the `tailscale` process underneath it:
+    the child is reparented and keeps running after `agentctl status` has
+    returned. The `||` fallback that needed a shell is a plain loop here,
+    and the redirections are just capture_output. Restored after an
+    automated commit reverted it to the shell form, unbounded, on this
+    same branch (#323).
+
+    The timeout is caught per verb rather than around the loop. The shell
+    version fell through to `serve` whenever `funnel` failed for any
+    reason, a hang included; catching outside would make a `funnel` that
+    hangs skip `serve` entirely, which is a narrower fallback than the one
+    being replaced (cubic).
+
+    Lifted out of `run_status` because it is the third branch this block
+    has grown: the caller was already E(34) on radon before this change
+    and reporting one status is a whole job on its own.
+    """
+    if not shutil.which("tailscale"):
+        print("tailscale not found in PATH")
+        return
+    try:
+        for verb in ("funnel", "serve"):
+            try:
+                done = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
+                    ["tailscale", verb, "status"],
+                    capture_output=True, text=True, check=False,
+                    timeout=TAILSCALE_STATUS_TIMEOUT_S,
+                )
+            except subprocess.TimeoutExpired:
+                print(f"tailscale {verb} status: timed out after "
+                      f"{TAILSCALE_STATUS_TIMEOUT_S}s")
+                continue
+            if done.returncode == 0:
+                print(done.stdout, end="")
+                return
+        print("tailscale: neither funnel nor serve reported a status")
+    except Exception as e:
+        print(f"Failed to check Tailscale: {e}")
+
+
 def run_status(args=None):
     """Print local bridge, tunnel, platform, hardware, and service status."""
     import subprocess
@@ -124,42 +169,7 @@ def run_status(args=None):
 
     print()
     print("### tailscale funnel")
-    if shutil.which("tailscale"):
-        try:
-            # argv form, no shell. `subprocess.run(..., shell=True)` with a
-            # timeout kills the shell it spawned, not the `tailscale` process
-            # underneath it: the child is reparented and keeps running after
-            # `agentctl status` has returned. The `||` fallback that needed a
-            # shell is a plain `if` here, and the redirections are just
-            # capture_output. Restored after an automated commit reverted it
-            # to the shell form, unbounded, on this same branch (#323).
-            # The timeout is caught per verb, not around the loop. The
-            # shell version fell through to `serve` whenever `funnel`
-            # failed for any reason; catching only outside would make a
-            # `funnel` that hangs skip `serve` entirely, which is a
-            # narrower fallback than the one being replaced (cubic).
-            reported = False
-            for verb in ("funnel", "serve"):
-                try:
-                    done = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
-                        ["tailscale", verb, "status"],
-                        capture_output=True, text=True, check=False,
-                        timeout=TAILSCALE_STATUS_TIMEOUT_S,
-                    )
-                except subprocess.TimeoutExpired:
-                    print(f"tailscale {verb} status: timed out after "
-                          f"{TAILSCALE_STATUS_TIMEOUT_S}s")
-                    continue
-                if done.returncode == 0:
-                    print(done.stdout, end="")
-                    reported = True
-                    break
-            if not reported:
-                print("tailscale: neither funnel nor serve reported a status")
-        except Exception as e:
-            print(f"Failed to check Tailscale: {e}")
-    else:
-        print("tailscale not found in PATH")
+    _print_tailscale_status()
 
     print()
     print("### platform info")
