@@ -86,18 +86,19 @@ def _tracked_files() -> list[pathlib.Path]:
         if name
     ]
 
-    # Fail loudly rather than filtering. A tracked path that does not resolve
-    # to a file is either a broken symlink or a decoding problem, and both
-    # are reasons to look -- silently dropping the entry is how a
-    # fail-closed check turns into one that passes on less and less.
-    missing = [str(path) for path in paths if not _exists(path)]
-    assert not missing, f"git tracks paths that are not files here: {missing}"
-    return [path for path in paths if path.is_file()]
-
-
-def _exists(path: pathlib.Path) -> bool:
-    """`is_file()` follows symlinks, so a broken link needs asking twice."""
-    return path.is_file() or path.is_symlink()
+    # Fail loudly rather than filtering, and require a real readable file:
+    # `is_file()` follows symlinks, so a dangling link fails here too. A
+    # tracked path that does not resolve is a broken symlink or a decoding
+    # problem, and both are reasons to look. Returning the filtered list
+    # instead is how a fail-closed check turns into one that passes on less
+    # and less: the entry disappears and the gates below scan one file
+    # fewer, with no error and no failure.
+    unreadable = [str(path) for path in paths if not path.is_file()]
+    assert not unreadable, (
+        "git tracks paths that do not resolve to a file here "
+        f"(broken symlink, or a name this checkout could not create): {unreadable}"
+    )
+    return paths
 
 
 def _first_marker(path: pathlib.Path) -> str | None:
@@ -109,10 +110,12 @@ def _first_marker(path: pathlib.Path) -> str | None:
     """
     if path.suffix.lower() in SKIP_SUFFIXES:
         return None
-    try:
-        raw = path.read_bytes()
-    except OSError:
-        return None
+    # No `try`/`except OSError` here. Every path is a readable file by the
+    # time it arrives (`_tracked_files` asserts that), so a read that fails
+    # now is a permission problem or a race, not a file to skip. Swallowing
+    # it would put this function back to passing on whatever it could not
+    # open -- the same silent drop the assert above exists to prevent.
+    raw = path.read_bytes()
     # errors="replace", not a UTF-8 decode that gives up. A latin-1 or
     # cp1252 .md is a real text file, conflict markers are pure ASCII, and
     # bailing out on the decode would skip exactly the silent-commit case
