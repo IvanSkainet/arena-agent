@@ -29,6 +29,13 @@ lock resolves the full dependency graph means running the resolver, which is
 the generator's job; the real proof stays the `--require-hashes` install on
 the oldest supported interpreter.
 
+Pairs are discovered as `requirements-*.in` in the repository root, plus the
+explicit entries in EXTRA_PAIRS. The explicit list exists because
+`ci/guarddog/requirements.{in,txt}` is deliberately outside the root -- it is
+excluded from Dependabot so its per-package bumps stop breaking the required
+GuardDog check (#307) -- and a lock that no gate reads is a lock that can
+drift. Discovery by glob would have silently dropped it the moment it moved.
+
 Usage:  python3 scripts/check_lock_freshness.py
 """
 
@@ -39,6 +46,31 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# (.in, .lock) pairs that do not follow the root `requirements-<name>.{in,lock}`
+# convention. Listed by hand, not globbed: each one is outside the root for a
+# reason recorded next to it, and a gate that discovers its own inputs stops
+# noticing when one disappears.
+EXTRA_PAIRS: tuple[tuple[Path, Path], ...] = (
+    # Outside the root so Dependabot's pip ecosystem cannot propose
+    # per-package bumps of guarddog's own transitive pins -- those made
+    # `pip install --require-hashes` fail with ResolutionImpossible before
+    # the scanner ran, turning the required GuardDog check red while no
+    # malware scan happened (#285, #307). The lock is regenerated whole,
+    # alongside a guarddog bump.
+    #
+    # What this entry buys, precisely: the direct pin in the `.in` must
+    # match the lock, and every lock entry must carry a hash. It does NOT
+    # prove the transitive closure came from a real compile -- an edited
+    # transitive pin that keeps a syntactically valid `--hash=` passes
+    # here, and would then fail at install time when the hash does not
+    # match the artifact on PyPI. That is the same guarantee the root
+    # pairs get; proving the closure means running the resolver, which is
+    # the generator's job and is deliberately out of scope (see the module
+    # docstring).
+    (ROOT / "ci" / "guarddog" / "requirements.in",
+     ROOT / "ci" / "guarddog" / "requirements.txt"),
+)
 
 # Requirement line in a `.in`: name==version, optional extras/marker.
 IN_REQ = re.compile(
@@ -90,16 +122,14 @@ def parse_lock(path: Path) -> tuple[dict[str, str], set[str]]:
     return pins, hashed
 
 
-def check_pair(stem: str) -> list[str]:
-    in_path = ROOT / f"{stem}.in"
-    lock_path = ROOT / f"{stem}.lock"
-    if not in_path.exists() or not lock_path.exists():
-        return [f"{stem}: missing .in or .lock of the pair"]
-
-    declared = parse_in(in_path)
-    pinned, hashed = parse_lock(lock_path)
+def pin_problems(
+    declared: dict[str, str],
+    pinned: dict[str, str],
+    in_path: Path,
+    lock_path: Path,
+) -> list[str]:
+    """Checks 1 and 2: every declared requirement is pinned, at that version."""
     problems: list[str] = []
-
     for name, want in declared.items():
         got = pinned.get(name)
         if got is None:
@@ -113,14 +143,67 @@ def check_pair(stem: str) -> list[str]:
                 f"{in_path.name} wants '{name}=={want}' but {lock_path.name} "
                 f"pins {got} — stale lock; regenerate it."
             )
+    return problems
 
+
+def hash_problems(
+    pinned: dict[str, str], hashed: set[str], lock_path: Path
+) -> list[str]:
+    """Check 3: a hash-mode install aborts on the first unhashed requirement."""
     unhashed = sorted(set(pinned) - hashed)
-    if unhashed:
-        problems.append(
-            f"{lock_path.name}: {len(unhashed)} pin(s) carry no --hash= "
-            f"({', '.join(unhashed[:5])}{'...' if len(unhashed) > 5 else ''}). "
-            "A --require-hashes install aborts on the first one."
-        )
+    if not unhashed:
+        return []
+    shown = ", ".join(unhashed[:5])
+    ellipsis = "..." if len(unhashed) > 5 else ""
+    message = (
+        f"{lock_path.name}: {len(unhashed)} pin(s) carry no --hash= "
+        f"({shown}{ellipsis}). "
+        "A --require-hashes install aborts on the first one."
+    )
+    return [message]
+
+
+def check_paths(in_path: Path, lock_path: Path) -> list[str]:
+    missing = [
+        path.relative_to(ROOT).as_posix()
+        for path in (in_path, lock_path)
+        if not path.exists()
+    ]
+    if missing:
+        # Name the actual files. The guarddog pair's lock is called
+        # `requirements.txt`, so a hardcoded ".lock" would send the reader
+        # looking for a file that never existed.
+        return [f"{', '.join(missing)}: missing from the pair"]
+
+    declared = parse_in(in_path)
+    pinned, hashed = parse_lock(lock_path)
+    return (
+        pin_problems(declared, pinned, in_path, lock_path)
+        + hash_problems(pinned, hashed, lock_path)
+    )
+
+
+def check_pair(stem: str) -> list[str]:
+    """Root-convention pair: `requirements-<stem>.in` / `.lock`."""
+    return check_paths(ROOT / f"{stem}.in", ROOT / f"{stem}.lock")
+
+
+def check_extra_pairs() -> list[str]:
+    """The pairs that do not live in the root, listed in EXTRA_PAIRS.
+
+    A missing entry is a failure, not a skip: an entry listed here and then
+    deleted is exactly the drift this guard exists to notice.
+    """
+    problems: list[str] = []
+    for in_path, lock_path in EXTRA_PAIRS:
+        if not in_path.exists():
+            problems.append(
+                f"{in_path.relative_to(ROOT).as_posix()} is listed in "
+                "EXTRA_PAIRS but does not exist — if the pair moved, move the "
+                "entry with it; if it is gone, delete the entry deliberately."
+            )
+            continue
+        problems.extend(check_paths(in_path, lock_path))
     return problems
 
 
@@ -134,6 +217,7 @@ def main() -> int:
     all_problems: list[str] = []
     for stem in stems:
         all_problems.extend(check_pair(stem))
+    all_problems.extend(check_extra_pairs())
 
     if all_problems:
         print("LOCK FRESHNESS FAILURES:", file=sys.stderr)
@@ -141,8 +225,9 @@ def main() -> int:
             print(f"  - {p}", file=sys.stderr)
         return 1
 
-    print(f"OK: {len(stems)} .in/.lock pair(s) agree, every pin is hashed "
-          f"({', '.join(stems)})")
+    names = stems + [p.relative_to(ROOT).as_posix() for p, _ in EXTRA_PAIRS]
+    print(f"OK: {len(names)} .in/.lock pair(s) agree, every pin is hashed "
+          f"({', '.join(names)})")
     return 0
 
 

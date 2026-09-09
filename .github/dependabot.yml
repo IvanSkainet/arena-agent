@@ -32,6 +32,29 @@ updates:
     # dependabot-cooldown audit on #164.
     cooldown:
       default-days: 7
+    # ci/guarddog/ is guarddog's own compiled closure, not a list of packages
+    # this project picked, and it is the one requirements pair here that must
+    # only ever be regenerated whole. Moving it out of the repository root is
+    # NOT sufficient on its own: `directory: "/"` makes the pip ecosystem scan
+    # subdirectories too (dependabot-core#11360 tried to change that and was
+    # reverted), so without this exclusion the bot would find the file at its
+    # new path and resume proposing the same per-package bumps.
+    #
+    # Two of guarddog 3.2.0's transitive pins are exact ranges --
+    # `tarsafe >=0.0.5,<0.0.6` and
+    # `disposable-email-domains >=0.0.237,<0.0.238` -- so an isolated bump of
+    # either makes `pip install --require-hashes` die with
+    # ResolutionImpossible BEFORE the scanner runs: the required GuardDog
+    # check goes red and no malware scan happens at all. That is what #285
+    # hit, twice in one pull request; the structural fix is #307.
+    #
+    # exclude-paths applies before manifest parsing, so Dependabot never
+    # lists, parses, or opens a PR for these files. Security ALERTS for the
+    # packages inside are unaffected -- alerts come from the dependency
+    # graph, not from this block -- and the lock is bumped by hand alongside
+    # guarddog itself, which is how upstream intends its pins to travel.
+    exclude-paths:
+      - "ci/guarddog/**"
     # Keep PR volume down: one per dev dep, group minor+patches
     # for runtime deps so we don't get 6 PRs the same day.
     groups:
@@ -44,6 +67,16 @@ updates:
       include: "scope"
     # Don't update GitHub Actions here — every workflow action is pinned to a
     # reviewed commit SHA, and tag-only bumps are intentionally rejected.
+    #
+    # Every entry below is a decision of OURS about a dependency WE chose.
+    # `tarsafe` and `disposable-email-domains` used to sit here too, and they
+    # were neither: they are guarddog's own transitive pins, and they only
+    # appeared because the scanner's compiled lock sat in this directory and
+    # got treated as an ordinary requirements file. That lock now lives in
+    # `ci/guarddog/requirements.txt`, outside the `directory: "/"` this
+    # ecosystem watches, so the bot no longer proposes per-package bumps that
+    # cannot resolve (#307). Keep it that way: name-by-name ignores did not
+    # scale, because guarddog's transitive set changes with every release.
     ignore:
       - dependency-name: "aiohttp"
         # v4.61.0 baseline; bump manually after testing the websocket
@@ -72,17 +105,6 @@ updates:
         # was closed. The [tool.mypy] SECTION in pyproject.toml stays --
         # it is pyrefly's config, guarded by
         # scripts/pyrefly_preset_ratchet.py.
-      - dependency-name: "tarsafe"
-        # Same cause as disposable-email-domains below: guarddog 3.2.0
-        # pins tarsafe to ">=0.0.5,<0.0.6". Proposed as 0.0.6 on #285 and
-        # the GuardDog job refused to install at all.
-      - dependency-name: "disposable-email-domains"
-        # Not ours to choose: guarddog 3.2.0 pins it to
-        # ">=0.0.237,<0.0.238", so any bump makes the GuardDog job fail
-        # with ResolutionImpossible before it scans anything. Dependabot
-        # proposed 0.0.246 on #285 and that is exactly what happened. The
-        # constraint lifts when guarddog widens its own range, not when we
-        # decide to.
       - dependency-name: "websockets"
         # websockets 17.0 requires Python >= 3.11; this package promises
         # requires-python = ">=3.10" and CI keeps a 3.10 matrix cell to

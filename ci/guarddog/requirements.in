@@ -1,0 +1,25 @@
+# Input for ci/guarddog/requirements.txt. One line, on purpose: everything
+# else in that lock is guarddog's own transitive closure, resolved by the
+# compiler and never edited by hand.
+#
+# Regenerate the pair together, with the same hash-locked uv the relock
+# workflow uses (`requirements-relock.lock` pins it; plain `pip-compile` is
+# neither pinned nor installed anywhere in this repository, so a command
+# naming it would not be reproducible in a clean checkout):
+#
+#     python -m pip install --require-hashes -r requirements-relock.lock
+#     uv pip compile --universal --generate-hashes --strip-extras \
+#       --python-version 3.12 \
+#       -o ci/guarddog/requirements.txt ci/guarddog/requirements.in
+#
+# Keep these two commands identical to the block in requirements.txt.
+#
+# 3.12 because that is the interpreter .github/workflows/guarddog.yml runs
+# the scanner on -- unlike the CI locks, this toolchain is never installed
+# on the 3.10 matrix cell, so resolving for 3.10 would pin backports the
+# scanner job never uses.
+#
+# The 3.x floor is not cosmetic -- 2.7.0 and below carry
+# GHSA-xg9w-vg3g-6m68, a path traversal in safe_extract() that hands a
+# scanned package arbitrary file write on the scanner host.
+guarddog==3.2.0
