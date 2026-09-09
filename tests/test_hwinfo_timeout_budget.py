@@ -141,34 +141,48 @@ def _assert_binding_is_the_real_constant(node: ast.AST, relative: str) -> None:
     alias rather than a Name node, so they stay a separate branch.
     """
     if isinstance(node, (ast.Import, ast.ImportFrom)):
-        module = getattr(node, "module", None)
-        for alias in node.names:
-            bound_as = alias.asname or alias.name
-            if bound_as != _REQUIRED_BOUND:
-                continue
-            if alias.name != _REQUIRED_BOUND:
-                raise AssertionError(
-                    f"{relative}:{node.lineno} imports {alias.name} under the "
-                    f"name {_REQUIRED_BOUND}. The call site then looks correct "
-                    "while binding a different, smaller bound."
-                )
-            if module != _DEFINING_MODULE_IMPORT:
-                raise AssertionError(
-                    f"{relative}:{node.lineno} imports {_REQUIRED_BOUND} from "
-                    f"{module!r}. The right name from the wrong module is the "
-                    "same failure as the wrong name: only "
-                    f"{_DEFINING_MODULE_IMPORT} defines this bound."
-                )
-    elif (
-        isinstance(node, ast.Name)
-        and isinstance(node.ctx, ast.Store)
-        and node.id == _REQUIRED_BOUND
-    ):
+        _assert_import_is_the_real_constant(node, relative)
+    elif _is_local_rebinding(node):
         raise AssertionError(
             f"{relative}:{node.lineno} rebinds {_REQUIRED_BOUND} locally. "
             "The name must come from arena.agentctl_extras.status, so that "
             "the call site cannot look correct while holding a smaller bound."
         )
+
+
+def _is_local_rebinding(node: ast.AST) -> bool:
+    """Does this node bind the required name to something of its own?"""
+    return (
+        isinstance(node, ast.Name)
+        and isinstance(node.ctx, ast.Store)
+        and node.id == _REQUIRED_BOUND
+    )
+
+
+def _assert_import_is_the_real_constant(node: ast.AST, relative: str) -> None:
+    """Fail if an import binds the required name to anything else.
+
+    Both halves matter: the wrong name under the right alias, and the
+    right name out of the wrong module. Either one leaves a call site that
+    reads correctly and holds a smaller number.
+    """
+    module = getattr(node, "module", None)
+    for alias in node.names:
+        if (alias.asname or alias.name) != _REQUIRED_BOUND:
+            continue
+        if alias.name != _REQUIRED_BOUND:
+            raise AssertionError(
+                f"{relative}:{node.lineno} imports {alias.name} under the "
+                f"name {_REQUIRED_BOUND}. The call site then looks correct "
+                "while binding a different, smaller bound."
+            )
+        if module != _DEFINING_MODULE_IMPORT:
+            raise AssertionError(
+                f"{relative}:{node.lineno} imports {_REQUIRED_BOUND} from "
+                f"{module!r}. The right name from the wrong module is the "
+                "same failure as the wrong name: only "
+                f"{_DEFINING_MODULE_IMPORT} defines this bound."
+            )
 
 
 def _timeout_argument(call: ast.Call) -> str | None:
@@ -393,31 +407,43 @@ def test_no_subprocess_call_in_status_runs_without_a_timeout():
     """
     offenders = []
     for relative in _NO_UNBOUNDED_SUBPROCESS:
-        source = (REPO / relative).read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        aliases = _subprocess_aliases(tree)
-        seen = 0
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            if _resolved_call_name(node.func, aliases) not in _BLOCKING_SUBPROCESS_CALLS:
-                continue
-            seen += 1
-            bound = next((kw for kw in node.keywords if kw.arg == "timeout"), None)
-            if bound is None:
-                offenders.append(f"{relative}:{node.lineno} no timeout")
-            elif isinstance(bound.value, ast.Constant) and bound.value.value is None:
-                # `timeout=None` is what subprocess means by "wait forever".
-                # Spelling the keyword is not the same as bounding the call.
-                offenders.append(f"{relative}:{node.lineno} timeout=None")
-        assert seen, (
+        calls = _blocking_calls_in(relative)
+        assert calls, (
             f"{relative}: no subprocess call found at all -- this scan has "
             "gone blind and would pass no matter what the module does"
         )
+        offenders += [
+            f"{relative}:{call.lineno} {reason}"
+            for call in calls
+            if (reason := _unbounded_reason(call))
+        ]
     assert not offenders, (
         "every blocking subprocess call must carry a timeout; found: "
         f"{offenders}"
     )
+
+
+def _blocking_calls_in(relative: str) -> list[ast.Call]:
+    """Every call in this module that waits on a child process."""
+    tree = ast.parse((REPO / relative).read_text(encoding="utf-8"))
+    aliases = _subprocess_aliases(tree)
+    return [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and _resolved_call_name(node.func, aliases) in _BLOCKING_SUBPROCESS_CALLS
+    ]
+
+
+def _unbounded_reason(call: ast.Call) -> str:
+    """Why this call can wait forever, or "" if it cannot."""
+    bound = next((kw for kw in call.keywords if kw.arg == "timeout"), None)
+    if bound is None:
+        return "no timeout"
+    # `timeout=None` is what subprocess means by "wait forever". Spelling
+    # the keyword is not the same as bounding the call.
+    if isinstance(bound.value, ast.Constant) and bound.value.value is None:
+        return "timeout=None"
+    return ""
 
 
 def test_status_does_not_reach_for_a_shell():
@@ -432,17 +458,23 @@ def test_status_does_not_reach_for_a_shell():
     offenders = []
     for relative in _NO_UNBOUNDED_SUBPROCESS:
         source = (REPO / relative).read_text(encoding="utf-8")
-        for node in ast.walk(ast.parse(source)):
-            if not isinstance(node, ast.Call):
-                continue
-            for keyword in node.keywords:
-                if keyword.arg != "shell":
-                    continue
-                if not (isinstance(keyword.value, ast.Constant) and keyword.value.value is False):
-                    offenders.append(f"{relative}:{node.lineno}")
+        offenders += [
+            f"{relative}:{node.lineno}"
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Call) and _asks_for_a_shell(node)
+        ]
     assert not offenders, (
         "shell=True defeats the timeout, since it is the shell that gets "
         f"killed and not the child; found: {offenders}"
+    )
+
+
+def _asks_for_a_shell(call: ast.Call) -> bool:
+    """Is `shell=` passed as anything other than a literal False?"""
+    return any(
+        keyword.arg == "shell"
+        and not (isinstance(keyword.value, ast.Constant) and keyword.value.value is False)
+        for keyword in call.keywords
     )
 
 
@@ -457,14 +489,35 @@ def _subprocess_aliases(tree: ast.Module) -> dict[str, str]:
     """
     aliases: dict[str, str] = {}
     for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name == "subprocess":
-                    aliases[alias.asname or alias.name] = "subprocess"
-        elif isinstance(node, ast.ImportFrom) and node.module == "subprocess":
-            for alias in node.names:
-                aliases[alias.asname or alias.name] = f"subprocess.{alias.name}"
+        aliases.update(_aliases_from(node))
     return aliases
+
+
+def _aliases_from(node: ast.AST) -> dict[str, str]:
+    """What one import statement contributes to that mapping.
+
+    `import subprocess as sp` binds the module; `from subprocess import
+    run as r` binds one function. The target differs, so the two forms are
+    read apart.
+    """
+    if isinstance(node, ast.Import):
+        return _module_aliases(node)
+    if isinstance(node, ast.ImportFrom):
+        return _function_aliases(node)
+    return {}
+
+
+def _module_aliases(node: ast.Import) -> dict[str, str]:
+    """Names bound to the `subprocess` module itself."""
+    wanted = [a for a in node.names if a.name == "subprocess"]
+    return {a.asname or a.name: "subprocess" for a in wanted}
+
+
+def _function_aliases(node: ast.ImportFrom) -> dict[str, str]:
+    """Names bound to functions taken out of `subprocess`."""
+    if node.module != "subprocess":
+        return {}
+    return {a.asname or a.name: f"subprocess.{a.name}" for a in node.names}
 
 
 def _resolved_call_name(func: ast.AST, aliases: dict[str, str]) -> str:
