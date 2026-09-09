@@ -60,6 +60,26 @@ RELOCK = REPO_ROOT / ".github" / "workflows" / "relock-dependabot.yml"
 # is how the root-directory layout hid its own cost.
 UPSTREAM_PINS = ("tarsafe", "disposable-email-domains")
 
+# The relock workflow step whose body decides which files its glob reaches.
+REGENERATION_STEP = "Regenerate every .in/.lock pair"
+
+
+def _regeneration_step(workflow: str) -> str:
+    """The text of the regeneration step, up to the next step in the job."""
+    start = workflow.index(f"- name: {REGENERATION_STEP}")
+    rest = workflow[start + 1:]
+    end = rest.find("\n      - name: ")
+    return rest if end == -1 else rest[:end]
+
+
+def _freshness_module():
+    """A fresh instance of the gate, so mutating it cannot leak between tests."""
+    spec = importlib.util.spec_from_file_location("check_lock_freshness", FRESHNESS)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
 
 def _pip_ecosystem() -> dict:
     config = yaml.safe_load(DEPENDABOT.read_text(encoding="utf-8"))
@@ -145,12 +165,22 @@ def test_the_lock_is_not_swept_up_by_the_relock_workflow() -> None:
         "relock-dependabot.yml no longer loops over requirements-*.in; this "
         "gate is asserting against a pattern that is gone, re-derive it"
     )
-    # The loop runs in the checkout root with no `cd`, so its glob is
-    # non-recursive and anchored there. Both facts are load-bearing: a `cd`
-    # or an `**` would change which files it reaches.
-    assert "\n          cd " not in workflow, (
-        "the relock workflow now changes directory; re-check which files its "
-        "requirements-*.in loop can reach"
+    # The loop must still live in the step that runs it from the checkout
+    # root. Scanning the whole file for `cd` was the first attempt and was
+    # wrong twice over: every line of all four `run: |` blocks is indented
+    # the same, so an unrelated `cd` in "Verify the regenerated locks" would
+    # have failed this gate, while a `cd` at any other indentation would
+    # have slipped past. Bound the check to the one step whose body decides
+    # what the glob reaches.
+    step = _regeneration_step(workflow)
+    assert pattern_line in step, (
+        "the requirements-*.in loop moved out of the 'Regenerate every "
+        ".in/.lock pair' step; this gate reasons about that step's working "
+        "directory, so re-derive it before trusting the result"
+    )
+    assert "cd " not in step, (
+        "the regeneration step now changes directory; its glob is no longer "
+        "anchored at the checkout root, so re-check which files it reaches"
     )
     relative = LOCK_IN.relative_to(REPO_ROOT)
     assert not fnmatch.fnmatch(relative.as_posix(), "requirements-*.in"), (
@@ -180,20 +210,67 @@ def test_the_pair_is_still_covered_by_the_freshness_gate() -> None:
     and this asserts the pair is really in it rather than trusting the
     comment.
     """
-    spec = importlib.util.spec_from_file_location("check_lock_freshness", FRESHNESS)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    covered = {
-        pathlib.Path(in_path).resolve() for in_path, _ in module.EXTRA_PAIRS
+    module = _freshness_module()
+    registered = {
+        (pathlib.Path(i).resolve(), pathlib.Path(lk).resolve())
+        for i, lk in module.EXTRA_PAIRS
     }
-    assert LOCK_IN.resolve() in covered, (
-        "ci/guarddog/requirements.in is not in check_lock_freshness.EXTRA_PAIRS; "
-        "the pair sits outside the root glob, so nothing else checks that the "
-        "lock still matches its input"
+    # The exact pair, not just the input: an entry pointing the guarddog `.in`
+    # at some other repository lock would satisfy a membership check on the
+    # input alone while checking the wrong file.
+    assert (LOCK_IN.resolve(), LOCK.resolve()) in registered, (
+        "check_lock_freshness.EXTRA_PAIRS does not register "
+        f"({LOCK_IN.name}, {LOCK.name}) as a pair; got {sorted(registered)}. "
+        "The pair sits outside the root glob, so nothing else checks that the "
+        "lock still matches its input."
     )
-    # The gate must agree with reality right now, not merely mention the path.
+    # And it must agree with reality right now, not merely list the path.
     assert module.check_paths(LOCK_IN, LOCK) == []
+
+
+def test_the_freshness_entry_point_really_checks_the_pair(tmp_path) -> None:
+    """Exercise `main()`, not just the data it reads.
+
+    Asserting membership in EXTRA_PAIRS proves the tuple exists; it does not
+    prove anything consumes it. Deleting the loop out of `main()` would leave
+    the tuple in place, the membership assertion green, and every CI
+    invocation silently no longer checking the moved lock -- the failure mode
+    this whole file exists to prevent.
+
+    So: point the module at a temporary copy of the pair, break the copy, and
+    require `main()` itself to report it.
+    """
+    module = _freshness_module()
+    broken_in = tmp_path / "requirements.in"
+    broken_lock = tmp_path / "requirements.txt"
+    broken_in.write_text("guarddog==999.999.999\n", encoding="utf-8")
+    broken_lock.write_text(LOCK.read_text(encoding="utf-8"), encoding="utf-8")
+
+    module.EXTRA_PAIRS = ((broken_in, broken_lock),)
+    module.ROOT = tmp_path
+    problems = module.check_extra_pairs()
+    assert problems, (
+        "check_extra_pairs() reported nothing for a lock that pins a different "
+        "version than its input"
+    )
+    assert "stale lock" in problems[0]
+
+    # The real entry point, with the real repository pairs plus the broken
+    # one, must exit non-zero. This is what catches the loop being removed.
+    module.ROOT = REPO_ROOT
+    module.EXTRA_PAIRS = (
+        (LOCK_IN, LOCK),
+        (broken_in, broken_lock),
+    )
+    assert module.main() == 1, (
+        "main() returned success while an EXTRA_PAIRS entry was stale -- the "
+        "loop is not wired into the entry point, so CI checks nothing here"
+    )
+
+    # Control: with only the genuine pair, the same entry point passes. Without
+    # this the assertion above would also hold for a main() that always fails.
+    module.EXTRA_PAIRS = ((LOCK_IN, LOCK),)
+    assert module.main() == 0
 
 
 def test_dependabot_is_told_to_skip_the_directory() -> None:

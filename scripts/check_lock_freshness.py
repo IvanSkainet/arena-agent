@@ -57,8 +57,17 @@ EXTRA_PAIRS: tuple[tuple[Path, Path], ...] = (
     # `pip install --require-hashes` fail with ResolutionImpossible before
     # the scanner ran, turning the required GuardDog check red while no
     # malware scan happened (#285, #307). The lock is regenerated whole,
-    # alongside a guarddog bump; this pair is still checked here so a
-    # hand-edited pin cannot pass unnoticed.
+    # alongside a guarddog bump.
+    #
+    # What this entry buys, precisely: the direct pin in the `.in` must
+    # match the lock, and every lock entry must carry a hash. It does NOT
+    # prove the transitive closure came from a real compile -- an edited
+    # transitive pin that keeps a syntactically valid `--hash=` passes
+    # here, and would then fail at install time when the hash does not
+    # match the artifact on PyPI. That is the same guarantee the root
+    # pairs get; proving the closure means running the resolver, which is
+    # the generator's job and is deliberately out of scope (see the module
+    # docstring).
     (ROOT / "ci" / "guarddog" / "requirements.in",
      ROOT / "ci" / "guarddog" / "requirements.txt"),
 )
@@ -152,9 +161,16 @@ def hash_problems(
 
 
 def check_paths(in_path: Path, lock_path: Path) -> list[str]:
-    label = in_path.relative_to(ROOT).as_posix()
-    if not in_path.exists() or not lock_path.exists():
-        return [f"{label}: missing .in or .lock of the pair"]
+    missing = [
+        path.relative_to(ROOT).as_posix()
+        for path in (in_path, lock_path)
+        if not path.exists()
+    ]
+    if missing:
+        # Name the actual files. The guarddog pair's lock is called
+        # `requirements.txt`, so a hardcoded ".lock" would send the reader
+        # looking for a file that never existed.
+        return [f"{', '.join(missing)}: missing from the pair"]
 
     declared = parse_in(in_path)
     pinned, hashed = parse_lock(lock_path)
