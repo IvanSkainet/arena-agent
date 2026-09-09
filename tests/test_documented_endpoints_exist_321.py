@@ -27,10 +27,12 @@ part a machine can settle. A wrong method, an invented description of what an
 endpoint does, or a claim like "the default timeout is 60 s" all pass this
 gate untouched -- documentation is not verified because this is green.
 
-The reverse direction is deliberately not checked. There are 254 routes;
-demanding prose for every one of them produces a wall of failures about
-internal endpoints nobody meant to document, and a gate that noisy gets
-deleted within a month.
+The reverse direction is deliberately not checked. The registry holds
+several hundred routes; demanding prose for every one of them produces a
+wall of failures about internal endpoints nobody meant to document, and a
+gate that noisy gets deleted within a month. No count is quoted here on
+purpose -- a number in a comment is exactly the kind of thing that goes
+stale and then contradicts the parser twenty lines below it.
 """
 
 from __future__ import annotations
@@ -71,11 +73,17 @@ _ROW = re.compile(r"""\(\s*['"][A-Z/]+['"]\s*,\s*['"](/[^'"]+)['"]""")
 
 # A path inside single backticks: `/v1/exec/script`. Anything looser starts
 # matching prose that merely mentions a version number.
-# No dots: `/v1/tunnels/active.public_url` is a JSON field of the response
-# from `/v1/tunnels/active`, and prose writes it that way. Treating it as a
-# path invents a route nobody claimed existed. Real paths carry no dot
-# outside a `{path:.*}` placeholder, which normalisation removes first.
-_DOC_PATH = re.compile(r"`(/v1/[A-Za-z0-9_/{}-]*)`")
+# Dots are legal inside a placeholder and nowhere else. `{path:.*}` is a real
+# registered shape (`/v1/code/runs/{run_id}/artifacts/{path:.*}`), while
+# `/v1/tunnels/active.public_url` is a JSON field of the response from
+# `/v1/tunnels/active` and prose writes it that way -- treating that as a
+# route invents one nobody claimed existed.
+#
+# Excluding dots everywhere was the first attempt and it left a hole: a
+# documented route ending in `{path:.*}` did not match at all, so an invented
+# one would have been skipped rather than caught.
+_DOC_PATH = re.compile(
+    r"`(/v1(?:/(?:[A-Za-z0-9_-]+|\{[^}`]+\}))*)`")
 
 # CDP handlers are registered once per prefix through an f-string:
 #   _register_cdp_prefix(app, h, "/v1/browser/cdp")
@@ -119,14 +127,28 @@ def _registered_paths() -> set[str]:
     return {_placeholders_normalised(path) for path in literal}
 
 
+def _is_prose(doc: pathlib.Path) -> bool:
+    """A file whose endpoint mentions are claims about the current build."""
+    relative = doc.relative_to(REPO_ROOT).as_posix()
+    return doc.is_file() and not relative.startswith(DOC_EXCLUDE)
+
+
 def _prose_files() -> list[pathlib.Path]:
-    """The documents whose endpoint mentions are claims about today."""
-    seen: dict[str, pathlib.Path] = {}
-    for pattern in DOC_GLOBS:
-        for doc in sorted(REPO_ROOT.glob(pattern)):
-            relative = doc.relative_to(REPO_ROOT).as_posix()
-            if doc.is_file() and not relative.startswith(DOC_EXCLUDE):
-                seen[relative] = doc
+    """Every such document, each one once.
+
+    Deduplicated by relative path because the globs may overlap: a file
+    matched by two patterns would otherwise be read and scanned twice.
+    """
+    matched = (
+        doc
+        for pattern in DOC_GLOBS
+        for doc in REPO_ROOT.glob(pattern)
+    )
+    seen = {
+        doc.relative_to(REPO_ROOT).as_posix(): doc
+        for doc in matched
+        if _is_prose(doc)
+    }
     return [seen[key] for key in sorted(seen)]
 
 
@@ -141,6 +163,31 @@ def _documented_paths() -> dict[str, list[str]]:
             if where not in sources:
                 sources.append(where)
     return found
+
+
+def test_the_wiki_glob_is_not_dead_weight() -> None:
+    """`.cubic/wiki` is absent today, and that has to stay visible.
+
+    The gate was written because a generated wiki invented three endpoints
+    (#265, #321). That wiki is not in the tree: the sync PR is unmerged, so
+    the glob matches nothing and the case this exists for is not covered by
+    the run -- only `docs/`, `README.md` and `AGENTS.md` are.
+
+    Asserting the absence is not a way of pretending it is covered. It is a
+    tripwire: whichever way the directory arrives -- the sync PR merged, a
+    hand-written page, a bot -- this fails and says the coverage claim just
+    changed and the glob now has to earn its place. Silence, in a file whose
+    whole subject is claims that nobody re-checks, would be the wrong
+    default.
+    """
+    wiki = REPO_ROOT / ".cubic" / "wiki"
+    pages = sorted(wiki.rglob("*.md")) if wiki.is_dir() else []
+    assert not pages, (
+        f"{len(pages)} wiki pages exist now, so the `.cubic/wiki/**/*.md` "
+        "entry in DOC_GLOBS is live. Confirm this gate actually reads them "
+        "-- generated pages are the reason it was written -- then delete "
+        "this test, which only asserts they were absent."
+    )
 
 
 def test_the_registry_is_readable() -> None:
