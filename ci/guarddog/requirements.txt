@@ -11,22 +11,34 @@
 #       -o ci/guarddog/requirements.txt ci/guarddog/requirements.in
 #
 # It lives here, and not in the repository root as
-# `requirements-guarddog.txt`, because Dependabot's pip ecosystem is
-# declared with `directory: "/"` and cannot be told to skip one file. It
-# saw this lock as an ordinary requirements file and proposed bumps one
-# package at a time -- but these are guarddog's OWN transitive pins, and
-# guarddog 3.2.0 constrains `tarsafe >=0.0.5,<0.0.6` and
-# `disposable-email-domains >=0.0.237,<0.0.238`. Every isolated bump made
-# `pip install --require-hashes` die with ResolutionImpossible BEFORE the
-# scanner ran, so the required GuardDog check went red while no malware
-# scan happened at all (#285, twice in one PR; #307). Name-by-name
-# `ignore` entries were the first patch and do not scale: guarddog's
+# `requirements-guarddog.txt`, because it is not one of this project's
+# manifests: it is guarddog's OWN transitive closure, and it may only be
+# regenerated whole. While it sat in the root, Dependabot's pip ecosystem
+# read it as an ordinary requirements file and proposed bumps one package
+# at a time. guarddog 3.2.0 constrains `tarsafe >=0.0.5,<0.0.6` and
+# `disposable-email-domains >=0.0.237,<0.0.238`, so every isolated bump
+# made `pip install --require-hashes` die with ResolutionImpossible
+# BEFORE the scanner ran: the required GuardDog check went red while no
+# malware scan happened at all (#285, twice in one PR; #307). Name-by-name
+# `ignore` entries were the first patch and do not scale -- guarddog's
 # transitive set changes with every release, and the next name announces
 # itself as another red required check.
 #
-# Consequence of the move: this file is regenerated WHOLE, and only
-# together with a bump of guarddog itself, which is how upstream intends
-# its pins to travel.
+# What actually stops that is `exclude-paths: ["ci/guarddog/**"]` in
+# `.github/dependabot.yml`: it supports globs and individual files, and it
+# applies before manifest parsing, so nothing here is listed, parsed, or
+# turned into a pull request. The relocation is what makes ONE exclusion
+# prefix enough, and it is also load-bearing on its own account:
+# `directory: "/"` does not confine that ecosystem to the root -- it scans
+# below it too (dependabot-core#11360 asked for the opposite and the change
+# was reverted), so the move without the exclusion would not have helped
+# either. Both halves, or neither.
+#
+# Consequence: this file is regenerated WHOLE, and only together with a
+# bump of guarddog itself, which is how upstream intends its pins to
+# travel. Out of Dependabot's reach is not out of every gate's reach --
+# `scripts/check_lock_freshness.py` carries this pair in EXTRA_PAIRS, so a
+# hand-edited pin still fails a check.
 #
 # The 3.x floor is deliberate: 2.7.0 and below carry GHSA-xg9w-vg3g-6m68,
 # a path traversal in safe_extract() that gives a scanned package
