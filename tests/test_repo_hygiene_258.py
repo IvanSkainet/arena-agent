@@ -33,6 +33,11 @@ from __future__ import annotations
 
 import pathlib
 import subprocess
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+from tests._git_budget import git_timeout  # noqa: E402
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -61,9 +66,13 @@ def _tracked_files() -> list[pathlib.Path]:
     that are ignored and never shipped, and every one of them would be a
     false positive with a plausible-looking path.
     """
+    # The shared budget from tests/_git_budget.py, not a literal. Windows
+    # runners are slow enough at process creation that hand-picked numbers
+    # flaked here before (#145), and `tests/test_git_budget.py` enforces
+    # that every git call in the suite uses the one budget.
     result = subprocess.run(
         ["git", "ls-files", "-z"],
-        cwd=REPO_ROOT, capture_output=True, check=True,
+        cwd=REPO_ROOT, capture_output=True, check=True, timeout=git_timeout(),
     )
     # Decoded explicitly as UTF-8, not via `text=True`. That would use
     # locale.getpreferredencoding(), which is cp1252 on the Windows machine
