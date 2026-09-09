@@ -13,6 +13,22 @@ from arena.agentctl_extras.common import (
     sys,
 )
 
+# Outer bound for one `scripts/hwinfo.py` subprocess. The collector budgets
+# its own PowerShell pass to PS_PASS_BUDGET_S (20 s), but that bound covers
+# only the queries: interpreter startup, imports and JSON serialisation sit
+# outside it, and on a contended windows-latest runner those alone have
+# taken the difference. 30 s was the value that flaked in CI (#323), so this
+# is deliberately not 30.
+#
+# tests/test_hwinfo_timeout_budget.py reads this constant and asserts it
+# stays above the collector's internal budget, so the two cannot invert.
+HWINFO_SUBPROCESS_TIMEOUT_S = 60
+
+# `tailscale ... status` talks to a local daemon and answers immediately or
+# not at all. Unbounded, a wedged daemon hangs `agentctl status` with the
+# section header already printed and no way to tell what it is waiting on.
+TAILSCALE_STATUS_TIMEOUT_S = 10
+
 
 def _gpu_entries(raw):
     """Yield (name, vram) for whatever shape hwinfo reported.
@@ -102,9 +118,9 @@ def run_status(args=None):
     if shutil.which("tailscale"):
         try:
             if platform.system() == "Windows":
-                subprocess.run("tailscale funnel status 2>nul || tailscale serve status 2>nul", shell=True)  # nosec B604 -- fixed literal command string, no interpolation of any kind, so there is nothing for a shell to inject; `shell=True` is needed only for the `||` fallback / redirection.
+                subprocess.run("tailscale funnel status 2>nul || tailscale serve status 2>nul", shell=True, timeout=TAILSCALE_STATUS_TIMEOUT_S)  # nosec B604 -- fixed literal command string, no interpolation of any kind, so there is nothing for a shell to inject; `shell=True` is needed only for the `||` fallback / redirection.
             else:
-                subprocess.run("tailscale funnel status 2>/dev/null || tailscale serve status 2>/dev/null || true", shell=True)  # nosec B604 -- fixed literal command string, no interpolation of any kind, so there is nothing for a shell to inject; `shell=True` is needed only for the `||` fallback / redirection.
+                subprocess.run("tailscale funnel status 2>/dev/null || tailscale serve status 2>/dev/null || true", shell=True, timeout=TAILSCALE_STATUS_TIMEOUT_S)  # nosec B604 -- fixed literal command string, no interpolation of any kind, so there is nothing for a shell to inject; `shell=True` is needed only for the `||` fallback / redirection.
         except Exception as e:
             print(f"Failed to check Tailscale: {e}")
     else:
@@ -120,7 +136,18 @@ def run_status(args=None):
     try:
         hw_script = os.path.join(ROOT, "scripts", "hwinfo.py")
         if os.path.exists(hw_script):
-            res_hw = subprocess.run([sys.executable, hw_script], capture_output=True, text=True)
+            # Timed out, not unbounded. A full hwinfo pass budgets itself
+            # to PS_PASS_BUDGET_S internally, but that budget only binds
+            # PowerShell queries -- an interpreter that never reaches them,
+            # or a WMI service wedged before the first one returns, leaves
+            # this waiting forever and `agentctl status` hangs with no
+            # output and nothing to point at. HWINFO_SUBPROCESS_TIMEOUT_S
+            # is the same outer bound the tests use, from one place.
+            res_hw = subprocess.run(
+                [sys.executable, hw_script],
+                capture_output=True, text=True,
+                timeout=HWINFO_SUBPROCESS_TIMEOUT_S,
+            )
             if res_hw.returncode == 0:
                 h_data = json.loads(res_hw.stdout)
                 # Print OS

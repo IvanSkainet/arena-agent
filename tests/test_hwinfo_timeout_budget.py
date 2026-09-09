@@ -28,47 +28,124 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from arena.agentctl_extras import status  # noqa: E402
 from arena.system import hwinfo_cim  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 
-# Every outer budget that wraps a full hwinfo pass, with where it comes from.
-# Add a row when a new caller subprocesses hwinfo.
-OUTER_BUDGETS = {
-    "tests/test_project_modularity.py::test_modularized_cli_wrappers_import_cleanly": 30,
-}
+# Every caller that subprocesses a full hwinfo pass. The bound itself lives in
+# `arena.agentctl_extras.status` and is imported by both callers, so there is
+# one number rather than a table that has to be kept in step with the source.
+# The earlier version of this file duplicated the literal here and used `ast`
+# to check the copy still matched -- machinery whose only job was to detect
+# drift that a shared constant cannot have.
+HWINFO_CALLERS = (
+    "arena/agentctl_extras/status.py",
+    "tests/test_project_modularity.py",
+)
 
 
-def test_pass_budget_fits_inside_every_outer_budget():
+def test_pass_budget_fits_inside_the_outer_budget():
+    """The collector's own budget has to leave room for everything else.
+
+    PS_PASS_BUDGET_S bounds the PowerShell queries only. Interpreter
+    startup, imports and JSON serialisation are outside it, and on a
+    contended windows-latest runner they are what consumed the old 10 s of
+    headroom (#323).
+    """
     worst = hwinfo_cim.PS_PASS_BUDGET_S
-    for where, outer in OUTER_BUDGETS.items():
-        assert worst < outer, (
-            f"hwinfo worst case {worst}s does not fit in the {outer}s budget at {where}"
+    outer = status.HWINFO_SUBPROCESS_TIMEOUT_S
+    assert worst < outer, (
+        f"hwinfo pass budget {worst}s does not fit inside the {outer}s "
+        "subprocess bound"
+    )
+    assert outer - worst >= 30, (
+        f"only {outer - worst}s of headroom between the {worst}s pass budget "
+        f"and the {outer}s outer bound. Startup and serialisation live in "
+        "that gap, and 10s of it was not enough on windows-latest (#323)"
+    )
+
+
+def test_no_hwinfo_caller_uses_a_literal_timeout():
+    """A hand-picked number at a call site is how the budgets inverted.
+
+    Both callers must reference the shared constant. A literal would drift
+    from `PS_PASS_BUDGET_S` silently -- and would fail the way #323 did, as
+    an intermittent red on whichever runner was busiest, not as a clear
+    error here.
+    """
+    offenders = []
+    for relative in HWINFO_CALLERS:
+        source = (REPO / relative).read_text(encoding="utf-8")
+        for node in _hwinfo_run_calls(source):
+            for keyword in node.keywords:
+                if keyword.arg == "timeout" and isinstance(keyword.value, ast.Constant):
+                    offenders.append(f"{relative}:{node.lineno} timeout={keyword.value.value}")
+    assert not offenders, (
+        "hwinfo subprocess calls with a literal timeout instead of "
+        f"HWINFO_SUBPROCESS_TIMEOUT_S: {offenders}"
+    )
+
+
+def test_the_caller_scan_finds_something_in_every_caller():
+    """A matcher that quietly matches nothing would make the gate vacuous.
+
+    Both callers build argv from a local variable, so the hwinfo call is
+    recognised by the enclosing function rather than by a literal argument
+    -- and that kind of matching fails silently when a name changes. This
+    is the tripwire for that: it caught the first version of the scan,
+    which looked for a variable named `checks` while the loop actually
+    passes `cmd`.
+    """
+    for relative in HWINFO_CALLERS:
+        source = (REPO / relative).read_text(encoding="utf-8")
+        assert _hwinfo_run_calls(source), (
+            f"no hwinfo subprocess call found in {relative} -- the scan is "
+            "looking for the wrong thing and the literal check above is "
+            "passing on nothing"
         )
 
 
-def test_outer_budget_table_matches_the_real_test_source():
-    """The table above must not drift from the caller it claims to describe.
+# The functions that shell out to hwinfo, by name. Identifying the call by its
+# enclosing function survives a rename of the argv variable; matching on the
+# variable did not.
+_HWINFO_CALL_SITES = ("run_status", "test_modularized_cli_wrappers_import_cleanly")
 
-    A stale table would let this gate pass while the real caller shrank its
-    timeout -- the failure mode this file exists to prevent.
-    """
-    src = (REPO / "tests" / "test_project_modularity.py").read_text(encoding="utf-8")
-    tree = ast.parse(src)
-    found = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.FunctionDef):
-            continue
-        if node.name != "test_modularized_cli_wrappers_import_cleanly":
+
+def _hwinfo_run_calls(source: str) -> list[ast.Call]:
+    """Every `subprocess.run(...)` inside a function that runs hwinfo."""
+    calls: list[ast.Call] = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.FunctionDef) or node.name not in _HWINFO_CALL_SITES:
             continue
         for sub in ast.walk(node):
-            if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute) and sub.func.attr == "run":
-                for kw in sub.keywords:
-                    if kw.arg == "timeout" and isinstance(kw.value, ast.Constant):
-                        found.append(kw.value.value)
-    assert found, "could not find the subprocess timeout in the caller"
-    declared = OUTER_BUDGETS["tests/test_project_modularity.py::test_modularized_cli_wrappers_import_cleanly"]
-    assert set(found) == {declared}, f"caller uses {found}, table says {declared}"
+            if (isinstance(sub, ast.Call)
+                    and isinstance(sub.func, ast.Attribute)
+                    and sub.func.attr == "run"
+                    and _runs_hwinfo(sub)):
+                calls.append(sub)
+    return calls
+
+
+# argv variables that hold an hwinfo command at the two call sites. Matching
+# the enclosing function alone swept up the neighbouring tailscale and git
+# calls, which legitimately carry their own small literals; matching on the
+# string "hwinfo" inside the call matched nothing, because both sites build
+# argv in a variable. The variable name is the thing that actually
+# identifies these two calls.
+_HWINFO_ARGV_NAMES = {"hw_script", "cmd"}
+
+
+def _runs_hwinfo(call: ast.Call) -> bool:
+    """Whether this `subprocess.run(...)` passes an hwinfo argv."""
+    if not call.args:
+        return False
+    mentioned = {
+        node.id
+        for node in ast.walk(call.args[0])
+        if isinstance(node, ast.Name)
+    }
+    return bool(mentioned & _HWINFO_ARGV_NAMES)
 
 
 def test_per_call_timeout_is_smaller_than_the_pass_budget():
