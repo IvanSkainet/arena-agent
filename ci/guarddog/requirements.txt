@@ -5,9 +5,53 @@
 # unreviewed, and every transitive dependency at whatever version
 # resolved that morning -- Sonar S8544 flagged exactly that on PR #228.
 #
-# Regenerate with:
-#     echo "guarddog==<version>" > gd.in
-#     pip-compile --generate-hashes --strip-extras -o requirements-guarddog.txt gd.in
+# Regenerate the pair together, with the hash-locked uv this repository
+# already uses for every other lock (plain `pip-compile` is neither pinned
+# nor installed here, so a command naming it is not reproducible in a
+# clean checkout):
+#
+#     python -m pip install --require-hashes -r requirements-relock.lock
+#     uv pip compile --universal --generate-hashes --strip-extras \
+#       --python-version 3.12 \
+#       -o ci/guarddog/requirements.txt ci/guarddog/requirements.in
+#
+# 3.12 is the interpreter .github/workflows/guarddog.yml runs the scanner
+# on. Unlike the CI locks this toolchain never lands on the 3.10 matrix
+# cell, so resolving for 3.10 would pin backports the scanner never uses.
+# Keep the two compile commands identical to the ones in requirements.in:
+# two headers giving different commands is how a non-reproducible lock gets
+# committed. Editing the version happens in requirements.in, which is the
+# file that carries it.
+#
+# It lives here, and not in the repository root as
+# `requirements-guarddog.txt`, because it is not one of this project's
+# manifests: it is guarddog's OWN transitive closure, and it may only be
+# regenerated whole. While it sat in the root, Dependabot's pip ecosystem
+# read it as an ordinary requirements file and proposed bumps one package
+# at a time. guarddog 3.2.0 constrains `tarsafe >=0.0.5,<0.0.6` and
+# `disposable-email-domains >=0.0.237,<0.0.238`, so every isolated bump
+# made `pip install --require-hashes` die with ResolutionImpossible
+# BEFORE the scanner ran: the required GuardDog check went red while no
+# malware scan happened at all (#285, twice in one PR; #307). Name-by-name
+# `ignore` entries were the first patch and do not scale -- guarddog's
+# transitive set changes with every release, and the next name announces
+# itself as another red required check.
+#
+# What actually stops that is `exclude-paths: ["ci/guarddog/**"]` in
+# `.github/dependabot.yml`: it supports globs and individual files, and it
+# applies before manifest parsing, so nothing here is listed, parsed, or
+# turned into a pull request. The relocation is what makes ONE exclusion
+# prefix enough, and it is also load-bearing on its own account:
+# `directory: "/"` does not confine that ecosystem to the root -- it scans
+# below it too (dependabot-core#11360 asked for the opposite and the change
+# was reverted), so the move without the exclusion would not have helped
+# either. Both halves, or neither.
+#
+# Consequence: this file is regenerated WHOLE, and only together with a
+# bump of guarddog itself, which is how upstream intends its pins to
+# travel. Out of Dependabot's reach is not out of every gate's reach --
+# `scripts/check_lock_freshness.py` carries this pair in EXTRA_PAIRS, so a
+# hand-edited pin still fails a check.
 #
 # The 3.x floor is deliberate: 2.7.0 and below carry GHSA-xg9w-vg3g-6m68,
 # a path traversal in safe_extract() that gives a scanned package
@@ -372,7 +416,7 @@ disposable-email-domains==0.0.237 \
 guarddog==3.2.0 \
     --hash=sha256:1937f9012ecec16ceab2725c7b4508e0a5e8399652d1287c9f14fd641dfc7f73 \
     --hash=sha256:e503812dc8cf79b74327b7a85a819d62bfb420e3fa8739a7f2f29a93a372c84d
-    # via -r /tmp/gd.in
+    # via -r ci/guarddog/requirements.in
 idna==3.19 \
     --hash=sha256:5e0811a4383b21dc5838069f801c4fb62113b7447663d2530d2bd6e77b49bf15 \
     --hash=sha256:815e7be7a7806d54abb586dc943addc79e8b2ee16915059658cbeff4b1b43bf4
