@@ -119,22 +119,27 @@ def _registered_paths() -> set[str]:
     return {_placeholders_normalised(path) for path in literal}
 
 
+def _prose_files() -> list[pathlib.Path]:
+    """The documents whose endpoint mentions are claims about today."""
+    seen: dict[str, pathlib.Path] = {}
+    for pattern in DOC_GLOBS:
+        for doc in sorted(REPO_ROOT.glob(pattern)):
+            relative = doc.relative_to(REPO_ROOT).as_posix()
+            if doc.is_file() and not relative.startswith(DOC_EXCLUDE):
+                seen[relative] = doc
+    return [seen[key] for key in sorted(seen)]
+
+
 def _documented_paths() -> dict[str, list[str]]:
     """Paths mentioned in prose, mapped to where each was mentioned."""
     found: dict[str, list[str]] = {}
-    for pattern in DOC_GLOBS:
-        for doc in sorted(REPO_ROOT.glob(pattern)):
-            if not doc.is_file():
-                continue
-            relative = doc.relative_to(REPO_ROOT).as_posix()
-            if relative.startswith(DOC_EXCLUDE):
-                continue
-            text = doc.read_text(encoding="utf-8", errors="replace")
-            for raw in _DOC_PATH.findall(text):
-                where = str(doc.relative_to(REPO_ROOT))
-                found.setdefault(_placeholders_normalised(raw), [])
-                if where not in found[_placeholders_normalised(raw)]:
-                    found[_placeholders_normalised(raw)].append(where)
+    for doc in _prose_files():
+        where = doc.relative_to(REPO_ROOT).as_posix()
+        text = doc.read_text(encoding="utf-8", errors="replace")
+        for raw in _DOC_PATH.findall(text):
+            sources = found.setdefault(_placeholders_normalised(raw), [])
+            if where not in sources:
+                sources.append(where)
     return found
 
 
