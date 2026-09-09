@@ -540,3 +540,53 @@ def _dotted_name(node: ast.AST) -> str:
     if isinstance(node, ast.Name):
         parts.append(node.id)
     return ".".join(reversed(parts))
+def test_status_decodes_command_output_leniently():
+    """`text=True` without `errors=` turns foreign output into a crash.
+
+    `capture_output=True, text=True` decodes as strict UTF-8 (cp1252 on
+    Windows), and `subprocess.run` raises `UnicodeDecodeError` from inside
+    the call -- before the return value exists, so no `returncode` check
+    downstream ever runs. A Tailscale peer named in Cyrillic, or a
+    `schtasks` listing on a localised Windows, is enough.
+
+    That is the same shape as an unbounded call: a status command that
+    fails on the machine it is meant to describe. It is also why the
+    per-verb handlers here catch `TimeoutExpired` and `OSError` rather
+    than everything -- a decode error is not something to fall back from,
+    it is something not to cause (cubic).
+    """
+    offenders = []
+    for relative in _NO_UNBOUNDED_SUBPROCESS:
+        offenders += [
+            f"{relative}:{call.lineno}"
+            for call in _blocking_calls_in(relative)
+            if _decodes_strictly(call)
+        ]
+    assert not offenders, (
+        "text=True decodes as strict UTF-8 and raises from inside the "
+        f"call on any byte that is not; pass errors=\"replace\": {offenders}"
+    )
+
+
+def _decodes_strictly(call: ast.Call) -> bool:
+    """Does this call ask for text without saying how to handle bad bytes?"""
+    wants_text = any(
+        keyword.arg in ("text", "universal_newlines")
+        and not (isinstance(keyword.value, ast.Constant) and not keyword.value.value)
+        for keyword in call.keywords
+    )
+    return wants_text and not _handles_bad_bytes(call)
+
+
+def _handles_bad_bytes(call: ast.Call) -> bool:
+    """Is a decoding policy actually set, and not just named?
+
+    `errors=None` is the default -- strict -- so passing it explicitly
+    changes nothing. This is `timeout=None` again: the keyword being
+    present is not the property worth checking.
+    """
+    return any(
+        keyword.arg in ("errors", "encoding")
+        and not (isinstance(keyword.value, ast.Constant) and keyword.value.value is None)
+        for keyword in call.keywords
+    )

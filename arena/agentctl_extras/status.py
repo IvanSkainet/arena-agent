@@ -85,7 +85,6 @@ def _os_label() -> str:
     return "Windows 11" if build >= 22000 else "Windows 10"
 
 
-
 def _print_tailscale_status() -> None:
     """Print `tailscale funnel status`, falling back to `serve status`.
 
@@ -114,8 +113,8 @@ def _print_tailscale_status() -> None:
         try:
             done = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
                 ["tailscale", verb, "status"],
-                capture_output=True, text=True, check=False,
-                timeout=TAILSCALE_STATUS_TIMEOUT_S,
+                capture_output=True, text=True, errors="replace",
+                check=False, timeout=TAILSCALE_STATUS_TIMEOUT_S,
             )
         except subprocess.TimeoutExpired:
             print(f"tailscale {verb} status: timed out after "
@@ -204,7 +203,7 @@ def run_status(args=None):
             # the hang, not a claim that nothing survives it.
             res_hw = subprocess.run(
                 [sys.executable, hw_script],
-                capture_output=True, text=True,
+                capture_output=True, text=True, errors="replace",
                 timeout=HWINFO_SUBPROCESS_TIMEOUT_S,
             )
             if res_hw.returncode == 0:
@@ -287,7 +286,8 @@ def run_status(args=None):
             _sc = subprocess.run(
                 ["systemctl", "--user", "--no-pager", "status",
                  "arena-unified-bridge.service"],
-                capture_output=True, text=True, check=False, timeout=10,
+                capture_output=True, text=True, errors="replace",
+                check=False, timeout=10,
             )
             out = _sc.stdout or ""
             for line in out.splitlines()[:100]:
@@ -319,7 +319,8 @@ def run_status(args=None):
             try:
                 r = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
                     ["schtasks", "/query", "/tn", svc_name, "/fo", "LIST"],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True, text=True, errors="replace",
+                    timeout=5,
                 )
                 registered = r.returncode == 0
             except Exception:
