@@ -124,7 +124,19 @@ def test_the_bound_is_not_rebound_to_something_smaller():
 
 
 def _assert_binding_is_the_real_constant(node: ast.AST, relative: str) -> None:
-    """Fail if `node` binds the required name to anything else."""
+    """Fail if `node` binds the required name to anything else.
+
+    Enumerating statement types is the wrong shape for this: the second
+    version listed ast.Assign and cubic pointed out that annotated
+    assignment, tuple unpacking, `for` and `with ... as` all bind a name
+    too. Confirmed by mutation -- all four walked past the check.
+
+    So the question asked here is not "which statement is this" but "does
+    this node bind the name". Python answers that itself: every binding of
+    a bare name is an ast.Name carrying ast.Store, whatever the statement
+    around it. Imports are the one exception, since they bind through an
+    alias rather than a Name node, so they stay a separate branch.
+    """
     if isinstance(node, (ast.Import, ast.ImportFrom)):
         for alias in node.names:
             if alias.asname == _REQUIRED_BOUND and alias.name != _REQUIRED_BOUND:
@@ -133,14 +145,16 @@ def _assert_binding_is_the_real_constant(node: ast.AST, relative: str) -> None:
                     f"name {_REQUIRED_BOUND}. The call site then looks correct "
                     "while binding a different, smaller bound."
                 )
-    elif isinstance(node, ast.Assign):
-        for target in node.targets:
-            if isinstance(target, ast.Name) and target.id == _REQUIRED_BOUND:
-                raise AssertionError(
-                    f"{relative}:{node.lineno} assigns to {_REQUIRED_BOUND} "
-                    f"({ast.unparse(node.value)}). The name must come from "
-                    "arena.agentctl_extras.status, not be rebound locally."
-                )
+    elif (
+        isinstance(node, ast.Name)
+        and isinstance(node.ctx, ast.Store)
+        and node.id == _REQUIRED_BOUND
+    ):
+        raise AssertionError(
+            f"{relative}:{node.lineno} rebinds {_REQUIRED_BOUND} locally. "
+            "The name must come from arena.agentctl_extras.status, so that "
+            "the call site cannot look correct while holding a smaller bound."
+        )
 
 
 def _timeout_argument(call: ast.Call) -> str | None:
