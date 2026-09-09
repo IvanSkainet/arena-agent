@@ -110,24 +110,27 @@ def _print_tailscale_status() -> None:
     if not shutil.which("tailscale"):
         print("tailscale not found in PATH")
         return
-    try:
-        for verb in ("funnel", "serve"):
-            try:
-                done = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
-                    ["tailscale", verb, "status"],
-                    capture_output=True, text=True, check=False,
-                    timeout=TAILSCALE_STATUS_TIMEOUT_S,
-                )
-            except subprocess.TimeoutExpired:
-                print(f"tailscale {verb} status: timed out after "
-                      f"{TAILSCALE_STATUS_TIMEOUT_S}s")
-                continue
-            if done.returncode == 0:
-                print(done.stdout, end="")
-                return
-        print("tailscale: neither funnel nor serve reported a status")
-    except Exception as e:
-        print(f"Failed to check Tailscale: {e}")
+    for verb in ("funnel", "serve"):
+        try:
+            done = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
+                ["tailscale", verb, "status"],
+                capture_output=True, text=True, check=False,
+                timeout=TAILSCALE_STATUS_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"tailscale {verb} status: timed out after "
+                  f"{TAILSCALE_STATUS_TIMEOUT_S}s")
+            continue
+        except OSError as e:
+            # `which` said yes and the launch still failed -- the binary
+            # went away in between, or is not executable. `funnel` failing
+            # this way is no reason not to ask `serve` (cubic).
+            print(f"tailscale {verb} status: {e}")
+            continue
+        if done.returncode == 0:
+            print(done.stdout, end="")
+            return
+    print("tailscale: neither funnel nor serve reported a status")
 
 
 def run_status(args=None):
