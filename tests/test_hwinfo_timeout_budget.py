@@ -73,6 +73,10 @@ _REQUIRED_BOUND = "HWINFO_SUBPROCESS_TIMEOUT_S"
 # the single source the other callers import.
 _DEFINING_MODULE = "arena/agentctl_extras/status.py"
 
+# The same module as an import path. A caller importing this name from
+# anywhere else has the right spelling and the wrong number (cubic).
+_DEFINING_MODULE_IMPORT = "arena.agentctl_extras.status"
+
 
 def test_every_hwinfo_call_binds_the_shared_bound():
     """Not merely "no literal" -- that name, specifically.
@@ -137,12 +141,23 @@ def _assert_binding_is_the_real_constant(node: ast.AST, relative: str) -> None:
     alias rather than a Name node, so they stay a separate branch.
     """
     if isinstance(node, (ast.Import, ast.ImportFrom)):
+        module = getattr(node, "module", None)
         for alias in node.names:
-            if alias.asname == _REQUIRED_BOUND and alias.name != _REQUIRED_BOUND:
+            bound_as = alias.asname or alias.name
+            if bound_as != _REQUIRED_BOUND:
+                continue
+            if alias.name != _REQUIRED_BOUND:
                 raise AssertionError(
                     f"{relative}:{node.lineno} imports {alias.name} under the "
                     f"name {_REQUIRED_BOUND}. The call site then looks correct "
                     "while binding a different, smaller bound."
+                )
+            if module != _DEFINING_MODULE_IMPORT:
+                raise AssertionError(
+                    f"{relative}:{node.lineno} imports {_REQUIRED_BOUND} from "
+                    f"{module!r}. The right name from the wrong module is the "
+                    "same failure as the wrong name: only "
+                    f"{_DEFINING_MODULE_IMPORT} defines this bound."
                 )
     elif (
         isinstance(node, ast.Name)
@@ -344,6 +359,19 @@ def test_ten_starved_queries_finish_well_inside_the_outer_budget(monkeypatch):
 # unbounded call in a sibling is a failure rather than an omission.
 _NO_UNBOUNDED_SUBPROCESS = ("arena/agentctl_extras/status.py",)
 
+# Everything in `subprocess` that blocks until the child exits and accepts
+# `timeout=`. The first version of the gate listed only `run` and
+# `check_output`, and `status.py` had an unbounded `subprocess.call` in
+# `cmd_ctx` the whole time -- the gate passed while claiming module-wide
+# coverage (Aikido, cubic). `Popen` is deliberately absent: it does not
+# block and takes no timeout, so it has to be bounded at its `wait`.
+_BLOCKING_SUBPROCESS_CALLS = (
+    "subprocess.run",
+    "subprocess.call",
+    "subprocess.check_call",
+    "subprocess.check_output",
+)
+
 
 def test_no_subprocess_call_in_status_runs_without_a_timeout():
     """A bound that only some calls carry is not a bound.
@@ -371,7 +399,7 @@ def test_no_subprocess_call_in_status_runs_without_a_timeout():
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            if _dotted_name(node.func) not in ("subprocess.run", "subprocess.check_output"):
+            if _dotted_name(node.func) not in _BLOCKING_SUBPROCESS_CALLS:
                 continue
             seen += 1
             if not any(kw.arg == "timeout" for kw in node.keywords):

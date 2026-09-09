@@ -29,6 +29,13 @@ HWINFO_SUBPROCESS_TIMEOUT_S = 60
 # section header already printed and no way to tell what it is waiting on.
 TAILSCALE_STATUS_TIMEOUT_S = 10
 
+# `agentctl ctx` shells out to a skill that talks to the model, so it is
+# slow by design and a short bound would be a bug. It still needs one: the
+# call was unbounded, and a wedged skill left the CLI waiting forever with
+# no way to tell whether it was working. Ten minutes is past any honest
+# run and short of a lost afternoon.
+CTX_SKILL_TIMEOUT_S = 600
+
 
 def _gpu_entries(raw):
     """Yield (name, vram) for whatever shape hwinfo reported.
@@ -310,5 +317,13 @@ def run_status(args=None):
             print("  - unified bridge: not running")
 
 def cmd_ctx(_args: list[str]) -> int:
+    """Run the digest skill, bounded, and report why if it did not finish."""
     python = shutil.which("python3") or shutil.which("python") or sys.executable
-    return subprocess.call([python, str(AGENTCTL), "skill", "run", "core/digest"])
+    try:
+        return subprocess.call(  # nosec B603 -- fixed argv, no shell
+            [python, str(AGENTCTL), "skill", "run", "core/digest"],
+            timeout=CTX_SKILL_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"ctx: digest skill did not finish within {CTX_SKILL_TIMEOUT_S}s")
+        return 1
