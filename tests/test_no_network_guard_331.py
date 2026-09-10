@@ -194,6 +194,8 @@ def test_the_guard_is_installed_for_unmarked_tests(suite_conftest):
     assert socket.socket.connect.__name__ == "guarded_connect"
 
 
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"),
+                    reason="AF_UNIX does not exist on Windows")
 def test_a_unix_socket_is_not_treated_as_the_network(suite_conftest):
     """A filesystem socket is local by construction, so it is allowed.
 

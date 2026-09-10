@@ -177,8 +177,12 @@ def _no_outbound_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
     # (cubic, aikido). `send` is left alone deliberately -- it can only
     # follow a `connect` that was already judged -- while `sendto` and
     # `sendmsg` carry their own destination and are checked against it.
+    # `sendmsg` is POSIX-only: it does not exist on Windows, and reading
+    # the attribute unconditionally took the whole Windows matrix down
+    # with an AttributeError inside the fixture. Each entry point is
+    # patched only where the platform has it.
     real_sendto = socket.socket.sendto
-    real_sendmsg = socket.socket.sendmsg
+    real_sendmsg = getattr(socket.socket, "sendmsg", None)
 
     def _destination(args: tuple) -> object | None:
         """The address argument, which is last and sometimes absent."""
@@ -207,4 +211,5 @@ def _no_outbound_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
         return real_sendmsg(self, *args, **kwargs)
 
     monkeypatch.setattr(socket.socket, "sendto", guarded_sendto)
-    monkeypatch.setattr(socket.socket, "sendmsg", guarded_sendmsg)
+    if real_sendmsg is not None:
+        monkeypatch.setattr(socket.socket, "sendmsg", guarded_sendmsg)
