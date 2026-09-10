@@ -102,7 +102,10 @@ def test_urlopen_is_covered_without_being_patched(suite_conftest):
     `socket.create_connection`, which is why the guard sits there.
     """
     with pytest.raises(suite_conftest.NetworkUseInTest):
-        urllib.request.urlopen("https://huggingface.co/whatever", timeout=5)
+        urllib.request.urlopen(  # nosec B310 -- fixed https literal that
+            # must never be reached: the assertion is that the guard
+            # refuses it before a socket is opened.
+            "https://huggingface.co/whatever", timeout=5)
 
 
 def test_loopback_is_left_alone(suite_conftest):
