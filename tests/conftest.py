@@ -132,12 +132,25 @@ def _refuse(address: object) -> NetworkUseInTest:
     )
 
 
-@pytest.fixture(autouse=True)
-def _no_outbound_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
-    """Refuse non-loopback connections for the duration of each test."""
-    if request.node.get_closest_marker(_ALLOW_MARKER):
-        return
+def _destination(args: tuple) -> object | None:
+    """The address argument of a send call: last, and sometimes absent."""
+    return args[-1] if args and isinstance(args[-1], (tuple, str, bytes)) else None
 
+
+def _may_send_to(sock: socket.socket, target: object) -> bool:
+    """May this socket put a datagram on the wire for this address?
+
+    Explicitly not `_allowed`: that function waves every UDP socket
+    through, because a UDP *connect* transmits nothing. A `sendto` does
+    transmit, so reusing the connect-time rule here would reproduce the
+    hole this guard exists to close.
+    """
+    host = target[0] if isinstance(target, tuple) and target else target
+    return _is_unix_socket(sock) or _is_loopback(host)
+
+
+def _install_connect_guards(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Refuse the calls that open a connection."""
     real_connect = socket.socket.connect
     real_connect_ex = socket.socket.connect_ex
 
@@ -170,33 +183,22 @@ def _no_outbound_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
 
     monkeypatch.setattr(socket, "create_connection", guarded_create_connection)
 
-    # The UDP exemption above is about `connect`, which transmits nothing.
-    # Sending is a different act: a test could `connect` a datagram socket
-    # to a public address under the exemption and then actually put
-    # packets on the wire, which the suite-wide claim says cannot happen
-    # (cubic, aikido). `send` is left alone deliberately -- it can only
-    # follow a `connect` that was already judged -- while `sendto` and
-    # `sendmsg` carry their own destination and are checked against it.
-    # `sendmsg` is POSIX-only: it does not exist on Windows, and reading
-    # the attribute unconditionally took the whole Windows matrix down
-    # with an AttributeError inside the fixture. Each entry point is
-    # patched only where the platform has it.
+
+def _install_send_guards(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Refuse the calls that carry their own destination.
+
+    The UDP exemption in `_allowed` is about `connect`, which transmits
+    nothing. Sending is a different act: a test could connect a datagram
+    socket under that exemption and then put real packets on the wire
+    (cubic, aikido). `send` is left alone deliberately -- it can only
+    follow a `connect` that was already judged.
+
+    `sendmsg` is POSIX-only. Reading the attribute unconditionally took
+    the whole Windows matrix down with an AttributeError inside the
+    fixture, so each entry point is patched only where it exists.
+    """
     real_sendto = socket.socket.sendto
     real_sendmsg = getattr(socket.socket, "sendmsg", None)
-
-    def _destination(args: tuple) -> object | None:
-        """The address argument, which is last and sometimes absent."""
-        return args[-1] if args and isinstance(args[-1], (tuple, str, bytes)) else None
-
-    def _may_send_to(sock: socket.socket, target: object) -> bool:
-        """Explicitly not `_allowed`: that waves every UDP socket through.
-
-        `_sends_nothing` exists because a UDP *connect* transmits
-        nothing. A `sendto` does, so reusing `_allowed` here would have
-        left the hole this guard is meant to close.
-        """
-        host = target[0] if isinstance(target, tuple) and target else target
-        return _is_unix_socket(sock) or _is_loopback(host)
 
     def guarded_sendto(self, *args, **kwargs):
         target = _destination(args)
@@ -213,3 +215,12 @@ def _no_outbound_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
     monkeypatch.setattr(socket.socket, "sendto", guarded_sendto)
     if real_sendmsg is not None:
         monkeypatch.setattr(socket.socket, "sendmsg", guarded_sendmsg)
+
+
+@pytest.fixture(autouse=True)
+def _no_outbound_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
+    """Refuse non-loopback networking for the duration of each test."""
+    if request.node.get_closest_marker(_ALLOW_MARKER):
+        return
+    _install_connect_guards(monkeypatch)
+    _install_send_guards(monkeypatch)
