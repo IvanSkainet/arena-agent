@@ -55,6 +55,10 @@ _SUMMARY = re.compile(
 _PROGRESS_COMPLETE = re.compile(r"\[\s*100%\]")
 _COUNTER = re.compile(r"(\d+)\s+(passed|failed|errors?|skipped|xfailed|xpassed)")
 _COLLECTED = re.compile(r"^collected\s+(\d+)\s+items?", re.MULTILINE)
+# pytest's banner. A capture holding more than one run must be judged on
+# its last one: the markers of an earlier, completed run would otherwise
+# vouch for a later one that died (coderabbit).
+_SESSION_START = re.compile(r"^=+\s*test session starts\s*=+", re.MULTILINE)
 
 # A run that finished but executed far fewer tests than the baseline did
 # is not comparable either -- a collection error in one file removes its
@@ -160,8 +164,22 @@ def _shrink_reason(text: str, executed: int, baseline_count: int | None) -> str:
     return ""
 
 
+def _last_session(text: str) -> str:
+    """The final pytest run in the capture, ignoring any before it.
+
+    A log holding two runs -- an append instead of a truncate, or a
+    retry pasted after the first attempt -- otherwise lets the earlier
+    run's summary and `[100%]` vouch for a later one that never
+    finished (coderabbit). The wrapper truncates today, so this is
+    insurance rather than an observed failure.
+    """
+    starts = list(_SESSION_START.finditer(text))
+    return text[starts[-1].start():] if starts else text
+
+
 def check(text: str, *, baseline_count: int | None = None) -> dict[str, object]:
     """Raise `Incomplete` unless this run reached the end of the session."""
+    text = _last_session(text)
     _reject_unfinished_session(text)
     executed = _executed(text)
     if reason := _shrink_reason(text, executed, baseline_count):

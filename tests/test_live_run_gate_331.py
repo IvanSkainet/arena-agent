@@ -220,3 +220,19 @@ def test_a_later_summary_shaped_line_cannot_override_the_real_counts():
     with pytest.raises(live_run_gate.Incomplete) as caught:
         live_run_gate.check(forged, baseline_count=1000)
     assert "10 tests ran" in str(caught.value)
+
+
+def test_only_the_last_run_in_a_capture_is_judged():
+    """An earlier complete run must not vouch for a later dead one.
+
+    If a capture is appended to rather than truncated, or a retry is
+    pasted after a first attempt, the first run's summary and `[100%]`
+    are still in the file. Judging the whole text let those markers
+    certify a second run that died at 12% (coderabbit).
+    """
+    two_runs = ("........ [100%]\n"
+                "===== 1 failed, 500 passed in 100.00s =====\n"
+                "======== test session starts ========\n"
+                "..... [ 12%]\n")
+    with pytest.raises(live_run_gate.Incomplete):
+        live_run_gate.check(two_runs, baseline_count=400)
