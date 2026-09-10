@@ -201,6 +201,21 @@ def _refuse_connected_datagram(sock: socket.socket) -> None:
         raise _refuse(peer)
 
 
+def _refuse_explicit_or_connected(sock: socket.socket, target: object) -> None:
+    """Judge the address given, or the connected peer when none is.
+
+    A send call either names its destination or inherits it from an
+    earlier `connect`. Only the first was checked, so the datagram
+    variants that omit the address -- `sendmsg([payload])` on a
+    connected socket -- passed unexamined (cubic, aikido).
+    """
+    if target is None:
+        _refuse_connected_datagram(sock)
+        return
+    if not _may_send_to(sock, target):
+        raise _refuse(target)
+
+
 def _install_send_guards(monkeypatch: pytest.MonkeyPatch) -> None:
     """Refuse the calls that carry their own destination.
 
@@ -223,6 +238,7 @@ def _install_send_guards(monkeypatch: pytest.MonkeyPatch) -> None:
     fixture, so each entry point is patched only where it exists.
     """
     real_send = socket.socket.send
+    real_sendall = socket.socket.sendall
     real_sendto = socket.socket.sendto
     real_sendmsg = getattr(socket.socket, "sendmsg", None)
 
@@ -230,19 +246,25 @@ def _install_send_guards(monkeypatch: pytest.MonkeyPatch) -> None:
         _refuse_connected_datagram(self)
         return real_send(self, *args, **kwargs)
 
+    def guarded_sendall(self, *args, **kwargs):
+        # `sendall` is implemented in C and does not dispatch through the
+        # patched `send`, so it needed its own guard (aikido).
+        _refuse_connected_datagram(self)
+        return real_sendall(self, *args, **kwargs)
+
     def guarded_sendto(self, *args, **kwargs):
-        target = _destination(args)
-        if target is not None and not _may_send_to(self, target):
-            raise _refuse(target)
+        _refuse_explicit_or_connected(self, _destination(args))
         return real_sendto(self, *args, **kwargs)
 
     def guarded_sendmsg(self, *args, **kwargs):
-        target = _destination(args)
-        if target is not None and not _may_send_to(self, target):
-            raise _refuse(target)
+        # `sock.sendmsg([payload])` on a connected socket carries no
+        # address, so checking only the argument let the connected peer
+        # through unexamined (cubic, aikido).
+        _refuse_explicit_or_connected(self, _destination(args))
         return real_sendmsg(self, *args, **kwargs)
 
     monkeypatch.setattr(socket.socket, "send", guarded_send)
+    monkeypatch.setattr(socket.socket, "sendall", guarded_sendall)
     monkeypatch.setattr(socket.socket, "sendto", guarded_sendto)
     if real_sendmsg is not None:
         monkeypatch.setattr(socket.socket, "sendmsg", guarded_sendmsg)

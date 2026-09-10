@@ -275,7 +275,10 @@ def test_a_connected_udp_socket_cannot_send_either(suite_conftest):
     """
     udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        udp.connect(("8.8.8.8", 53))
+        try:
+            udp.connect(("8.8.8.8", 53))
+        except OSError:
+            pytest.skip("no route to anywhere; nothing to send through")
         with pytest.raises(suite_conftest.NetworkUseInTest):
             udp.send(b"leak")
     finally:
@@ -294,3 +297,29 @@ def test_a_connected_loopback_udp_socket_can_still_send(suite_conftest):
     finally:
         receiver.close()
         sender.close()
+
+
+@pytest.mark.parametrize("call", ["sendall", "sendmsg"])
+def test_the_other_send_paths_are_closed_too(suite_conftest, call):
+    """`sendall` and an address-less `sendmsg` were both escapes.
+
+    `sendall` is implemented in C and does not dispatch through the
+    patched `send`; `sendmsg([payload])` on a connected socket carries
+    no address, so checking only the argument left the peer unexamined.
+    Both reached a public address before this (aikido, cubic).
+    """
+    if call == "sendmsg" and not hasattr(socket.socket, "sendmsg"):
+        pytest.skip("sendmsg is POSIX-only")
+    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        try:
+            udp.connect(("8.8.8.8", 53))
+        except OSError:
+            pytest.skip("no route to anywhere; nothing to send through")
+        with pytest.raises(suite_conftest.NetworkUseInTest):
+            if call == "sendall":
+                udp.sendall(b"leak")
+            else:
+                udp.sendmsg([b"leak"])
+    finally:
+        udp.close()
