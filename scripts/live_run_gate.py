@@ -93,31 +93,36 @@ def _reject_unfinished_session(text: str) -> None:
         )
 
 
-def _reject_missing_tests(text: str, executed: int, baseline_count: int | None) -> None:
-    """A finished session that ran too few tests is not comparable either."""
+def _shrink_reason(text: str, executed: int, baseline_count: int | None) -> str:
+    """Why this finished run is too small to compare, or "" if it is not.
+
+    Kept as one question with three sources, rather than three guard
+    clauses: they all answer "did enough of the suite actually run", and
+    a caller only ever needs the first true answer.
+    """
     if executed == 0:
-        raise Incomplete("the summary reports no tests at all.")
+        return "the summary reports no tests at all."
 
     collected = _COLLECTED.search(text)
     if collected and executed < int(collected.group(1)) * (1 - _SHRINK_TOLERANCE):
-        raise Incomplete(
-            f"collected {collected.group(1)} tests but only {executed} ran; "
-            "the session ended early."
-        )
+        return (f"collected {collected.group(1)} tests but only {executed} "
+                "ran; the session ended early.")
 
     if baseline_count is not None and executed < baseline_count * (1 - _SHRINK_TOLERANCE):
-        raise Incomplete(
-            f"{executed} tests ran against a baseline of {baseline_count}. "
-            "A run this much smaller reports fewer failures than the "
-            "baseline for the wrong reason -- it looks like an improvement."
-        )
+        return (f"{executed} tests ran against a baseline of "
+                f"{baseline_count}. A run this much smaller reports fewer "
+                "failures than the baseline for the wrong reason -- it "
+                "looks like an improvement.")
+
+    return ""
 
 
 def check(text: str, *, baseline_count: int | None = None) -> dict[str, object]:
     """Raise `Incomplete` unless this run reached the end of the session."""
     _reject_unfinished_session(text)
     executed = _executed(text)
-    _reject_missing_tests(text, executed, baseline_count)
+    if reason := _shrink_reason(text, executed, baseline_count):
+        raise Incomplete(reason)
     return {"executed": executed, **_counters(text)}
 
 
