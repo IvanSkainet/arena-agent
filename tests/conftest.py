@@ -184,6 +184,23 @@ def _install_connect_guards(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "create_connection", guarded_create_connection)
 
 
+def _refuse_connected_datagram(sock: socket.socket) -> None:
+    """Refuse a `send` on a datagram socket connected to the outside.
+
+    Only datagram sockets need this: a TCP `send` cannot outrun the
+    handshake its `connect` already passed. `getpeername` raises when the
+    socket is not connected, which is not this guard's business.
+    """
+    if sock.type != socket.SOCK_DGRAM:
+        return
+    try:
+        peer = sock.getpeername()
+    except OSError:
+        return
+    if not _may_send_to(sock, peer):
+        raise _refuse(peer)
+
+
 def _install_send_guards(monkeypatch: pytest.MonkeyPatch) -> None:
     """Refuse the calls that carry their own destination.
 
@@ -210,16 +227,7 @@ def _install_send_guards(monkeypatch: pytest.MonkeyPatch) -> None:
     real_sendmsg = getattr(socket.socket, "sendmsg", None)
 
     def guarded_send(self, *args, **kwargs):
-        # Only datagram sockets need this: a TCP `send` cannot outrun the
-        # handshake its `connect` already passed. `getpeername` raises if
-        # the socket is not connected, which is not this guard's business.
-        if self.type == socket.SOCK_DGRAM:
-            try:
-                peer = self.getpeername()
-            except OSError:
-                peer = None
-            if peer is not None and not _may_send_to(self, peer):
-                raise _refuse(peer)
+        _refuse_connected_datagram(self)
         return real_send(self, *args, **kwargs)
 
     def guarded_sendto(self, *args, **kwargs):
