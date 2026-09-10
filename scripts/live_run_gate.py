@@ -58,7 +58,8 @@ _COLLECTED = re.compile(r"^collected\s+(\d+)\s+items?", re.MULTILINE)
 # pytest's banner. A capture holding more than one run must be judged on
 # its last one: the markers of an earlier, completed run would otherwise
 # vouch for a later one that died (coderabbit).
-_SESSION_START = re.compile(r"^=+\s*test session starts\s*=+", re.MULTILINE)
+_SESSION_START = re.compile(
+    r"^(?:\x1b\[[0-9;]*m)*=+\s*test session starts", re.MULTILINE)
 
 # A run that finished but executed far fewer tests than the baseline did
 # is not comparable either -- a collection error in one file removes its

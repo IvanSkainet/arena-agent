@@ -236,3 +236,19 @@ def test_only_the_last_run_in_a_capture_is_judged():
                 "..... [ 12%]\n")
     with pytest.raises(live_run_gate.Incomplete):
         live_run_gate.check(two_runs, baseline_count=400)
+
+
+def test_a_coloured_banner_still_starts_a_new_session():
+    """Forced colour puts an escape sequence before the `=` rule.
+
+    The boundary matched a literal `=` at line start, so a coloured
+    second run was not recognised as a new session and the earlier run's
+    markers vouched for it again (aikido). `_SUMMARY` already tolerated
+    the same prefix.
+    """
+    coloured = "\x1b[1m=========== test session starts ===========\x1b[0m\n"
+    two_runs = ("........ [100%]\n"
+                "===== 1 failed, 500 passed in 100.00s =====\n"
+                + coloured + "..... [ 12%]\n")
+    with pytest.raises(live_run_gate.Incomplete):
+        live_run_gate.check(two_runs, baseline_count=400)
