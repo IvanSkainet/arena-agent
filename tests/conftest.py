@@ -190,15 +190,37 @@ def _install_send_guards(monkeypatch: pytest.MonkeyPatch) -> None:
     The UDP exemption in `_allowed` is about `connect`, which transmits
     nothing. Sending is a different act: a test could connect a datagram
     socket under that exemption and then put real packets on the wire
-    (cubic, aikido). `send` is left alone deliberately -- it can only
-    follow a `connect` that was already judged.
+    (cubic, aikido).
+
+    `send` is guarded too, and the first version of this was wrong to
+    skip it: the reasoning was that `send` can only follow a `connect`
+    that was already judged, which is true and irrelevant, because the
+    `connect` it follows may be the UDP one that `_sends_nothing` waved
+    through. `sock.connect(("8.8.8.8", 53))` then `sock.send(...)`
+    reached the public peer -- the exact egress this guard claims to
+    close (cubic, coderabbit). Its destination is the connected peer,
+    read back with `getpeername()`.
 
     `sendmsg` is POSIX-only. Reading the attribute unconditionally took
     the whole Windows matrix down with an AttributeError inside the
     fixture, so each entry point is patched only where it exists.
     """
+    real_send = socket.socket.send
     real_sendto = socket.socket.sendto
     real_sendmsg = getattr(socket.socket, "sendmsg", None)
+
+    def guarded_send(self, *args, **kwargs):
+        # Only datagram sockets need this: a TCP `send` cannot outrun the
+        # handshake its `connect` already passed. `getpeername` raises if
+        # the socket is not connected, which is not this guard's business.
+        if self.type == socket.SOCK_DGRAM:
+            try:
+                peer = self.getpeername()
+            except OSError:
+                peer = None
+            if peer is not None and not _may_send_to(self, peer):
+                raise _refuse(peer)
+        return real_send(self, *args, **kwargs)
 
     def guarded_sendto(self, *args, **kwargs):
         target = _destination(args)
@@ -212,6 +234,7 @@ def _install_send_guards(monkeypatch: pytest.MonkeyPatch) -> None:
             raise _refuse(target)
         return real_sendmsg(self, *args, **kwargs)
 
+    monkeypatch.setattr(socket.socket, "send", guarded_send)
     monkeypatch.setattr(socket.socket, "sendto", guarded_sendto)
     if real_sendmsg is not None:
         monkeypatch.setattr(socket.socket, "sendmsg", guarded_sendmsg)

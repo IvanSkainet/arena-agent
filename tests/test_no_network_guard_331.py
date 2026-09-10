@@ -194,8 +194,26 @@ def test_the_guard_is_installed_for_unmarked_tests(suite_conftest):
     assert socket.socket.connect.__name__ == "guarded_connect"
 
 
-@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"),
-                    reason="AF_UNIX does not exist on Windows")
+def _has_working_af_unix() -> bool:
+    """Can this platform actually make an AF_UNIX socket?
+
+    Measured rather than assumed: on the Windows host this suite guards,
+    Python 3.14.7 reports `hasattr(socket, "AF_UNIX") is False`. Some
+    Windows builds do expose the constant while refusing the socket, so
+    the constructor is tried too -- a skip is the right outcome for
+    both, and an error is not (cubic).
+    """
+    if not hasattr(socket, "AF_UNIX"):
+        return False
+    try:
+        socket.socket(socket.AF_UNIX, socket.SOCK_STREAM).close()
+    except OSError:
+        return False
+    return True
+
+
+@pytest.mark.skipif(not _has_working_af_unix(),
+                    reason="no usable AF_UNIX on this platform")
 def test_a_unix_socket_is_not_treated_as_the_network(suite_conftest):
     """A filesystem socket is local by construction, so it is allowed.
 
@@ -204,13 +222,19 @@ def test_a_unix_socket_is_not_treated_as_the_network(suite_conftest):
     interface -- DBus among them (cubic).
     """
     unix = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    assert suite_conftest._allowed(unix, "/run/user/1000/bus")
+    try:
+        assert suite_conftest._allowed(unix, "/run/user/1000/bus")
+    finally:
+        unix.close()
 
 
 def test_an_external_tcp_connection_is_still_refused(suite_conftest):
     """The unix-socket exemption must not widen to ordinary sockets."""
     tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    assert not suite_conftest._allowed(tcp, ("huggingface.co", 443))
+    try:
+        assert not suite_conftest._allowed(tcp, ("huggingface.co", 443))
+    finally:
+        tcp.close()
 
 
 def test_a_udp_datagram_to_the_outside_is_refused(suite_conftest):
@@ -222,8 +246,11 @@ def test_a_udp_datagram_to_the_outside_is_refused(suite_conftest):
     network was closed (cubic, aikido).
     """
     udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    with pytest.raises(suite_conftest.NetworkUseInTest):
-        udp.sendto(b"x", ("8.8.8.8", 53))
+    try:
+        with pytest.raises(suite_conftest.NetworkUseInTest):
+            udp.sendto(b"x", ("8.8.8.8", 53))
+    finally:
+        udp.close()
 
 
 def test_a_udp_datagram_to_loopback_still_works():
@@ -235,3 +262,35 @@ def test_a_udp_datagram_to_loopback_still_works():
     assert receiver.recv(16) == b"ping"
     receiver.close()
     sender.close()
+
+
+def test_a_connected_udp_socket_cannot_send_either(suite_conftest):
+    """The `connect` exemption must not become a send permit.
+
+    `connect` on a datagram socket is allowed because it transmits
+    nothing. The first version of this guard left `send` unpatched on
+    the reasoning that it can only follow an already-judged `connect` --
+    true, and irrelevant, because that `connect` may be the exempted UDP
+    one. This is the resulting escape, closed (cubic, coderabbit).
+    """
+    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        udp.connect(("8.8.8.8", 53))
+        with pytest.raises(suite_conftest.NetworkUseInTest):
+            udp.send(b"leak")
+    finally:
+        udp.close()
+
+
+def test_a_connected_loopback_udp_socket_can_still_send(suite_conftest):
+    """Local datagrams over a connected socket keep working."""
+    receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        receiver.bind(("127.0.0.1", 0))
+        sender.connect(receiver.getsockname())
+        sender.send(b"ping")
+        assert receiver.recv(16) == b"ping"
+    finally:
+        receiver.close()
+        sender.close()

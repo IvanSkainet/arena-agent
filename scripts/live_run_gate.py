@@ -77,10 +77,18 @@ def _counters(text: str) -> dict[str, int]:
     the gate then reports a finished run as having executed nothing
     (corgea, cubic, aikido, separately).
     """
-    matches = list(_SUMMARY.finditer(text))
+    # The first summary at or after the last `[100%]`, not the last one
+    # in the file. `matches[-1]` let any later line of the same shape --
+    # a captured log, a tool's own output -- override the real counts,
+    # which would make a truncated run look big enough to pass the
+    # shrink check (cubic). Verified: a bare `9999 passed in 900.00s`
+    # after a real `2 failed, 8 passed` was taken as the result.
+    progress = list(_PROGRESS_COMPLETE.finditer(text))
+    start = progress[-1].end() if progress else 0
+    matches = [m for m in _SUMMARY.finditer(text) if m.start() >= start]
     if not matches:
         return {}
-    line = text[matches[-1].start():matches[-1].end()]
+    line = text[matches[0].start():matches[0].end()]
     return {kind.rstrip("s"): int(n) for n, kind in _COUNTER.findall(line)}
 
 
@@ -92,19 +100,22 @@ def _executed(text: str) -> int:
 def _reject_unfinished_session(text: str) -> None:
     """The two signals that say the session never reached its end.
 
-    Both are required. The summary line is the only one that survives
-    `os._exit`, and `[100%]` is the only one that catches a run that
-    summarised an interruption. The `-qq` trap that hides the summary is
+    Both are required, and neither survives `os._exit` -- that is the
+    point. The summary is printed only when pytest reaches the end of
+    its session normally, so its absence is what exposes a run killed
+    mid-suite; `[100%]` catches the other shape, a run that reached the
+    reporter and summarised an interruption (cubic). The `-qq` trap that hides the summary is
     a wrapper bug, reported as such rather than tolerated here (cubic,
     aikido).
     """
     if not _SUMMARY.search(text):
         raise Incomplete(
             "no pytest summary line, so nothing proves the session reached "
-            "its end. On Windows pytest-timeout has no SIGALRM and ends a "
-            "stuck test by calling os._exit(1), which kills the run "
-            "mid-suite; the failure list is then a prefix, not a result "
-            "(#331).\n"
+            "its end. pytest prints it only on normal completion; on "
+            "Windows pytest-timeout has no SIGALRM and ends a stuck test by "
+            "calling os._exit(1), which kills the run mid-suite before the "
+            "line is written, and the failure list is then a prefix, not a "
+            "result (#331).\n"
             "If the run did finish: pyproject.toml already puts -q in "
             "addopts, so passing -q again makes -qq and pytest stops "
             "printing the summary. Drop the extra -q from the wrapper -- do "
@@ -133,11 +144,12 @@ def _shrink_reason(text: str, executed: int, baseline_count: int | None) -> str:
         return (f"collected {collected.group(1)} tests but only {executed} "
                 "ran; the session ended early.")
 
-    if baseline_count is not None and baseline_count < 0:
-        # A negative baseline makes the comparison below vacuously true,
-        # so an undersized run would be waved through (cubic). It can
-        # only come from a typo on the command line.
-        return f"baseline count {baseline_count} is negative."
+    if baseline_count is not None and baseline_count <= 0:
+        # Zero disables the size check exactly as thoroughly as a
+        # negative does -- `executed < 0` is never true -- and a real
+        # baseline is always a large positive count, so either is the
+        # command-line typo this guard exists to catch (cubic).
+        return f"baseline count {baseline_count} is not positive."
 
     if baseline_count is not None and executed < baseline_count * (1 - _SHRINK_TOLERANCE):
         return (f"{executed} tests ran against a baseline of "

@@ -74,7 +74,9 @@ def test_a_run_with_neither_end_of_session_signal_is_rejected():
 
     Named for what it actually asserts. It strips the summary as well as
     the marker, so the rejection comes from the summary check; the
-    99%-only case is covered by the coverage-table test below (cubic).
+    99%-with-a-summary case belongs to
+    `test_a_summary_without_a_finished_progress_bar_is_rejected`, which
+    is the test that exercises the `[100%]` check on its own (cubic).
     """
     almost = _COMPLETE.replace("[100%]", "[ 99%]").replace(
         "1 failed, 215 passed, 4 skipped in 210.11s", "")
@@ -189,12 +191,32 @@ def test_counters_survive_output_printed_after_the_summary():
     assert live_run_gate.check(noisy)["passed"] == 215
 
 
-def test_a_negative_baseline_is_refused():
-    """`--baseline-count -1` would otherwise disable the size check.
+@pytest.mark.parametrize("baseline", [0, -1])
+def test_a_non_positive_baseline_is_refused(baseline):
+    """`--baseline-count 0` disables the size check as fully as `-1`.
 
-    Any comparison against a negative count is trivially satisfied, so
-    a truncated run would be reported as comparable (cubic).
+    `executed < 0 * (1 - tolerance)` is never true, so a truncated run
+    would be reported as comparable. A real baseline is always a large
+    positive count, so either value is the typo the guard catches
+    (cubic).
     """
     with pytest.raises(live_run_gate.Incomplete) as caught:
-        live_run_gate.check(_COMPLETE, baseline_count=-1)
-    assert "negative" in str(caught.value)
+        live_run_gate.check(_COMPLETE, baseline_count=baseline)
+    assert "not positive" in str(caught.value)
+
+
+def test_a_later_summary_shaped_line_cannot_override_the_real_counts():
+    """Only the summary belonging to this run may set the counts.
+
+    Taking the last summary-shaped line in the file let anything printed
+    afterwards -- a captured log, another tool's output -- replace the
+    real result, which is how a truncated run would pass the shrink
+    check (cubic). The counts come from the first summary at or after
+    the last `[100%]`.
+    """
+    forged = ("........ [100%]\n"
+              "===== 2 failed, 8 passed in 3.0s =====\n"
+              "9999 passed in 900.00s\n")
+    with pytest.raises(live_run_gate.Incomplete) as caught:
+        live_run_gate.check(forged, baseline_count=1000)
+    assert "10 tests ran" in str(caught.value)
