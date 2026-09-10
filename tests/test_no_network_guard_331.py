@@ -15,40 +15,44 @@ import socket
 import sys
 import urllib.request
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
 
-# The module object pytest actually loaded, not a fresh one.
+# The module object pytest actually loaded, resolved lazily.
 #
-# `import conftest` is wrong: pytest puts a rootdir on sys.path for its
-# own discovery, and which one depends on how it was invoked -- from the
-# repo root, as CI does, the name resolves elsewhere. That turned the
-# whole matrix red on a guard that was working.
+# Three ways to get this wrong, all of which I tried:
 #
-# Re-importing the file by path is wrong too, and more quietly: it
-# builds a *second* module with its own `NetworkUseInTest` class, so
-# `pytest.raises` on it never matches the exception the installed
-# fixture raises, and every test here fails while the guard works
-# perfectly. Both mistakes were made on the way here.
+# `import conftest` resolves against whatever rootdir pytest put on
+# sys.path, which depends on the directory it was invoked from. Locally
+# that is `tests/`; CI runs from the repo root, so the name found
+# something else and every test here failed on a guard that worked.
 #
-# pytest registers the conftest it loaded under a plugin name, so ask
-# for that one.
-def _installed_conftest():
-    plugin = Path(__file__).resolve().parent / "conftest.py"
+# `spec_from_file_location` builds a *second* module with its own
+# `NetworkUseInTest` class, so `pytest.raises` never matches the
+# exception the installed fixture raises. Same false red, quieter cause.
+#
+# Searching `sys.modules` at import time is too early: conftest modules
+# are registered while pytest collects, and this file is imported during
+# that same pass. The lookup has to happen when a test runs.
+@pytest.fixture(scope="session")
+def suite_conftest() -> ModuleType:
+    """The live `tests/conftest.py`, as pytest loaded it."""
+    wanted = Path(__file__).resolve().parent / "conftest.py"
     for module in list(sys.modules.values()):
-        if getattr(module, "__file__", None) and Path(module.__file__) == plugin:
+        path = getattr(module, "__file__", None)
+        if path and Path(path).resolve() == wanted:
             return module
     raise AssertionError(
-        f"{plugin} is not loaded; the network guard is not installed")
+        f"{wanted} is not loaded, so the network guard is not installed"
+    )
 
-
-suite_conftest = _installed_conftest()
 
 _UNROUTABLE = ("192.0.2.1", 65432)  # RFC 5737 TEST-NET-1
 
 
-def test_a_tcp_connect_to_the_outside_is_refused():
+def test_a_tcp_connect_to_the_outside_is_refused(suite_conftest):
     """The failure mode is a hang; the guard turns it into an exception."""
     with pytest.raises(suite_conftest.NetworkUseInTest) as caught:
         socket.create_connection(_UNROUTABLE, timeout=5)
@@ -60,7 +64,7 @@ def test_a_tcp_connect_to_the_outside_is_refused():
     )
 
 
-def test_the_refusal_is_not_an_oserror():
+def test_the_refusal_is_not_an_oserror(suite_conftest):
     """Networking code catches `OSError` to retry, and would swallow this.
 
     If the guard raised `OSError`, `_download_atomic` would fall into
@@ -73,7 +77,7 @@ def test_the_refusal_is_not_an_oserror():
         socket.create_connection(_UNROUTABLE, timeout=5)
 
 
-def test_urlopen_is_covered_without_being_patched():
+def test_urlopen_is_covered_without_being_patched(suite_conftest):
     """Every HTTP client goes through `socket`, so only `socket` is patched.
 
     Patching `urlopen` would protect the callers someone remembered.
@@ -84,7 +88,7 @@ def test_urlopen_is_covered_without_being_patched():
         urllib.request.urlopen("https://huggingface.co/whatever", timeout=5)
 
 
-def test_loopback_is_left_alone():
+def test_loopback_is_left_alone(suite_conftest):
     """~20 tests bind and dial 127.0.0.1; they are not the hazard."""
     server = socket.socket()
     server.bind(("127.0.0.1", 0))
@@ -97,12 +101,12 @@ def test_loopback_is_left_alone():
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1", "127.0.0.53"])
-def test_loopback_is_recognised_by_name_and_by_literal(host):
+def test_loopback_is_recognised_by_name_and_by_literal(host, suite_conftest):
     assert suite_conftest._is_loopback(host) is True
 
 
 @pytest.mark.parametrize("host", ["8.8.8.8", "huggingface.co", "192.168.1.1", "::"])
-def test_everything_else_is_not_loopback(host):
+def test_everything_else_is_not_loopback(host, suite_conftest):
     """A LAN address is as irreproducible as a public one.
 
     `192.168.1.1` is the developer's router: reachable on one machine,
@@ -112,7 +116,7 @@ def test_everything_else_is_not_loopback(host):
     assert suite_conftest._is_loopback(host) is False
 
 
-def test_a_tcp_socket_is_not_waved_through_as_sending_nothing():
+def test_a_tcp_socket_is_not_waved_through_as_sending_nothing(suite_conftest):
     """The UDP exemption must be about UDP, not about everything.
 
     `_sends_nothing` returning True for every socket disables the guard
@@ -133,7 +137,7 @@ def test_a_tcp_socket_is_not_waved_through_as_sending_nothing():
         udp.close()
 
 
-def test_a_udp_connect_is_allowed_because_it_sends_nothing():
+def test_a_udp_connect_is_allowed_because_it_sends_nothing(suite_conftest):
     """`arena/mobile/access_info.py` uses this to find the tailnet address.
 
     A UDP `connect` performs a routing-table lookup and transmits no
@@ -151,7 +155,7 @@ def test_a_udp_connect_is_allowed_because_it_sends_nothing():
 
 
 @pytest.mark.allow_network
-def test_the_marker_actually_opts_out():
+def test_the_marker_actually_opts_out(suite_conftest):
     """Otherwise the escape hatch is decorative and gets removed.
 
     Connecting to TEST-NET-1 from here would hang, which is the thing
@@ -164,7 +168,7 @@ def test_the_marker_actually_opts_out():
     )
 
 
-def test_the_guard_is_installed_for_unmarked_tests():
+def test_the_guard_is_installed_for_unmarked_tests(suite_conftest):
     """The mirror image of the test above -- neither is meaningful alone."""
     assert socket.create_connection.__name__ == "guarded_create_connection"
     assert socket.socket.connect.__name__ == "guarded_connect"
