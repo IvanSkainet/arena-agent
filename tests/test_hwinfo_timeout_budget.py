@@ -407,7 +407,7 @@ def test_no_subprocess_call_in_status_runs_without_a_timeout():
     """
     offenders = []
     for relative in _NO_UNBOUNDED_SUBPROCESS:
-        calls = _blocking_calls_in(relative)
+        calls, constants = _blocking_calls_in(relative)
         assert calls, (
             f"{relative}: no subprocess call found at all -- this scan has "
             "gone blind and would pass no matter what the module does"
@@ -415,7 +415,7 @@ def test_no_subprocess_call_in_status_runs_without_a_timeout():
         offenders += [
             f"{relative}:{call.lineno} {reason}"
             for call in calls
-            if (reason := _unbounded_reason(call))
+            if (reason := _unbounded_reason(call, constants))
         ]
     assert not offenders, (
         "every blocking subprocess call must carry a timeout; found: "
@@ -423,27 +423,80 @@ def test_no_subprocess_call_in_status_runs_without_a_timeout():
     )
 
 
-def _blocking_calls_in(relative: str) -> list[ast.Call]:
-    """Every call in this module that waits on a child process."""
+def _blocking_calls_in(relative: str) -> tuple[list[ast.Call], dict[str, object]]:
+    """Blocking calls in this module, plus the constants a name may hold."""
     tree = ast.parse((REPO / relative).read_text(encoding="utf-8"))
     aliases = _subprocess_aliases(tree)
-    return [
+    calls = [
         node for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and _resolved_call_name(node.func, aliases) in _BLOCKING_SUBPROCESS_CALLS
     ]
+    return calls, _module_constants(tree)
 
 
-def _unbounded_reason(call: ast.Call) -> str:
+def _unbounded_reason(call: ast.Call, constants: dict[str, object]) -> str:
     """Why this call can wait forever, or "" if it cannot."""
     bound = next((kw for kw in call.keywords if kw.arg == "timeout"), None)
     if bound is None:
         return "no timeout"
-    # `timeout=None` is what subprocess means by "wait forever". Spelling
-    # the keyword is not the same as bounding the call.
-    if isinstance(bound.value, ast.Constant) and bound.value.value is None:
-        return "timeout=None"
+    value, known = _literal_value(bound.value, constants)
+    # An unknown value is a computed bound. Nothing here can say what it
+    # holds at run time, so this test does not pretend to; the point is
+    # that it is not one of the spellings of "forever".
+    if known and not _is_a_positive_number(value):
+        return f"timeout={ast.unparse(bound.value)} is {value!r}"
     return ""
+
+
+def _is_a_positive_number(value: object) -> bool:
+    """A bound that actually bounds. `None`, 0 and -1 do not."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+
+
+def _literal_value(node: ast.AST, constants: dict[str, object]) -> tuple[object, bool]:
+    """The value behind a literal or a module constant, and whether it is known.
+
+    `timeout=None` was never the interesting case on its own -- it is the
+    cheapest spelling of an unbounded call. `timeout=SOME_NAME` reads as
+    bounded and is not, if the name happens to hold `None`, so the name
+    has to be followed to the assignment it came from (cubic, CodeRabbit).
+    """
+    if isinstance(node, ast.Name):
+        if node.id in constants:
+            return constants[node.id], True
+        return None, False
+    try:
+        # `literal_eval` and not `isinstance(node, ast.Constant)`: `-1`
+        # parses as a `UnaryOp` wrapping `1`, so the narrower check reads
+        # a negative bound as "computed, cannot say" and waves it through.
+        return ast.literal_eval(node), True
+    except ValueError:
+        return None, False
+
+
+def _module_constants(tree: ast.Module) -> dict[str, object]:
+    """Module-level `NAME = <literal>` bindings, for following a name."""
+    return {
+        target.id: value
+        for node in tree.body
+        for value in _literal_or_nothing(getattr(node, "value", None))
+        for target in _assigned_names(node)
+        if isinstance(target, ast.Name)
+    }
+
+
+def _literal_or_nothing(node: ast.AST | None) -> list[object]:
+    """A one-item list holding the literal, or an empty one -- a filter."""
+    value, known = _literal_value(node, {}) if node is not None else (None, False)
+    return [value] if known else []
+
+
+def _assigned_names(node: ast.AST) -> list[ast.expr]:
+    """The targets of an assignment, annotated or not."""
+    if isinstance(node, ast.AnnAssign):
+        return [node.target]
+    return list(getattr(node, "targets", []))
 
 
 def test_status_does_not_reach_for_a_shell():
@@ -559,31 +612,37 @@ def test_status_decodes_command_output_leniently():
     """
     offenders = []
     for relative in _NO_UNBOUNDED_SUBPROCESS:
+        calls, constants = _blocking_calls_in(relative)
         offenders += [
             f"{relative}:{call.lineno}"
-            for call in _blocking_calls_in(relative)
-            if _decodes_strictly(call)
+            for call in calls
+            if _decodes_strictly(call, constants)
         ]
     assert not offenders, (
         "text=True decodes as strict UTF-8 and raises from inside the "
-        f"call on any byte that is not; pass errors=\"replace\": {offenders}"
+        "call on any byte that is not, and errors=\"ignore\" hides the "
+        f"damage instead; pass errors=\"replace\": {offenders}"
     )
 
 
-def _decodes_strictly(call: ast.Call) -> bool:
+def _decodes_strictly(call: ast.Call, constants: dict[str, object]) -> bool:
     """Does this call ask for text without saying how to handle bad bytes?"""
     wants_text = any(
         keyword.arg in ("text", "universal_newlines")
         and not (isinstance(keyword.value, ast.Constant) and not keyword.value.value)
         for keyword in call.keywords
     )
-    return wants_text and not _handles_bad_bytes(call)
+    return wants_text and not _handles_bad_bytes(call, constants)
 
 
-_STRICT_ERROR_POLICIES = (None, "strict")
+# Not merely "not strict": `"ignore"` drops the offending bytes, so a
+# name or a path silently loses characters and the output still looks
+# like a clean answer. A status command should show the damage
+# (CodeRabbit).
+_LENIENT_ERROR_POLICIES = ("replace", "backslashreplace", "surrogateescape")
 
 
-def _handles_bad_bytes(call: ast.Call) -> bool:
+def _handles_bad_bytes(call: ast.Call, constants: dict[str, object]) -> bool:
     """Is a lenient decoding policy actually set, and not just named?
 
     Only `errors=` decides what happens to a byte that will not decode.
@@ -592,9 +651,9 @@ def _handles_bad_bytes(call: ast.Call) -> bool:
     it was the same mistake twice over -- `errors=None` and
     `errors="strict"` are both spellings of the default (cubic).
     """
-    return any(
-        keyword.arg == "errors"
-        and isinstance(keyword.value, ast.Constant)
-        and keyword.value.value not in _STRICT_ERROR_POLICIES
-        for keyword in call.keywords
-    )
+    for keyword in call.keywords:
+        if keyword.arg != "errors":
+            continue
+        value, known = _literal_value(keyword.value, constants)
+        return known and value in _LENIENT_ERROR_POLICIES
+    return False
