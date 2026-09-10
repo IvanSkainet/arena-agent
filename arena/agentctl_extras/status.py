@@ -13,6 +13,29 @@ from arena.agentctl_extras.common import (
     sys,
 )
 
+# Outer bound for one `scripts/hwinfo.py` subprocess. The collector budgets
+# its own PowerShell pass to PS_PASS_BUDGET_S (20 s), but that bound covers
+# only the queries: interpreter startup, imports and JSON serialisation sit
+# outside it, and on a contended windows-latest runner those alone have
+# taken the difference. 30 s was the value that flaked in CI (#323), so this
+# is deliberately not 30.
+#
+# tests/test_hwinfo_timeout_budget.py reads this constant and asserts it
+# stays above the collector's internal budget, so the two cannot invert.
+HWINFO_SUBPROCESS_TIMEOUT_S = 60
+
+# `tailscale ... status` talks to a local daemon and answers immediately or
+# not at all. Unbounded, a wedged daemon hangs `agentctl status` with the
+# section header already printed and no way to tell what it is waiting on.
+TAILSCALE_STATUS_TIMEOUT_S = 10
+
+# `agentctl ctx` shells out to a skill that talks to the model, so it is
+# slow by design and a short bound would be a bug. It still needs one: the
+# call was unbounded, and a wedged skill left the CLI waiting forever with
+# no way to tell whether it was working. Ten minutes is past any honest
+# run and short of a lost afternoon.
+CTX_SKILL_TIMEOUT_S = 600
+
 
 def _gpu_entries(raw):
     """Yield (name, vram) for whatever shape hwinfo reported.
@@ -62,7 +85,55 @@ def _os_label() -> str:
     return "Windows 11" if build >= 22000 else "Windows 10"
 
 
+def _print_tailscale_status() -> None:
+    """Print `tailscale funnel status`, falling back to `serve status`.
+
+    argv form, no shell. `subprocess.run(..., shell=True)` with a timeout
+    kills the shell it spawned, not the `tailscale` process underneath it:
+    the child is reparented and keeps running after `agentctl status` has
+    returned. The `||` fallback that needed a shell is a plain loop here,
+    and the redirections are just capture_output. Restored after an
+    automated commit reverted it to the shell form, unbounded, on this
+    same branch (#323).
+
+    The timeout is caught per verb rather than around the loop. The shell
+    version fell through to `serve` whenever `funnel` failed for any
+    reason, a hang included; catching outside would make a `funnel` that
+    hangs skip `serve` entirely, which is a narrower fallback than the one
+    being replaced (cubic).
+
+    Lifted out of `run_status` because it is the third branch this block
+    has grown: the caller was already E(34) on radon before this change
+    and reporting one status is a whole job on its own.
+    """
+    if not shutil.which("tailscale"):
+        print("tailscale not found in PATH")
+        return
+    for verb in ("funnel", "serve"):
+        try:
+            done = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
+                ["tailscale", verb, "status"],
+                capture_output=True, text=True, errors="replace",
+                check=False, timeout=TAILSCALE_STATUS_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"tailscale {verb} status: timed out after "
+                  f"{TAILSCALE_STATUS_TIMEOUT_S}s")
+            continue
+        except OSError as e:
+            # `which` said yes and the launch still failed -- the binary
+            # went away in between, or is not executable. `funnel` failing
+            # this way is no reason not to ask `serve` (cubic).
+            print(f"tailscale {verb} status: {e}")
+            continue
+        if done.returncode == 0:
+            print(done.stdout, end="")
+            return
+    print("tailscale: neither funnel nor serve reported a status")
+
+
 def run_status(args=None):
+    """Print local bridge, tunnel, platform, hardware, and service status."""
     import subprocess
     import urllib.request
     print("### bridge health local")
@@ -75,6 +146,7 @@ def run_status(args=None):
     print()
     print("### unified bridge port 8765")
     def _check_port(port):
+        """Return whether the local TCP port accepts a connection."""
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(1)
         ok = s.connect_ex(("127.0.0.1", port)) == 0
@@ -99,16 +171,7 @@ def run_status(args=None):
 
     print()
     print("### tailscale funnel")
-    if shutil.which("tailscale"):
-        try:
-            if platform.system() == "Windows":
-                subprocess.run("tailscale funnel status 2>nul || tailscale serve status 2>nul", shell=True)  # nosec B604 -- fixed literal command string, no interpolation of any kind, so there is nothing for a shell to inject; `shell=True` is needed only for the `||` fallback / redirection.
-            else:
-                subprocess.run("tailscale funnel status 2>/dev/null || tailscale serve status 2>/dev/null || true", shell=True)  # nosec B604 -- fixed literal command string, no interpolation of any kind, so there is nothing for a shell to inject; `shell=True` is needed only for the `||` fallback / redirection.
-        except Exception as e:
-            print(f"Failed to check Tailscale: {e}")
-    else:
-        print("tailscale not found in PATH")
+    _print_tailscale_status()
 
     print()
     print("### platform info")
@@ -120,7 +183,29 @@ def run_status(args=None):
     try:
         hw_script = os.path.join(ROOT, "scripts", "hwinfo.py")
         if os.path.exists(hw_script):
-            res_hw = subprocess.run([sys.executable, hw_script], capture_output=True, text=True)
+            # Timed out, not unbounded. A full hwinfo pass budgets itself
+            # to PS_PASS_BUDGET_S internally, but that budget only binds
+            # PowerShell queries -- an interpreter that never reaches them,
+            # or a WMI service wedged before the first one returns, leaves
+            # this waiting forever and `agentctl status` hangs with no
+            # output and nothing to point at. HWINFO_SUBPROCESS_TIMEOUT_S
+            # is the same outer bound the tests use, from one place.
+            #
+            # What this bound does NOT do is reap descendants. If the pass is
+            # stuck inside a `powershell.exe` query when the timeout fires,
+            # Python is killed and that query is reparented, still running.
+            # It is bounded on its own (PS_TIMEOUT_S, argv form, no shell) so
+            # it exits by itself within seconds rather than leaking
+            # indefinitely -- but for the interval between the two it
+            # outlives its caller. Killing the tree needs a process group on
+            # POSIX and a Job object on Windows, which is a larger change
+            # than a status command warrants; the bound here is what stops
+            # the hang, not a claim that nothing survives it.
+            res_hw = subprocess.run(
+                [sys.executable, hw_script],
+                capture_output=True, text=True, errors="replace",
+                timeout=HWINFO_SUBPROCESS_TIMEOUT_S,
+            )
             if res_hw.returncode == 0:
                 h_data = json.loads(res_hw.stdout)
                 # Print OS
@@ -201,7 +286,8 @@ def run_status(args=None):
             _sc = subprocess.run(
                 ["systemctl", "--user", "--no-pager", "status",
                  "arena-unified-bridge.service"],
-                capture_output=True, text=True, check=False, timeout=10,
+                capture_output=True, text=True, errors="replace",
+                check=False, timeout=10,
             )
             out = _sc.stdout or ""
             for line in out.splitlines()[:100]:
@@ -233,7 +319,8 @@ def run_status(args=None):
             try:
                 r = subprocess.run(  # nosec B603,B607 -- fixed argv, no shell
                     ["schtasks", "/query", "/tn", svc_name, "/fo", "LIST"],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True, text=True, errors="replace",
+                    timeout=5,
                 )
                 registered = r.returncode == 0
             except Exception:
@@ -258,5 +345,13 @@ def run_status(args=None):
             print("  - unified bridge: not running")
 
 def cmd_ctx(_args: list[str]) -> int:
+    """Run the digest skill, bounded, and report why if it did not finish."""
     python = shutil.which("python3") or shutil.which("python") or sys.executable
-    return subprocess.call([python, str(AGENTCTL), "skill", "run", "core/digest"])
+    try:
+        return subprocess.call(  # nosec B603 -- fixed argv, no shell
+            [python, str(AGENTCTL), "skill", "run", "core/digest"],
+            timeout=CTX_SKILL_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"ctx: digest skill did not finish within {CTX_SKILL_TIMEOUT_S}s")
+        return 1

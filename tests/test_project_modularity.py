@@ -152,6 +152,7 @@ def test_no_removed_cdp_browser_modules_references_remain():
 
 
 def test_modularized_cli_wrappers_import_cleanly(tmp_path):
+    """CLI wrappers must start, import their implementation, and exit cleanly."""
     import os
     import subprocess
     import sys
@@ -169,9 +170,19 @@ def test_modularized_cli_wrappers_import_cleanly(tmp_path):
         [sys.executable, "scripts/project_git.py", "--help"],
         [sys.executable, "scripts/mission_manager.py", "--help"],
     ]
+    # 60 s, not 30. Nine of these ten commands print a usage line and exit;
+    # `hwinfo.py --full` collects hardware, and on windows-latest that is
+    # ~9 PowerShell CIM queries against a contended runner. The collector
+    # caps its own pass at PS_PASS_BUDGET_S (20 s), which left 10 s for
+    # interpreter startup, imports and JSON output -- and that margin is
+    # what ran out (#323). The bound is shared with the production caller
+    # rather than picked again here.
+    from arena.agentctl_extras.status import HWINFO_SUBPROCESS_TIMEOUT_S
+
     failures = []
     for cmd in checks:
-        cp = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True, timeout=30)
+        cp = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True,
+                            timeout=HWINFO_SUBPROCESS_TIMEOUT_S)
         if cp.returncode != 0:
             failures.append((cmd, cp.returncode, cp.stdout[-500:], cp.stderr[-500:]))
     assert failures == []
@@ -192,7 +203,6 @@ def test_dashboard_javascript_assets_have_valid_syntax():
         if cp.returncode != 0:
             failures.append((str(path.relative_to(ROOT)), cp.stderr[-1000:]))
     assert failures == []
-
 
 
 
