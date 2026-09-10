@@ -59,7 +59,7 @@ _COLLECTED = re.compile(r"^collected\s+(\d+)\s+items?", re.MULTILINE)
 # its last one: the markers of an earlier, completed run would otherwise
 # vouch for a later one that died (coderabbit).
 _SESSION_START = re.compile(
-    r"^(?:\x1b\[[0-9;]*m)*=+\s*test session starts", re.MULTILINE)
+    r"^(?:\x1b\[[0-9;]*m)*=+\s*test session starts\s*=+", re.MULTILINE)
 
 # A run that finished but executed far fewer tests than the baseline did
 # is not comparable either -- a collection error in one file removes its

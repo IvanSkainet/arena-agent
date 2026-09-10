@@ -252,3 +252,19 @@ def test_a_coloured_banner_still_starts_a_new_session():
                 + coloured + "..... [ 12%]\n")
     with pytest.raises(live_run_gate.Incomplete):
         live_run_gate.check(two_runs, baseline_count=400)
+
+
+def test_a_line_that_merely_starts_like_the_banner_is_not_a_session():
+    """The closing `=` rule is what makes the banner a banner.
+
+    Adding ANSI support dropped the trailing separator from the pattern,
+    so captured output beginning `=== test session starts` -- a quoted
+    log, a test's own fixture text -- would have been taken for a new
+    run and hidden everything before it (cubic).
+    """
+    impostor = ("======== test session starts ========\n"
+                "collected 600 items\n"
+                "........ [100%]\n"
+                "===== 1 failed, 599 passed in 100.00s =====\n"
+                "=========== test session starts (quoted, not a run)\n")
+    assert live_run_gate.check(impostor, baseline_count=400)["executed"] == 600
