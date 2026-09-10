@@ -121,8 +121,13 @@ def test_probe_tcp_refused():
     assert result.get("error")
 
 
+@pytest.mark.allow_network
 def test_probe_tcp_timeout_short():
     """Non-routable RFC 5737 doc IP: connect will hang until timeout.
+
+    Marked ``allow_network``: this test exists to observe a TCP connect
+    that does not complete, so it is the one case where reaching past
+    loopback is the point rather than an accident (#331).
 
     The timeout path is only observable on a host whose network stack actually
     treats TEST-NET as unreachable/hanging. Sandboxes and permissive NATs either
