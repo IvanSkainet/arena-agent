@@ -540,6 +540,8 @@ def _dotted_name(node: ast.AST) -> str:
     if isinstance(node, ast.Name):
         parts.append(node.id)
     return ".".join(reversed(parts))
+
+
 def test_status_decodes_command_output_leniently():
     """`text=True` without `errors=` turns foreign output into a crash.
 
@@ -578,15 +580,21 @@ def _decodes_strictly(call: ast.Call) -> bool:
     return wants_text and not _handles_bad_bytes(call)
 
 
-def _handles_bad_bytes(call: ast.Call) -> bool:
-    """Is a decoding policy actually set, and not just named?
+_STRICT_ERROR_POLICIES = (None, "strict")
 
-    `errors=None` is the default -- strict -- so passing it explicitly
-    changes nothing. This is `timeout=None` again: the keyword being
-    present is not the property worth checking.
+
+def _handles_bad_bytes(call: ast.Call) -> bool:
+    """Is a lenient decoding policy actually set, and not just named?
+
+    Only `errors=` decides what happens to a byte that will not decode.
+    `encoding=` picks the codec, which is a different question: with
+    `encoding="utf-8"` and no `errors`, a 0xFF still raises. Checking for
+    it was the same mistake twice over -- `errors=None` and
+    `errors="strict"` are both spellings of the default (cubic).
     """
     return any(
-        keyword.arg in ("errors", "encoding")
-        and not (isinstance(keyword.value, ast.Constant) and keyword.value.value is None)
+        keyword.arg == "errors"
+        and isinstance(keyword.value, ast.Constant)
+        and keyword.value.value not in _STRICT_ERROR_POLICIES
         for keyword in call.keywords
     )
