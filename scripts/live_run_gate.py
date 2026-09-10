@@ -77,8 +77,8 @@ def _executed(text: str) -> int:
     return sum(v for k, v in counts.items() if k != "collected")
 
 
-def check(text: str, *, baseline_count: int | None = None) -> dict[str, object]:
-    """Raise `Incomplete` unless this run reached the end of the session."""
+def _reject_unfinished_session(text: str) -> None:
+    """The two signals that say the session never reached its end."""
     if not _SUMMARY.search(text):
         raise Incomplete(
             "no pytest summary line. The session did not reach its end: on "
@@ -92,7 +92,9 @@ def check(text: str, *, baseline_count: int | None = None) -> dict[str, object]:
             "outstanding when the log ended."
         )
 
-    executed = _executed(text)
+
+def _reject_missing_tests(text: str, executed: int, baseline_count: int | None) -> None:
+    """A finished session that ran too few tests is not comparable either."""
     if executed == 0:
         raise Incomplete("the summary reports no tests at all.")
 
@@ -110,6 +112,12 @@ def check(text: str, *, baseline_count: int | None = None) -> dict[str, object]:
             "baseline for the wrong reason -- it looks like an improvement."
         )
 
+
+def check(text: str, *, baseline_count: int | None = None) -> dict[str, object]:
+    """Raise `Incomplete` unless this run reached the end of the session."""
+    _reject_unfinished_session(text)
+    executed = _executed(text)
+    _reject_missing_tests(text, executed, baseline_count)
     return {"executed": executed, **_counters(text)}
 
 
