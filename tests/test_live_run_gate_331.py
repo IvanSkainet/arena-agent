@@ -147,9 +147,9 @@ def test_an_all_passing_run_is_accepted():
     assert live_run_gate.check(clean)["executed"] == 220
 
 
-def test_the_exit_status_is_what_a_shell_can_branch_on():
+def test_the_exit_status_is_what_a_shell_can_branch_on(tmp_path):
     """The .bat wrapper reads the status, not the wording."""
-    log = Path(pytest.importorskip("tempfile").mkdtemp()) / "run.txt"
+    log = tmp_path / "run.txt"
     log.write_text(_TRUNCATED, encoding="utf-8")
     assert live_run_gate.main([str(log)]) == 1
 

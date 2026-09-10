@@ -209,3 +209,27 @@ def test_an_external_tcp_connection_is_still_refused(suite_conftest):
     """The unix-socket exemption must not widen to ordinary sockets."""
     tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     assert not suite_conftest._allowed(tcp, ("huggingface.co", 443))
+
+
+def test_a_udp_datagram_to_the_outside_is_refused(suite_conftest):
+    """The routing-probe exemption must not become an egress path.
+
+    `connect` on a UDP socket sends nothing, so it is allowed. `sendto`
+    does send, and reusing the connect-time rule here would have let an
+    unmarked test put packets on the wire while the suite claimed the
+    network was closed (cubic, aikido).
+    """
+    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    with pytest.raises(suite_conftest.NetworkUseInTest):
+        udp.sendto(b"x", ("8.8.8.8", 53))
+
+
+def test_a_udp_datagram_to_loopback_still_works():
+    """Local datagrams are not what the guard is for."""
+    receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    receiver.bind(("127.0.0.1", 0))
+    sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sender.sendto(b"ping", receiver.getsockname())
+    assert receiver.recv(16) == b"ping"
+    receiver.close()
+    sender.close()

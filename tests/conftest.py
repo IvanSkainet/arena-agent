@@ -169,3 +169,42 @@ def _no_outbound_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
         return real_create_connection(address, *args, **kwargs)
 
     monkeypatch.setattr(socket, "create_connection", guarded_create_connection)
+
+    # The UDP exemption above is about `connect`, which transmits nothing.
+    # Sending is a different act: a test could `connect` a datagram socket
+    # to a public address under the exemption and then actually put
+    # packets on the wire, which the suite-wide claim says cannot happen
+    # (cubic, aikido). `send` is left alone deliberately -- it can only
+    # follow a `connect` that was already judged -- while `sendto` and
+    # `sendmsg` carry their own destination and are checked against it.
+    real_sendto = socket.socket.sendto
+    real_sendmsg = socket.socket.sendmsg
+
+    def _destination(args: tuple) -> object | None:
+        """The address argument, which is last and sometimes absent."""
+        return args[-1] if args and isinstance(args[-1], (tuple, str, bytes)) else None
+
+    def _may_send_to(sock: socket.socket, target: object) -> bool:
+        """Explicitly not `_allowed`: that waves every UDP socket through.
+
+        `_sends_nothing` exists because a UDP *connect* transmits
+        nothing. A `sendto` does, so reusing `_allowed` here would have
+        left the hole this guard is meant to close.
+        """
+        host = target[0] if isinstance(target, tuple) and target else target
+        return _is_unix_socket(sock) or _is_loopback(host)
+
+    def guarded_sendto(self, *args, **kwargs):
+        target = _destination(args)
+        if target is not None and not _may_send_to(self, target):
+            raise _refuse(target)
+        return real_sendto(self, *args, **kwargs)
+
+    def guarded_sendmsg(self, *args, **kwargs):
+        target = _destination(args)
+        if target is not None and not _may_send_to(self, target):
+            raise _refuse(target)
+        return real_sendmsg(self, *args, **kwargs)
+
+    monkeypatch.setattr(socket.socket, "sendto", guarded_sendto)
+    monkeypatch.setattr(socket.socket, "sendmsg", guarded_sendmsg)
