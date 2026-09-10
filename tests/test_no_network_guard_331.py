@@ -12,10 +12,38 @@ off wholesale by the next person who needs a real connection.
 from __future__ import annotations
 
 import socket
+import sys
 import urllib.request
+from pathlib import Path
 
-import conftest as suite_conftest
 import pytest
+
+
+# The module object pytest actually loaded, not a fresh one.
+#
+# `import conftest` is wrong: pytest puts a rootdir on sys.path for its
+# own discovery, and which one depends on how it was invoked -- from the
+# repo root, as CI does, the name resolves elsewhere. That turned the
+# whole matrix red on a guard that was working.
+#
+# Re-importing the file by path is wrong too, and more quietly: it
+# builds a *second* module with its own `NetworkUseInTest` class, so
+# `pytest.raises` on it never matches the exception the installed
+# fixture raises, and every test here fails while the guard works
+# perfectly. Both mistakes were made on the way here.
+#
+# pytest registers the conftest it loaded under a plugin name, so ask
+# for that one.
+def _installed_conftest():
+    plugin = Path(__file__).resolve().parent / "conftest.py"
+    for module in list(sys.modules.values()):
+        if getattr(module, "__file__", None) and Path(module.__file__) == plugin:
+            return module
+    raise AssertionError(
+        f"{plugin} is not loaded; the network guard is not installed")
+
+
+suite_conftest = _installed_conftest()
 
 _UNROUTABLE = ("192.0.2.1", 65432)  # RFC 5737 TEST-NET-1
 
