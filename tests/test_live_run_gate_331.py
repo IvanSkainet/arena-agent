@@ -268,3 +268,18 @@ def test_a_line_that_merely_starts_like_the_banner_is_not_a_session():
                 "===== 1 failed, 599 passed in 100.00s =====\n"
                 "=========== test session starts (quoted, not a run)\n")
     assert live_run_gate.check(impostor, baseline_count=400)["executed"] == 600
+
+
+def test_a_banner_with_trailing_prose_is_not_a_session_either():
+    """The rule has to end the line, not merely appear on it.
+
+    A quoted banner followed by text -- `==== test session starts ====
+    (from an old log)` -- otherwise cut the capture there and threw away
+    the real run, which then failed for the wrong reason (cubic).
+    """
+    impostor = ("======== test session starts ========\n"
+                "collected 600 items\n"
+                "........ [100%]\n"
+                "===== 1 failed, 599 passed in 100.00s =====\n"
+                "==== test session starts ==== (quoted from an old log)\n")
+    assert live_run_gate.check(impostor, baseline_count=400)["executed"] == 600
