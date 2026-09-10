@@ -12,7 +12,6 @@ off wholesale by the next person who needs a real connection.
 from __future__ import annotations
 
 import socket
-import sys
 import urllib.request
 from pathlib import Path
 from types import ModuleType
@@ -36,17 +35,35 @@ import pytest
 # Searching `sys.modules` at import time is too early: conftest modules
 # are registered while pytest collects, and this file is imported during
 # that same pass. The lookup has to happen when a test runs.
-@pytest.fixture(scope="session")
-def suite_conftest() -> ModuleType:
-    """The live `tests/conftest.py`, as pytest loaded it."""
-    wanted = Path(__file__).resolve().parent / "conftest.py"
-    for module in list(sys.modules.values()):
-        path = getattr(module, "__file__", None)
-        if path and Path(path).resolve() == wanted:
-            return module
-    raise AssertionError(
-        f"{wanted} is not loaded, so the network guard is not installed"
+@pytest.fixture
+def suite_conftest(request: pytest.FixtureRequest) -> ModuleType:
+    """The live `tests/conftest.py`, as pytest loaded it.
+
+    Asked of pytest rather than reconstructed, after three versions that
+    each failed on a working guard:
+
+    * `import conftest` resolves against whatever rootdir is on
+      sys.path, which depends on the directory pytest was invoked from.
+      Locally that is `tests/`; CI runs from the repo root.
+    * `spec_from_file_location` builds a *second* module object with its
+      own `NetworkUseInTest`, so `pytest.raises` never matches the
+      exception the installed fixture raises.
+    * Scanning `sys.modules` by `__file__` compares paths that CI spells
+      differently, and at import time runs before conftest is even
+      registered.
+
+    `config.pluginmanager` holds the module pytest is actually using, so
+    there is nothing left to get wrong.
+    """
+    # pytest keys conftest plugins by absolute path -- verified against
+    # `list_name_plugin()`, which shows exactly this one entry.
+    module = request.config.pluginmanager.get_plugin(
+        str(Path(__file__).resolve().parent / "conftest.py"))
+    assert module is not None, (
+        "tests/conftest.py is not among the loaded plugins, so the network "
+        "guard is not installed"
     )
+    return module
 
 
 _UNROUTABLE = ("192.0.2.1", 65432)  # RFC 5737 TEST-NET-1
