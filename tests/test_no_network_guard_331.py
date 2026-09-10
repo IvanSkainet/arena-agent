@@ -192,3 +192,20 @@ def test_the_guard_is_installed_for_unmarked_tests(suite_conftest):
     """The mirror image of the test above -- neither is meaningful alone."""
     assert socket.create_connection.__name__ == "guarded_create_connection"
     assert socket.socket.connect.__name__ == "guarded_connect"
+
+
+def test_a_unix_socket_is_not_treated_as_the_network(suite_conftest):
+    """A filesystem socket is local by construction, so it is allowed.
+
+    `AF_UNIX` addresses are paths, not hosts, so the loopback test says
+    no to them and the guard refused connections that can never reach an
+    interface -- DBus among them (cubic).
+    """
+    unix = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    assert suite_conftest._allowed(unix, "/run/user/1000/bus")
+
+
+def test_an_external_tcp_connection_is_still_refused(suite_conftest):
+    """The unix-socket exemption must not widen to ordinary sockets."""
+    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    assert not suite_conftest._allowed(tcp, ("huggingface.co", 443))

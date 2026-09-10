@@ -68,8 +68,20 @@ class Incomplete(Exception):
 
 
 def _counters(text: str) -> dict[str, int]:
-    tail = text[-4000:]
-    return {kind.rstrip("s"): int(n) for n, kind in _COUNTER.findall(tail)}
+    """Outcome counts, taken from the summary line itself.
+
+    Read from the matched summary rather than from a fixed-size tail of
+    the log. The tail was `text[-4000:]`, chosen when the only sample
+    was a short run; anything printed after the summary -- a coverage
+    table, teardown warnings -- pushes the counts out of that window and
+    the gate then reports a finished run as having executed nothing
+    (corgea, cubic, aikido, separately).
+    """
+    matches = list(_SUMMARY.finditer(text))
+    if not matches:
+        return {}
+    line = text[matches[-1].start():matches[-1].end()]
+    return {kind.rstrip("s"): int(n) for n, kind in _COUNTER.findall(line)}
 
 
 def _executed(text: str) -> int:
@@ -78,13 +90,26 @@ def _executed(text: str) -> int:
 
 
 def _reject_unfinished_session(text: str) -> None:
-    """The two signals that say the session never reached its end."""
+    """The two signals that say the session never reached its end.
+
+    Both are required. The summary line is the only one that survives
+    `os._exit`, and `[100%]` is the only one that catches a run that
+    summarised an interruption. The `-qq` trap that hides the summary is
+    a wrapper bug, reported as such rather than tolerated here (cubic,
+    aikido).
+    """
     if not _SUMMARY.search(text):
         raise Incomplete(
-            "no pytest summary line. The session did not reach its end: on "
-            "Windows pytest-timeout has no SIGALRM and ends a stuck test by "
-            "calling os._exit(1), which kills the run mid-suite. Any failure "
-            "list from this file is a prefix, not a result (#331)."
+            "no pytest summary line, so nothing proves the session reached "
+            "its end. On Windows pytest-timeout has no SIGALRM and ends a "
+            "stuck test by calling os._exit(1), which kills the run "
+            "mid-suite; the failure list is then a prefix, not a result "
+            "(#331).\n"
+            "If the run did finish: pyproject.toml already puts -q in "
+            "addopts, so passing -q again makes -qq and pytest stops "
+            "printing the summary. Drop the extra -q from the wrapper -- do "
+            "not weaken this check, it is the only signal that survives "
+            "os._exit."
         )
     if not _PROGRESS_COMPLETE.search(text):
         raise Incomplete(
@@ -107,6 +132,12 @@ def _shrink_reason(text: str, executed: int, baseline_count: int | None) -> str:
     if collected and executed < int(collected.group(1)) * (1 - _SHRINK_TOLERANCE):
         return (f"collected {collected.group(1)} tests but only {executed} "
                 "ran; the session ended early.")
+
+    if baseline_count is not None and baseline_count < 0:
+        # A negative baseline makes the comparison below vacuously true,
+        # so an undersized run would be waved through (cubic). It can
+        # only come from a typo on the command line.
+        return f"baseline count {baseline_count} is negative."
 
     if baseline_count is not None and executed < baseline_count * (1 - _SHRINK_TOLERANCE):
         return (f"{executed} tests ran against a baseline of "

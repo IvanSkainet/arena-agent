@@ -69,8 +69,13 @@ def test_run_finished_alone_does_not_make_a_run_complete():
         live_run_gate.check(_TRUNCATED)
 
 
-def test_a_run_that_stops_just_short_of_the_end_is_rejected():
-    """99% is not 100%; the last file is as able to hang as the first."""
+def test_a_run_with_neither_end_of_session_signal_is_rejected():
+    """Neither a summary nor `[100%]`: nothing says the session ended.
+
+    Named for what it actually asserts. It strips the summary as well as
+    the marker, so the rejection comes from the summary check; the
+    99%-only case is covered by the coverage-table test below (cubic).
+    """
     almost = _COMPLETE.replace("[100%]", "[ 99%]").replace(
         "1 failed, 215 passed, 4 skipped in 210.11s", "")
     with pytest.raises(live_run_gate.Incomplete):
@@ -150,3 +155,46 @@ def test_the_exit_status_is_what_a_shell_can_branch_on():
 
     log.write_text(_COMPLETE, encoding="utf-8")
     assert live_run_gate.main([str(log)]) == 0
+
+
+def test_a_qq_log_without_a_summary_names_the_duplicate_flag():
+    """`-qq` hides the summary, and the gate must say why.
+
+    `addopts` in pyproject.toml already contains `-q`, so a wrapper
+    passing `-q` produces `-qq` and pytest prints no summary line. That
+    is a wrapper bug: weakening the check would give up the one signal
+    that survives `os._exit` on Windows. The message has to point at the
+    duplicate flag, or the next person reads this as the gate being
+    broken (cubic, aikido).
+    """
+    qq = ("........................................................ [100%]\n"
+          "=========================== short test summary info ===========\n"
+          "FAILED tests/test_one.py::test_a - assert False\n")
+    with pytest.raises(live_run_gate.Incomplete) as caught:
+        live_run_gate.check(qq)
+    assert "-qq" in str(caught.value)
+
+
+def test_counters_survive_output_printed_after_the_summary():
+    """A coverage table after the summary must not hide the counts.
+
+    The counters used to be read from `text[-4000:]`. The repository
+    prints `--cov-report=term-missing`, which is far longer than that,
+    so a genuinely complete run reported zero executed tests and the
+    gate rejected it (corgea, cubic, aikido). Reading the summary line
+    itself is what makes the size of the trailing output irrelevant.
+    """
+    noisy = _COMPLETE + "\n" + "arena/some/module.py   123   45   63%\n" * 400
+    assert len(noisy) - noisy.index("215 passed") > 4000
+    assert live_run_gate.check(noisy)["passed"] == 215
+
+
+def test_a_negative_baseline_is_refused():
+    """`--baseline-count -1` would otherwise disable the size check.
+
+    Any comparison against a negative count is trivially satisfied, so
+    a truncated run would be reported as comparable (cubic).
+    """
+    with pytest.raises(live_run_gate.Incomplete) as caught:
+        live_run_gate.check(_COMPLETE, baseline_count=-1)
+    assert "negative" in str(caught.value)

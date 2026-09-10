@@ -100,10 +100,22 @@ def _sends_nothing(sock: socket.socket) -> bool:
     return sock.type == socket.SOCK_DGRAM
 
 
+def _is_unix_socket(sock: socket.socket) -> bool:
+    """Is this a filesystem socket, which cannot leave the machine?
+
+    An `AF_UNIX` address is a path, not a host, so `_is_loopback` says no
+    to it and the guard would refuse a connection that is local by
+    construction -- DBus, for one, which `arena/browser/cdp/handlers.py`
+    talks to. Nothing sent over one reaches a network interface, so the
+    hazard this guard exists for does not apply (cubic).
+    """
+    return getattr(sock, "family", None) == getattr(socket, "AF_UNIX", object())
+
+
 def _allowed(sock: socket.socket, address: object) -> bool:
     """May this socket connect to this address?"""
     host = address[0] if isinstance(address, tuple) and address else address
-    return _sends_nothing(sock) or _is_loopback(host)
+    return _is_unix_socket(sock) or _sends_nothing(sock) or _is_loopback(host)
 
 
 def _refuse(address: object) -> NetworkUseInTest:
