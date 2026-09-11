@@ -5,6 +5,7 @@ They do not execute commands and do not know about aiohttp/control leases.
 """
 from __future__ import annotations
 
+import math
 import os
 import re
 import shlex
@@ -63,7 +64,7 @@ def _shell_safe_number(value: Any, *, default: int, low: int, high: int) -> int 
             value = int(str(value).strip())
         except (TypeError, ValueError):
             return default
-    if value != value or value in (float("inf"), float("-inf")):  # NaN / inf
+    if not math.isfinite(value):  # NaN and both infinities
         return default
     return max(low, min(high, value))
 

@@ -186,3 +186,18 @@ def test_a_real_window_id_survives_quoting():
 
     assert "0x03000007" in command
     assert shlex.split(command)[-2] == "0x03000007"
+
+
+@pytest.mark.parametrize("delay", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_delays_fall_back_to_the_default(delay):
+    """NaN and the infinities are valid Python floats and nonsense here.
+
+    `min`/`max` do not order NaN, so clamping alone would have passed it
+    straight through into the command string.
+    """
+    command, _tool, _err = build_type_command(
+        env={"has_xdotool": True}, text="hi", delay=delay
+    )
+
+    emitted = command.split("--delay ")[1].split(" ")[0]
+    assert emitted == "50"
