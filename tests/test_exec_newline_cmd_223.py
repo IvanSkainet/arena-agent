@@ -49,7 +49,6 @@ from aiohttp.test_utils import make_mocked_request
 from arena.exec.request_shape import (
     requested_command,
     unusable_command,
-    unusable_shell_command,
 )
 from tests._live_bridge import auth_header, json_payload, running_client
 
@@ -381,20 +380,49 @@ async def _falsy_cmd_is_refused(tmp_path: Path, path: str, cmd: object) -> None:
     assert payload["error"] == "missing cmd", payload
 
 
+@pytest.mark.parametrize("surface", SURFACES, ids=["sandbox", "api_v2", "mcp"])
 @pytest.mark.parametrize("cmd", ("echo hi\n", "\necho hi", "  echo hi  "))
-def test_the_surfaces_accept_what_the_exec_endpoints_accept(cmd: str) -> None:
-    """The concrete cross-surface agreement, stated as behaviour.
+def test_no_surface_refuses_surrounding_whitespace_as_a_newline(surface, cmd: str) -> None:
+    """The cross-surface agreement this PR is responsible for.
 
-    An earlier revision asserted
-    `unusable_shell_command(cmd) == unusable_command(cmd.strip())`, which
-    is true by the helper's own definition and so could not fail (cubic --
-    the same trap as the `round(0.6) == 1` test on #272). What needs
-    pinning is that a body `/v1/exec` accepts is not refused elsewhere:
-    the first revision of this PR returned 400 for `{"cmd": "echo hi\\n"}`
-    on those three while `/v1/exec` returned 200.
+    A body `/v1/exec` accepts must not be refused *by this guard*
+    elsewhere: the first revision returned "cmd contains a newline" for
+    `{"cmd": "echo hi\\n"}` on these three while `/v1/exec` returned 200,
+    because they skipped the `.strip()`.
+
+    What is asserted is the absence of the newline refusal, not that the
+    command runs. `command_allowlist_reason` inspects the *unstripped*
+    string against `_SHELL_CONTROL_CHARS` and refuses a trailing newline
+    on the sandbox and v2 paths -- pre-existing behaviour on master,
+    unrelated to this guard and untouched here, pinned below so the
+    distinction stays visible.
     """
-    assert unusable_shell_command(cmd, when_empty="unused") is None
+    try:
+        reason = surface(cmd)
+    except AssertionError as executed:  # reached the shell: accepted
+        assert "the command was executed" in str(executed)
+        return
+    if reason is not None:
+        assert "newline" not in reason, reason
+        assert "/v1/exec/script" not in reason, reason
     assert requested_command({"cmd": cmd})[1] is None
+
+
+@pytest.mark.parametrize("surface", SURFACES[:2], ids=["sandbox", "api_v2"])
+def test_the_allowlist_refusal_of_a_trailing_newline_is_not_ours(surface) -> None:
+    """Pre-existing on master, and deliberately left alone.
+
+    `command_allowlist_reason` is handed the raw `cmd` and rejects any
+    character in `_SHELL_CONTROL_CHARS`, so `"echo hi\\n"` is refused on
+    the two allow-listed paths -- with the allowlist's own wording, before
+    this PR and after it. Changing that is a separate decision about a
+    different gate; recording it here keeps a future reader from
+    mistaking it for the newline guard misfiring.
+    """
+    reason = surface("echo hi\n")
+    assert reason is not None
+    assert "shell control characters" in reason
+    assert "newline" not in reason
 
 
 @pytest.mark.parametrize("cmd", NEWLINE_COMMANDS)
