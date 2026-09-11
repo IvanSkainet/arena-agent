@@ -364,14 +364,24 @@ def test_a_write_that_never_happened_is_still_a_failure(tmp_path: Path) -> None:
     asyncio.run(_failed_rotation_is_a_500(tmp_path))
 
 
-def test_the_mode_warning_names_the_file_and_says_it_took_effect() -> None:
-    """An operator reading it must not have to guess which half happened."""
+def test_the_mode_warning_names_the_file_and_says_it_took_effect(
+        tmp_path: Path) -> None:
+    """An operator reading it must not have to guess which half happened.
+
+    The path is rendered with `str(Path)`, which is `\\tmp\\token.txt` on
+    Windows and `/tmp/token.txt` elsewhere, so the assertion compares
+    against the same rendering rather than a hardcoded POSIX spelling --
+    the first revision of this test failed on all five Windows jobs for
+    exactly that reason.
+    """
     from arena.token_storage import TokenFileModeWarning
 
-    warned = TokenFileModeWarning(Path("/tmp/token.txt"), PermissionError("nope"))
+    target = tmp_path / "token.txt"
+    warned = TokenFileModeWarning(target, PermissionError("nope"))
 
-    assert "/tmp/token.txt" in str(warned)
+    assert str(target) in str(warned)
     assert "DID take effect" in str(warned)
+    assert warned.target == target
 
 
 def test_the_200_schema_cannot_describe_a_failure(tmp_path: Path) -> None:
