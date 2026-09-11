@@ -70,7 +70,7 @@ def unusable_command(cmd: str) -> str | None:
     return None
 
 
-def unusable_shell_command(raw: Any) -> str | None:
+def unusable_shell_command(raw: Any, *, when_empty: str) -> str | None:
     """Why this value cannot be run as a command line, or None.
 
     The same question `requested_command` answers for the JSON exec
@@ -80,10 +80,16 @@ def unusable_shell_command(raw: Any) -> str | None:
     stricter on those three than on `/v1/exec` because they skipped the
     `.strip()` that happens here (cubic). Trimming in one place is what
     keeps `{"cmd": "echo hi\\n"}` meaning the same thing everywhere.
+
+    The empty case is answered here too, with the caller's own wording in
+    `when_empty`: each of the three has a different established spelling
+    of "you sent nothing" and none should change, but folding it in means
+    a caller asks one question instead of two -- so adding this guard
+    costs those handlers no extra branch (CodeScene).
     """
     text = str(raw).strip()
     if not text:
-        return None  # "missing cmd" is the caller's own wording
+        return when_empty
     return unusable_command(text)
 
 

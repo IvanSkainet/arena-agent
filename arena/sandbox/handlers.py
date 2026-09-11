@@ -58,14 +58,11 @@ def make_sandbox_handlers(ctx: SandboxHandlerContext) -> SandboxHandlers:
             if not SANDBOX_CONFIG["enabled"]:
                 return ctx.cors_json_response({"ok": False, "error": "sandbox is disabled"}, status=403)
 
+            # Missing, or present and unrunnable (#223: a newline makes
+            # the tail vanish on Windows, so it is refused rather than
+            # reported as a success for a command that ran in part).
             cmd = data.get("cmd", "")
-            if not cmd:
-                return ctx.cors_json_response({"ok": False, "error": "cmd is required"}, status=400)
-
-            # #223: a newline makes the tail vanish on Windows, so refuse
-            # it here as well rather than reporting success for a command
-            # that ran in part.
-            unusable = unusable_shell_command(cmd)
+            unusable = unusable_shell_command(cmd, when_empty="cmd is required")
             if unusable:
                 return ctx.cors_json_response({"ok": False, "error": unusable}, status=400)
 

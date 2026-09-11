@@ -226,7 +226,7 @@ def test_every_surface_agrees_on_what_a_newline_is(cmd: str) -> None:
     (cubic). One request must not mean two things depending on which
     endpoint it reaches, any more than on which OS it lands.
     """
-    reason = unusable_shell_command(cmd)
+    reason = unusable_shell_command(cmd, when_empty="unused")
     assert reason is not None
     assert reason == unusable_command(cmd.strip())
 
@@ -234,19 +234,22 @@ def test_every_surface_agrees_on_what_a_newline_is(cmd: str) -> None:
 @pytest.mark.parametrize("cmd", ("echo hi\n", "\necho hi", "  echo hi  ", "echo hi"))
 def test_no_surface_refuses_a_command_the_exec_endpoints_run(cmd: str) -> None:
     """The other half of the same agreement, from the accepting side."""
-    assert unusable_shell_command(cmd) is None
+    assert unusable_shell_command(cmd, when_empty="unused") is None
     assert requested_command({"cmd": cmd})[1] is None
 
 
-def test_an_empty_command_is_left_to_the_caller_to_name() -> None:
-    """Each surface has its own wording for a missing `cmd`, and keeps it.
+def test_an_empty_command_keeps_each_surface_its_own_wording() -> None:
+    """Three endpoints have three established spellings of "you sent nothing".
 
-    The shared helper answers None for an empty string rather than
-    inventing a third spelling of "you sent nothing", which would have
-    changed the error text on three endpoints for no reason.
+    The helper answers the empty case with the caller's own text rather
+    than inventing a fourth, so folding the check in changed no error
+    message a client already depends on -- and left those handlers with
+    one branch where they had two, which is how the CodeScene complexity
+    finding was answered instead of suppressed.
     """
-    assert unusable_shell_command("") is None
-    assert unusable_shell_command("   \n  ") is None
+    for empty in ("", "   ", "\n", "  \r\n  "):
+        assert unusable_shell_command(empty, when_empty="cmd is required") == "cmd is required"
+    assert unusable_shell_command("", when_empty="missing 'cmd'") == "missing 'cmd'"
 
 
 @pytest.mark.parametrize("cmd", NEWLINE_COMMANDS)

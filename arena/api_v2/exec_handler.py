@@ -65,14 +65,12 @@ def make_v2_exec_handler(ctx: ApiV2HandlerContext):
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
 
+        # Missing, or present and unrunnable. #223: this path reaches
+        # `create_subprocess_shell` too, so without the newline refusal
+        # the v2 API keeps answering ok:true for a command whose tail was
+        # dropped.
         cmd = data.get("cmd", "")
-        if not cmd:
-            return ctx.cors_json_response({"ok": False, "error": "missing 'cmd'"}, status=400)
-
-        # #223: the same newline refusal as /v1/exec. This path reaches
-        # `create_subprocess_shell` too, so without it the v2 API keeps
-        # answering ok:true for a command whose tail was dropped.
-        unusable = unusable_shell_command(cmd)
+        unusable = unusable_shell_command(cmd, when_empty="missing 'cmd'")
         if unusable:
             return ctx.cors_json_response({"ok": False, "error": unusable}, status=400)
 
