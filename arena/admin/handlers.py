@@ -132,6 +132,61 @@ class AdminHandlers:
     autostart_set: Callable[..., Any]
 
 
+def _install_rotated_token(ctx: AdminHandlerContext, cfg: dict, token: str) -> None:
+    """Swap the live credential and keep the audit redactor in step.
+
+    v4.170.0 (#132): registering the new value first means there is no
+    window in which the fresh token could reach the audit log unredacted;
+    the old one stays registered until after, because an in-flight request
+    may still be recording it. The old literal is dropped only once the new
+    one is protected -- unregistering first would leave a window with
+    neither covered, and dropping it after a *failed* registration would
+    leave the live credential unredactable for the rest of the process's
+    life.
+    """
+    if register_literal_secret(token, kind="bridge-token"):
+        unregister_literal_secret(cfg["token"])
+    cfg["token"] = token
+
+
+async def rotate_bridge_token(ctx: AdminHandlerContext,
+                              request: web.Request) -> web.Response:
+    """POST /v1/token/regenerate -- rotate the bearer, truthfully.
+
+    #211: a failed rotation used to be returned as 200 with ok=false in the
+    body. Every HTTP client, proxy and retry layer treats 2xx as "it
+    worked", so a caller that writes the response over its stored
+    credential destroys a working token and has nothing valid left to retry
+    with -- unrecoverable without physical access to the machine.
+
+    `token_regenerate` reports exactly one failure, an exception from
+    writing the token file, and that is this end's fault, so it is a 500.
+    The current credential is untouched and still valid; the body said so
+    all along, and now the status agrees with it.
+
+    Lifted out of `make_admin_handlers` so the factory does not grow
+    another branch (CodeScene) and so the rotation can be exercised without
+    building the whole handler table.
+    """
+    cfg = request.app[APP_CFG]
+    target = str(cfg.get("token_file") or "")
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        ctx.executor,
+        lambda: token_regenerate(target, default_token_file=ctx.default_token_file),
+    )
+    if result.get("ok") and result.get("token"):
+        _install_rotated_token(ctx, cfg, result["token"])
+        ctx.audit({"type": "token_regenerated",
+                   "files": result.get("written_to", [])})
+        return ctx.cors_json_response(result)
+
+    ctx.audit({"type": "token_regenerate_failed",
+               "error": str(result.get("error", "")),
+               "client": request.remote or "127.0.0.1"})
+    return ctx.cors_json_response(result, status=500)
+
+
 def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
     @authed(ctx)
     async def handle_v1_sys_funnel(request: web.Request) -> web.Response:
@@ -145,45 +200,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
 
     @authed(ctx)
     async def handle_v1_token_regenerate(request: web.Request) -> web.Response:
-        cfg = request.app[APP_CFG]
-        target = str(cfg.get("token_file") or "")
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
-            ctx.executor,
-            lambda: token_regenerate(target, default_token_file=ctx.default_token_file),
-        )
-        if result.get("ok") and result.get("token"):
-            # v4.170.0 (#132): keep the redactor in step with the live
-            # credential. Registering the new value first means there is no
-            # window in which the fresh token could reach the audit log
-            # unredacted; the old one stays registered until after, because
-            # an in-flight request may still be recording it.
-            # The old literal is dropped only once the new one is
-            # protected: unregistering first would leave a window with
-            # neither covered, and dropping it after a *failed*
-            # registration would leave the live credential unredactable
-            # for the rest of the process's life.
-            if register_literal_secret(result["token"], kind="bridge-token"):
-                unregister_literal_secret(cfg["token"])
-            cfg["token"] = result["token"]
-            ctx.audit({"type": "token_regenerated",
-                       "files": result.get("written_to", [])})
-            return ctx.cors_json_response(result)
-
-        # #211: a failed rotation was returned as 200 with ok=false in the
-        # body. Every HTTP client, proxy and retry layer treats 2xx as "it
-        # worked", so a caller that writes the response over its stored
-        # credential destroys a working token and has nothing left to retry
-        # with -- unrecoverable without physical access to the machine.
-        #
-        # The only failure `token_regenerate` reports is an exception from
-        # writing the token file, which is this end's fault, so it is a 500.
-        # The current credential is untouched and still valid; the body says
-        # so, and now the status agrees with the body.
-        ctx.audit({"type": "token_regenerate_failed",
-                   "error": str(result.get("error", "")),
-                   "client": request.remote or "127.0.0.1"})
-        return ctx.cors_json_response(result, status=500)
+        return await rotate_bridge_token(ctx, request)
 
     # v4.38.0: shared per-verb marker persistence lives in the
     # sibling handlers_autostart module so this file stays under
