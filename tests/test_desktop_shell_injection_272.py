@@ -390,3 +390,37 @@ def test_the_endpoint_refuses_a_bad_delay_with_400(monkeypatch, delay):
     assert "delay" in str(payload).lower()
     typed = [c for c in commands if "--key-delay" in c]
     assert not typed, f"a refused request still built {typed!r}"
+
+
+@pytest.mark.parametrize(
+    ("raw", "json_type"),
+    [("20000", "string"), (20_000, "number"), (20_000.5, "number")],
+)
+def test_an_out_of_range_delay_reports_the_json_type_it_was_sent_as(
+    monkeypatch, raw, json_type
+):
+    """The 400 must describe the field as the caller wrote it.
+
+    Handing the parsed float to `BodyFieldError` made `{"delay": "20000"}`
+    report `received number`, contradicting the JSON-type contract that
+    #259/#270 pinned everywhere else (cubic).
+    """
+    commands: list[str] = []
+    handler = _type_handler(monkeypatch, commands)
+
+    status, payload = asyncio.run(_post(handler, {"text": "hi", "delay": raw}))
+
+    assert status == 400
+    assert f"received {json_type}" in str(payload), payload
+
+
+def test_a_sub_millisecond_delay_is_rounded_not_truncated():
+    """`int()` turned a 0.6 ms delay into no delay at all.
+
+    The Windows backend sleeps `delay_ms / 1000`, so a fraction cannot
+    survive intact -- but rounding to the nearest millisecond keeps the
+    caller's intent, where truncation discards it.
+    """
+    assert round(0.6) == 1
+    assert int(0.6) == 0  # what the code used to do
+    assert round(12.5) == 12  # banker's rounding, still within a ms

@@ -109,8 +109,13 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
             # Bounds live here rather than in `body_float` because they
             # are this endpoint's, not the parser's: a delay of a billion
             # milliseconds is a wedged desktop, not a typing speed.
+            #
+            # The *raw* field goes to the error, not the parsed float:
+            # BodyFieldError reports the JSON type, and `{"delay": "20000"}`
+            # is a string the caller sent, however it parsed here (cubic).
             raise BodyFieldError(
-                "delay", delay, expected="a number between 0 and 10000")
+                "delay", body.get("delay"),
+                expected="a number between 0 and 10000")
         clear = body.get("clear", False)
         ensure_latin = body.get("ensure_latin", True)
         env = ctx.detect_desktop_env()
@@ -122,7 +127,12 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
                 if clear:
                     # Ctrl+A then type — equivalent to the Linux "select all + type" combo.
                     await _win32_call(_win.key, "a", modifiers=["ctrl"])
-                await _win32_call(_win.type_text, text, delay_ms=int(delay))
+                # round(), not int(): int() truncates, so a 0.6 ms delay
+                # asked for by a caller became 0 -- no delay at all -- and
+                # every fraction silently lost precision. The Windows
+                # backend sleeps `delay_ms / 1000`, so the nearest
+                # millisecond is the most it can honour (cubic).
+                await _win32_call(_win.type_text, text, delay_ms=round(delay))
                 return ctx.cors_json_response({
                     "ok": True, "text": text, "tool": "user32", "backend": "windows",
                     "ensure_latin": ensure_latin, "layout_switched": False,
