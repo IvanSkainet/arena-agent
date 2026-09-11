@@ -173,11 +173,19 @@ class _AlienLiveProc:
 
 
 @pytest.fixture
-def _polluted_cloudflared_state():
+def _polluted_cloudflared_state(monkeypatch):
     """Put a live-looking process into the shared state, as a full
-    session on a real machine did before #329 was fixed."""
-    cf_mod.CLOUDFLARED_STATE["proc"] = _AlienLiveProc()
-    cf_mod.CLOUDFLARED_STATE["url"] = "https://stale.example.invalid"
+    session on a real machine did before #329 was fixed.
+
+    Tracked with `monkeypatch.setitem` for the same reason the fixture
+    under test is: a plain assignment here would outlive the test and
+    leak the alien process into the rest of the session, which is the
+    exact failure #329 is about.
+    """
+    monkeypatch.setitem(cf_mod.CLOUDFLARED_STATE, "proc", _AlienLiveProc())
+    monkeypatch.setitem(
+        cf_mod.CLOUDFLARED_STATE, "url", "https://stale.example.invalid"
+    )
     return cf_mod.CLOUDFLARED_STATE
 
 
@@ -205,19 +213,23 @@ def test_isolation_fixture_restores_state_even_when_the_test_fails():
     hand reproduces that: the body raises, and teardown still runs.
     """
     sentinel = _AlienLiveProc()
-    cf_mod.CLOUDFLARED_STATE["proc"] = sentinel
-    cf_mod.CLOUDFLARED_STATE["url"] = "https://stale.example.invalid"
 
-    with pytest.MonkeyPatch.context() as patcher:
-        generator = isolated_cloudflared_state.__wrapped__(patcher)
-        state = next(generator)
-        assert state["proc"] is None, "the fixture did not clear the state"
-        state["proc"] = _AlienLiveProc()  # the test dirties it, then fails
-        with pytest.raises(AssertionError):
-            assert False, "deliberate failure standing in for a real one"
-        next(generator, None)  # teardown of a failed test
+    with pytest.MonkeyPatch.context() as outer:
+        outer.setitem(cf_mod.CLOUDFLARED_STATE, "proc", sentinel)
+        outer.setitem(
+            cf_mod.CLOUDFLARED_STATE, "url", "https://stale.example.invalid"
+        )
 
-    assert cf_mod.CLOUDFLARED_STATE["proc"] is sentinel
-    assert cf_mod.CLOUDFLARED_STATE["url"] == "https://stale.example.invalid"
-    cf_mod.CLOUDFLARED_STATE["proc"] = None
-    cf_mod.CLOUDFLARED_STATE["url"] = ""
+        with pytest.MonkeyPatch.context() as patcher:
+            generator = isolated_cloudflared_state.__wrapped__(patcher)
+            try:
+                state = next(generator)
+                assert state["proc"] is None, "the fixture did not clear the state"
+                state["proc"] = _AlienLiveProc()  # the test dirties it, then fails
+                with pytest.raises(AssertionError):
+                    assert False, "deliberate failure standing in for a real one"
+            finally:
+                next(generator, None)  # teardown runs even for a failed test
+
+        assert cf_mod.CLOUDFLARED_STATE["proc"] is sentinel
+        assert cf_mod.CLOUDFLARED_STATE["url"] == "https://stale.example.invalid"
