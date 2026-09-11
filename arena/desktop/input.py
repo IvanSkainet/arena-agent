@@ -58,15 +58,30 @@ def _shell_safe_number(value: Any, *, default: int, low: int, high: int) -> int 
     `default` rather than raising: a command builder's contract is to
     return a command, and the refusal belongs at the request boundary
     where the caller can be told which field was wrong.
+
+    Three details, each of which was a live hole in review:
+
+    * The result is rebuilt as a built-in `int`/`float`. An `int`
+      subclass may override `__format__`, and an f-string calls it --
+      so returning the caller's object unchanged put its shell syntax
+      straight into the command even after the range check passed.
+    * `math.isfinite` is asked only about floats. On an integer wider
+      than a float it raises `OverflowError` rather than answering,
+      which turned an absurd delay into a crash instead of a clamp.
+    * `bool` is excluded before the numeric path, because `True` is 1
+      and a boolean is not a delay anyone meant to send.
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         try:
             value = int(str(value).strip())
         except (TypeError, ValueError):
             return default
-    if not math.isfinite(value):  # NaN and both infinities
+    if isinstance(value, float) and not math.isfinite(value):  # NaN, +/-inf
         return default
-    return max(low, min(high, value))
+    clamped = max(low, min(high, value))
+    # Normalise away any int/float subclass: the f-string that consumes
+    # this calls __format__, and a subclass gets to choose what that says.
+    return float(clamped) if isinstance(clamped, float) else int(clamped)
 
 
 def display_env() -> str:

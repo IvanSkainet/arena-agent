@@ -17,12 +17,15 @@ this issue.
 """
 from __future__ import annotations
 
+import asyncio
 import shlex
 
 import pytest
 
 from arena.desktop.input import build_type_command
 from arena.desktop.window_action import _wmctrl_command, _xdotool_command
+from arena.handler_errors import BodyFieldError
+from arena.handler_params import body_float
 
 # Payloads that turn an unquoted interpolation into a second command.
 SHELL_PAYLOADS = [
@@ -201,3 +204,189 @@ def test_non_finite_delays_fall_back_to_the_default(delay):
 
     emitted = command.split("--delay ")[1].split(" ")[0]
     assert emitted == "50"
+
+
+class _EvilInt(int):
+    """An int subclass that lies when formatted.
+
+    `__format__` is what an f-string calls, so overriding it puts shell
+    syntax into a command even after a range check has passed on the
+    numeric value. Found by cubic in review.
+    """
+
+    def __str__(self) -> str:
+        return "1; id"
+
+    def __repr__(self) -> str:
+        return "1; id"
+
+    def __format__(self, spec: str) -> str:
+        return "1; id"
+
+
+class _EvilFloat(float):
+    def __format__(self, spec: str) -> str:
+        return "1; id"
+
+
+@pytest.mark.parametrize(
+    ("evil", "plain"), [(_EvilInt(5), 5), (_EvilFloat(5.5), 5.5)]
+)
+def test_a_numeric_subclass_cannot_format_its_way_into_the_command(evil, plain):
+    """Being a number is not enough; the builder must emit a plain one.
+
+    The baseline uses the subclass's own numeric value, so the only
+    difference under test is the type, not the number.
+    """
+    command, _tool, _err = build_type_command(
+        env={"has_ydotool": True}, text="hi", delay=evil
+    )
+    baseline, _t, _e = build_type_command(
+        env={"has_ydotool": True}, text="hi", delay=plain
+    )
+
+    assert "; id" not in command
+    assert command == baseline
+    _assert_no_injection(command, "subclass __format__", baseline)
+
+
+@pytest.mark.parametrize("delay", [10**400, -(10**400)])
+def test_an_integer_too_wide_for_a_float_is_clamped_not_a_crash(delay):
+    """`math.isfinite` raises OverflowError on these rather than answering.
+
+    The builder's contract is to return a command, so an absurd integer
+    has to clamp like any other out-of-range value.
+    """
+    command, _tool, _err = build_type_command(
+        env={"has_xdotool": True}, text="hi", delay=delay
+    )
+
+    emitted = command.split("--delay ")[1].split(" ")[0]
+    assert 0 <= float(emitted) <= 10_000
+
+
+@pytest.mark.parametrize("delay", [12.5, 0.5, 2.0, 50, "75", 0, 10_000])
+def test_the_handler_accepts_the_delays_callers_already_send(delay):
+    """A fractional delay is legitimate and must not become a 400.
+
+    The first version of this fix used `body_int`, which refuses 12.5 --
+    a compatibility regression riding along with a security fix, caught
+    by aikido and cubic. `xdotool --delay` and the builder both accept
+    fractions.
+    """
+    parsed = body_float({"delay": delay}, "delay", default=50.0)
+
+    assert 0 <= parsed <= 10_000
+    assert float(parsed) == float(delay)
+
+
+@pytest.mark.parametrize(
+    "delay",
+    ["1; id", "abc", True, [], {}, float("nan"), float("inf")],
+)
+def test_the_handler_refuses_a_delay_that_is_not_a_finite_number(delay):
+    """The 400 is the point: the caller is told which field was wrong."""
+    with pytest.raises(BodyFieldError) as caught:
+        body_float({"delay": delay}, "delay", default=50.0)
+
+    assert "delay" in str(caught.value)
+
+
+@pytest.mark.parametrize("missing", [{}, {"delay": None}, {"delay": ""}])
+def test_an_unspecified_delay_keeps_the_default(missing):
+    """Missing, null and "" mean unspecified, matching the other helpers.
+
+    Refusing these would break every caller that omits the field.
+    """
+    assert body_float(missing, "delay", default=50.0) == 50.0
+
+
+def _type_handler(monkeypatch, recorder):
+    """Build the real /v1/desktop/type handler with the shell stubbed out."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    import unified_bridge as ub
+    from arena.desktop.input_handlers import make_desktop_input_handlers
+    from arena.handler_context import DesktopHandlerContext
+
+    async def fake_exec(cmd, timeout=None):
+        recorder.append(cmd)
+        return {"ok": True, "stdout": "", "stderr": "", "exit_code": 0}
+
+    ctx = DesktopHandlerContext(
+        require_auth=lambda *a, **k: None,
+        record_request=lambda *a, **k: None,
+        cors_json_response=ub._cors_json_response,
+        control_check=lambda *a, **k: None,
+        control_record_agent_action=lambda *a, **k: None,
+        desktop_exec=fake_exec,
+        detect_desktop_env=lambda: {"has_ydotool": True},
+        get_active_window=ub._get_active_window,
+        kwin_windows_via_script=ub._kwin_windows_via_script,
+        capture_screenshot=ub.capture_desktop_screenshot,
+        ocr_desktop=ub.ocr_desktop,
+        kwin_focus_window=ub.kwin_focus_window_via_script,
+        focus_window=ub.focus_window,
+        audit=lambda *a, **k: None,
+    )
+    _click, type_handler, _key, _mouse = make_desktop_input_handlers(ctx)
+    return type_handler
+
+
+async def _post(handler, body):
+    """Drive the handler with a JSON body and return (status, payload)."""
+    import json as _json
+
+    from aiohttp.test_utils import make_mocked_request
+
+    payload = _json.dumps(body).encode()
+    request = make_mocked_request(
+        "POST", "/v1/desktop/type",
+        headers={"Content-Type": "application/json"},
+        payload=None,
+    )
+
+    async def read():
+        return payload
+
+    request.read = read
+    response = await handler(request)
+    return response.status, _json.loads(response.body.decode())
+
+
+@pytest.mark.parametrize("delay", [12.5, 0.5, 2.0, 50, "75"])
+def test_the_endpoint_itself_accepts_a_fractional_delay(monkeypatch, delay):
+    """End-to-end through the handler, not just the parser.
+
+    Asserting on `body_float` alone did not catch swapping the handler
+    back to `body_int`: the mutation left every parser test passing.
+    This drives the real handler, so the choice of parser is under test.
+    """
+    commands: list[str] = []
+    handler = _type_handler(monkeypatch, commands)
+
+    status, payload = asyncio.run(_post(handler, {"text": "hi", "delay": delay}))
+
+    assert status == 200, payload
+    # The handler may emit a keyboard-layout command first, so find the
+    # typing one rather than assuming it is the only command.
+    typed = [c for c in commands if "--key-delay" in c]
+    assert typed, f"the handler never built a type command: {commands!r}"
+    emitted = typed[0].split("--key-delay ")[1].split(" ")[0]
+    assert float(emitted) == float(delay)
+
+
+@pytest.mark.parametrize("delay", ["1; id", "abc", True, [], 20_000, -1])
+def test_the_endpoint_refuses_a_bad_delay_with_400(monkeypatch, delay):
+    """A refusal names the field and never reaches the shell."""
+    commands: list[str] = []
+    handler = _type_handler(monkeypatch, commands)
+
+    status, payload = asyncio.run(_post(handler, {"text": "hi", "delay": delay}))
+
+    assert status == 400, payload
+    assert "delay" in str(payload).lower()
+    typed = [c for c in commands if "--key-delay" in c]
+    assert not typed, f"a refused request still built {typed!r}"

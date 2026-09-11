@@ -9,7 +9,9 @@ from aiohttp import web
 from arena.desktop.availability import builder_refusal
 from arena.desktop.input import build_click_command, build_key_command, build_mouse_command, build_type_command
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import body_int, controlled, json_object_body
+from arena.handler_errors import BodyFieldError
+from arena.handler_helpers import controlled, json_object_body
+from arena.handler_params import body_float
 
 
 def make_desktop_input_handlers(ctx: DesktopHandlerContext):
@@ -94,10 +96,21 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
             return ctx.cors_json_response({"ok": False, "error": "missing 'text' parameter"}, status=400)
         # #272: `delay` is interpolated into a shell command string by
         # `build_type_command`, so a string like "1; id" was command
-        # injection. `body_int` refuses a non-number with a 400 naming the
-        # field, and the bounds keep a valid-JSON integer from becoming a
-        # keystroke delay measured in centuries.
-        delay = body_int(body, "delay", default=50, bounds=(0, 10_000))
+        # injection. `body_float` refuses a non-number with a 400 naming
+        # the field, and rejects NaN and the infinities.
+        #
+        # Float rather than int: 12.5 is a delay callers actually send to
+        # slow typing in timing-sensitive apps, and both xdotool and the
+        # builder accept it. `body_int` would have answered 400 to a
+        # request that works today -- a compatibility regression riding
+        # along with a security fix (aikido, cubic).
+        delay = body_float(body, "delay", default=50.0)
+        if not 0 <= delay <= 10_000:
+            # Bounds live here rather than in `body_float` because they
+            # are this endpoint's, not the parser's: a delay of a billion
+            # milliseconds is a wedged desktop, not a typing speed.
+            raise BodyFieldError(
+                "delay", delay, expected="a number between 0 and 10000")
         clear = body.get("clear", False)
         ensure_latin = body.get("ensure_latin", True)
         env = ctx.detect_desktop_env()
