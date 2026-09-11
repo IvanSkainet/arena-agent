@@ -69,8 +69,7 @@ def _settle_by_path(target: Path, installed: int | None) -> None:
     """The same settlement where a descriptor cannot survive the rename.
 
     Windows refuses to rename a file that is still open, so the descriptor
-    is closed before `os.replace` there and the mode has to be re-applied
-    by path. `installed` is the inode captured before the rename where the
+    is closed before `os.replace` there and the mode is re-applied by path. `installed` is the inode captured before the rename where the
     OS exposes a stable one, and `None` otherwise -- in which case only the
     file's disappearance is detectable, not a same-path swap.
     """
@@ -149,8 +148,12 @@ def _replace_and_settle(tmp: Path, target: Path, fd: int) -> int:
     rename, so the caller's cleanup stays honest about what is still open.
     """
     installed = os.stat(tmp).st_ino if os.name == "posix" else None
-    if not hasattr(os, "fchmod"):
-        # Windows will not rename a file that is still open.
+    if os.name != "posix":
+        # Windows refuses to rename a file that is still open (WinError 32),
+        # and its st_ino is not a stable identity anyway, so the descriptor
+        # buys nothing there. Measured: keeping it open made every rotation
+        # fail on all five windows-latest jobs. `os.fchmod` exists on 3.14
+        # for Windows, so its presence is the wrong thing to test.
         os.close(fd)
         fd = -1
     os.replace(tmp, target)

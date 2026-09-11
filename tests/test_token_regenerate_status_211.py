@@ -646,7 +646,11 @@ async def _vanished_token_is_a_500(tmp_path: Path, seen: list[Path]) -> None:
 
 
 @pytest.mark.skipif(
-    not hasattr(os, "fchmod"), reason="the descriptor path needs os.fchmod")
+    os.name != "posix",
+    reason=(
+        "the descriptor is only held across the rename on POSIX; Windows "
+        "refuses to rename an open file (WinError 32), so it settles by "
+        "path there"))
 def test_a_swap_before_the_first_stat_does_not_chmod_a_foreign_file(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The reason the mode is re-applied through the descriptor.
