@@ -39,11 +39,16 @@ for a command that was not executed as sent.
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 import pytest
 
-from arena.exec.request_shape import requested_command, unusable_command
+from arena.exec.request_shape import (
+    requested_command,
+    unusable_command,
+    unusable_shell_command,
+)
 from tests._live_bridge import auth_header, json_payload, running_client
 
 TOKEN = "exec-newline-cmd-token-223"
@@ -146,27 +151,102 @@ async def _a_real_command_runs(tmp_path: Path) -> None:
     assert "hi" in payload["stdout"]
 
 
-def test_the_documented_workaround_is_not_broken(tmp_path: Path) -> None:
-    """`;` is how callers chain commands today, and must keep working.
+# The separator that actually chains two commands, per shell. `cmd.exe`
+# treats `;` as literal text -- `echo one; echo two` is a single `echo`
+# printing "one; echo two", measured on the operator's Windows host. A
+# test that asserted both words appeared would therefore pass without a
+# second command ever running (cubic, CodeRabbit), which is the same
+# false green this PR exists to remove.
+CHAIN = "&" if os.name == "nt" else ";"
 
-    The obstacle registry tells agents to join with `;` instead of a
-    newline. If this fix refused separators in general it would break
-    every caller that took that advice, so the guard is about newlines
-    only.
+
+def test_chaining_two_commands_is_not_broken(tmp_path: Path) -> None:
+    """Callers chain commands instead of using a newline, and must keep able to.
+
+    The workaround agents were told to use is joining commands on one
+    line. If this fix refused separators in general it would break every
+    caller that took that advice, so the guard is about line breaks only.
     """
-    asyncio.run(_semicolon_still_chains(tmp_path))
+    asyncio.run(_chaining_still_works(tmp_path))
 
 
-async def _semicolon_still_chains(tmp_path: Path) -> None:
+async def _chaining_still_works(tmp_path: Path) -> None:
+    # A sentinel only the second command can print: the first echoes a
+    # different word, so finding this one proves two executions rather
+    # than one command that swallowed the separator as an argument.
     async with running_client(tmp_path, TOKEN) as client:
         response = await client.post(
             "/v1/exec", headers=auth_header(TOKEN),
-            json={"cmd": "echo one; echo two", "timeout": 30})
+            json={"cmd": f"echo alpha{CHAIN} echo omega223", "timeout": 30})
         payload = await json_payload(response)
 
     assert response.status == 200, payload
     assert payload["ok"] is True, payload
-    assert "one" in payload["stdout"] and "two" in payload["stdout"], payload
+    stdout = payload["stdout"]
+    assert "alpha" in stdout, payload
+    # Split assertions: the second is the one that proves the chaining,
+    # and a composite would not say which half failed (SonarCloud).
+    assert "omega223" in stdout, payload
+    assert CHAIN not in stdout, payload
+
+
+def test_the_separator_this_test_uses_really_chains() -> None:
+    """The test above is only meaningful if `CHAIN` chains on this platform.
+
+    Pinning it here means a wrong separator fails loudly instead of
+    quietly turning `test_chaining_two_commands_is_not_broken` into an
+    assertion about one `echo` printing its own arguments.
+    """
+    rc, stdout = asyncio.run(_shell_output(f"echo alpha{CHAIN} echo omega223"))
+    assert rc == 0, stdout
+    assert "omega223" in stdout
+    assert CHAIN not in stdout, (
+        f"{CHAIN!r} is literal text to this shell, not a separator: {stdout!r}")
+
+
+async def _shell_output(command: str) -> tuple[int | None, str]:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    stdout, _ = await process.communicate()
+    return process.returncode, stdout.decode("utf-8", "replace")
+
+
+@pytest.mark.parametrize("cmd", NEWLINE_COMMANDS)
+def test_every_surface_agrees_on_what_a_newline_is(cmd: str) -> None:
+    """The v2 API, the sandbox and the MCP tool refuse the same strings.
+
+    They report a refusal differently -- JSON 400, JSON 400, `isError` --
+    but the question is identical, so they ask one function. The first
+    revision of this PR had them call `unusable_command` on the raw value
+    while `/v1/exec` called it on the stripped one, which made
+    `{"cmd": "echo hi\\n"}` a 400 on `/v1/sandbox` and a 200 on `/v1/exec`
+    (cubic). One request must not mean two things depending on which
+    endpoint it reaches, any more than on which OS it lands.
+    """
+    reason = unusable_shell_command(cmd)
+    assert reason is not None
+    assert reason == unusable_command(cmd.strip())
+
+
+@pytest.mark.parametrize("cmd", ("echo hi\n", "\necho hi", "  echo hi  ", "echo hi"))
+def test_no_surface_refuses_a_command_the_exec_endpoints_run(cmd: str) -> None:
+    """The other half of the same agreement, from the accepting side."""
+    assert unusable_shell_command(cmd) is None
+    assert requested_command({"cmd": cmd})[1] is None
+
+
+def test_an_empty_command_is_left_to_the_caller_to_name() -> None:
+    """Each surface has its own wording for a missing `cmd`, and keeps it.
+
+    The shared helper answers None for an empty string rather than
+    inventing a third spelling of "you sent nothing", which would have
+    changed the error text on three endpoints for no reason.
+    """
+    assert unusable_shell_command("") is None
+    assert unusable_shell_command("   \n  ") is None
 
 
 @pytest.mark.parametrize("cmd", NEWLINE_COMMANDS)

@@ -6,7 +6,7 @@ import asyncio
 from aiohttp import web
 
 from arena.api_v2.common import auth_and_record
-from arena.exec.request_shape import unusable_command
+from arena.exec.request_shape import unusable_shell_command
 from arena.handler_context import ApiV2HandlerContext
 from arena.security_commands import command_allowlist_reason
 
@@ -72,7 +72,7 @@ def make_v2_exec_handler(ctx: ApiV2HandlerContext):
         # #223: the same newline refusal as /v1/exec. This path reaches
         # `create_subprocess_shell` too, so without it the v2 API keeps
         # answering ok:true for a command whose tail was dropped.
-        unusable = unusable_command(str(cmd))
+        unusable = unusable_shell_command(cmd)
         if unusable:
             return ctx.cors_json_response({"ok": False, "error": unusable}, status=400)
 

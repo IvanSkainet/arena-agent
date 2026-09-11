@@ -70,6 +70,23 @@ def unusable_command(cmd: str) -> str | None:
     return None
 
 
+def unusable_shell_command(raw: Any) -> str | None:
+    """Why this value cannot be run as a command line, or None.
+
+    The same question `requested_command` answers for the JSON exec
+    endpoints, for the surfaces that read `cmd` themselves: the v2 API,
+    the sandbox runner and the MCP tool. They differ in how they report a
+    refusal, not in what counts as one, and the newline guard was briefly
+    stricter on those three than on `/v1/exec` because they skipped the
+    `.strip()` that happens here (cubic). Trimming in one place is what
+    keeps `{"cmd": "echo hi\\n"}` meaning the same thing everywhere.
+    """
+    text = str(raw).strip()
+    if not text:
+        return None  # "missing cmd" is the caller's own wording
+    return unusable_command(text)
+
+
 def requested_command(data: dict[str, Any]) -> tuple[str, str | None]:
     """The command line to run, or why this body does not carry one.
 

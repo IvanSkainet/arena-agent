@@ -7,7 +7,7 @@ from typing import Any
 
 from aiohttp import web
 
-from arena.exec.request_shape import unusable_command
+from arena.exec.request_shape import unusable_shell_command
 from arena.handler_context import SandboxHandlerContext
 from arena.handler_helpers import authed
 from arena.sandbox.runtime import SANDBOX_CONFIG
@@ -65,7 +65,7 @@ def make_sandbox_handlers(ctx: SandboxHandlerContext) -> SandboxHandlers:
             # #223: a newline makes the tail vanish on Windows, so refuse
             # it here as well rather than reporting success for a command
             # that ran in part.
-            unusable = unusable_command(str(cmd))
+            unusable = unusable_shell_command(cmd)
             if unusable:
                 return ctx.cors_json_response({"ok": False, "error": unusable}, status=400)
 
