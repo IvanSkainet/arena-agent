@@ -23,23 +23,70 @@ class TokenFileModeWarning(Exception):
         self.target = target
 
 
-def _reject_if_not_still_ours(
-        target: Path, installed: int | None, cause: OSError) -> None:
-    """Re-raise `cause` unless `target` is still the file we just installed.
+def _still_ours(target: Path, installed: int | None) -> bool:
+    """Is `target` still the file `os.replace` just installed?
 
-    The post-replace chmod is only downgraded to a warning because the new
-    token is known to be on disk. If another process removed or replaced
-    the path in the window between `os.replace` and `os.chmod`, that is no
-    longer true: reporting success would hand back a token that vanishes
-    on the next restart (cubic, #211). The inode is compared where the OS
-    exposes a stable one, and mere existence elsewhere.
+    Reporting a rotation as done means claiming the new token is what the
+    path holds. If another process removed or replaced it in the window
+    after `os.replace`, that claim is false and the caller would be handed
+    a token that vanishes on the next restart (cubic, #211). The inode is
+    compared where the OS exposes a stable one, and mere existence
+    elsewhere.
     """
     try:
         current = os.stat(target)
     except OSError:
-        raise cause from None
-    if installed is not None and current.st_ino != installed:
-        raise cause from None
+        return False
+    return installed is None or current.st_ino == installed
+
+
+class TokenFileVanishedError(OSError):
+    """The installed token file was removed or replaced by someone else.
+
+    The write itself succeeded, so this is deliberately *not* a
+    `TokenFileModeWarning`: nothing usable is at the path, and a caller
+    that treats it as a completed rotation would report success for a
+    token that is not on disk.
+    """
+
+    def __init__(self, target: Path) -> None:
+        super().__init__(
+            f"{target} was removed or replaced by another process "
+            "immediately after it was written; the rotation did NOT survive.")
+        self.target = target
+
+
+def _settle_after_replace(target: Path) -> None:
+    """Re-apply the mode after a rename and classify what can go wrong.
+
+    Exactly two things are worth telling apart once `os.replace` has run
+    (#211), because a caller decides on this whether to keep the new token
+    in memory:
+
+    * the file is ours and only the mode is in doubt -- the rotation took,
+      so this is a `TokenFileModeWarning`, not a failure. Raising a plain
+      error here left the caller on the old credential while the next
+      restart read the new one off disk, locking every client out;
+    * the path is gone or now holds someone else's file -- nothing usable
+      was installed, so this is a hard `TokenFileVanishedError` even when
+      the chmod itself succeeded.
+
+    The re-chmod is belt-and-braces for filesystems that reset the mode on
+    rename; the temporary file was already chmodded before the replace.
+    """
+    installed = os.stat(target).st_ino if os.name == "posix" else None
+    mode_error: OSError | None = None
+    try:
+        os.chmod(target, 0o600)
+    except OSError as exc:
+        mode_error = exc
+    # Identity is checked whether or not the chmod raised: a chmod that
+    # succeeded on a path another process has since replaced says nothing
+    # about our token still being there (cubic, #211).
+    if not _still_ours(target, installed):
+        raise TokenFileVanishedError(target) from mode_error
+    if mode_error is not None:
+        raise TokenFileModeWarning(target, mode_error) from mode_error
 
 
 def write_owner_token(target: Path, token: str) -> None:
@@ -81,24 +128,7 @@ def write_owner_token(target: Path, token: str) -> None:
             os.fsync(handle.fileno())
         os.chmod(tmp, 0o600)
         os.replace(tmp, target)
-        installed = os.stat(target).st_ino if os.name == "posix" else None
-        try:
-            os.chmod(target, 0o600)
-        except OSError as exc:
-            _reject_if_not_still_ours(target, installed, exc)
-            # #211 (cubic): past this point the new token IS the file's
-            # contents -- `os.replace` is atomic and has already happened.
-            # Raising here told the caller the rotation failed, so it kept
-            # the old credential in memory while the next restart would
-            # read the new one off disk and lock every client out.
-            #
-            # The re-chmod is belt-and-braces for filesystems that reset
-            # the mode on rename; the mode was already applied to the
-            # temporary file before the replace, so failing to re-apply it
-            # is not a reason to call a completed rotation a failure. It is
-            # worth knowing about, so it is raised as a warning that names
-            # the file rather than swallowed.
-            raise TokenFileModeWarning(target, exc) from exc
+        _settle_after_replace(target)
     finally:
         if tmp is not None:
             try:

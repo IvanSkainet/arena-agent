@@ -429,7 +429,7 @@ def test_a_file_deleted_between_replace_and_chmod_is_a_hard_failure(
 
     monkeypatch.setattr(token_storage.os, "chmod", deletes_then_fails)
 
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(token_storage.TokenFileVanishedError):
         token_storage.write_owner_token(target, "NEW-TOKEN")
     assert not target.exists()
 
@@ -452,7 +452,7 @@ def test_a_file_swapped_between_replace_and_chmod_is_a_hard_failure(
 
     monkeypatch.setattr(token_storage.os, "chmod", swaps_then_fails)
 
-    with pytest.raises(PermissionError):
+    with pytest.raises(token_storage.TokenFileVanishedError):
         token_storage.write_owner_token(target, "NEW-TOKEN")
     assert target.read_text(encoding="utf-8") == "SOMEONE-ELSES-TOKEN"
 
@@ -552,3 +552,120 @@ def test_the_write_docstring_does_not_promise_that_everything_propagates(
 
     assert "Any failure propagates" not in doc
     assert "TokenFileModeWarning" in doc
+
+
+def test_a_swap_is_caught_even_when_the_chmod_itself_succeeds(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The identity check must not hide in the chmod failure path.
+
+    cubic, P1 on the previous commit: the guard only ran when the chmod
+    raised, so a process that replaced the path while the chmod happily
+    succeeded produced a reported-successful rotation for a token that is
+    not on disk -- the exact failure the guard was added to prevent.
+    """
+    target = tmp_path / "token.txt"
+    target.write_text("OLD-TOKEN", encoding="utf-8")
+    intruder = tmp_path / "intruder.txt"
+    intruder.write_text("SOMEONE-ELSES-TOKEN", encoding="utf-8")
+    real_chmod = token_storage.os.chmod
+
+    def swaps_then_succeeds(path, mode, *args, **kwargs):
+        result = real_chmod(path, mode, *args, **kwargs)
+        if Path(path) == target:
+            os.replace(intruder, target)
+        return result
+
+    monkeypatch.setattr(token_storage.os, "chmod", swaps_then_succeeds)
+
+    with pytest.raises(token_storage.TokenFileVanishedError):
+        token_storage.write_owner_token(target, "NEW-TOKEN")
+    assert target.read_text(encoding="utf-8") == "SOMEONE-ELSES-TOKEN"
+
+
+def test_a_vanished_file_is_not_a_mode_warning(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The two post-replace outcomes must stay distinguishable by type.
+
+    A caller decides whether to keep the new token in memory on exactly
+    this distinction, so `TokenFileVanishedError` must not be catchable as
+    the warning that means "rotated, check the permissions".
+    """
+    target = tmp_path / "token.txt"
+    real_chmod = token_storage.os.chmod
+
+    def deletes_then_succeeds(path, mode, *args, **kwargs):
+        result = real_chmod(path, mode, *args, **kwargs)
+        if Path(path) == target:
+            os.unlink(target)
+        return result
+
+    monkeypatch.setattr(token_storage.os, "chmod", deletes_then_succeeds)
+
+    assert not issubclass(
+        token_storage.TokenFileVanishedError, token_storage.TokenFileModeWarning)
+    with pytest.raises(token_storage.TokenFileVanishedError):
+        token_storage.write_owner_token(target, "NEW-TOKEN")
+
+
+def test_the_bridge_does_not_start_on_a_token_that_vanished(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """First start tolerates the mode warning, not a disappeared file."""
+    from arena.bootstrap_token import resolve_token
+
+    target = tmp_path / "token.txt"
+    real_chmod = token_storage.os.chmod
+
+    def deletes_then_succeeds(path, mode, *args, **kwargs):
+        result = real_chmod(path, mode, *args, **kwargs)
+        if Path(path) == target:
+            os.unlink(target)
+        return result
+
+    monkeypatch.setattr(token_storage.os, "chmod", deletes_then_succeeds)
+    monkeypatch.delenv("ARENA_TOKEN_FILE", raising=False)
+    monkeypatch.delenv("ARENA_LOCAL_BRIDGE_TOKEN", raising=False)
+
+    with pytest.raises(token_storage.TokenFileVanishedError):
+        resolve_token(
+            None,
+            default_token_file=target,
+            token_generator=lambda: "a-generated-token-value")
+
+
+def test_the_api_reports_a_vanished_token_as_a_failed_rotation(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """End to end: a token that did not survive is a 500, not a warning.
+
+    The warning path answers 200 with a `warning` field on purpose. This
+    asserts the other post-replace outcome takes the failure path all the
+    way out to the status a client reads, so the two can never be conflated
+    at the HTTP boundary.
+    """
+    real_chmod = token_storage.os.chmod
+    seen: list[Path] = []
+
+    def deletes_then_succeeds(path, mode, *args, **kwargs):
+        result = real_chmod(path, mode, *args, **kwargs)
+        target = Path(path)
+        if target.name == "token.txt" and target.exists():
+            seen.append(target)
+            os.unlink(target)
+        return result
+
+    monkeypatch.setattr(token_storage.os, "chmod", deletes_then_succeeds)
+    asyncio.run(_vanished_token_is_a_500(tmp_path, seen))
+
+
+async def _vanished_token_is_a_500(tmp_path: Path, seen: list[Path]) -> None:
+    async with running_client(tmp_path, TOKEN) as client:
+        from arena.app_keys import APP_CFG
+
+        client.app[APP_CFG]["token_file"] = str(tmp_path / "token.txt")
+        response = await client.post(
+            "/v1/token/regenerate", headers=auth_header(TOKEN))
+        payload = await json_payload(response)
+
+    assert seen, "the token file was never written"
+    assert response.status == 500, payload
+    assert payload["ok"] is False, payload
+    assert "warning" not in payload, payload
