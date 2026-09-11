@@ -414,13 +414,84 @@ def test_an_out_of_range_delay_reports_the_json_type_it_was_sent_as(
     assert f"received {json_type}" in str(payload), payload
 
 
-def test_a_sub_millisecond_delay_is_rounded_not_truncated():
-    """`int()` turned a 0.6 ms delay into no delay at all.
+def _windows_type_handler(monkeypatch, recorder):
+    """Build the handler forced down the native-Windows branch.
 
-    The Windows backend sleeps `delay_ms / 1000`, so a fraction cannot
-    survive intact -- but rounding to the nearest millisecond keeps the
-    caller's intent, where truncation discards it.
+    That branch is `pragma: no cover` because it needs user32, so the
+    only way to pin `delay_ms=round(delay)` is to stub the backend and
+    make `detect_desktop_env` claim win32 input is available.
+
+    The stub goes on the real module via `monkeypatch.setattr`, not by
+    replacing the `sys.modules` entry. Replacing it only worked when
+    this file happened to run first: `test_desktop_windows_backend.py`
+    imports the genuine module, after which the handler's own
+    `from ... import windows` found the cached real one and answered
+    500. Patching the attribute works whichever ran first and is undone
+    at teardown -- the #329 lesson applied to my own test.
     """
-    assert round(0.6) == 1
-    assert int(0.6) == 0  # what the code used to do
-    assert round(12.5) == 12  # banker's rounding, still within a ms
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    import unified_bridge as ub
+    from arena.desktop.backends import windows as real_win
+    from arena.desktop.input_handlers import make_desktop_input_handlers
+    from arena.handler_context import DesktopHandlerContext
+
+    def type_text(text, *, delay_ms=5):
+        recorder.append(delay_ms)
+
+    monkeypatch.setattr(real_win, "type_text", type_text)
+    monkeypatch.setattr(real_win, "key", lambda *a, **k: None, raising=False)
+
+    async def unused_exec(cmd, timeout=None):  # pragma: no cover - must not run
+        raise AssertionError(f"the windows path shelled out: {cmd!r}")
+
+    ctx = DesktopHandlerContext(
+        require_auth=lambda *a, **k: None,
+        record_request=lambda *a, **k: None,
+        cors_json_response=ub._cors_json_response,
+        control_check=lambda *a, **k: None,
+        control_record_agent_action=lambda *a, **k: None,
+        desktop_exec=unused_exec,
+        detect_desktop_env=lambda: {"has_win32_input": True},
+        get_active_window=ub._get_active_window,
+        kwin_windows_via_script=ub._kwin_windows_via_script,
+        capture_screenshot=ub.capture_desktop_screenshot,
+        ocr_desktop=ub.ocr_desktop,
+        kwin_focus_window=ub.kwin_focus_window_via_script,
+        focus_window=ub.focus_window,
+        audit=lambda *a, **k: None,
+    )
+    _click, type_handler, _key, _mouse = make_desktop_input_handlers(ctx)
+    return type_handler
+
+
+@pytest.mark.parametrize(
+    ("delay", "expected_ms"),
+    [
+        (0.6, 1),      # int() made this 0 -- no delay at all
+        (1.4, 1),
+        (12.5, 12),    # banker's rounding, still within a millisecond
+        (50, 50),
+        (0, 0),
+    ],
+)
+def test_the_windows_path_rounds_the_delay_it_passes_on(
+    monkeypatch, delay, expected_ms
+):
+    """Pin `round(delay)` where it actually runs.
+
+    The first version of this test asserted `round(0.6) == 1` and
+    `int(0.6) == 0` -- Python's own semantics, true no matter what the
+    handler does, so reverting the fix left it green (cubic). This one
+    drives the native-Windows branch and reads the value handed to
+    `type_text`.
+    """
+    received: list[float] = []
+    handler = _windows_type_handler(monkeypatch, received)
+
+    status, payload = asyncio.run(_post(handler, {"text": "hi", "delay": delay}))
+
+    assert status == 200, payload
+    assert received == [expected_ms]
