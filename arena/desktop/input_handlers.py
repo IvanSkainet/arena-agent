@@ -9,7 +9,9 @@ from aiohttp import web
 from arena.desktop.availability import builder_refusal
 from arena.desktop.input import build_click_command, build_key_command, build_mouse_command, build_type_command
 from arena.handler_context import DesktopHandlerContext
+from arena.handler_errors import BodyFieldError
 from arena.handler_helpers import controlled, json_object_body
+from arena.handler_params import body_float
 
 
 def make_desktop_input_handlers(ctx: DesktopHandlerContext):
@@ -92,7 +94,28 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
         if text is None:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing 'text' parameter"}, status=400)
-        delay = body.get("delay", 50)
+        # #272: `delay` is interpolated into a shell command string by
+        # `build_type_command`, so a string like "1; id" was command
+        # injection. `body_float` refuses a non-number with a 400 naming
+        # the field, and rejects NaN and the infinities.
+        #
+        # Float rather than int: 12.5 is a delay callers actually send to
+        # slow typing in timing-sensitive apps, and both xdotool and the
+        # builder accept it. `body_int` would have answered 400 to a
+        # request that works today -- a compatibility regression riding
+        # along with a security fix (aikido, cubic).
+        delay = body_float(body, "delay", default=50.0)
+        if not 0 <= delay <= 10_000:
+            # Bounds live here rather than in `body_float` because they
+            # are this endpoint's, not the parser's: a delay of a billion
+            # milliseconds is a wedged desktop, not a typing speed.
+            #
+            # The *raw* field goes to the error, not the parsed float:
+            # BodyFieldError reports the JSON type, and `{"delay": "20000"}`
+            # is a string the caller sent, however it parsed here (cubic).
+            raise BodyFieldError(
+                "delay", body.get("delay"),
+                expected="a number between 0 and 10000")
         clear = body.get("clear", False)
         ensure_latin = body.get("ensure_latin", True)
         env = ctx.detect_desktop_env()
@@ -104,7 +127,12 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
                 if clear:
                     # Ctrl+A then type — equivalent to the Linux "select all + type" combo.
                     await _win32_call(_win.key, "a", modifiers=["ctrl"])
-                await _win32_call(_win.type_text, text, delay_ms=int(delay))
+                # round(), not int(): int() truncates, so a 0.6 ms delay
+                # asked for by a caller became 0 -- no delay at all -- and
+                # every fraction silently lost precision. The Windows
+                # backend sleeps `delay_ms / 1000`, so the nearest
+                # millisecond is the most it can honour (cubic).
+                await _win32_call(_win.type_text, text, delay_ms=round(delay))
                 return ctx.cors_json_response({
                     "ok": True, "text": text, "tool": "user32", "backend": "windows",
                     "ensure_latin": ensure_latin, "layout_switched": False,

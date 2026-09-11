@@ -222,6 +222,14 @@ def body_str(body: Mapping[str, Any], name: str, *, default: str) -> str:
     return value
 
 
+@overload
+def body_float(body: Mapping[str, Any], name: str, *, default: float) -> float: ...
+
+
+@overload
+def body_float(body: Mapping[str, Any], name: str, *, default: None) -> float | None: ...
+
+
 def body_float(body: Mapping[str, Any], name: str, *, default: float | None) -> float | None:
     """Read a fractional number out of a JSON body, or refuse with a 400.
 
@@ -229,6 +237,12 @@ def body_float(body: Mapping[str, Any], name: str, *, default: float | None) -> 
     `scale: 0.5` on the desktop capture. Same rules otherwise: booleans and
     containers are refused rather than coerced, strings still parse because
     callers send them, and missing/null/"" mean unspecified.
+
+    Overloaded like `body_int` for the same reason: a caller that passes a
+    real default cannot receive `None`, and without the overloads every
+    such caller has to narrow a `float | None` that cannot occur. #272 hit
+    exactly that -- the typing ratchet reported three errors for a value
+    the code had already guaranteed.
     """
     value = _numeric_value(body, name, "a number")
     if value is _UNSPECIFIED:
