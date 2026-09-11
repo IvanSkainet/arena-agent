@@ -40,7 +40,7 @@ from arena.admin.tunnels import (
     tunnels_status,
     tunnels_stop,
 )
-from arena.app_keys import APP_CFG
+from arena.app_keys import APP_CFG, APP_TOKEN_ROTATION_LOCK
 from arena.handler_context import AdminHandlerContext
 from arena.handler_helpers import authed, safe_float
 from arena.mobile.exposure_cache import record_tunnel_snapshot
@@ -169,6 +169,35 @@ async def rotate_bridge_token(ctx: AdminHandlerContext,
     building the whole handler table.
     """
     cfg = request.app[APP_CFG]
+    async with _rotation_lock_for(request.app):
+        return await _rotate_once(ctx, request, cfg)
+
+
+def _rotation_lock_for(app: web.Application) -> asyncio.Lock:
+    """One rotation at a time per bridge.
+
+    #211 (CodeRabbit): the write runs in an eight-worker executor, so two
+    authenticated requests overlap freely. Measured on the unlocked code
+    with eight concurrent rotations, two runs in six ended with
+    `cfg["token"]` holding a different value than the token file -- the
+    executor finished A last while B installed itself in memory. That is
+    the same disk/memory divergence this PR exists to close, arrived at
+    from the other direction: every client is locked out after a restart.
+
+    The lock lives on the application rather than the module so separate
+    bridges in one process (the test rig runs several) do not serialise
+    against each other.
+    """
+    lock = app.get(APP_TOKEN_ROTATION_LOCK)
+    if lock is None:
+        lock = asyncio.Lock()
+        app[APP_TOKEN_ROTATION_LOCK] = lock
+    return lock
+
+
+async def _rotate_once(ctx: AdminHandlerContext, request: web.Request,
+                       cfg: dict) -> web.Response:
+    """The rotation itself, always under `_rotation_lock_for`."""
     target = str(cfg.get("token_file") or "")
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(

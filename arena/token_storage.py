@@ -23,23 +23,6 @@ class TokenFileModeWarning(Exception):
         self.target = target
 
 
-def _still_ours(target: Path, installed: int | None) -> bool:
-    """Is `target` still the file `os.replace` just installed?
-
-    Reporting a rotation as done means claiming the new token is what the
-    path holds. If another process removed or replaced it in the window
-    after `os.replace`, that claim is false and the caller would be handed
-    a token that vanishes on the next restart (cubic, #211). The inode is
-    compared where the OS exposes a stable one, and mere existence
-    elsewhere.
-    """
-    try:
-        current = os.stat(target)
-    except OSError:
-        return False
-    return installed is None or current.st_ino == installed
-
-
 class TokenFileVanishedError(OSError):
     """The installed token file was removed or replaced by someone else.
 
@@ -56,37 +39,69 @@ class TokenFileVanishedError(OSError):
         self.target = target
 
 
-def _settle_after_replace(target: Path) -> None:
-    """Re-apply the mode after a rename and classify what can go wrong.
+def _settle_by_descriptor(target: Path, fd: int) -> None:
+    """Re-apply the mode through the descriptor we replaced into place.
 
-    Exactly two things are worth telling apart once `os.replace` has run
-    (#211), because a caller decides on this whether to keep the new token
-    in memory:
-
-    * the file is ours and only the mode is in doubt -- the rotation took,
-      so this is a `TokenFileModeWarning`, not a failure. Raising a plain
-      error here left the caller on the old credential while the next
-      restart read the new one off disk, locking every client out;
-    * the path is gone or now holds someone else's file -- nothing usable
-      was installed, so this is a hard `TokenFileVanishedError` even when
-      the chmod itself succeeded.
-
-    The re-chmod is belt-and-braces for filesystems that reset the mode on
-    rename; the temporary file was already chmodded before the replace.
+    CodeRabbit, #211: resolving `target` by path a second time reopens the
+    window the identity check exists to close -- a process that swaps the
+    path between `os.replace` and `os.stat` gets its own file chmodded to
+    0600 and its inode recorded as ours. The descriptor from before the
+    rename cannot be redirected, so `os.fchmod` always lands on our file
+    and `os.fstat` always reports our identity; only the path lookup can
+    disagree, which is exactly the signal wanted.
     """
-    installed = os.stat(target).st_ino if os.name == "posix" else None
+    mode_error: OSError | None = None
+    try:
+        os.fchmod(fd, 0o600)
+    except OSError as exc:
+        mode_error = exc
+    try:
+        at_path = os.stat(target).st_ino
+    except OSError:
+        raise TokenFileVanishedError(target) from mode_error
+    if at_path != os.fstat(fd).st_ino:
+        raise TokenFileVanishedError(target) from mode_error
+    if mode_error is not None:
+        raise TokenFileModeWarning(target, mode_error) from mode_error
+
+
+def _settle_by_path(target: Path, installed: int | None) -> None:
+    """The same settlement where a descriptor cannot survive the rename.
+
+    Windows refuses to rename a file that is still open, so the descriptor
+    is closed before `os.replace` there and the mode has to be re-applied
+    by path. `installed` is the inode captured before the rename where the
+    OS exposes a stable one, and `None` otherwise -- in which case only the
+    file's disappearance is detectable, not a same-path swap.
+    """
     mode_error: OSError | None = None
     try:
         os.chmod(target, 0o600)
     except OSError as exc:
         mode_error = exc
-    # Identity is checked whether or not the chmod raised: a chmod that
-    # succeeded on a path another process has since replaced says nothing
-    # about our token still being there (cubic, #211).
-    if not _still_ours(target, installed):
+    try:
+        current = os.stat(target).st_ino
+    except OSError:
+        raise TokenFileVanishedError(target) from mode_error
+    if installed is not None and current != installed:
         raise TokenFileVanishedError(target) from mode_error
     if mode_error is not None:
         raise TokenFileModeWarning(target, mode_error) from mode_error
+
+
+def _write_temp_beside(target: Path, token: str) -> tuple[Path, int]:
+    """Write `token` to a fresh file next to `target`, returning its fd too.
+
+    The descriptor stays open on purpose: it is what lets the caller act on
+    the file it wrote rather than on whatever the path resolves to later.
+    """
+    fd, name = tempfile.mkstemp(
+        prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
+    with os.fdopen(os.dup(fd), "w", encoding="utf-8") as handle:
+        handle.write(token)
+        handle.flush()
+        os.fsync(handle.fileno())
+    return Path(name), fd
 
 
 def write_owner_token(target: Path, token: str) -> None:
@@ -113,25 +128,50 @@ def write_owner_token(target: Path, token: str) -> None:
 
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp: Path | None = None
+    fd = -1
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            prefix=f".{target.name}.",
-            suffix=".tmp",
-            dir=str(target.parent),
-            delete=False,
-        ) as handle:
-            tmp = Path(handle.name)
-            handle.write(token)
-            handle.flush()
-            os.fsync(handle.fileno())
+        tmp, fd = _write_temp_beside(target, token)
+        # By path, deliberately: the pre-replace chmod is the one callers
+        # and tests exercise as "the write failed and nothing was
+        # installed", and the temporary name is ours alone, so there is no
+        # swap window to close here. The descriptor matters only after the
+        # rename, where the path stops being a reliable handle.
         os.chmod(tmp, 0o600)
-        os.replace(tmp, target)
-        _settle_after_replace(target)
+        fd = _replace_and_settle(tmp, target, fd)
     finally:
-        if tmp is not None:
-            try:
-                tmp.unlink()
-            except FileNotFoundError:
-                pass
+        _close_and_clean(fd, tmp)
+
+
+def _replace_and_settle(tmp: Path, target: Path, fd: int) -> int:
+    """Install `tmp` at `target` and re-apply the mode, returning the fd.
+
+    The descriptor is closed and `-1` returned where it cannot survive the
+    rename, so the caller's cleanup stays honest about what is still open.
+    """
+    installed = os.stat(tmp).st_ino if os.name == "posix" else None
+    if not hasattr(os, "fchmod"):
+        # Windows will not rename a file that is still open.
+        os.close(fd)
+        fd = -1
+    os.replace(tmp, target)
+    if fd >= 0:
+        _settle_by_descriptor(target, fd)
+    else:
+        _settle_by_path(target, installed)
+    return fd
+
+
+def _close_and_clean(fd: int, tmp: Path | None) -> None:
+    """Release the descriptor and remove the temporary file if it survived.
+
+    After a successful `os.replace` the temporary name is already gone, so
+    the unlink is only for the paths that failed before the rename.
+    """
+    if fd >= 0:
+        os.close(fd)
+    if tmp is None:
+        return
+    try:
+        tmp.unlink()
+    except FileNotFoundError:
+        pass

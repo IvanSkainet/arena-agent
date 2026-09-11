@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -284,25 +285,35 @@ def test_the_document_no_longer_promises_a_200_on_failure() -> None:
 # ---------------------------------------------------------------------------
 # The chmod-after-replace window (cubic, P1)
 # ---------------------------------------------------------------------------
-def _chmod_that_fails_after_the_replace(monkeypatch):
-    """Let the first chmod (on the temp file) through, fail the second.
+def _mode_change_that_fails_after_the_replace(monkeypatch):
+    """Let the pre-replace chmod through, fail the post-replace one.
 
-    `write_owner_token` chmods the temporary file, calls `os.replace`, then
-    re-applies the mode. Only the second call is after the point of no
-    return, so only the second is made to fail.
+    `write_owner_token` chmods the temporary file by path, calls
+    `os.replace`, then re-applies the mode through the descriptor it kept
+    open (`os.fchmod`, so a swapped path cannot redirect it). Only that
+    second call is past the point of no return, so only it is made to
+    fail.
     """
-    from arena import token_storage
+    def denied(_fd, _mode, *args, **kwargs):
+        raise PermissionError("chmod after replace failed")
 
-    real_chmod = token_storage.os.chmod
-    calls = {"n": 0}
+    monkeypatch.setattr(token_storage.os, "fchmod", denied)
 
-    def flaky(path, mode, *args, **kwargs):
-        calls["n"] += 1
-        if calls["n"] == 2:
-            raise PermissionError("chmod after replace failed")
-        return real_chmod(path, mode, *args, **kwargs)
 
-    monkeypatch.setattr(token_storage.os, "chmod", flaky)
+def _after_the_replace(monkeypatch, tamper):
+    """Run `tamper()` at the post-replace mode change, then succeed.
+
+    Used to model another process reaching the path in the window the
+    identity check guards, with the mode change itself working fine.
+    """
+    real_fchmod = token_storage.os.fchmod
+
+    def meddles(fd, mode, *args, **kwargs):
+        result = real_fchmod(fd, mode, *args, **kwargs)
+        tamper()
+        return result
+
+    monkeypatch.setattr(token_storage.os, "fchmod", meddles)
 
 
 def test_a_chmod_failure_after_the_replace_is_not_a_failed_rotation(
@@ -318,7 +329,7 @@ def test_a_chmod_failure_after_the_replace_is_not_a_failed_rotation(
 
     target = tmp_path / "token.txt"
     target.write_text("the-old-one", encoding="utf-8")
-    _chmod_that_fails_after_the_replace(monkeypatch)
+    _mode_change_that_fails_after_the_replace(monkeypatch)
 
     result = token_regenerate(str(target), default_token_file=target)
 
@@ -343,7 +354,7 @@ def test_the_handler_keeps_memory_and_disk_in_step_through_that_window(
 async def _memory_and_disk_agree(tmp_path: Path, monkeypatch) -> None:
     async with running_client(tmp_path, TOKEN) as client:
         target = _write_tokens_under(client, tmp_path)
-        _chmod_that_fails_after_the_replace(monkeypatch)
+        _mode_change_that_fails_after_the_replace(monkeypatch)
 
         rotated = await client.post(
             "/v1/token/regenerate", headers=auth_header(TOKEN))
@@ -419,15 +430,11 @@ def test_a_file_deleted_between_replace_and_chmod_is_a_hard_failure(
     """A vanished token file must not be reported as a rotation that took."""
     target = tmp_path / "token.txt"
     target.write_text("OLD-TOKEN", encoding="utf-8")
-    real_chmod = token_storage.os.chmod
+    def deletes_then_fails(_fd, _mode, *args, **kwargs):
+        os.unlink(target)
+        raise FileNotFoundError(2, "No such file or directory", str(target))
 
-    def deletes_then_fails(path, mode, *args, **kwargs):
-        if Path(path) == target:
-            os.unlink(target)
-            raise FileNotFoundError(2, "No such file or directory", str(target))
-        return real_chmod(path, mode, *args, **kwargs)
-
-    monkeypatch.setattr(token_storage.os, "chmod", deletes_then_fails)
+    monkeypatch.setattr(token_storage.os, "fchmod", deletes_then_fails)
 
     with pytest.raises(token_storage.TokenFileVanishedError):
         token_storage.write_owner_token(target, "NEW-TOKEN")
@@ -442,15 +449,11 @@ def test_a_file_swapped_between_replace_and_chmod_is_a_hard_failure(
     target.write_text("OLD-TOKEN", encoding="utf-8")
     intruder = tmp_path / "intruder.txt"
     intruder.write_text("SOMEONE-ELSES-TOKEN", encoding="utf-8")
-    real_chmod = token_storage.os.chmod
+    def swaps_then_fails(_fd, _mode, *args, **kwargs):
+        os.replace(intruder, target)
+        raise PermissionError("mode change denied")
 
-    def swaps_then_fails(path, mode, *args, **kwargs):
-        if Path(path) == target:
-            os.replace(intruder, target)
-            raise PermissionError("mode change denied")
-        return real_chmod(path, mode, *args, **kwargs)
-
-    monkeypatch.setattr(token_storage.os, "chmod", swaps_then_fails)
+    monkeypatch.setattr(token_storage.os, "fchmod", swaps_then_fails)
 
     with pytest.raises(token_storage.TokenFileVanishedError):
         token_storage.write_owner_token(target, "NEW-TOKEN")
@@ -461,16 +464,13 @@ def test_the_untouched_path_still_warns_rather_than_failing(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The identity check must not undo the fix it guards."""
     target = tmp_path / "token.txt"
-    real_chmod = token_storage.os.chmod
-    seen: list[Path] = []
+    seen: list[int] = []
 
-    def fails_after_replace(path, mode, *args, **kwargs):
-        if Path(path) == target:
-            seen.append(Path(path))
-            raise PermissionError("mode change denied")
-        return real_chmod(path, mode, *args, **kwargs)
+    def fails_after_replace(fd, _mode, *args, **kwargs):
+        seen.append(fd)
+        raise PermissionError("mode change denied")
 
-    monkeypatch.setattr(token_storage.os, "chmod", fails_after_replace)
+    monkeypatch.setattr(token_storage.os, "fchmod", fails_after_replace)
 
     with pytest.raises(token_storage.TokenFileModeWarning):
         token_storage.write_owner_token(target, "NEW-TOKEN")
@@ -494,14 +494,7 @@ def test_first_start_survives_a_chmod_failure_after_the_replace(
     from arena.bootstrap_token import resolve_token
 
     target = tmp_path / "token.txt"
-    real_chmod = token_storage.os.chmod
-
-    def fails_after_replace(path, mode, *args, **kwargs):
-        if Path(path) == target:
-            raise PermissionError("mode change denied")
-        return real_chmod(path, mode, *args, **kwargs)
-
-    monkeypatch.setattr(token_storage.os, "chmod", fails_after_replace)
+    _mode_change_that_fails_after_the_replace(monkeypatch)
     monkeypatch.delenv("ARENA_TOKEN_FILE", raising=False)
     monkeypatch.delenv("ARENA_LOCAL_BRIDGE_TOKEN", raising=False)
     logged: list[str] = []
@@ -575,15 +568,7 @@ def test_a_swap_is_caught_even_when_the_chmod_itself_succeeds(
     target.write_text("OLD-TOKEN", encoding="utf-8")
     intruder = tmp_path / "intruder.txt"
     intruder.write_text("SOMEONE-ELSES-TOKEN", encoding="utf-8")
-    real_chmod = token_storage.os.chmod
-
-    def swaps_then_succeeds(path, mode, *args, **kwargs):
-        result = real_chmod(path, mode, *args, **kwargs)
-        if Path(path) == target:
-            os.replace(intruder, target)
-        return result
-
-    monkeypatch.setattr(token_storage.os, "chmod", swaps_then_succeeds)
+    _after_the_replace(monkeypatch, lambda: os.replace(intruder, target))
 
     with pytest.raises(token_storage.TokenFileVanishedError):
         token_storage.write_owner_token(target, "NEW-TOKEN")
@@ -599,15 +584,7 @@ def test_a_vanished_file_is_not_a_mode_warning(
     the warning that means "rotated, check the permissions".
     """
     target = tmp_path / "token.txt"
-    real_chmod = token_storage.os.chmod
-
-    def deletes_then_succeeds(path, mode, *args, **kwargs):
-        result = real_chmod(path, mode, *args, **kwargs)
-        if Path(path) == target:
-            os.unlink(target)
-        return result
-
-    monkeypatch.setattr(token_storage.os, "chmod", deletes_then_succeeds)
+    _after_the_replace(monkeypatch, lambda: os.unlink(target))
 
     assert not issubclass(
         token_storage.TokenFileVanishedError, token_storage.TokenFileModeWarning)
@@ -621,15 +598,7 @@ def test_the_bridge_does_not_start_on_a_token_that_vanished(
     from arena.bootstrap_token import resolve_token
 
     target = tmp_path / "token.txt"
-    real_chmod = token_storage.os.chmod
-
-    def deletes_then_succeeds(path, mode, *args, **kwargs):
-        result = real_chmod(path, mode, *args, **kwargs)
-        if Path(path) == target:
-            os.unlink(target)
-        return result
-
-    monkeypatch.setattr(token_storage.os, "chmod", deletes_then_succeeds)
+    _after_the_replace(monkeypatch, lambda: os.unlink(target))
     monkeypatch.delenv("ARENA_TOKEN_FILE", raising=False)
     monkeypatch.delenv("ARENA_LOCAL_BRIDGE_TOKEN", raising=False)
 
@@ -649,18 +618,15 @@ def test_the_api_reports_a_vanished_token_as_a_failed_rotation(
     way out to the status a client reads, so the two can never be conflated
     at the HTTP boundary.
     """
-    real_chmod = token_storage.os.chmod
     seen: list[Path] = []
+    victim = tmp_path / "token.txt"
 
-    def deletes_then_succeeds(path, mode, *args, **kwargs):
-        result = real_chmod(path, mode, *args, **kwargs)
-        target = Path(path)
-        if target.name == "token.txt" and target.exists():
-            seen.append(target)
-            os.unlink(target)
-        return result
+    def unlink_the_token():
+        if victim.exists():
+            seen.append(victim)
+            os.unlink(victim)
 
-    monkeypatch.setattr(token_storage.os, "chmod", deletes_then_succeeds)
+    _after_the_replace(monkeypatch, unlink_the_token)
     asyncio.run(_vanished_token_is_a_500(tmp_path, seen))
 
 
@@ -677,3 +643,170 @@ async def _vanished_token_is_a_500(tmp_path: Path, seen: list[Path]) -> None:
     assert response.status == 500, payload
     assert payload["ok"] is False, payload
     assert "warning" not in payload, payload
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "fchmod"), reason="the descriptor path needs os.fchmod")
+def test_a_swap_before_the_first_stat_does_not_chmod_a_foreign_file(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The reason the mode is re-applied through the descriptor.
+
+    CodeRabbit, #211: resolving the path a second time reopens the window
+    the identity check exists to close. If the swap lands before that
+    lookup, a path-based implementation chmods the intruder's file to 0600
+    and then records its inode as the one it installed -- so the check
+    compares the foreign file against itself and passes.
+
+    Here the swap happens inside `os.replace`, i.e. before anything looks
+    the path up again. Two things must hold: the rotation is refused, and
+    the intruder's file is left exactly as it was.
+    """
+    target = tmp_path / "token.txt"
+    target.write_text("OLD-TOKEN", encoding="utf-8")
+    intruder = tmp_path / "intruder.txt"
+    intruder.write_text("SOMEONE-ELSES-TOKEN", encoding="utf-8")
+    os.chmod(intruder, 0o644)
+    real_replace = token_storage.os.replace
+
+    def swaps_right_after(src, dst, *args, **kwargs):
+        result = real_replace(src, dst, *args, **kwargs)
+        if Path(dst) == target:
+            real_replace(str(intruder), str(target))
+        return result
+
+    monkeypatch.setattr(token_storage.os, "replace", swaps_right_after)
+
+    with pytest.raises(token_storage.TokenFileVanishedError):
+        token_storage.write_owner_token(target, "NEW-TOKEN")
+
+    assert target.read_text(encoding="utf-8") == "SOMEONE-ELSES-TOKEN"
+    assert target.stat().st_mode & 0o777 == 0o644, (
+        "the foreign file's mode was changed, so the chmod followed the path "
+        "rather than the descriptor")
+
+
+# ---------------------------------------------------------------------------
+# Concurrent rotations (CodeRabbit, Major)
+# ---------------------------------------------------------------------------
+
+def test_overlapping_rotations_leave_memory_and_disk_agreeing(
+        tmp_path: Path) -> None:
+    """The same divergence as #211, reached from the other direction.
+
+    The write runs in an eight-worker executor, so two authenticated
+    requests overlap freely. Unserialised, the executor can finish A last
+    while B installs itself into `cfg["token"]`, leaving the live
+    credential and the token file holding different values -- measured on
+    the unlocked code: two runs in six diverged. Nothing is wrong until the
+    bridge restarts and reads the file, at which point every client is
+    locked out, which is exactly the outcome this PR exists to prevent.
+    """
+    asyncio.run(_overlapping_rotations_agree(tmp_path))
+
+
+async def _overlapping_rotations_agree(tmp_path: Path) -> None:
+    from arena.app_keys import APP_CFG
+
+    async with running_client(tmp_path, TOKEN) as client:
+        client.app[APP_CFG]["token_file"] = str(tmp_path / "token.txt")
+        responses = await asyncio.gather(*[
+            client.post("/v1/token/regenerate", headers=auth_header(TOKEN))
+            for _ in range(8)])
+        handed_out = []
+        for response in responses:
+            payload = await json_payload(response)
+            assert response.status == 200, payload
+            handed_out.append(payload["token"])
+        in_memory = client.app[APP_CFG]["token"]
+        on_disk = (tmp_path / "token.txt").read_text(encoding="utf-8").strip()
+
+    assert in_memory == on_disk, (
+        "the live credential and the token file diverged, so the next "
+        "restart locks every client out")
+    assert in_memory in handed_out, (
+        "the surviving token was never handed to any caller")
+
+
+def test_rotations_do_not_overlap_each_other(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Serialisation stated directly, because the race is probabilistic.
+
+    `test_overlapping_rotations_leave_memory_and_disk_agreeing` asserts the
+    outcome, and the outcome only diverges on unlucky interleavings -- it
+    caught the unlocked code two runs in three. This one records when each
+    rotation enters and leaves the executor and asserts the intervals do
+    not overlap, which fails every time the lock is absent.
+    """
+    asyncio.run(_rotations_do_not_overlap(tmp_path, monkeypatch))
+
+
+async def _rotations_do_not_overlap(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from arena.admin import handlers as admin_handlers
+
+    real = admin_handlers.token_regenerate
+    live = {"n": 0}
+    overlaps: list[int] = []
+
+    def slow(*args, **kwargs):
+        live["n"] += 1
+        if live["n"] > 1:
+            overlaps.append(live["n"])
+        time.sleep(0.05)
+        try:
+            return real(*args, **kwargs)
+        finally:
+            live["n"] -= 1
+
+    monkeypatch.setattr(admin_handlers, "token_regenerate", slow)
+
+    async with running_client(tmp_path, TOKEN) as client:
+        from arena.app_keys import APP_CFG
+
+        client.app[APP_CFG]["token_file"] = str(tmp_path / "token.txt")
+        await asyncio.gather(*[
+            client.post("/v1/token/regenerate", headers=auth_header(TOKEN))
+            for _ in range(4)])
+
+    assert not overlaps, (
+        f"{len(overlaps)} rotation(s) ran while another was in flight; "
+        "the write and the in-memory install are not serialised")
+
+
+def test_the_rotation_lock_is_per_application(tmp_path: Path) -> None:
+    """Two bridges in one process must not serialise against each other.
+
+    The lock is stored on the aiohttp application rather than the module
+    for this reason; a module-level lock would make the test rig's
+    concurrent bridges contend and would be a real bottleneck for anyone
+    running more than one.
+    """
+    from aiohttp import web
+
+    from arena.admin.handlers import _rotation_lock_for
+
+    first, second = web.Application(), web.Application()
+
+    assert _rotation_lock_for(first) is _rotation_lock_for(first)
+    assert _rotation_lock_for(first) is not _rotation_lock_for(second)
+
+
+def test_the_200_schema_requires_the_note_the_handler_always_sends(
+        ) -> None:
+    """CodeRabbit: `note` is always returned, so the contract must say so.
+
+    It is the field that tells an operator no restart is needed -- the
+    correction #66 made -- so a generated client that drops it as optional
+    loses the answer to the question people actually ask after rotating.
+    """
+    from unittest.mock import MagicMock
+
+    from arena.public.openapi import build_openapi_spec
+
+    schema = (build_openapi_spec(MagicMock())["paths"]["/v1/token/regenerate"]
+              ["post"]["responses"]["200"]["content"]["application/json"]
+              ["schema"])
+
+    assert "note" in schema["properties"], schema
+    assert schema["properties"]["note"]["type"] == "string", schema
+    assert "note" in schema["required"], schema
