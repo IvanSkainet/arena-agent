@@ -39,10 +39,12 @@ for a command that was not executed as sent.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from pathlib import Path
 
 import pytest
+from aiohttp.test_utils import make_mocked_request
 
 from arena.exec.request_shape import (
     requested_command,
@@ -214,23 +216,112 @@ async def _shell_output(command: str) -> tuple[int | None, str]:
     return process.returncode, stdout.decode("utf-8", "replace")
 
 
-# Every surface that reads `cmd` itself and shells it. Calling them
-# through their real entry points is the point: asserting against the
-# shared helper alone would pass even if a surface stopped calling it,
-# which is the regression this pins (cubic).
+# Every surface that reads `cmd` itself and shells it, reached through its
+# real entry point. An earlier revision called `unusable_shell_command`
+# from each module's namespace, which proved only that the import existed:
+# a handler that kept the import and stopped calling it would still have
+# passed (cubic). These go through the handler.
 def _sandbox_refusal(cmd: object) -> str | None:
-    from arena.sandbox import handlers as sandbox_handlers
-    return sandbox_handlers.unusable_shell_command(cmd, when_empty="cmd is required")
+    return asyncio.run(_sandbox_response(cmd))
+
+
+async def _sandbox_response(cmd: object) -> str | None:
+    import unified_bridge as ub
+    from arena.handler_context import SandboxHandlerContext
+    from arena.sandbox.handlers import make_sandbox_handlers
+
+    ctx = SandboxHandlerContext(
+        require_auth=lambda *a, **k: None,
+        record_request=ub._record_request,
+        cors_json_response=ub._cors_json_response,
+        blocked_reason=ub.blocked_reason,
+        first_word=ub.first_word,
+        run_sandboxed=_must_not_run,
+        audit=ub.audit,
+        emit_event=ub.emit_event,
+    )
+    handler = make_sandbox_handlers(ctx).sandbox
+    request = make_mocked_request("POST", "/v1/sandbox")
+    body = json.dumps({"action": "run", "cmd": cmd, "timeout": 5}).encode()
+    request.read = _returns(body)  # type: ignore[method-assign]
+    return _error_of(await handler(request))
 
 
 def _api_v2_refusal(cmd: object) -> str | None:
-    from arena.api_v2 import exec_handler
-    return exec_handler.unusable_shell_command(cmd, when_empty="missing 'cmd'")
+    return asyncio.run(_api_v2_response(cmd))
+
+
+async def _api_v2_response(cmd: object) -> str | None:
+    import unified_bridge as ub
+    from arena.api_v2.exec_handler import make_v2_exec_handler
+    from arena.handler_context import ApiV2HandlerContext
+
+    ctx = ApiV2HandlerContext(
+        require_auth=lambda *a, **k: None,
+        record_request=ub._record_request,
+        cors_json_response=ub._cors_json_response,
+        version=ub.VERSION,
+        metrics=ub.BRIDGE_METRICS,
+        cdp_state=ub._cdp_state,
+        watchdog_state=ub._watchdog_state,
+        cluster_state=ub._cluster_state,
+        cluster_config=ub._cluster_config,
+        tls_config=ub._tls_config,
+        profiles_dir=Path("."),
+        sandbox_config=ub._sandbox_config,
+        blocked_reason=ub.blocked_reason,
+        first_word=ub.first_word,
+        decode_output=ub.decode_output,
+        run_sandboxed=_must_not_run,
+        cfg_get_max_timeout=lambda request: 60,
+        audit=ub.audit,
+        emit_event=ub.emit_event,
+        now=lambda: ub.BRIDGE_METRICS["start_time"] + 1.25,
+    )
+    handler = make_v2_exec_handler(ctx)
+    request = make_mocked_request("POST", "/v2/exec")
+    request.read = _returns(json.dumps({"cmd": cmd, "timeout": 5}).encode())  # type: ignore[method-assign]
+    return _error_of(await handler(request))
 
 
 def _mcp_refusal(cmd: object) -> str | None:
-    from arena.mcp import tool_exec
-    return tool_exec.unusable_shell_command(cmd, when_empty="missing 'cmd' argument")
+    import unified_bridge as ub
+    from arena.mcp.tool_exec import handle_exec_tool
+
+    class _Ctx:
+        blocked_reason = staticmethod(ub.blocked_reason)
+        first_word = staticmethod(ub.first_word)
+        cautious_allow = ub._sandbox_config["allowed_commands"]
+
+        @staticmethod
+        def app_config() -> dict:
+            return {"profile": "owner-shell"}
+
+    result = handle_exec_tool(
+        "exec.exec", {"cmd": cmd}, ctx=_Ctx(), run_sd=_must_not_run)
+    assert result is not None
+    if not result.get("isError"):
+        return None
+    return str(result["content"][0]["text"])
+
+
+def _must_not_run(*args: object, **kwargs: object) -> None:
+    """The whole point is that the command never reaches a shell."""
+    raise AssertionError(f"the command was executed: {args!r} {kwargs!r}")
+
+
+def _returns(payload: bytes):
+    async def read() -> bytes:
+        return payload
+    return read
+
+
+def _error_of(response: object) -> str | None:
+    """The refusal text an aiohttp response carries, or None if it ran."""
+    body = json.loads(getattr(response, "body", b"{}") or b"{}")
+    if body.get("ok") is False:
+        return str(body.get("error", ""))
+    return None
 
 
 SURFACES = (_sandbox_refusal, _api_v2_refusal, _mcp_refusal)
@@ -239,34 +330,19 @@ SURFACES = (_sandbox_refusal, _api_v2_refusal, _mcp_refusal)
 @pytest.mark.parametrize("surface", SURFACES, ids=["sandbox", "api_v2", "mcp"])
 @pytest.mark.parametrize("cmd", NEWLINE_COMMANDS)
 def test_every_surface_refuses_an_embedded_newline(surface, cmd: str) -> None:
-    """The v2 API, the sandbox and the MCP tool refuse what /v1/exec refuses."""
+    """The v2 API, the sandbox and the MCP tool refuse what /v1/exec refuses.
+
+    `run_sandboxed` and `run_sd` raise if called, so a surface that lets
+    the command through fails here rather than quietly shelling it.
+    """
     reason = surface(cmd)
     assert reason is not None
     assert "newline" in reason
 
 
 @pytest.mark.parametrize("surface", SURFACES, ids=["sandbox", "api_v2", "mcp"])
-@pytest.mark.parametrize("cmd", ("echo hi\n", "\necho hi", "  echo hi  "))
-def test_no_surface_refuses_what_the_exec_endpoints_accept(surface, cmd: str) -> None:
-    """The concrete cross-surface agreement, stated as behaviour.
-
-    An earlier revision asserted
-    `unusable_shell_command(cmd) == unusable_command(cmd.strip())`, which
-    is true by the helper's own definition and so could not fail (cubic --
-    the same trap as the `round(0.6) == 1` test on #272). What actually
-    needs pinning is that these three surfaces accept the bodies
-    `/v1/exec` accepts: the first revision of this PR had them return 400
-    for `{"cmd": "echo hi\\n"}` while `/v1/exec` returned 200, because
-    they skipped the `.strip()`. Reaching through each module means a
-    surface that stops calling the shared helper fails here.
-    """
-    assert surface(cmd) is None
-    assert requested_command({"cmd": cmd})[1] is None
-
-
-@pytest.mark.parametrize("surface", SURFACES, ids=["sandbox", "api_v2", "mcp"])
-@pytest.mark.parametrize("cmd", (None, 0, False, [], {}))
-def test_a_body_that_names_no_command_is_never_shelled(surface, cmd: object) -> None:
+@pytest.mark.parametrize("cmd", (None, 0, False, []))
+def test_no_surface_shells_a_body_that_names_no_command(surface, cmd: object) -> None:
     """`{"cmd": null}` must not become the command line `None` (cubic).
 
     Each surface used to answer this with its own `if not cmd:`. Folding
@@ -280,18 +356,45 @@ def test_a_body_that_names_no_command_is_never_shelled(surface, cmd: object) -> 
     assert "newline" not in reason  # named as missing, not as malformed
 
 
-def test_an_empty_command_keeps_each_surface_its_own_wording() -> None:
-    """Three endpoints have three established spellings of "you sent nothing".
+@pytest.mark.parametrize("cmd", (None, 0, False, []))
+@pytest.mark.parametrize("path", EXEC_PATHS)
+def test_the_exec_endpoints_do_not_shell_a_falsy_cmd(
+        tmp_path: Path, path: str, cmd: object) -> None:
+    """The same, for the two endpoints the issue is actually about.
 
-    The helper answers the empty case with the caller's own text rather
-    than inventing a fourth, so folding the check in changed no error
-    message a client already depends on -- and left those handlers with
-    one branch where they had two, which is how the CodeScene complexity
-    finding was answered instead of suppressed.
+    `requested_command` stringified before its own empty check, so
+    `{"cmd": null}` reached the shell as `None` on `/v1/exec` itself while
+    the three surfaces above already refused it -- the inconsistency this
+    PR set out to remove, surviving in the primary path (cubic).
     """
-    for empty in ("", "   ", "\n", "  \r\n  "):
-        assert unusable_shell_command(empty, when_empty="cmd is required") == "cmd is required"
-    assert unusable_shell_command("", when_empty="missing 'cmd'") == "missing 'cmd'"
+    asyncio.run(_falsy_cmd_is_refused(tmp_path, path, cmd))
+
+
+async def _falsy_cmd_is_refused(tmp_path: Path, path: str, cmd: object) -> None:
+    async with running_client(tmp_path, TOKEN) as client:
+        response = await client.post(
+            path, headers=auth_header(TOKEN), json={"cmd": cmd, "timeout": 5})
+        payload = await json_payload(response)
+
+    assert response.status == 400, payload
+    assert payload["ok"] is False, payload
+    assert payload["error"] == "missing cmd", payload
+
+
+@pytest.mark.parametrize("cmd", ("echo hi\n", "\necho hi", "  echo hi  "))
+def test_the_surfaces_accept_what_the_exec_endpoints_accept(cmd: str) -> None:
+    """The concrete cross-surface agreement, stated as behaviour.
+
+    An earlier revision asserted
+    `unusable_shell_command(cmd) == unusable_command(cmd.strip())`, which
+    is true by the helper's own definition and so could not fail (cubic --
+    the same trap as the `round(0.6) == 1` test on #272). What needs
+    pinning is that a body `/v1/exec` accepts is not refused elsewhere:
+    the first revision of this PR returned 400 for `{"cmd": "echo hi\\n"}`
+    on those three while `/v1/exec` returned 200.
+    """
+    assert unusable_shell_command(cmd, when_empty="unused") is None
+    assert requested_command({"cmd": cmd})[1] is None
 
 
 @pytest.mark.parametrize("cmd", NEWLINE_COMMANDS)

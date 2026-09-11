@@ -108,7 +108,15 @@ def requested_command(data: dict[str, Any]) -> tuple[str, str | None]:
     branches -- which is how `/v1/exec/stream` came to be a copy of
     `/v1/exec` twenty lines long in the first place.
     """
-    cmd = str(data.get("cmd", "")).strip()
+    raw = data.get("cmd", "")
+    if not raw:
+        # Before the `str()`. `{"cmd": null}` stringifies to the command
+        # line "None", and `0`, `false` and `[]` likewise -- each of them
+        # a body that named no command, turned into one that runs (cubic).
+        # The three surfaces that read `cmd` themselves answer this in
+        # `unusable_shell_command`; these two answer it here.
+        return "", "missing cmd"
+    cmd = str(raw).strip()
     if not cmd:
         return cmd, "missing cmd"
     return cmd, unusable_command(cmd)
