@@ -43,7 +43,61 @@ def unusable_command(cmd: str) -> str | None:
         # streaming handler and out of `Popen` for the other, both 500s
         # (cubic). Short enough to pass every other check.
         return "cmd is not a usable command (unpaired surrogate)"
+    if "\n" in cmd or "\r" in cmd:
+        # #223: on Windows the `cmd.exe /c "..."` wrapping truncates the
+        # command line at the first newline, and everything after it is
+        # *dropped* -- not executed and not reported. The response is
+        # `ok: true, exit_code: 0` with the output of line one, which a
+        # caller cannot distinguish from the whole script having run.
+        #
+        # Measured on the operator's Windows host, this commit's parent:
+        #
+        #     cmd /c echo first\ncmd /c echo second  -> rc=0, "first"
+        #     powershell -Command "Write-Output 1\nWrite-Output 2"
+        #                                            -> rc=0, "1"
+        #
+        # A silent partial execution reported as success is the exact
+        # failure this repository exists to refuse, so the request is
+        # refused instead. POSIX shells do run the tail, but the refusal
+        # is deliberately not platform-dependent: the same request must
+        # not mean two different things depending on the operator's OS,
+        # and a caller writing a multi-line script has an endpoint that
+        # takes one.
+        return (
+            "cmd contains a newline; use POST /v1/exec/script for "
+            "multi-line scripts"
+        )
     return None
+
+
+def unusable_shell_command(raw: Any, *, when_empty: str) -> str | None:
+    """Why this value cannot be run as a command line, or None.
+
+    The same question `requested_command` answers for the JSON exec
+    endpoints, for the surfaces that read `cmd` themselves: the v2 API,
+    the sandbox runner and the MCP tool. They differ in how they report a
+    refusal, not in what counts as one, and the newline guard was briefly
+    stricter on those three than on `/v1/exec` because they skipped the
+    `.strip()` that happens here (cubic). Trimming in one place is what
+    keeps `{"cmd": "echo hi\\n"}` meaning the same thing everywhere.
+
+    The empty case is answered here too, with the caller's own wording in
+    `when_empty`: each of the three has a different established spelling
+    of "you sent nothing" and none should change, but folding it in means
+    a caller asks one question instead of two -- so adding this guard
+    costs those handlers no extra branch (CodeScene).
+    """
+    if not raw:
+        # Before the `str()`: `None`, `0`, `False` and `[]` are all bodies
+        # that named no command, and each caller's own `if not cmd:` used
+        # to catch them. Converting first would have turned them into the
+        # literal command lines "None", "0" and "False" and handed those
+        # to the shell (cubic).
+        return when_empty
+    text = str(raw).strip()
+    if not text:
+        return when_empty
+    return unusable_command(text)
 
 
 def requested_command(data: dict[str, Any]) -> tuple[str, str | None]:
@@ -54,7 +108,15 @@ def requested_command(data: dict[str, Any]) -> tuple[str, str | None]:
     branches -- which is how `/v1/exec/stream` came to be a copy of
     `/v1/exec` twenty lines long in the first place.
     """
-    cmd = str(data.get("cmd", "")).strip()
+    raw = data.get("cmd", "")
+    if not raw:
+        # Before the `str()`. `{"cmd": null}` stringifies to the command
+        # line "None", and `0`, `false` and `[]` likewise -- each of them
+        # a body that named no command, turned into one that runs (cubic).
+        # The three surfaces that read `cmd` themselves answer this in
+        # `unusable_shell_command`; these two answer it here.
+        return "", "missing cmd"
+    cmd = str(raw).strip()
     if not cmd:
         return cmd, "missing cmd"
     return cmd, unusable_command(cmd)

@@ -116,15 +116,23 @@ def test_the_guard_names_the_reason(cmd: str) -> None:
 
 
 def test_an_ordinary_command_is_not_refused() -> None:
-    """Control characters other than NUL are the control gate's business.
+    """The guard must not refuse a command line that spawns fine.
 
-    A newline or a carriage return in `cmd` is refused elsewhere, by the
-    control-injection check, with a 403 that says so. This guard is only
-    about what `execve` physically cannot carry, and widening it here
-    would move that decision to the wrong module.
+    This test used to also assert `unusable_command("echo\\nhi") is None`,
+    on the stated grounds that "a newline or a carriage return in `cmd`
+    is refused elsewhere, by the control-injection check, with a 403 that
+    says so". That was not true of the code: `control_injection_error`
+    consults the *control lease* (halted / paused / revoked) and only then
+    matches desktop-input injection -- it never looks at shell control
+    characters. `_SHELL_CONTROL_CHARS` does contain `\\n`, but it is read
+    only by `command_allowlist_reason`, which the `owner-shell` profile
+    does not call. So on the default profile a newline reached the shell
+    unchecked, and on Windows the tail after it was silently dropped
+    (#223). The newline case now lives in
+    `tests/test_exec_newline_cmd_223.py`.
     """
     assert unusable_command("echo hi") is None
-    assert unusable_command("echo\nhi") is None
+    assert unusable_command("echo one; echo two") is None
 
 
 def test_the_body_a_client_sends_is_the_body_that_is_refused() -> None:

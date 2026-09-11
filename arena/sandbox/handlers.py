@@ -7,6 +7,7 @@ from typing import Any
 
 from aiohttp import web
 
+from arena.exec.request_shape import unusable_shell_command
 from arena.handler_context import SandboxHandlerContext
 from arena.handler_helpers import authed
 from arena.sandbox.runtime import SANDBOX_CONFIG
@@ -57,9 +58,13 @@ def make_sandbox_handlers(ctx: SandboxHandlerContext) -> SandboxHandlers:
             if not SANDBOX_CONFIG["enabled"]:
                 return ctx.cors_json_response({"ok": False, "error": "sandbox is disabled"}, status=403)
 
+            # Missing, or present and unrunnable (#223: a newline makes
+            # the tail vanish on Windows, so it is refused rather than
+            # reported as a success for a command that ran in part).
             cmd = data.get("cmd", "")
-            if not cmd:
-                return ctx.cors_json_response({"ok": False, "error": "cmd is required"}, status=400)
+            unusable = unusable_shell_command(cmd, when_empty="cmd is required")
+            if unusable:
+                return ctx.cors_json_response({"ok": False, "error": unusable}, status=400)
 
             # Check the first word and the shell syntax together. A first-word
             # check alone is not a boundary when execution still uses a shell.

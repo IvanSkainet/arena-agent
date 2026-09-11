@@ -6,6 +6,7 @@ import os
 import platform
 from typing import Any
 
+from arena.exec.request_shape import unusable_shell_command
 from arena.mcp.tool_utils import text_content
 from arena.security_commands import command_allowlist_reason
 
@@ -25,9 +26,14 @@ def handle_exec_tool(name: str, args: dict[str, Any], *, ctx, run_sd) -> dict[st
     if name != "exec.exec":
         return None
 
+    # Missing, or present and unrunnable. #223: this handler wraps in
+    # `cmd /c` on Windows, where everything after a newline is dropped
+    # and the caller is told exit 0 -- a partial run reported as a whole
+    # one, so it is refused instead.
     cmd = args.get("cmd", "")
-    if not cmd:
-        return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'cmd' argument"}]}
+    unusable = unusable_shell_command(cmd, when_empty="missing 'cmd' argument")
+    if unusable:
+        return {"isError": True, "content": [{"type": "text", "text": f"ERROR: {unusable}"}]}
     block = ctx.blocked_reason(cmd)
     if block:
         return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: {block}"}]}
