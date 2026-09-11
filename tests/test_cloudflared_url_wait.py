@@ -9,6 +9,9 @@ tunable replacement and its clamping guards.
 """
 from __future__ import annotations
 
+import pytest
+
+from arena.admin import cloudflared as cf_mod
 from arena.admin.cloudflared import (
     _URL_WAIT_DEFAULT_SECONDS,
     _URL_WAIT_MAX_SECONDS,
@@ -18,6 +21,34 @@ from arena.admin.cloudflared import (
 )
 
 ENV_VAR = "ARENA_CLOUDFLARED_URL_WAIT_SECONDS"
+
+
+@pytest.fixture
+def isolated_cloudflared_state(monkeypatch):
+    """Give the test its own `CLOUDFLARED_STATE`, restored afterwards.
+
+    `_start_cloudflared` returns `already_running` -- a dict with no
+    `waited_seconds` and no `error` -- when the module-level state holds
+    a process whose `poll()` is None. That state is global, shared by
+    every test in the session and by anything the developer's machine
+    happens to have started, so a test asserting on the failure branch
+    was decided by whatever ran before it (#329).
+
+    Observed on Windows: a full run left a live cloudflared in the
+    state and this file's timeout test failed, while the same file
+    passed alone on the same commit.
+
+    `monkeypatch.setitem` restores each key at teardown, including
+    after a failure, which the old inline cleanup at the end of the
+    test body did not.
+    """
+    monkeypatch.setitem(cf_mod.CLOUDFLARED_STATE, "proc", None)
+    monkeypatch.setitem(cf_mod.CLOUDFLARED_STATE, "url", "")
+    original_log = list(cf_mod.CLOUDFLARED_STATE["log"])
+    cf_mod.CLOUDFLARED_STATE["log"].clear()
+    yield cf_mod.CLOUDFLARED_STATE
+    cf_mod.CLOUDFLARED_STATE["log"].clear()
+    cf_mod.CLOUDFLARED_STATE["log"].extend(original_log)
 
 
 def test_default_is_at_least_20_seconds(monkeypatch):
@@ -89,12 +120,10 @@ def test_iterations_match_total_wait(monkeypatch):
     assert iterations >= 1
 
 
-def test_start_cloudflared_uses_computed_wait(monkeypatch):
+def test_start_cloudflared_uses_computed_wait(monkeypatch, isolated_cloudflared_state):
     """When ``_start_cloudflared`` returns failure, the response
     must include the actual wait seconds used, so operators can
     tell whether the timeout was the default or an override."""
-    from arena.admin import cloudflared as cf_mod
-
     # Force env override so we know what to expect.
     monkeypatch.setenv(ENV_VAR, "1")
 
@@ -134,7 +163,73 @@ def test_start_cloudflared_uses_computed_wait(monkeypatch):
     assert result.get("waited_seconds") == _URL_WAIT_MIN_SECONDS
     assert "1.0s" in result["error"]
 
-    # Clean up the leftover stub proc reference so subsequent
-    # tests don't see a "still running" state.
-    cf_mod.CLOUDFLARED_STATE["proc"] = None
-    cf_mod.CLOUDFLARED_STATE["url"] = ""
+
+class _AlienLiveProc:
+    """A process that looks alive, like a cloudflared the developer
+    (or an earlier test) left running outside this test's control."""
+
+    def poll(self):
+        return None
+
+
+@pytest.fixture
+def _polluted_cloudflared_state(monkeypatch):
+    """Put a live-looking process into the shared state, as a full
+    session on a real machine did before #329 was fixed.
+
+    Tracked with `monkeypatch.setitem` for the same reason the fixture
+    under test is: a plain assignment here would outlive the test and
+    leak the alien process into the rest of the session, which is the
+    exact failure #329 is about.
+    """
+    monkeypatch.setitem(cf_mod.CLOUDFLARED_STATE, "proc", _AlienLiveProc())
+    monkeypatch.setitem(
+        cf_mod.CLOUDFLARED_STATE, "url", "https://stale.example.invalid"
+    )
+    return cf_mod.CLOUDFLARED_STATE
+
+
+def test_isolation_fixture_hides_a_foreign_running_process(
+    _polluted_cloudflared_state, isolated_cloudflared_state
+):
+    """The regression guard for #329.
+
+    Requested after the polluter, the isolation fixture must present
+    a clean state; otherwise `_start_cloudflared` takes its
+    `already_running` shortcut and the failure-branch assertions in
+    this file turn into `assert True is False` depending on nothing
+    but test order.
+    """
+    assert isolated_cloudflared_state["proc"] is None
+    assert isolated_cloudflared_state["url"] == ""
+
+
+def test_isolation_fixture_restores_state_even_when_the_test_fails():
+    """Cleanup must survive a failed assertion.
+
+    The original code reset the state on the last two lines of the
+    test body, so any earlier assertion failure skipped it and leaked
+    the stub into the rest of the session. Driving the fixture by
+    hand reproduces that: the body raises, and teardown still runs.
+    """
+    sentinel = _AlienLiveProc()
+
+    with pytest.MonkeyPatch.context() as outer:
+        outer.setitem(cf_mod.CLOUDFLARED_STATE, "proc", sentinel)
+        outer.setitem(
+            cf_mod.CLOUDFLARED_STATE, "url", "https://stale.example.invalid"
+        )
+
+        with pytest.MonkeyPatch.context() as patcher:
+            generator = isolated_cloudflared_state.__wrapped__(patcher)
+            try:
+                state = next(generator)
+                assert state["proc"] is None, "the fixture did not clear the state"
+                state["proc"] = _AlienLiveProc()  # the test dirties it, then fails
+                with pytest.raises(AssertionError):
+                    assert False, "deliberate failure standing in for a real one"
+            finally:
+                next(generator, None)  # teardown runs even for a failed test
+
+        assert cf_mod.CLOUDFLARED_STATE["proc"] is sentinel
+        assert cf_mod.CLOUDFLARED_STATE["url"] == "https://stale.example.invalid"
