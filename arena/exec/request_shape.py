@@ -43,6 +43,30 @@ def unusable_command(cmd: str) -> str | None:
         # streaming handler and out of `Popen` for the other, both 500s
         # (cubic). Short enough to pass every other check.
         return "cmd is not a usable command (unpaired surrogate)"
+    if "\n" in cmd or "\r" in cmd:
+        # #223: on Windows the `cmd.exe /c "..."` wrapping truncates the
+        # command line at the first newline, and everything after it is
+        # *dropped* -- not executed and not reported. The response is
+        # `ok: true, exit_code: 0` with the output of line one, which a
+        # caller cannot distinguish from the whole script having run.
+        #
+        # Measured on the operator's Windows host, this commit's parent:
+        #
+        #     cmd /c echo first\ncmd /c echo second  -> rc=0, "first"
+        #     powershell -Command "Write-Output 1\nWrite-Output 2"
+        #                                            -> rc=0, "1"
+        #
+        # A silent partial execution reported as success is the exact
+        # failure this repository exists to refuse, so the request is
+        # refused instead. POSIX shells do run the tail, but the refusal
+        # is deliberately not platform-dependent: the same request must
+        # not mean two different things depending on the operator's OS,
+        # and a caller writing a multi-line script has an endpoint that
+        # takes one.
+        return (
+            "cmd contains a newline; use POST /v1/exec/script for "
+            "multi-line scripts"
+        )
     return None
 
 
