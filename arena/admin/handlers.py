@@ -166,8 +166,24 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
             if register_literal_secret(result["token"], kind="bridge-token"):
                 unregister_literal_secret(cfg["token"])
             cfg["token"] = result["token"]
-        ctx.audit({"type": "token_regenerated", "files": result.get("written_to", [])})
-        return ctx.cors_json_response(result)
+            ctx.audit({"type": "token_regenerated",
+                       "files": result.get("written_to", [])})
+            return ctx.cors_json_response(result)
+
+        # #211: a failed rotation was returned as 200 with ok=false in the
+        # body. Every HTTP client, proxy and retry layer treats 2xx as "it
+        # worked", so a caller that writes the response over its stored
+        # credential destroys a working token and has nothing left to retry
+        # with -- unrecoverable without physical access to the machine.
+        #
+        # The only failure `token_regenerate` reports is an exception from
+        # writing the token file, which is this end's fault, so it is a 500.
+        # The current credential is untouched and still valid; the body says
+        # so, and now the status agrees with the body.
+        ctx.audit({"type": "token_regenerate_failed",
+                   "error": str(result.get("error", "")),
+                   "client": request.remote or "127.0.0.1"})
+        return ctx.cors_json_response(result, status=500)
 
     # v4.38.0: shared per-verb marker persistence lives in the
     # sibling handlers_autostart module so this file stays under
