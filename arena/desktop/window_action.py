@@ -174,6 +174,12 @@ def _verify_action(action: str, before: dict[str, Any] | None, after: dict[str, 
 
 
 def _wmctrl_command(action: str, target_id: str, before: dict[str, Any] | None, *, x=None, y=None, width=None, height=None, display_env: str) -> str | None:
+    # #272: `_xdotool_command` below quotes its window id and this one did
+    # not, so the two builders disagreed about whether a window id reaching
+    # a shell is trusted. Window ids come from a listing rather than the
+    # request body today, which is a property of the current callers, not
+    # of this string -- the same reasoning that made `delay` injectable.
+    target_id = shlex.quote(str(target_id))
     if action == "minimize":
         return f'{display_env} wmctrl -i -r {target_id} -b add,hidden 2>/dev/null'
     if action == "restore":

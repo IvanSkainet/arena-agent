@@ -44,6 +44,30 @@ YDOTOOL_KEYS = {
 }
 
 
+def _shell_safe_number(value: Any, *, default: int, low: int, high: int) -> int | float:
+    """Return a number safe to interpolate into a shell command string.
+
+    Defence in depth for #272. The handler already refuses a bad `delay`
+    with a 400, but this module builds command *strings*, and a builder
+    that trusts its caller is one new call site away from being an
+    injection again -- exactly how `delay` got here, since `x`/`y` are
+    safe only because today's callers happen to wrap them in `int()`.
+
+    Anything that is not a finite number, or is out of range, becomes
+    `default` rather than raising: a command builder's contract is to
+    return a command, and the refusal belongs at the request boundary
+    where the caller can be told which field was wrong.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        try:
+            value = int(str(value).strip())
+        except (TypeError, ValueError):
+            return default
+    if value != value or value in (float("inf"), float("-inf")):  # NaN / inf
+        return default
+    return max(low, min(high, value))
+
+
 def display_env() -> str:
     return f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
 
@@ -87,6 +111,7 @@ def build_click_command(*, env: dict[str, Any], x: int, y: int, button: str = "l
 
 def build_type_command(*, env: dict[str, Any], text: str, delay: int | float = 50, clear: bool = False) -> tuple[str | None, str, MissingTool | None]:
     escaped_text = shlex.quote(text)
+    delay = _shell_safe_number(delay, default=50, low=0, high=10_000)
     disp = display_env()
     if env.get("has_ydotool"):
         cmd = f'ydotool type --key-delay {delay} {escaped_text}'

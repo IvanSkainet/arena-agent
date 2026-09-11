@@ -9,7 +9,7 @@ from aiohttp import web
 from arena.desktop.availability import builder_refusal
 from arena.desktop.input import build_click_command, build_key_command, build_mouse_command, build_type_command
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import controlled, json_object_body
+from arena.handler_helpers import body_int, controlled, json_object_body
 
 
 def make_desktop_input_handlers(ctx: DesktopHandlerContext):
@@ -92,7 +92,12 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
         if text is None:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing 'text' parameter"}, status=400)
-        delay = body.get("delay", 50)
+        # #272: `delay` is interpolated into a shell command string by
+        # `build_type_command`, so a string like "1; id" was command
+        # injection. `body_int` refuses a non-number with a 400 naming the
+        # field, and the bounds keep a valid-JSON integer from becoming a
+        # keystroke delay measured in centuries.
+        delay = body_int(body, "delay", default=50, bounds=(0, 10_000))
         clear = body.get("clear", False)
         ensure_latin = body.get("ensure_latin", True)
         env = ctx.detect_desktop_env()
