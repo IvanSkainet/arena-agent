@@ -278,3 +278,118 @@ def test_the_document_no_longer_promises_a_200_on_failure() -> None:
     described = operation["description"] + operation["responses"]["200"]["description"]
     assert "ALSO reported with HTTP 200" not in described, described
     assert "500" in operation["description"], operation["description"]
+
+# ---------------------------------------------------------------------------
+# The chmod-after-replace window (cubic, P1)
+# ---------------------------------------------------------------------------
+def _chmod_that_fails_after_the_replace(monkeypatch):
+    """Let the first chmod (on the temp file) through, fail the second.
+
+    `write_owner_token` chmods the temporary file, calls `os.replace`, then
+    re-applies the mode. Only the second call is after the point of no
+    return, so only the second is made to fail.
+    """
+    from arena import token_storage
+
+    real_chmod = token_storage.os.chmod
+    calls = {"n": 0}
+
+    def flaky(path, mode, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise PermissionError("chmod after replace failed")
+        return real_chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(token_storage.os, "chmod", flaky)
+
+
+def test_a_chmod_failure_after_the_replace_is_not_a_failed_rotation(
+        tmp_path: Path, monkeypatch) -> None:
+    """The file already holds the new token, so the caller must be told so.
+
+    `os.replace` is atomic and has happened by then. Reporting failure left
+    the bridge on the old credential in memory while the next restart would
+    read the new one off disk -- every client locked out, with the response
+    that caused it saying the rotation had failed (cubic).
+    """
+    from arena.admin.token import token_regenerate
+
+    target = tmp_path / "token.txt"
+    target.write_text("the-old-one", encoding="utf-8")
+    _chmod_that_fails_after_the_replace(monkeypatch)
+
+    result = token_regenerate(str(target), default_token_file=target)
+
+    assert result["ok"] is True, result
+    assert result["token"] == target.read_text(encoding="utf-8").strip(), result
+    assert "warning" in result, result
+    assert "permissions" in result["warning"], result
+
+
+def test_the_handler_keeps_memory_and_disk_in_step_through_that_window(
+        tmp_path: Path, monkeypatch) -> None:
+    """The end-to-end consequence: the returned token is the one that works.
+
+    This is the assertion that would have caught the lockout. If the
+    handler treated the chmod failure as a failed rotation, the new token
+    on disk and the old token in `cfg` would disagree, and one of these two
+    requests would 401.
+    """
+    asyncio.run(_memory_and_disk_agree(tmp_path, monkeypatch))
+
+
+async def _memory_and_disk_agree(tmp_path: Path, monkeypatch) -> None:
+    async with running_client(tmp_path, TOKEN) as client:
+        target = _write_tokens_under(client, tmp_path)
+        _chmod_that_fails_after_the_replace(monkeypatch)
+
+        rotated = await client.post(
+            "/v1/token/regenerate", headers=auth_header(TOKEN))
+        payload = await json_payload(rotated)
+        assert rotated.status == 200, payload
+
+        on_disk = target.read_text(encoding="utf-8").strip()
+        assert payload["token"] == on_disk, payload
+
+        works = await client.get("/v1/status", headers=auth_header(on_disk))
+        assert works.status == 200, await json_payload(works)
+
+
+def test_a_write_that_never_happened_is_still_a_failure(tmp_path: Path) -> None:
+    """The other side of the split: a real write failure stays a 500.
+
+    Making the chmod window a success must not turn every write error into
+    one, which would be the same defect with a wider blast radius.
+    """
+    asyncio.run(_failed_rotation_is_a_500(tmp_path))
+
+
+def test_the_mode_warning_names_the_file_and_says_it_took_effect() -> None:
+    """An operator reading it must not have to guess which half happened."""
+    from arena.token_storage import TokenFileModeWarning
+
+    warned = TokenFileModeWarning(Path("/tmp/token.txt"), PermissionError("nope"))
+
+    assert "/tmp/token.txt" in str(warned)
+    assert "DID take effect" in str(warned)
+
+
+def test_the_200_schema_cannot_describe_a_failure(tmp_path: Path) -> None:
+    """A schema that permits `ok: false` at 200 re-opens the defect (cubic).
+
+    A generated client validates against this document; if the success
+    schema still accepts the failure shape, the client is entitled to treat
+    a failed rotation as a successful one -- which is exactly what #211 is
+    about, moved from the code into the contract.
+    """
+    from unittest.mock import MagicMock
+
+    from arena.public.openapi import build_openapi_spec
+
+    schema = build_openapi_spec(MagicMock())[
+        "paths"]["/v1/token/regenerate"]["post"][
+        "responses"]["200"]["content"]["application/json"]["schema"]
+
+    assert schema["properties"]["ok"].get("enum") == [True], schema
+    assert "token" in schema["required"], schema
+    assert schema["properties"]["token"].get("minLength") == 1, schema
