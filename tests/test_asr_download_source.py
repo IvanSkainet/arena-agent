@@ -136,8 +136,26 @@ def test_download_atomic_validates_before_opening_anything(tmp_path, monkeypatch
     assert not opened
 
 
-def test_an_existing_file_is_still_skipped_without_a_network_call(tmp_path):
-    """The fast path must keep working: bootstrap is often a no-op."""
+def test_an_existing_file_is_still_skipped_without_a_network_call(tmp_path, monkeypatch):
+    """The fast path must keep working: bootstrap is often a no-op.
+
+    The name promises no network call, and the assertions do not check
+    it: the only thing stopping one is that `dest` exists, which is a
+    property of the filesystem rather than of the test. When the fast
+    path stopped applying, this went to huggingface.co for a model and
+    hung on a TLS read until the whole Windows run was killed (#331).
+
+    So the promise in the name is now enforced. `urlopen` raising makes
+    a regression fail here in milliseconds instead of hanging, and it
+    fails pointing at this line rather than at whatever test happened to
+    be running when the interpreter died.
+    """
+    def _must_not_be_called(*args, **kwargs):
+        raise AssertionError(
+            "the existing-file fast path reached the network; that is the "
+            "regression this test is named after")
+
+    monkeypatch.setattr(tool_asr.urllib.request, "urlopen", _must_not_be_called)
     dest = tmp_path / "model.bin"
     dest.write_bytes(b"already here")
 

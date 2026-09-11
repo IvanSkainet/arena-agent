@@ -92,8 +92,13 @@ def test_no_alias_points_at_an_unclaimed_scope():
         ).known_aliases().items()
     ),
 )
+@pytest.mark.allow_network
 def test_every_alias_resolves_in_the_npm_registry(alias, pkg):
     """Network gate: a shipped alias must be installable.
+
+    Marked ``allow_network``: reaching the real registry is the whole
+    check. It already skips when the registry is unreachable, so an
+    offline runner stays green (#331).
 
     Skipped when the registry is unreachable -- an offline runner must not
     turn into a false accusation. It must also not turn into a false
