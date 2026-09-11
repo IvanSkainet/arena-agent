@@ -31,10 +31,12 @@ Two things ride along:
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 import pytest
 
+from arena import token_storage
 from tests._live_bridge import auth_header, json_payload, running_client
 
 TOKEN = "token-regenerate-status-211"
@@ -403,3 +405,150 @@ def test_the_200_schema_cannot_describe_a_failure(tmp_path: Path) -> None:
     assert schema["properties"]["ok"].get("enum") == [True], schema
     assert "token" in schema["required"], schema
     assert schema["properties"]["token"].get("minLength") == 1, schema
+
+
+# ---------------------------------------------------------------------------
+# The replace/chmod window: only downgrade when the file is still ours
+# (cubic, P2). A warning means "the new token is on disk"; if the path was
+# removed or swapped in that window, that claim is false and the caller must
+# hear about it as a failure.
+# ---------------------------------------------------------------------------
+
+def test_a_file_deleted_between_replace_and_chmod_is_a_hard_failure(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A vanished token file must not be reported as a rotation that took."""
+    target = tmp_path / "token.txt"
+    target.write_text("OLD-TOKEN", encoding="utf-8")
+    real_chmod = token_storage.os.chmod
+
+    def deletes_then_fails(path, mode, *args, **kwargs):
+        if Path(path) == target:
+            os.unlink(target)
+            raise FileNotFoundError(2, "No such file or directory", str(target))
+        return real_chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(token_storage.os, "chmod", deletes_then_fails)
+
+    with pytest.raises(FileNotFoundError):
+        token_storage.write_owner_token(target, "NEW-TOKEN")
+    assert not target.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="inode identity is POSIX-only")
+def test_a_file_swapped_between_replace_and_chmod_is_a_hard_failure(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A different file at the same path is not the rotation we performed."""
+    target = tmp_path / "token.txt"
+    target.write_text("OLD-TOKEN", encoding="utf-8")
+    intruder = tmp_path / "intruder.txt"
+    intruder.write_text("SOMEONE-ELSES-TOKEN", encoding="utf-8")
+    real_chmod = token_storage.os.chmod
+
+    def swaps_then_fails(path, mode, *args, **kwargs):
+        if Path(path) == target:
+            os.replace(intruder, target)
+            raise PermissionError("mode change denied")
+        return real_chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(token_storage.os, "chmod", swaps_then_fails)
+
+    with pytest.raises(PermissionError):
+        token_storage.write_owner_token(target, "NEW-TOKEN")
+    assert target.read_text(encoding="utf-8") == "SOMEONE-ELSES-TOKEN"
+
+
+def test_the_untouched_path_still_warns_rather_than_failing(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The identity check must not undo the fix it guards."""
+    target = tmp_path / "token.txt"
+    real_chmod = token_storage.os.chmod
+    seen: list[Path] = []
+
+    def fails_after_replace(path, mode, *args, **kwargs):
+        if Path(path) == target:
+            seen.append(Path(path))
+            raise PermissionError("mode change denied")
+        return real_chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(token_storage.os, "chmod", fails_after_replace)
+
+    with pytest.raises(token_storage.TokenFileModeWarning):
+        token_storage.write_owner_token(target, "NEW-TOKEN")
+    assert seen, "the post-replace chmod never ran"
+    assert target.read_text(encoding="utf-8") == "NEW-TOKEN"
+
+
+# ---------------------------------------------------------------------------
+# First-start bootstrap (cubic, P2)
+# ---------------------------------------------------------------------------
+
+def test_first_start_survives_a_chmod_failure_after_the_replace(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The bridge must not refuse to start over a permission bit.
+
+    `resolve_token` generates the very first token. Before this fix the
+    warning escaped as an exception, so a filesystem that would not take
+    the re-chmod killed the process even though the credential had been
+    written and was usable.
+    """
+    from arena.bootstrap_token import resolve_token
+
+    target = tmp_path / "token.txt"
+    real_chmod = token_storage.os.chmod
+
+    def fails_after_replace(path, mode, *args, **kwargs):
+        if Path(path) == target:
+            raise PermissionError("mode change denied")
+        return real_chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(token_storage.os, "chmod", fails_after_replace)
+    monkeypatch.delenv("ARENA_TOKEN_FILE", raising=False)
+    monkeypatch.delenv("ARENA_LOCAL_BRIDGE_TOKEN", raising=False)
+    logged: list[str] = []
+
+    token, path = resolve_token(
+        None,
+        default_token_file=target,
+        token_generator=lambda: "a-generated-token-value",
+        log_info=lambda fmt, *a: logged.append(fmt % a))
+
+    assert token == "a-generated-token-value"
+    assert path == target
+    assert target.read_text(encoding="utf-8").strip() == token
+    assert any("mode could not be set" in line for line in logged), logged
+
+
+def test_first_start_still_dies_when_nothing_was_written(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tolerating the warning must not tolerate a real write failure."""
+    from arena.bootstrap_token import resolve_token
+
+    target = tmp_path / "token.txt"
+
+    def denied(*_args, **_kwargs):
+        raise OSError("chmod denied")
+
+    monkeypatch.setattr(token_storage.os, "chmod", denied)
+    monkeypatch.delenv("ARENA_TOKEN_FILE", raising=False)
+    monkeypatch.delenv("ARENA_LOCAL_BRIDGE_TOKEN", raising=False)
+
+    with pytest.raises(OSError, match="chmod denied"):
+        resolve_token(
+            None,
+            default_token_file=target,
+            token_generator=lambda: "a-generated-token-value")
+    assert not target.exists()
+
+
+def test_the_write_docstring_does_not_promise_that_everything_propagates(
+        ) -> None:
+    """The stale guarantee is what a future reader would revert the fix on.
+
+    Asserting on prose is normally a smell, but this exact sentence is the
+    one cubic flagged: it told readers that any failure propagates, which
+    is no longer true and directly contradicts the warning path.
+    """
+    doc = token_storage.write_owner_token.__doc__ or ""
+
+    assert "Any failure propagates" not in doc
+    assert "TokenFileModeWarning" in doc
