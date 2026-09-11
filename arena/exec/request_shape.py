@@ -87,6 +87,13 @@ def unusable_shell_command(raw: Any, *, when_empty: str) -> str | None:
     a caller asks one question instead of two -- so adding this guard
     costs those handlers no extra branch (CodeScene).
     """
+    if not raw:
+        # Before the `str()`: `None`, `0`, `False` and `[]` are all bodies
+        # that named no command, and each caller's own `if not cmd:` used
+        # to catch them. Converting first would have turned them into the
+        # literal command lines "None", "0" and "False" and handed those
+        # to the shell (cubic).
+        return when_empty
     text = str(raw).strip()
     if not text:
         return when_empty

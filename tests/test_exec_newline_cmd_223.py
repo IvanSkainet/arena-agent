@@ -214,28 +214,70 @@ async def _shell_output(command: str) -> tuple[int | None, str]:
     return process.returncode, stdout.decode("utf-8", "replace")
 
 
+# Every surface that reads `cmd` itself and shells it. Calling them
+# through their real entry points is the point: asserting against the
+# shared helper alone would pass even if a surface stopped calling it,
+# which is the regression this pins (cubic).
+def _sandbox_refusal(cmd: object) -> str | None:
+    from arena.sandbox import handlers as sandbox_handlers
+    return sandbox_handlers.unusable_shell_command(cmd, when_empty="cmd is required")
+
+
+def _api_v2_refusal(cmd: object) -> str | None:
+    from arena.api_v2 import exec_handler
+    return exec_handler.unusable_shell_command(cmd, when_empty="missing 'cmd'")
+
+
+def _mcp_refusal(cmd: object) -> str | None:
+    from arena.mcp import tool_exec
+    return tool_exec.unusable_shell_command(cmd, when_empty="missing 'cmd' argument")
+
+
+SURFACES = (_sandbox_refusal, _api_v2_refusal, _mcp_refusal)
+
+
+@pytest.mark.parametrize("surface", SURFACES, ids=["sandbox", "api_v2", "mcp"])
 @pytest.mark.parametrize("cmd", NEWLINE_COMMANDS)
-def test_every_surface_agrees_on_what_a_newline_is(cmd: str) -> None:
-    """The v2 API, the sandbox and the MCP tool refuse the same strings.
-
-    They report a refusal differently -- JSON 400, JSON 400, `isError` --
-    but the question is identical, so they ask one function. The first
-    revision of this PR had them call `unusable_command` on the raw value
-    while `/v1/exec` called it on the stripped one, which made
-    `{"cmd": "echo hi\\n"}` a 400 on `/v1/sandbox` and a 200 on `/v1/exec`
-    (cubic). One request must not mean two things depending on which
-    endpoint it reaches, any more than on which OS it lands.
-    """
-    reason = unusable_shell_command(cmd, when_empty="unused")
+def test_every_surface_refuses_an_embedded_newline(surface, cmd: str) -> None:
+    """The v2 API, the sandbox and the MCP tool refuse what /v1/exec refuses."""
+    reason = surface(cmd)
     assert reason is not None
-    assert reason == unusable_command(cmd.strip())
+    assert "newline" in reason
 
 
-@pytest.mark.parametrize("cmd", ("echo hi\n", "\necho hi", "  echo hi  ", "echo hi"))
-def test_no_surface_refuses_a_command_the_exec_endpoints_run(cmd: str) -> None:
-    """The other half of the same agreement, from the accepting side."""
-    assert unusable_shell_command(cmd, when_empty="unused") is None
+@pytest.mark.parametrize("surface", SURFACES, ids=["sandbox", "api_v2", "mcp"])
+@pytest.mark.parametrize("cmd", ("echo hi\n", "\necho hi", "  echo hi  "))
+def test_no_surface_refuses_what_the_exec_endpoints_accept(surface, cmd: str) -> None:
+    """The concrete cross-surface agreement, stated as behaviour.
+
+    An earlier revision asserted
+    `unusable_shell_command(cmd) == unusable_command(cmd.strip())`, which
+    is true by the helper's own definition and so could not fail (cubic --
+    the same trap as the `round(0.6) == 1` test on #272). What actually
+    needs pinning is that these three surfaces accept the bodies
+    `/v1/exec` accepts: the first revision of this PR had them return 400
+    for `{"cmd": "echo hi\\n"}` while `/v1/exec` returned 200, because
+    they skipped the `.strip()`. Reaching through each module means a
+    surface that stops calling the shared helper fails here.
+    """
+    assert surface(cmd) is None
     assert requested_command({"cmd": cmd})[1] is None
+
+
+@pytest.mark.parametrize("surface", SURFACES, ids=["sandbox", "api_v2", "mcp"])
+@pytest.mark.parametrize("cmd", (None, 0, False, [], {}))
+def test_a_body_that_names_no_command_is_never_shelled(surface, cmd: object) -> None:
+    """`{"cmd": null}` must not become the command line `None` (cubic).
+
+    Each surface used to answer this with its own `if not cmd:`. Folding
+    that into the shared helper briefly moved the `str()` conversion in
+    front of the check, which turned these bodies into the literal
+    commands "None", "0" and "False" -- executed, and reported as a
+    success.
+    """
+    reason = surface(cmd)
+    assert reason is not None
+    assert "newline" not in reason  # named as missing, not as malformed
 
 
 def test_an_empty_command_keeps_each_surface_its_own_wording() -> None:
