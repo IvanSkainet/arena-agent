@@ -453,3 +453,57 @@ def test_a_swap_before_the_first_stat_does_not_chmod_a_foreign_file(
     assert target.stat().st_mode & 0o777 == 0o644, (
         "the foreign file's mode was changed, so the chmod followed the path "
         "rather than the descriptor")
+
+
+def test_a_failed_staging_write_leaks_neither_descriptor_nor_token(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A write that dies mid-staging must not leave the token on disk.
+
+    CodeRabbit: `_write_temp_beside` raising means the caller was handed
+    nothing, so its `finally` has nothing to clean. Two consequences --
+    a descriptor leaked per attempt, and an fsync failure leaving a
+    temporary file holding the freshly generated token.
+    """
+    target = tmp_path / "token.txt"
+
+    def fails(_fd):
+        raise OSError("fsync denied")
+
+    monkeypatch.setattr(token_storage.os, "fsync", fails)
+    before = len(os.listdir(tmp_path))
+
+    for _ in range(3):
+        with pytest.raises(OSError, match="fsync denied"):
+            token_storage.write_owner_token(target, "SECRET-TOKEN")
+
+    leftovers = [p for p in tmp_path.iterdir() if p.name != "token.txt"]
+    assert not leftovers, f"staged files survived: {leftovers}"
+    assert len(os.listdir(tmp_path)) == before
+    assert not target.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="reads /proc/self/fd")
+def test_repeated_staging_failures_do_not_exhaust_descriptors(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The leak itself, counted rather than inferred.
+
+    Without the cleanup each attempt strands one descriptor, so a caller
+    retrying a failing rotation eventually runs the process out of them.
+    """
+    target = tmp_path / "token.txt"
+
+    def fails(_fd):
+        raise OSError("fsync denied")
+
+    monkeypatch.setattr(token_storage.os, "fsync", fails)
+    open_fds = lambda: len(os.listdir("/proc/self/fd"))  # noqa: E731
+
+    with pytest.raises(OSError, match="fsync denied"):
+        token_storage.write_owner_token(target, "SECRET-TOKEN")
+    settled = open_fds()
+
+    for _ in range(10):
+        with pytest.raises(OSError, match="fsync denied"):
+            token_storage.write_owner_token(target, "SECRET-TOKEN")
+
+    assert open_fds() == settled, "each failed staging stranded a descriptor"

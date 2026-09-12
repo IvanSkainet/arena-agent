@@ -147,3 +147,65 @@ def test_the_200_schema_requires_the_note_the_handler_always_sends(
     assert "note" in schema["properties"], schema
     assert schema["properties"]["note"]["type"] == "string", schema
     assert "note" in schema["required"], schema
+
+
+def test_a_cancelled_request_still_finishes_before_the_next_rotation(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A client hanging up must not let two writers overlap.
+
+    CodeRabbit: the lock was released the moment the handler coroutine was
+    cancelled, while the executor thread carried on writing. Measured on
+    that code by cancelling request A mid-write and letting B complete:
+
+        A-start, req-cancelled, B-done, A-written
+
+    -- so the token file ended up holding A while `cfg["token"]` held B.
+    Nothing surfaces until a restart, and then every client is locked out,
+    which is the failure this whole change is about.
+    """
+    asyncio.run(_cancellation_does_not_release_the_lock(tmp_path, monkeypatch))
+
+
+async def _cancellation_does_not_release_the_lock(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from arena.admin import token_rotation
+    from arena.app_keys import APP_CFG
+
+    real = token_rotation.token_regenerate
+    order: list[str] = []
+
+    def slow(*args, **kwargs):
+        order.append("A-start")
+        time.sleep(0.6)
+        result = real(*args, **kwargs)
+        order.append("A-written")
+        return result
+
+    async with running_client(tmp_path, TOKEN) as client:
+        client.app[APP_CFG]["token_file"] = str(tmp_path / "token.txt")
+        monkeypatch.setattr(token_rotation, "token_regenerate", slow)
+
+        first = asyncio.create_task(
+            client.post("/v1/token/regenerate", headers=auth_header(TOKEN)))
+        await asyncio.sleep(0.2)
+        first.cancel()
+        try:
+            await first
+        except asyncio.CancelledError:
+            order.append("req-cancelled")
+
+        monkeypatch.setattr(token_rotation, "token_regenerate", real)
+        second = await client.post(
+            "/v1/token/regenerate", headers=auth_header(TOKEN))
+        payload = await json_payload(second)
+        order.append("B-done")
+        await asyncio.sleep(1.0)
+
+        on_disk = (tmp_path / "token.txt").read_text(encoding="utf-8").strip()
+        in_memory = client.app[APP_CFG]["token"]
+
+    assert order.index("A-written") < order.index("B-done"), order
+    assert payload["token"] == in_memory, payload
+    assert on_disk == in_memory, (
+        f"the cancelled rotation's write landed last: disk={on_disk!r} "
+        f"memory={in_memory!r}")

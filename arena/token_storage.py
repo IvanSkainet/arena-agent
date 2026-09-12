@@ -124,10 +124,23 @@ def _write_temp_beside(target: Path, token: str) -> tuple[Path, int]:
     """
     fd, name = tempfile.mkstemp(
         prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
-    with os.fdopen(os.dup(fd), "w", encoding="utf-8") as handle:
-        handle.write(token)
-        handle.flush()
-        os.fsync(handle.fileno())
+    try:
+        with os.fdopen(os.dup(fd), "w", encoding="utf-8") as handle:
+            handle.write(token)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        # CodeRabbit, #211: the caller can only clean up what it was
+        # handed, and a raise here means it was handed nothing. Repeated
+        # failures would leak a descriptor each time, and an fsync failure
+        # would leave a world-readable temporary file holding the freshly
+        # generated token on disk.
+        os.close(fd)
+        try:
+            Path(name).unlink()
+        except OSError:
+            pass
+        raise
     return Path(name), fd
 
 

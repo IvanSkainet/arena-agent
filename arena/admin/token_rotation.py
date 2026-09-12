@@ -60,6 +60,22 @@ async def rotate_bridge_token(ctx: AdminHandlerContext,
     building the whole handler table.
     """
     cfg = request.app[APP_CFG]
+    # Shielded, and awaited through the shield rather than directly: a
+    # client that disconnects mid-rotation cancels this coroutine, and if
+    # the lock were released at that point the executor thread would still
+    # be writing. Measured on the unshielded code -- cancel request A while
+    # its worker runs, let B complete, and A's write lands afterwards:
+    # `A-start, req-cancelled, B-done, A-written`, with the token file
+    # holding A and `cfg["token"]` holding B (CodeRabbit). The task owns
+    # the lock for its whole life, so the next rotation waits for the
+    # write it cannot see.
+    return await asyncio.shield(
+        asyncio.ensure_future(_rotate_under_lock(ctx, request, cfg)))
+
+
+async def _rotate_under_lock(ctx: AdminHandlerContext, request: web.Request,
+                             cfg: dict) -> web.Response:
+    """Hold the rotation lock across the write and the in-memory install."""
     async with _rotation_lock_for(request.app):
         return await _rotate_once(ctx, request, cfg)
 
