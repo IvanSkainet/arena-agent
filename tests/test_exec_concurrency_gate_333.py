@@ -24,6 +24,23 @@ from tests._live_bridge import MAX_CONCURRENT, auth_header, running_client
 TOKEN = "t" * 43
 
 
+# The script endpoint runs a real interpreter, so the body has to be one
+# that exists on every runner. `sh` does not on Windows -- the first
+# revision of these two tests used it and got 400 ("interpreter not
+# available") from all five Windows jobs, which reads as "no 429" and
+# fails the assertion for the wrong reason. `python` is the only entry
+# in the interpreter table with platform "any".
+SCRIPT_INTERPRETER = "python"
+SLOW_SCRIPT = b"import time\ntime.sleep(2)\n"
+
+
+def _script_headers(cwd: Path) -> dict[str, str]:
+    headers = dict(auth_header(TOKEN))
+    headers["X-Arena-Interpreter"] = SCRIPT_INTERPRETER
+    headers["X-Arena-Cwd"] = str(cwd)
+    return headers
+
+
 async def _status_and_duration(client, path: str, cmd: str) -> tuple[int, float]:
     started = time.monotonic()
     response = await client.post(
@@ -156,14 +173,12 @@ def test_the_script_endpoint_shares_the_same_refusal(tmp_path: Path) -> None:
 
 async def _script_refuses_over_capacity(tmp_path: Path) -> None:
     async with running_client(tmp_path, TOKEN) as client:
-        headers = dict(auth_header(TOKEN))
-        headers["X-Arena-Interpreter"] = "sh"
-        headers["X-Arena-Cwd"] = str(tmp_path)
+        headers = _script_headers(tmp_path)
 
         async def run_script() -> tuple[int, float]:
             started = time.monotonic()
             response = await client.post(
-                "/v1/exec/script", headers=headers, data=b"sleep 2\n")
+                "/v1/exec/script", headers=headers, data=SLOW_SCRIPT)
             await response.text()
             return response.status, time.monotonic() - started
 
@@ -175,6 +190,12 @@ async def _script_refuses_over_capacity(tmp_path: Path) -> None:
         staged = tmp_path / ".arena_script_tmp"
         leftovers = list(staged.iterdir()) if staged.exists() else []
 
+    # Checked before the count: a 400 from an interpreter the runner does
+    # not have reads as "no 429 seen" and fails the real assertion with a
+    # misleading message. That is exactly how the first revision of this
+    # test failed on Windows.
+    assert {status for status, _ in results} <= {200, 429}, (
+        f"the script never ran -- interpreter unavailable? {results}")
     refused = [(status, seconds) for status, seconds in results if status == 429]
     assert len(refused) == 1, results
     assert refused[0][1] < 1.0, f"the refusal took {refused[0][1]:.2f}s"
@@ -199,14 +220,12 @@ async def _script_refusal_survives_disagreement(tmp_path: Path) -> None:
         cfg["max_concurrent"] = 100
         cfg["active_exec"] = 0
 
-        headers = dict(auth_header(TOKEN))
-        headers["X-Arena-Interpreter"] = "sh"
-        headers["X-Arena-Cwd"] = str(tmp_path)
+        headers = _script_headers(tmp_path)
 
         async def run_script() -> tuple[int, float]:
             started = time.monotonic()
             response = await client.post(
-                "/v1/exec/script", headers=headers, data=b"sleep 2\n")
+                "/v1/exec/script", headers=headers, data=SLOW_SCRIPT)
             await response.text()
             return response.status, time.monotonic() - started
 
@@ -214,6 +233,8 @@ async def _script_refusal_survives_disagreement(tmp_path: Path) -> None:
             asyncio.create_task(run_script()) for _ in range(2)
         ])
 
+    assert {status for status, _ in results} <= {200, 429}, (
+        f"the script never ran -- interpreter unavailable? {results}")
     refused = [(status, seconds) for status, seconds in results if status == 429]
     assert len(refused) == 1, (
         f"capacity is 1, so the second script must be refused: {results}")
