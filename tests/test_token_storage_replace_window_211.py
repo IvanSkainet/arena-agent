@@ -21,6 +21,7 @@ caller of the same primitive and has to make the same distinction.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from pathlib import Path
 
@@ -521,3 +522,47 @@ def test_repeated_staging_failures_do_not_exhaust_descriptors(
 
     assert open_descriptors() == settled, (
         "each failed staging stranded a descriptor")
+
+
+def test_an_unremovable_staged_file_is_reported_not_swallowed(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture) -> None:
+    """The cleanup's own failure must leave a trace.
+
+    Corgea: if the unlink fails too, a file holding the generated token
+    stays on disk. Raising would replace the write failure the caller
+    needs to see, so the requirement is that it is logged -- and that the
+    original error still propagates.
+    """
+    target = tmp_path / "token.txt"
+
+    def fails(_fd):
+        raise OSError("fsync denied")
+
+    def cannot_unlink(_self, *args, **kwargs):
+        raise OSError("unlink denied")
+
+    monkeypatch.setattr(token_storage.os, "fsync", fails)
+    monkeypatch.setattr(Path, "unlink", cannot_unlink)
+
+    with caplog.at_level(logging.WARNING, logger="arena-bridge"):
+        with pytest.raises(OSError, match="fsync denied"):
+            token_storage.write_owner_token(target, "SECRET-TOKEN")
+
+    assert any("staged token file" in record.message for record in caplog.records), (
+        [record.message for record in caplog.records])
+
+
+def test_every_mode_change_uses_the_one_constant(tmp_path: Path) -> None:
+    """No call site carries its own copy of the mode.
+
+    Corgea: the literal sat at three call sites, where changing one and
+    not the others is a silent permissions regression. The constant is
+    the single definition, and 0o600 must appear nowhere else.
+    """
+    source = Path(token_storage.__file__).read_text(encoding="utf-8")
+    definition = "TOKEN_FILE_MODE = 0o600"
+
+    assert token_storage.TOKEN_FILE_MODE == 0o600
+    assert source.count("0o600") == source.count(definition) == 1, (
+        "a mode literal escaped the constant")

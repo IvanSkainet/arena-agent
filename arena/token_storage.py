@@ -1,10 +1,21 @@
 """Safe storage primitive for bridge bearer-token files."""
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+
+_LOG = logging.getLogger("arena-bridge")
+
+TOKEN_FILE_MODE = 0o600
+"""Owner-only, the only mode a bearer-token file is ever given.
+
+Corgea: the literal appeared at three call sites -- the pre-replace chmod
+of the staged file and both post-replace settlements -- where one being
+changed without the others is a silent permissions regression.
+"""
 
 
 class TokenFileModeWarning(Exception):
@@ -72,7 +83,7 @@ def _settle_by_descriptor(target: Path, fd: int) -> None:
     and `os.fstat` always reports our identity; only the path lookup can
     disagree, which is exactly the signal wanted.
     """
-    mode_error = _attempt(lambda: os.fchmod(fd, 0o600))
+    mode_error = _attempt(lambda: os.fchmod(fd, TOKEN_FILE_MODE))
     at_path = _inode_of(target)
     _classify_post_replace(
         target, mode_error, at_path is not None and at_path == os.fstat(fd).st_ino)
@@ -87,7 +98,7 @@ def _settle_by_path(target: Path, installed: int | None) -> None:
     exposes a stable one, and `None` otherwise -- in which case only the
     file's disappearance is detectable, not a same-path swap.
     """
-    mode_error = _attempt(lambda: os.chmod(target, 0o600))
+    mode_error = _attempt(lambda: os.chmod(target, TOKEN_FILE_MODE))
     current = _inode_of(target)
     _classify_post_replace(
         target, mode_error,
@@ -139,7 +150,14 @@ def _write_temp_beside(target: Path, token: str) -> tuple[Path, int]:
         try:
             Path(name).unlink()
         except OSError:
-            pass
+            # Corgea: swallowing this silently is how a file holding the
+            # generated token sits on disk with nobody aware of it. The
+            # unlink failure must not replace the write failure the caller
+            # is about to see, so it is logged rather than raised.
+            _LOG.warning(
+                "could not remove the staged token file %s after a failed "
+                "write; it may still hold the generated token", name,
+                exc_info=True)
         raise
     return Path(name), fd
 
@@ -175,7 +193,7 @@ def write_owner_token(target: Path, token: str) -> None:
         # installed", and the temporary name is ours alone, so there is no
         # swap window to close here. The descriptor matters only after the
         # rename, where the path stops being a reliable handle.
-        os.chmod(staged.path, 0o600)
+        os.chmod(staged.path, TOKEN_FILE_MODE)
         _replace_and_settle(staged, target)
     finally:
         if staged is not None:
