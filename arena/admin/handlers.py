@@ -28,11 +28,11 @@ from arena.admin.runtime import (
     cloudflared_funnel_action,
     sys_funnel_status,
     tailscale_funnel_action,
-    token_regenerate,
     zerotier_network_action,
     zerotier_peers,
     zerotier_status,
 )
+from arena.admin.token_rotation import rotate_bridge_token
 from arena.admin.tunnels import (
     tunnels_active,
     tunnels_probe,
@@ -44,10 +44,6 @@ from arena.app_keys import APP_CFG
 from arena.handler_context import AdminHandlerContext
 from arena.handler_helpers import authed, safe_float
 from arena.mobile.exposure_cache import record_tunnel_snapshot
-from arena.observability.redact import (
-    register_literal_secret,
-    unregister_literal_secret,
-)
 
 _LOG = logging.getLogger(__name__)
 
@@ -145,29 +141,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
 
     @authed(ctx)
     async def handle_v1_token_regenerate(request: web.Request) -> web.Response:
-        cfg = request.app[APP_CFG]
-        target = str(cfg.get("token_file") or "")
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
-            ctx.executor,
-            lambda: token_regenerate(target, default_token_file=ctx.default_token_file),
-        )
-        if result.get("ok") and result.get("token"):
-            # v4.170.0 (#132): keep the redactor in step with the live
-            # credential. Registering the new value first means there is no
-            # window in which the fresh token could reach the audit log
-            # unredacted; the old one stays registered until after, because
-            # an in-flight request may still be recording it.
-            # The old literal is dropped only once the new one is
-            # protected: unregistering first would leave a window with
-            # neither covered, and dropping it after a *failed*
-            # registration would leave the live credential unredactable
-            # for the rest of the process's life.
-            if register_literal_secret(result["token"], kind="bridge-token"):
-                unregister_literal_secret(cfg["token"])
-            cfg["token"] = result["token"]
-        ctx.audit({"type": "token_regenerated", "files": result.get("written_to", [])})
-        return ctx.cors_json_response(result)
+        return await rotate_bridge_token(ctx, request)
 
     # v4.38.0: shared per-verb marker persistence lives in the
     # sibling handlers_autostart module so this file stays under

@@ -7,7 +7,7 @@ import secrets
 from pathlib import Path
 from typing import Any
 
-from arena.token_storage import write_owner_token
+from arena.token_storage import TokenFileModeWarning, write_owner_token
 
 
 def token_regenerate(target_path: str = "", *, default_token_file: Path) -> dict[str, Any]:
@@ -20,8 +20,17 @@ def token_regenerate(target_path: str = "", *, default_token_file: Path) -> dict
         env = os.environ.get("ARENA_TOKEN_FILE", "").strip()
         target = Path(env).expanduser() if env else Path(default_token_file)
 
+    mode_warning = ""
     try:
-        write_owner_token(target, new_tok)
+        try:
+            write_owner_token(target, new_tok)
+        except TokenFileModeWarning as warned:
+            # #211 (cubic): the file already holds the new token -- the
+            # replace is atomic and completed. Reporting failure here would
+            # leave the caller on the old credential in memory while the
+            # next restart reads the new one off disk, locking every client
+            # out. So this is a success that carries a warning.
+            mode_warning = str(warned)
         return {
             "ok": True,
             "token": new_tok,
@@ -46,6 +55,7 @@ def token_regenerate(target_path: str = "", *, default_token_file: Path) -> dict
             ),
             "previous_token_revoked": True,
             "restart_required": False,
+            **({"warning": mode_warning} if mode_warning else {}),
         }
     except Exception as e:
         return {"ok": False, "error": f"Failed to write {target}: {e}"}

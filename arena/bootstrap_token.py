@@ -5,7 +5,7 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 
-from arena.token_storage import write_owner_token
+from arena.token_storage import TokenFileModeWarning, write_owner_token
 
 
 def resolve_token(
@@ -39,7 +39,28 @@ def resolve_token(
         pass
 
     new_tok = token_generator()
-    write_owner_token(token_file, new_tok + "\n")
+    _generate_into(token_file, new_tok, log_info)
+    return new_tok, token_file
+
+
+def _generate_into(
+    token_file: Path,
+    new_tok: str,
+    log_info: Callable[..., None] | None,
+) -> None:
+    """Write the first token, tolerating a mode failure after the replace.
+
+    #211 (cubic): `write_owner_token` raises `TokenFileModeWarning` when the
+    re-chmod fails *after* `os.replace` has installed the contents, which
+    means the generated token IS what the file holds. Aborting the first
+    start there left the bridge dead over a permission bit rather than over
+    a missing credential, so the warning is logged and startup continues.
+    A genuine write failure still propagates.
+    """
+    try:
+        write_owner_token(token_file, new_tok + "\n")
+    except TokenFileModeWarning as warned:
+        if log_info:
+            log_info("[ArenaBridge] %s", warned)
     if log_info:
         log_info("[ArenaBridge] New token generated and saved to %s", token_file)
-    return new_tok, token_file

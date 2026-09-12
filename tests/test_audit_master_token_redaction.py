@@ -263,20 +263,69 @@ def test_rotating_the_token_registers_the_new_one_and_drops_the_old(monkeypatch)
     assert old_token in redact_string(f"echo {old_token}")
 
 
-def test_the_regenerate_handler_keeps_the_redactor_in_step():
+def test_the_regenerate_handler_keeps_the_redactor_in_step(monkeypatch):
     """Guard the wiring itself, not a copy of it.
 
     The test above mirrors the handler's logic; this asserts the handler
-    really contains it, so deleting those two lines fails the suite instead
-    of only failing in production.
+    really performs it, so deleting the registration fails the suite
+    instead of only failing in production.
+
+    This used to grep `inspect.getsource` for the literal
+    `register_literal_secret(result["token"]`. That passed for the right
+    reason but for the wrong shape: renaming a local variable or moving
+    the call into a helper broke it while the behaviour was intact (#211),
+    and a call sitting in dead code would have satisfied it. Calling the
+    function and watching the registry answers the same question without
+    either failure mode.
     """
-    import inspect
+    from arena.admin.token_rotation import _install_rotated_token
 
-    from arena.admin import handlers
+    registered: list[tuple[str, str]] = []
+    unregistered: list[str] = []
 
-    source = inspect.getsource(handlers)
-    assert "register_literal_secret(result[\"token\"]" in source
-    assert "unregister_literal_secret(cfg[\"token\"])" in source
+    class _Ctx:
+        pass
+
+    import arena.admin.token_rotation as handlers_mod
+
+    monkeypatch.setattr(
+        handlers_mod, "register_literal_secret",
+        lambda value, *, kind: (registered.append((value, kind)), True)[1])
+    monkeypatch.setattr(
+        handlers_mod, "unregister_literal_secret", unregistered.append)
+
+    cfg = {"token": "the-old-one"}
+    _install_rotated_token(_Ctx(), cfg, "the-new-one")
+
+    assert registered == [("the-new-one", "bridge-token")]
+    assert unregistered == ["the-old-one"], (
+        "the retired literal must be dropped, and only after the new one "
+        "is protected")
+    assert cfg["token"] == "the-new-one"
+
+
+def test_the_old_literal_survives_a_failed_registration(monkeypatch):
+    """If the new token cannot be protected, the old one stays scrubbed.
+
+    Dropping it after a failed registration would leave the live
+    credential unredactable for the rest of the process's life -- the
+    reason the handler checks the return value rather than calling both
+    unconditionally.
+    """
+    import arena.admin.token_rotation as handlers_mod
+    from arena.admin.token_rotation import _install_rotated_token
+
+    unregistered: list[str] = []
+    monkeypatch.setattr(
+        handlers_mod, "register_literal_secret", lambda value, *, kind: False)
+    monkeypatch.setattr(
+        handlers_mod, "unregister_literal_secret", unregistered.append)
+
+    cfg = {"token": "the-old-one"}
+    _install_rotated_token(object(), cfg, "the-new-one")
+
+    assert unregistered == []
+    assert cfg["token"] == "the-new-one"
 
 
 def test_serve_wires_the_registration_at_the_source():
@@ -607,7 +656,7 @@ def _call_token_regenerate(monkeypatch, tmp_path, cfg, fake_result):
     from arena.handler_context import AdminHandlerContext
 
     monkeypatch.setattr(
-        "arena.admin.handlers.token_regenerate",
+        "arena.admin.token_rotation.token_regenerate",
         lambda *a, **k: dict(fake_result),
     )
 
