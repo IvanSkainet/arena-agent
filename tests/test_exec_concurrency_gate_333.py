@@ -13,6 +13,7 @@ capacity alone.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from pathlib import Path
 
@@ -28,8 +29,9 @@ TOKEN = "t" * 43
 # that exists on every runner. `sh` does not on Windows -- the first
 # revision of these two tests used it and got 400 ("interpreter not
 # available") from all five Windows jobs, which reads as "no 429" and
-# fails the assertion for the wrong reason. `python` is the only entry
-# in the interpreter table with platform "any".
+# fails the assertion for the wrong reason. `node`, `python3` and `pwsh`
+# are platform "any" too (cubic); `python` is chosen because it is the
+# one guaranteed present on every runner -- the suite is running in it.
 SCRIPT_INTERPRETER = "python"
 SLOW_SCRIPT = b"import time\ntime.sleep(2)\n"
 
@@ -39,6 +41,21 @@ def _script_headers(cwd: Path) -> dict[str, str]:
     headers["X-Arena-Interpreter"] = SCRIPT_INTERPRETER
     headers["X-Arena-Cwd"] = str(cwd)
     return headers
+
+
+def _assert_refused_without_queueing(
+        refusal: float, accepted: list[float]) -> None:
+    """The refusal must be quick *relative to* the work it refused.
+
+    An absolute bound would be a timing assertion on a shared CI runner,
+    which is how #320, #337 and #343 all started (cubic). The accepted
+    requests sleep for two seconds, so a refusal that queued behind one
+    is unmistakable next to them, however slow the machine is.
+    """
+    assert accepted, "nothing was accepted, so there is no baseline"
+    assert refusal < min(accepted) / 2, (
+        f"the refusal took {refusal:.2f}s against accepted work at "
+        f"{min(accepted):.2f}s -- it queued rather than being refused")
 
 
 async def _status_and_duration(client, path: str, cmd: str) -> tuple[int, float]:
@@ -72,8 +89,9 @@ async def _over_capacity_is_refused(tmp_path: Path, path: str) -> None:
         results = await asyncio.gather(*busy)
 
     refused = [(status, seconds) for status, seconds in results if status == 429]
+    accepted = [seconds for status, seconds in results if status == 200]
     assert len(refused) == 1, results
-    assert refused[0][1] < 1.0, f"the refusal took {refused[0][1]:.2f}s"
+    _assert_refused_without_queueing(refused[0][1], accepted)
 
 
 def test_capacity_is_one_number_not_two(tmp_path: Path) -> None:
@@ -154,10 +172,10 @@ async def _refusal_survives_disagreement(tmp_path: Path, path: str) -> None:
         ])
 
     refused = [(status, seconds) for status, seconds in results if status == 429]
+    accepted = [seconds for status, seconds in results if status == 200]
     assert len(refused) == 1, (
         f"capacity is 1, so the second request must be refused: {results}")
-    assert refused[0][1] < 1.0, (
-        f"the refusal waited {refused[0][1]:.2f}s -- it queued instead")
+    _assert_refused_without_queueing(refused[0][1], accepted)
 
 
 def test_the_script_endpoint_shares_the_same_refusal(tmp_path: Path) -> None:
@@ -197,8 +215,9 @@ async def _script_refuses_over_capacity(tmp_path: Path) -> None:
     assert {status for status, _ in results} <= {200, 429}, (
         f"the script never ran -- interpreter unavailable? {results}")
     refused = [(status, seconds) for status, seconds in results if status == 429]
+    accepted = [seconds for status, seconds in results if status == 200]
     assert len(refused) == 1, results
-    assert refused[0][1] < 1.0, f"the refusal took {refused[0][1]:.2f}s"
+    _assert_refused_without_queueing(refused[0][1], accepted)
     assert not leftovers, f"a refused script left files behind: {leftovers}"
 
 
@@ -236,7 +255,94 @@ async def _script_refusal_survives_disagreement(tmp_path: Path) -> None:
     assert {status for status, _ in results} <= {200, 429}, (
         f"the script never ran -- interpreter unavailable? {results}")
     refused = [(status, seconds) for status, seconds in results if status == 429]
+    accepted = [seconds for status, seconds in results if status == 200]
     assert len(refused) == 1, (
         f"capacity is 1, so the second script must be refused: {results}")
-    assert refused[0][1] < 1.0, (
-        f"the refusal waited {refused[0][1]:.2f}s -- it queued instead")
+    _assert_refused_without_queueing(refused[0][1], accepted)
+
+
+def test_a_blocked_script_does_not_keep_the_slot(tmp_path: Path) -> None:
+    """A refusal after the acquire must still give the permit back.
+
+    cubic, P1: the slot was taken before `ctx.blocked_reason` ran, and
+    that check's 403 returns through a path written when the acquire was
+    still further down. Measured on that code -- `active_exec` climbing
+    1, 2, 3 over three blocked scripts and staying there, with every
+    later exec answered 429 for the life of the process.
+
+    A leak that only capacity reveals, which is why this asserts the
+    counter directly and then proves the bridge still works.
+    """
+    asyncio.run(_blocked_scripts_do_not_leak(tmp_path))
+
+
+async def _blocked_scripts_do_not_leak(tmp_path: Path) -> None:
+    import gc
+
+    from arena.handler_context import ExecHandlerContext
+
+    async with running_client(tmp_path, TOKEN) as client:
+        cfg = client.app[APP_CFG]
+        contexts = [
+            obj for obj in gc.get_objects()
+            if isinstance(obj, ExecHandlerContext)
+        ]
+        assert contexts, "no ExecHandlerContext to reach the blocklist through"
+        for context in contexts:
+            object.__setattr__(
+                context, "blocked_reason", lambda _cmd: "blocked for the test")
+
+        headers = _script_headers(tmp_path)
+        for _ in range(MAX_CONCURRENT + 2):
+            response = await client.post(
+                "/v1/exec/script", headers=headers, data=SLOW_SCRIPT)
+            await response.text()
+            assert response.status == 403, response.status
+            assert cfg["active_exec"] == 0, (
+                f"a blocked script kept the slot: active_exec="
+                f"{cfg['active_exec']}")
+
+        for context in contexts:
+            object.__setattr__(context, "blocked_reason", lambda _cmd: None)
+        status, _ = await _status_and_duration(client, "/v1/exec", "echo ok")
+
+    assert status == 200, f"the bridge was exhausted by refusals: {status}"
+
+
+def test_a_failed_stream_prepare_does_not_keep_the_slot(tmp_path: Path) -> None:
+    """The same leak on the streaming path, through failing I/O.
+
+    cubic, P1: `response.prepare()` runs after the acquire and can fail.
+    Measured before the fix -- five failed prepares took a capacity-three
+    bridge to zero and /v1/exec answered 429 to an ordinary request.
+    """
+    asyncio.run(_failed_prepare_does_not_leak(tmp_path))
+
+
+async def _failed_prepare_does_not_leak(tmp_path: Path) -> None:
+    from aiohttp import web
+
+    original = web.StreamResponse.prepare
+
+    async def refuses_to_prepare(self, request):  # noqa: ANN001, ARG001
+        raise RuntimeError("prepare failed")
+
+    async with running_client(tmp_path, TOKEN) as client:
+        cfg = client.app[APP_CFG]
+        web.StreamResponse.prepare = refuses_to_prepare
+        try:
+            for _ in range(MAX_CONCURRENT + 2):
+                with contextlib.suppress(Exception):
+                    response = await client.post(
+                        "/v1/exec/stream", headers=auth_header(TOKEN),
+                        json={"cmd": "echo hi", "cwd": str(tmp_path)})
+                    await response.text()
+                assert cfg["active_exec"] == 0, (
+                    f"a failed prepare kept the slot: active_exec="
+                    f"{cfg['active_exec']}")
+        finally:
+            web.StreamResponse.prepare = original
+
+        status, _ = await _status_and_duration(client, "/v1/exec", "echo ok")
+
+    assert status == 200, f"the bridge was exhausted by failed streams: {status}"

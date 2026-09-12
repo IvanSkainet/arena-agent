@@ -25,7 +25,6 @@ from __future__ import annotations
 import json
 import os
 import signal
-import tempfile
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -60,6 +59,7 @@ from arena.exec.request_shape import (
     usable_cwd,
 )
 from arena.exec.runner import run_shell_command_stream
+from arena.exec.script_staging import stage_script
 from arena.handler_context import ExecHandlerContext
 from arena.handler_helpers import authed, err_json, parse_json_body
 from arena.security_commands import command_allowlist_reason
@@ -152,10 +152,13 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         if not await slot.try_acquire():
             return too_many_concurrent(ctx, request_id)
 
-        ctx.audit({"type": "exec_start", "request_id": request_id, "cmd": cmd, "cwd": str(cwd),
-                   "timeout": timeout, "client": request.remote or "127.0.0.1"})
-
         try:
+            # Inside the guard from the first statement after the acquire:
+            # anything that raises between taking the permit and the
+            # `finally` strands it for the life of the process (cubic,
+            # CodeRabbit). `ctx.audit` writes to disk, so it qualifies.
+            ctx.audit({"type": "exec_start", "request_id": request_id, "cmd": cmd, "cwd": str(cwd),
+                       "timeout": timeout, "client": request.remote or "127.0.0.1"})
             result = await await_while_client_connected(
                 request,
                 ctx.run_shell_command(
@@ -298,15 +301,17 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         if not await slot.try_acquire():
             return too_many_concurrent(ctx, request_id)
 
-        # Write body to a tmpfile scoped to root so cross-mount deletes
-        # can't leak. mkstemp is race-free and gives us a mode 0o600 file.
-        tmp_dir = root / ".arena_script_tmp"
-        tmp_dir.mkdir(exist_ok=True)
-        fd, tmp_path = tempfile.mkstemp(prefix=f"scr-{request_id[:8]}-",
-                                        suffix=str(interp_cfg["suffix"]),
-                                        dir=str(tmp_dir))
-        os.close(fd)
+        # From here to the outer `finally` everything runs inside the
+        # guard. It used to start below the staging block, which left two
+        # ways out holding the permit (cubic): `mkdir`/`mkstemp` raising,
+        # and -- the reachable one -- the 403 for a blocked interpreter
+        # cmdline, a `return` written when the acquire was still further
+        # down. Measured on that code: three blocked scripts took a
+        # capacity-three bridge to `active_exec` 3 and it answered 429 to
+        # everything afterwards, for the life of the process.
+        tmp_path: str | None = None
         try:
+            tmp_path = stage_script(root, request_id, str(interp_cfg["suffix"]))
             Path(tmp_path).write_bytes(body)
             # Make the script executable so `sh <path>` works even when
             # umask is unusually restrictive.
@@ -386,17 +391,18 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                      "interpreter": interp_key},
                     status=500,
                 )
-            finally:
-                slot.release()
         finally:
+            slot.release()
             # Delete the tmp script even on error — no lingering
-            # bytes on disk. Ignore ENOENT if we never wrote it.
-            try:
-                os.unlink(tmp_path)
-            except FileNotFoundError:
-                pass
-            except Exception:
-                pass
+            # bytes on disk. Ignore ENOENT if we never wrote it, and skip
+            # it entirely if staging never got far enough to name one.
+            if tmp_path is not None:
+                try:
+                    os.unlink(tmp_path)
+                except FileNotFoundError:
+                    pass
+                except Exception:
+                    pass
 
     # v4.3.0 NDJSON streaming endpoint. Same auth + gates as /v1/exec, but
     # emits one JSON event per line as bytes arrive from the child process
@@ -462,29 +468,42 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         if not await slot.try_acquire():
             return too_many_concurrent(ctx, request_id)
 
-        # NDJSON stream: chunked transfer, one JSON object per line. Setting
-        # X-Accel-Buffering: no is a hint for reverse proxies (nginx) to not
-        # coalesce chunks — matters when the bridge sits behind a Tailscale
-        # funnel or similar. The response itself is unbuffered from aiohttp.
-        headers = dict(CORS_HEADERS)
-        headers["Content-Type"] = "application/x-ndjson"
-        headers["Cache-Control"] = "no-cache"
-        headers["X-Accel-Buffering"] = "no"
-        headers["X-Arena-Request-Id"] = request_id
-        response = web.StreamResponse(status=200, headers=headers)
-        response.enable_chunked_encoding()
-        await response.prepare(request)
-
-        async def _emit(event: dict) -> None:
-            line = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
-            await response.write(line)
-
-        ctx.audit({"type": "exec_stream_start", "request_id": request_id, "cmd": cmd,
-                   "cwd": str(cwd), "timeout": timeout,
-                   "client": request.remote or "127.0.0.1"})
+        # `prepare` is I/O and can fail; so can the audit write. Both sit
+        # after the acquire, and before this guard existed either one
+        # raising left the permit held for the life of the process
+        # (cubic). Measured: five failed `prepare` calls took a
+        # capacity-three bridge to zero and /v1/exec answered 429.
         exit_event: dict | None = None
         stream = None
+        # Named before the guard: `prepare` failing means the `except` and
+        # `finally` below run without them, and a NameError there would
+        # replace the real error with a misleading one.
+        response: web.StreamResponse | None = None
+        emit = None
         try:
+            # NDJSON stream: chunked transfer, one JSON object per line. Setting
+            # X-Accel-Buffering: no is a hint for reverse proxies (nginx) to not
+            # coalesce chunks — matters when the bridge sits behind a Tailscale
+            # funnel or similar. The response itself is unbuffered from aiohttp.
+            headers = dict(CORS_HEADERS)
+            headers["Content-Type"] = "application/x-ndjson"
+            headers["Cache-Control"] = "no-cache"
+            headers["X-Accel-Buffering"] = "no"
+            headers["X-Arena-Request-Id"] = request_id
+            response = web.StreamResponse(status=200, headers=headers)
+            response.enable_chunked_encoding()
+            await response.prepare(request)
+
+            async def _emit(event: dict) -> None:
+                assert response is not None  # set immediately above
+                line = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
+                await response.write(line)
+
+            emit = _emit
+
+            ctx.audit({"type": "exec_stream_start", "request_id": request_id, "cmd": cmd,
+                       "cwd": str(cwd), "timeout": timeout,
+                       "client": request.remote or "127.0.0.1"})
             # Keep the first write inside the lifecycle guard: an immediate
             # reset must still release the semaphore and active_exec count.
             await _emit({"type": "meta", "request_id": request_id,
@@ -524,19 +543,26 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             ctx.record_request(duration=0.0, is_exec=True, is_error=True)
             # Best-effort tail-event so the client sees a terminal marker
             # even after an internal error.
-            try:
-                await _emit({"type": "error", "request_id": request_id,
-                             "error": "Internal error"})
-            except Exception:
-                pass
+            if emit is not None:
+                try:
+                    await emit({"type": "error", "request_id": request_id,
+                                "error": "Internal error"})
+                except Exception:
+                    pass
         finally:
             if stream is not None:
                 await stream.aclose()
             slot.release()
-            try:
-                await response.write_eof()
-            except Exception:
-                pass
+            if response is not None:
+                try:
+                    await response.write_eof()
+                except Exception:
+                    pass
+        if response is None:
+            # `prepare` never succeeded, so nothing was written and the
+            # handler owes the caller an ordinary error response.
+            return err_json(ctx, "Internal error", status=500,
+                            request_id=request_id)
         return response
 
     @authed(ctx, auto_record=False)
