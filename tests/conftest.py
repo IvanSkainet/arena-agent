@@ -335,22 +335,26 @@ _THIS_MACHINE = "<this machine>"
 #
 # `gethostname` is deliberately absent: it reads a local name out of the
 # kernel and asks no nameserver.
-_RESOLVER_ENTRY_POINTS = (
-    "getaddrinfo",
-    "gethostbyname",
-    "gethostbyname_ex",
-    "getfqdn",
-    "gethostbyaddr",
-    "getnameinfo",
-)
+_FORWARD_RESOLVERS = ("getaddrinfo", "gethostbyname", "gethostbyname_ex")
+
+# The reverse direction, where the literal exemption does not hold. On a
+# forward lookup an address literal parses and returns without asking
+# anyone. On a reverse lookup the literal IS the query: measured,
+# `socket.gethostbyaddr("8.8.8.8")` returns `dns.google` -- a PTR query
+# that went out past the guard (cubic). So these take the loopback rule
+# with no exemption.
+_REVERSE_RESOLVERS = ("getfqdn", "gethostbyaddr", "getnameinfo")
+
+_RESOLVER_ENTRY_POINTS = _FORWARD_RESOLVERS + _REVERSE_RESOLVERS
 
 
-def _guarded_resolver(real_resolver: Any) -> Any:
+def _guarded_resolver(real_resolver: Any, *, literals_are_local: bool) -> Any:
     """Wrap one resolver entry point in the loopback policy.
 
-    One wrapper applied three times rather than three near-identical
-    closures: CodeScene read the latter as a Complex Method, and it was
-    right that the difference between them was only the name.
+    `literals_are_local` is the difference between the two directions:
+    true for a forward lookup, where an address literal is parsed
+    locally, and false for a reverse one, where the literal is precisely
+    what gets asked about.
     """
     def guarded(*args, **kwargs):
         # `getfqdn()` takes no argument and means "this machine", which
@@ -362,7 +366,12 @@ def _guarded_resolver(real_resolver: Any) -> Any:
         # two inventory collectors with a TypeError.
         host = args[0] if args else kwargs.get(
             "host", kwargs.get("name", _THIS_MACHINE))
-        if not (_needs_no_resolver(host) or _is_loopback(host)):
+        # `getnameinfo` takes a sockaddr tuple, not a bare host.
+        if isinstance(host, tuple) and host:
+            host = host[0]
+        local = _is_loopback(host) or (
+            _needs_no_resolver(host) if literals_are_local else host is None)
+        if not local:
             raise _refuse_resolution(host)
         return real_resolver(*args, **kwargs)
 
@@ -388,7 +397,8 @@ def _install_resolver_guards(monkeypatch: pytest.MonkeyPatch) -> None:
     for entry_point in _RESOLVER_ENTRY_POINTS:
         real = getattr(socket, entry_point, None)
         if real is not None:
-            monkeypatch.setattr(socket, entry_point, _guarded_resolver(real))
+            monkeypatch.setattr(socket, entry_point, _guarded_resolver(
+                real, literals_are_local=entry_point in _FORWARD_RESOLVERS))
 
 
 # The address every stubbed lookup answers with. It has to satisfy

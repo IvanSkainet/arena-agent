@@ -475,6 +475,29 @@ def test_the_reverse_and_fqdn_lookups_are_closed_too(suite_conftest, call):
             getattr(socket, call)(argument)
 
 
+@pytest.mark.parametrize("call", ["getfqdn", "gethostbyaddr", "getnameinfo"])
+def test_a_literal_does_not_buy_a_free_reverse_lookup(suite_conftest, call):
+    """The literal exemption is a forward-lookup rule only.
+
+    `getaddrinfo("8.8.8.8")` parses and returns. `gethostbyaddr("8.8.8.8")`
+    sends a PTR query and comes back with `dns.google` -- measured. So
+    the exemption that makes the forward guard honest reopened egress on
+    the reverse one (cubic).
+    """
+    public_literal = "8.8.8.8"
+    with pytest.raises(suite_conftest.NetworkUseInTest):
+        if call == "getnameinfo":
+            socket.getnameinfo((public_literal, 0), 0)
+        else:
+            getattr(socket, call)(public_literal)
+
+
+@pytest.mark.parametrize("call", ["getfqdn", "gethostbyaddr"])
+def test_a_loopback_literal_may_still_be_reversed(suite_conftest, call):
+    """Loopback keeps working in both directions."""
+    assert getattr(socket, call)("127.0.0.1")
+
+
 def test_a_wildcard_bind_lookup_is_not_refused(suite_conftest):
     """`getaddrinfo(None, port)` asks no nameserver.
 
