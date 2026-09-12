@@ -257,7 +257,8 @@ def test_ratchet_is_wired_into_preflight() -> None:
 
 # --- the other alert in the same batch: plaintext LAN URLs ---------------
 
-def test_lan_urls_carry_a_plaintext_warning(resolves_public_names) -> None:
+def test_lan_urls_carry_a_plaintext_warning(
+        resolves_the_local_hostname) -> None:
     """devskim DS137138 was right about the fact, not the fix.
 
     The bridge has no TLS listener, so `http://` is the scheme that
@@ -270,10 +271,20 @@ def test_lan_urls_carry_a_plaintext_warning(resolves_public_names) -> None:
     from arena.mobile.access_info import describe
 
     wide = describe(bind="0.0.0.0", port=8765, tunnels={})
-    if wide["lan_urls"]:
-        assert wide["lan_urls_are_plaintext"] is True
-        assert "clear text" in wide["transport_warning"]
-        assert "TLS" in wide["transport_warning"]
+
+    # The fixture makes the local hostname resolve to a private address,
+    # so there is always a LAN URL to judge. It used to take
+    # `resolves_public_names`, which fed a public address into the LAN
+    # enumeration -- the assertions passed against fabricated data that
+    # was not a LAN address at all (cubic).
+    assert wide["lan_urls"], "the local hostname did not produce a LAN URL"
+    # `describe` also reads addresses off the interfaces directly, so the
+    # stubbed one is among the URLs rather than necessarily the first.
+    assert any(resolves_the_local_hostname in url for url in wide["lan_urls"]), (
+        f"the stubbed LAN address is missing from {wide['lan_urls']}")
+    assert wide["lan_urls_are_plaintext"] is True
+    assert "clear text" in wide["transport_warning"]
+    assert "TLS" in wide["transport_warning"]
 
 
 def test_loopback_bind_has_no_plaintext_warning() -> None:

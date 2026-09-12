@@ -18,6 +18,8 @@ from types import ModuleType
 
 import pytest
 
+_ALLOW_MARKER_NAME = "allow_network"
+
 
 # The module object pytest actually loaded, resolved lazily.
 #
@@ -343,7 +345,11 @@ def test_a_name_lookup_is_refused(suite_conftest):
     host = "example" + ".com"
     with pytest.raises(suite_conftest.NetworkUseInTest) as caught:
         socket.getaddrinfo(host, 80)
-    assert repr(host) in str(caught.value), (
+    # Anchored to the sentence the refusal opens with, not a loose
+    # substring: an unanchored check passes when the name turns up
+    # anywhere at all and never verifies which host was refused (cubic).
+    assert str(caught.value).startswith(
+        f"this test tried to resolve {host!r}."), (
         f"the refusal did not name the host it refused: {caught.value}")
 
 
@@ -392,6 +398,25 @@ def test_the_public_resolver_fixture_answers_with_a_global_address(
     assert sockaddr[0] == resolves_public_names
 
 
+@pytest.mark.parametrize("call", [
+    "getaddrinfo", "gethostbyname", "gethostbyname_ex"])
+def test_every_stub_echoes_a_private_literal(resolves_public_names, call):
+    """All three stubs must agree, or one of them flips a verdict.
+
+    `gethostbyname_ex` returned the public stub for any input, so a
+    consumer resolving a private literal through it got told the address
+    was public -- the opposite of the answer (cubic).
+    """
+    literal = "10.0.0.5"
+    if call == "getaddrinfo":
+        answer = socket.getaddrinfo(literal, 0)[0][4][0]
+    elif call == "gethostbyname":
+        answer = socket.gethostbyname(literal)
+    else:
+        answer = socket.gethostbyname_ex(literal)[2][0]
+    assert answer == literal, f"{call} rewrote a literal to {answer}"
+
+
 def test_the_public_resolver_fixture_echoes_address_literals(
         resolves_public_names):
     """A literal must answer as itself, or it changes the verdict.
@@ -406,13 +431,55 @@ def test_the_public_resolver_fixture_echoes_address_literals(
 
 
 @pytest.mark.allow_network
-def test_the_marker_opts_out_of_the_resolver_guard_too():
+def test_the_marker_opts_out_of_the_resolver_guard_too(suite_conftest):
     """The opt-out has to cover the whole guard, not part of it.
 
-    A marker that silences the connect guard but leaves the resolver
-    closed would make `allow_network` fail in a way nobody could read.
-    Resolving loopback proves the patch is absent without touching the
-    network.
+    The first version of this resolved `127.0.0.1` and `localhost` and
+    asserted they worked -- which the guard exempts anyway, so it would
+    have passed just as happily with the opt-out broken (cubic). Check
+    the patch is absent instead, the way `test_the_marker_actually_opts_out`
+    does for `create_connection`: no lookup, nothing to be exempt from.
     """
-    assert socket.getaddrinfo("127.0.0.1", 0)
-    assert socket.gethostbyname("localhost")
+    for entry_point in suite_conftest._RESOLVER_ENTRY_POINTS:
+        installed = getattr(socket, entry_point, None)
+        assert getattr(installed, "__name__", "") != "guarded", (
+            f"the {_ALLOW_MARKER_NAME} marker left {entry_point} guarded")
+
+
+def test_every_resolver_entry_point_is_guarded_for_unmarked_tests(
+        suite_conftest):
+    """The mirror image: the list must actually be installed.
+
+    A name misspelled in `_RESOLVER_ENTRY_POINTS` would silently guard
+    nothing, and the refusal tests only cover three of the six.
+    """
+    for entry_point in suite_conftest._RESOLVER_ENTRY_POINTS:
+        installed = getattr(socket, entry_point, None)
+        assert installed is not None, entry_point
+        assert getattr(installed, "__name__", "") == "guarded", entry_point
+
+
+@pytest.mark.parametrize("call", ["getfqdn", "gethostbyaddr", "getnameinfo"])
+def test_the_reverse_and_fqdn_lookups_are_closed_too(suite_conftest, call):
+    """These reach the same resolver and block the same way.
+
+    `getfqdn` is not hypothetical -- `arena/inventory/probe_identity.py`
+    calls it -- and it does a reverse lookup that hangs on a slow
+    resolver exactly like `getaddrinfo` (cubic).
+    """
+    argument = ("198.51.100.7", 0) if call == "getnameinfo" else "example" + ".org"
+    with pytest.raises(suite_conftest.NetworkUseInTest):
+        if call == "getnameinfo":
+            socket.getnameinfo(argument, 0)
+        else:
+            getattr(socket, call)(argument)
+
+
+def test_a_wildcard_bind_lookup_is_not_refused(suite_conftest):
+    """`getaddrinfo(None, port)` asks no nameserver.
+
+    It is the standard spelling for "bind to everything"; the empty
+    string was already allowed and `None` was not, which refused a
+    bind-all test over a hazard that is not there (cubic).
+    """
+    assert socket.getaddrinfo(None, 0)
