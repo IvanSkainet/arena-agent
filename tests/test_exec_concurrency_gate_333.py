@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import sys
 import time
 from pathlib import Path
@@ -386,3 +387,60 @@ async def _failed_prepare_does_not_leak(tmp_path: Path) -> None:
         status, _ = await _status_and_duration(client, "/v1/exec", "echo ok")
 
     assert status == 200, f"the bridge was exhausted by failed streams: {status}"
+
+
+def test_a_failed_cleanup_is_audited_not_swallowed(tmp_path: Path) -> None:
+    """A staged script that cannot be deleted leaves a record.
+
+    cubic/corgea: the cleanup caught every exception and passed, so a
+    permission or filesystem error left files accumulating with no
+    diagnostic at all.
+    """
+    asyncio.run(_failed_cleanup_is_audited(tmp_path))
+
+
+async def _failed_cleanup_is_audited(tmp_path: Path) -> None:
+    import gc
+
+    from arena.handler_context import ExecHandlerContext
+
+    real_unlink = os.unlink
+
+    def refuses_to_unlink(path, *args, **kwargs):  # noqa: ANN001, ANN202
+        if ".arena_script_tmp" in str(path):
+            raise PermissionError("cleanup refused for the test")
+        return real_unlink(path, *args, **kwargs)
+
+    async with running_client(tmp_path, TOKEN) as client:
+        contexts = [
+            obj for obj in gc.get_objects()
+            if isinstance(obj, ExecHandlerContext)
+        ]
+        assert contexts, "no ExecHandlerContext to watch the audit through"
+        events: list[dict] = []
+        originals = [(c, c.audit) for c in contexts]
+
+        def recording_audit(event: dict, _original=originals[0][1]) -> None:
+            events.append(event)
+            _original(event)
+
+        for context in contexts:
+            object.__setattr__(context, "audit", recording_audit)
+        os.unlink = refuses_to_unlink
+        try:
+            response = await client.post(
+                "/v1/exec/script", headers=_script_headers(tmp_path),
+                data=b"print('hi')\n")
+            await response.text()
+        finally:
+            os.unlink = real_unlink
+            for context, original in originals:
+                object.__setattr__(context, "audit", original)
+
+        assert response.status == 200, response.status
+        failures = [e for e in events
+                    if e.get("type") == "exec_script_cleanup_failed"]
+        assert failures, (
+            "a cleanup that raised produced no audit record: "
+            f"{[e.get('type') for e in events]}")
+        assert "PermissionError" in failures[0]["error"], failures[0]
