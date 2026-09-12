@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import os
 import sys
 import time
@@ -427,6 +428,7 @@ async def _failed_cleanup_is_audited(tmp_path: Path) -> None:
         for context in contexts:
             object.__setattr__(context, "audit", recording_audit)
         os.unlink = refuses_to_unlink
+        response = None
         try:
             response = await client.post(
                 "/v1/exec/script", headers=_script_headers(tmp_path),
@@ -437,6 +439,7 @@ async def _failed_cleanup_is_audited(tmp_path: Path) -> None:
             for context, original in originals:
                 object.__setattr__(context, "audit", original)
 
+        assert response is not None, "the request never returned a response"
         assert response.status == 200, response.status
         failures = [e for e in events
                     if e.get("type") == "exec_script_cleanup_failed"]
@@ -444,3 +447,62 @@ async def _failed_cleanup_is_audited(tmp_path: Path) -> None:
             "a cleanup that raised produced no audit record: "
             f"{[e.get('type') for e in events]}")
         assert "PermissionError" in failures[0]["error"], failures[0]
+
+
+def test_an_audit_that_raises_does_not_replace_the_response(
+        tmp_path: Path) -> None:
+    """A broken audit log must not turn a good run into a 500.
+
+    cubic: the cleanup audit writes to a file and sits in a `finally`,
+    where a raise is delivered instead of the pending return.
+    """
+    asyncio.run(_audit_failure_does_not_replace_response(tmp_path))
+
+
+async def _audit_failure_does_not_replace_response(tmp_path: Path) -> None:
+    import gc
+
+    from arena.handler_context import ExecHandlerContext
+
+    real_unlink = os.unlink
+
+    def refuses_to_unlink(path, *args, **kwargs):  # noqa: ANN001, ANN202
+        if ".arena_script_tmp" in str(path):
+            raise PermissionError("cleanup refused for the test")
+        return real_unlink(path, *args, **kwargs)
+
+    def refuses_to_audit(event: dict, _original=None) -> None:
+        # Only the cleanup audit: breaking every audit call would fail the
+        # run somewhere earlier and prove nothing about the `finally`.
+        if event.get("type") == "exec_script_cleanup_failed":
+            raise OSError("audit log is unwritable")
+        if _original is not None:
+            _original(event)
+
+    async with running_client(tmp_path, TOKEN) as client:
+        contexts = [
+            obj for obj in gc.get_objects()
+            if isinstance(obj, ExecHandlerContext)
+        ]
+        assert contexts, "no ExecHandlerContext to break the audit on"
+        originals = [(c, c.audit) for c in contexts]
+        for context, original in originals:
+            object.__setattr__(
+                context, "audit",
+                functools.partial(refuses_to_audit, _original=original))
+        os.unlink = refuses_to_unlink
+        response = None
+        try:
+            response = await client.post(
+                "/v1/exec/script", headers=_script_headers(tmp_path),
+                data=b"print('hi')\n")
+            await response.text()
+        finally:
+            os.unlink = real_unlink
+            for context, original in originals:
+                object.__setattr__(context, "audit", original)
+
+    assert response is not None, "the request never returned a response"
+    assert response.status == 200, (
+        f"an unwritable audit log turned a successful run into "
+        f"{response.status}")

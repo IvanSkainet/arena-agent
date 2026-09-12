@@ -22,6 +22,7 @@ instead of blocking on the full response.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import signal
@@ -372,11 +373,16 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                     # but not silent either: a permission or filesystem
                     # error here leaves a staged script on disk, and
                     # without a record they accumulate unexplained
-                    # (cubic, corgea). Audit, do not raise.
-                    ctx.audit({"type": "exec_script_cleanup_failed",
-                               "request_id": request_id,
-                               "path": tmp_path,
-                               "error": repr(unlink_error)})
+                    # (cubic, corgea). Audit, do not raise -- and the
+                    # audit itself writes to a file, so it needs the same
+                    # treatment: an exception raised in a `finally`
+                    # replaces the pending return, which would turn a
+                    # successful run into a 500 (cubic).
+                    with contextlib.suppress(Exception):
+                        ctx.audit({"type": "exec_script_cleanup_failed",
+                                   "request_id": request_id,
+                                   "path": tmp_path,
+                                   "error": repr(unlink_error)})
 
     # v4.3.0 NDJSON streaming endpoint. Same auth + gates as /v1/exec, but
     # emits one JSON event per line as bytes arrive from the child process

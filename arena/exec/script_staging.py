@@ -34,9 +34,15 @@ def stage_script(root: Path, request_id: str, suffix: str) -> str:
     # whatever the umask allows -- 0o755 under the common 0o022, which
     # lets any local user list the staged request ids. chmod covers the
     # directory this call just created and one left by an earlier run.
-    # Best-effort: a filesystem without POSIX modes must not fail a run.
-    with contextlib.suppress(OSError, NotImplementedError):
+    # Not best-effort on POSIX: silently continuing with a world-readable
+    # directory would keep the owner-only contract in the docstring and
+    # nowhere else (cubic). Windows has no POSIX modes to set, so there
+    # the chmod is genuinely not applicable and is skipped.
+    if os.name == "posix":
         tmp_dir.chmod(0o700)
+    else:
+        with contextlib.suppress(OSError, NotImplementedError):
+            tmp_dir.chmod(0o700)
     safe_id = _UNSAFE_IN_NAME.sub("-", request_id)[:8] or "anon"
     fd, tmp_path = tempfile.mkstemp(prefix=f"scr-{safe_id}-",
                                     suffix=suffix, dir=str(tmp_dir))
