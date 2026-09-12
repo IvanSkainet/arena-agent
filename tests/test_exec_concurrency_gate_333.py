@@ -508,3 +508,49 @@ async def _audit_failure_does_not_replace_response(tmp_path: Path) -> None:
     assert response.status == 200, (
         f"an unwritable audit log turned a successful run into "
         f"{response.status}")
+
+
+@pytest.mark.parametrize("request_id", [
+    "a/b/c/d/e",
+    "../../etc/passwd",
+    "..\\..\\windows",
+    "\u0000null",
+    "x" * 500,
+    "",
+])
+def test_no_client_character_reaches_the_staged_filename(
+        tmp_path: Path, request_id: str) -> None:
+    """The staged path must not be built from client data at all.
+
+    Sanitising the id was sound but left client characters on a
+    filesystem path, which CodeQL reports as py/path-injection -- two
+    high alerts on master, and `Security required` counts open alerts,
+    so they failed every unrelated PR (#346). Hashing removes the
+    argument: hex cannot hold a separator.
+    """
+    from arena.exec.script_staging import stage_script
+
+    staged = Path(stage_script(tmp_path, request_id, ".py"))
+
+    assert staged.parent == tmp_path / ".arena_script_tmp"
+    assert staged.is_relative_to(tmp_path)
+    stem = staged.name
+    for fragment in (request_id[:4], request_id[-4:]):
+        if len(fragment) >= 4:
+            assert fragment not in stem, (
+                f"client text {fragment!r} reached the filename {stem!r}")
+
+
+def test_the_staged_name_is_stable_for_one_request_id(tmp_path: Path) -> None:
+    """Hashing must not cost the correlation the old prefix gave.
+
+    Two stagings of the same id share the readable fragment; the random
+    part `mkstemp` adds is what keeps them distinct files.
+    """
+    from arena.exec.script_staging import stage_script
+
+    first = Path(stage_script(tmp_path, "request-42", ".py")).name
+    second = Path(stage_script(tmp_path, "request-42", ".py")).name
+
+    assert first != second, "mkstemp must still make each staging unique"
+    assert first.split("-")[1] == second.split("-")[1]
