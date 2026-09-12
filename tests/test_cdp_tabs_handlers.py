@@ -144,7 +144,7 @@ def test_cdp_tabs_list_auto_connects_disconnected_tabs():
     assert manager.tabs[1].connected is True
 
 
-def test_cdp_tabs_new_close_activate_flow():
+def test_cdp_tabs_new_close_activate_flow(resolves_public_names):
     manager = _Manager()
     state = {"connected": True, "manager": manager}
     handlers = make_cdp_tabs_handlers(_ctx(state))

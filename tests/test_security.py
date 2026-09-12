@@ -120,7 +120,7 @@ def test_validate_url_blocks_obfuscated_internal(url):
     "http://example.com/path?q=1",
     "https://api.github.com/repos/x/y",
 ])
-def test_validate_url_allows_public(url):
+def test_validate_url_allows_public(url, resolves_public_names):
     assert ub._validate_url(url) is None, f"expected {url!r} allowed"
 
 

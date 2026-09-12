@@ -121,7 +121,7 @@ async def _redirect_case(browser, target):
     assert params.get("errorReason") == "BlockedByClient"
 
 
-def test_public_redirect_target_is_allowed_through(browser):
+def test_public_redirect_target_is_allowed_through(browser, resolves_public_names):
     """The guard must not break ordinary browsing."""
     async def go():
         await arm_navigation_guard(browser, env={})
@@ -390,7 +390,7 @@ def test_interception_rule_cannot_launder_navigation_to_a_private_target(browser
     asyncio.run(go())
 
 
-def test_a_rule_may_still_rewrite_to_a_public_target(browser):
+def test_a_rule_may_still_rewrite_to_a_public_target(browser, resolves_public_names):
     """The fix must not break ordinary redirect rules."""
     from arena.browser.cdp_client.intercept_rule import InterceptRule
 

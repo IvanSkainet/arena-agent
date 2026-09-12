@@ -323,3 +323,88 @@ def test_the_other_send_paths_are_closed_too(suite_conftest, call):
                 udp.sendmsg([b"leak"])
     finally:
         udp.close()
+
+
+def test_a_name_lookup_is_refused(suite_conftest):
+    """The resolver was the hole the connect guards left open.
+
+    A full run made 45 non-loopback lookups -- `registry.npmjs.org`,
+    `github.com`, `api.github.com` -- past a guard that claimed the
+    network was shut (#334). `getaddrinfo` blocks like a `connect` on a
+    slow resolver, which is the hazard #331 exists for, and the name
+    itself leaves the machine.
+    """
+    with pytest.raises(suite_conftest.NetworkUseInTest) as caught:
+        socket.getaddrinfo("example.com", 80)
+    assert "example.com" in str(caught.value)
+
+
+@pytest.mark.parametrize("call", ["gethostbyname", "gethostbyname_ex"])
+def test_the_older_resolver_entry_points_are_closed_too(suite_conftest, call):
+    """`gethostbyname` is a separate door to the same resolver.
+
+    `arena/inventory/probe_environment.py` calls it, so it is not
+    hypothetical.
+    """
+    with pytest.raises(suite_conftest.NetworkUseInTest):
+        getattr(socket, call)("example.com")
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1"])
+def test_loopback_still_resolves(suite_conftest, host):
+    """The suite's own servers resolve constantly; they must keep working."""
+    assert socket.getaddrinfo(host, 0)
+
+
+@pytest.mark.parametrize("host", ["8.8.8.8", "93.184.216.34"])
+def test_an_address_literal_is_not_a_lookup(suite_conftest, host):
+    """Parsing an address asks no nameserver, so refusing it would lie.
+
+    The SSRF validator resolves the literal it was handed on purpose, to
+    re-check it; blocking that would break the validator under test
+    while catching no network call at all.
+    """
+    assert socket.getaddrinfo(host, 0)
+
+
+def test_the_public_resolver_fixture_answers_with_a_global_address(
+        resolves_public_names):
+    """The stub has to satisfy the check the tests using it depend on.
+
+    `ipaddress` reports the RFC 5737 documentation ranges as private, so
+    a stub answering `203.0.113.10` would have made every "a public URL
+    is allowed" test assert the opposite of its name while still passing
+    for the wrong reason.
+    """
+    import ipaddress
+
+    (_family, _type, _proto, _canon, sockaddr), = socket.getaddrinfo(
+        "example.com", 443)
+    assert ipaddress.ip_address(sockaddr[0]).is_global
+    assert sockaddr[0] == resolves_public_names
+
+
+def test_the_public_resolver_fixture_echoes_address_literals(
+        resolves_public_names):
+    """A literal must answer as itself, or it changes the verdict.
+
+    `_validate_url` resolves the address it was given and re-checks the
+    answer: a stub that replaced `8.8.8.8` with something else would be
+    testing a different URL than the one written in the test.
+    """
+    (_family, _type, _proto, _canon, sockaddr), = socket.getaddrinfo(
+        "8.8.8.8", 443)
+    assert sockaddr[0] == "8.8.8.8"
+
+
+@pytest.mark.allow_network
+def test_the_marker_opts_out_of_the_resolver_guard_too():
+    """The opt-out has to cover the whole guard, not part of it.
+
+    A marker that silences the connect guard but leaves the resolver
+    closed would make `allow_network` fail in a way nobody could read.
+    Resolving loopback proves the patch is absent without touching the
+    network.
+    """
+    assert socket.getaddrinfo("127.0.0.1", 0)
+    assert socket.gethostbyname("localhost")

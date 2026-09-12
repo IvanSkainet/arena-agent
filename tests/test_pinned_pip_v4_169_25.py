@@ -257,7 +257,7 @@ def test_ratchet_is_wired_into_preflight() -> None:
 
 # --- the other alert in the same batch: plaintext LAN URLs ---------------
 
-def test_lan_urls_carry_a_plaintext_warning() -> None:
+def test_lan_urls_carry_a_plaintext_warning(resolves_public_names) -> None:
     """devskim DS137138 was right about the fact, not the fix.
 
     The bridge has no TLS listener, so `http://` is the scheme that

@@ -117,7 +117,7 @@ def test_net_http_rejects_loopback():
     assert out.get("isError")
 
 
-def test_net_http_rejects_bad_method():
+def test_net_http_rejects_bad_method(resolves_public_names):
     out = _handle_net_http({"url": "https://example.com/", "method": "TRACE"})
     assert out.get("isError")
 
@@ -223,7 +223,7 @@ def test_sudo_run_success_path(monkeypatch):
 # ------------------------------------------------------------------
 # net.http auth.value -> secret indirection
 # ------------------------------------------------------------------
-def test_net_http_auth_secret_reference_resolves(tmp_path, monkeypatch):
+def test_net_http_auth_secret_reference_resolves(tmp_path, monkeypatch, resolves_public_names):
     secrets_file = tmp_path / "s.json"
     secrets_file.write_text(json.dumps({"gk": "TESTKEY_VALUE"}))
     monkeypatch.setenv("ARENA_SECRETS_PATH", str(secrets_file))
@@ -253,7 +253,7 @@ def test_net_http_auth_secret_reference_resolves(tmp_path, monkeypatch):
     assert auth["authorization"] == "Bearer TESTKEY_VALUE"
 
 
-def test_net_http_auth_secret_missing_returns_error(tmp_path, monkeypatch):
+def test_net_http_auth_secret_missing_returns_error(tmp_path, monkeypatch, resolves_public_names):
     monkeypatch.setenv("ARENA_SECRETS_PATH", str(tmp_path / "empty.json"))
     out = _handle_net_http({
         "url": "https://api.example.com/x",
@@ -266,7 +266,7 @@ def test_net_http_auth_secret_missing_returns_error(tmp_path, monkeypatch):
 # ------------------------------------------------------------------
 # net.http basic body handling
 # ------------------------------------------------------------------
-def test_net_http_json_body_sets_content_type(monkeypatch):
+def test_net_http_json_body_sets_content_type(monkeypatch, resolves_public_names):
     class _Resp:
         status = 201
         headers = {"Content-Type": "application/json"}
@@ -292,7 +292,7 @@ def test_net_http_json_body_sets_content_type(monkeypatch):
     assert captured["data"] == b'{"a": 1}'
 
 
-def test_net_http_returns_base64_for_binary(monkeypatch):
+def test_net_http_returns_base64_for_binary(monkeypatch, resolves_public_names):
     payload = b"\x89PNG\r\n\x1a\n" + b"x" * 100
     class _Resp:
         status = 200
