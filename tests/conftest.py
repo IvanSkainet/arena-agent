@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+from typing import Any
 
 import pytest
 
@@ -305,6 +306,21 @@ def _refuse_resolution(host: object) -> NetworkUseInTest:
     )
 
 
+def _guarded_resolver(real_resolver: Any) -> Any:
+    """Wrap one resolver entry point in the loopback policy.
+
+    One wrapper applied three times rather than three near-identical
+    closures: CodeScene read the latter as a Complex Method, and it was
+    right that the difference between them was only the name.
+    """
+    def guarded(host, *args, **kwargs):
+        if not (_is_address_literal(host) or _is_loopback(host)):
+            raise _refuse_resolution(host)
+        return real_resolver(host, *args, **kwargs)
+
+    return guarded
+
+
 def _install_resolver_guards(monkeypatch: pytest.MonkeyPatch) -> None:
     """Refuse the calls that turn a name into an address.
 
@@ -321,28 +337,10 @@ def _install_resolver_guards(monkeypatch: pytest.MonkeyPatch) -> None:
     "localhost", which RFC 6761 reserves to loopback, the same exemption
     `_is_loopback` already makes.
     """
-    real_getaddrinfo = socket.getaddrinfo
-    real_gethostbyname = socket.gethostbyname
-    real_gethostbyname_ex = socket.gethostbyname_ex
-
-    def guarded_getaddrinfo(host, *args, **kwargs):
-        if not (_is_address_literal(host) or _is_loopback(host)):
-            raise _refuse_resolution(host)
-        return real_getaddrinfo(host, *args, **kwargs)
-
-    def guarded_gethostbyname(host, *args, **kwargs):
-        if not (_is_address_literal(host) or _is_loopback(host)):
-            raise _refuse_resolution(host)
-        return real_gethostbyname(host, *args, **kwargs)
-
-    def guarded_gethostbyname_ex(host, *args, **kwargs):
-        if not (_is_address_literal(host) or _is_loopback(host)):
-            raise _refuse_resolution(host)
-        return real_gethostbyname_ex(host, *args, **kwargs)
-
-    monkeypatch.setattr(socket, "getaddrinfo", guarded_getaddrinfo)
-    monkeypatch.setattr(socket, "gethostbyname", guarded_gethostbyname)
-    monkeypatch.setattr(socket, "gethostbyname_ex", guarded_gethostbyname_ex)
+    for entry_point in ("getaddrinfo", "gethostbyname", "gethostbyname_ex"):
+        monkeypatch.setattr(
+            socket, entry_point,
+            _guarded_resolver(getattr(socket, entry_point)))
 
 
 # The address every stubbed lookup answers with. It has to satisfy
