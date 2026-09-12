@@ -482,13 +482,17 @@ def test_a_failed_staging_write_leaks_neither_descriptor_nor_token(
     assert not target.exists()
 
 
-@pytest.mark.skipif(os.name != "posix", reason="reads /proc/self/fd")
 def test_repeated_staging_failures_do_not_exhaust_descriptors(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The leak itself, counted rather than inferred.
 
     Without the cleanup each attempt strands one descriptor, so a caller
     retrying a failing rotation eventually runs the process out of them.
+
+    Counted by probing whether specific numbers are open rather than by
+    listing them: the first revision read `/proc/self/fd`, which is Linux
+    only and failed all four macOS jobs. `os.fstat` on a closed number
+    raises `OSError`, which is all the count needs.
     """
     target = tmp_path / "token.txt"
 
@@ -496,14 +500,24 @@ def test_repeated_staging_failures_do_not_exhaust_descriptors(
         raise OSError("fsync denied")
 
     monkeypatch.setattr(token_storage.os, "fsync", fails)
-    open_fds = lambda: len(os.listdir("/proc/self/fd"))  # noqa: E731
+
+    def open_descriptors() -> int:
+        found = 0
+        for candidate in range(3, 512):
+            try:
+                os.fstat(candidate)
+            except OSError:
+                continue
+            found += 1
+        return found
 
     with pytest.raises(OSError, match="fsync denied"):
         token_storage.write_owner_token(target, "SECRET-TOKEN")
-    settled = open_fds()
+    settled = open_descriptors()
 
     for _ in range(10):
         with pytest.raises(OSError, match="fsync denied"):
             token_storage.write_owner_token(target, "SECRET-TOKEN")
 
-    assert open_fds() == settled, "each failed staging stranded a descriptor"
+    assert open_descriptors() == settled, (
+        "each failed staging stranded a descriptor")
