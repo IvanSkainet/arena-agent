@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -483,45 +484,40 @@ def test_a_failed_staging_write_leaks_neither_descriptor_nor_token(
     assert not target.exists()
 
 
-def test_repeated_staging_failures_do_not_exhaust_descriptors(
+def test_a_failed_staging_closes_the_descriptor_it_opened(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The leak itself, counted rather than inferred.
+    """The leak itself: the staged descriptor must not survive the failure.
 
-    Without the cleanup each attempt strands one descriptor, so a caller
-    retrying a failing rotation eventually runs the process out of them.
-
-    Counted by probing whether specific numbers are open rather than by
-    listing them: the first revision read `/proc/self/fd`, which is Linux
-    only and failed all four macOS jobs. `os.fstat` on a closed number
-    raises `OSError`, which is all the count needs.
+    Counted globally at first -- open descriptors before against after --
+    which failed on macOS because anything else in the process opening or
+    closing a file moves that number. The question is narrower than the
+    count: the descriptor `mkstemp` handed out has to be closed, so ask
+    about that one. `os.fstat` on a closed number raises, which is the
+    whole check, and it holds on every platform.
     """
     target = tmp_path / "token.txt"
+    staged: list[int] = []
+    real_mkstemp = tempfile.mkstemp
+
+    def remember(*args, **kwargs):
+        fd, name = real_mkstemp(*args, **kwargs)
+        staged.append(fd)
+        return fd, name
 
     def fails(_fd):
         raise OSError("fsync denied")
 
+    monkeypatch.setattr(tempfile, "mkstemp", remember)
     monkeypatch.setattr(token_storage.os, "fsync", fails)
-
-    def open_descriptors() -> int:
-        found = 0
-        for candidate in range(3, 512):
-            try:
-                os.fstat(candidate)
-            except OSError:
-                continue
-            found += 1
-        return found
-
-    with pytest.raises(OSError, match="fsync denied"):
-        token_storage.write_owner_token(target, "SECRET-TOKEN")
-    settled = open_descriptors()
 
     for _ in range(10):
         with pytest.raises(OSError, match="fsync denied"):
             token_storage.write_owner_token(target, "SECRET-TOKEN")
 
-    assert open_descriptors() == settled, (
-        "each failed staging stranded a descriptor")
+    assert len(staged) == 10, staged
+    for fd in staged:
+        with pytest.raises(OSError):
+            os.fstat(fd)
 
 
 def test_an_unremovable_staged_file_is_reported_not_swallowed(

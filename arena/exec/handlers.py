@@ -22,11 +22,10 @@ instead of blocking on the full response.
 """
 from __future__ import annotations
 
-import asyncio
+import contextlib
 import json
 import os
 import signal
-import tempfile
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -43,6 +42,7 @@ from arena.exec.client_lifecycle import (
     forward_stream_events,
     record_client_disconnect,
 )
+from arena.exec.concurrency import ExecSlot, too_many_concurrent
 from arena.exec.control_gate import control_injection_response
 from arena.exec.interpreters import (
     _INTERPRETERS,
@@ -52,18 +52,19 @@ from arena.exec.interpreters import (
     interpreter_path_arg,
     interpreter_runs_here,
 )
+from arena.exec.ndjson_stream import (
+    prepared_ndjson_response,
+    record_stream_outcome,
+)
+from arena.exec.request_gate import accept_exec_request
 from arena.exec.request_shape import (
     OUTSIDE_ROOT,
-    limits_and_env,
-    requested_command,
-    requested_cwd,
     usable_cwd,
 )
 from arena.exec.runner import run_shell_command_stream
+from arena.exec.script_staging import stage_script
 from arena.handler_context import ExecHandlerContext
 from arena.handler_helpers import authed, err_json, parse_json_body
-from arena.security_commands import command_allowlist_reason
-from arena.web_utils import CORS_HEADERS
 
 
 @dataclass(frozen=True)
@@ -99,67 +100,32 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
     async def handle_v1_exec(request: web.Request) -> web.Response:
         cfg = request.app[APP_CFG]
 
-        data, jerr = await parse_json_body(request, ctx)
-        if jerr is not None:
-            ctx.record_request(is_error=True, count_request=False)
-            return jerr
-        assert data is not None  # the guard above already proved this
+        # The same gate the streaming endpoint uses. Keeping a second copy
+        # here meant a guard added to one endpoint silently missed the
+        # other (cubic), which is the exact shape of #93.
+        accepted, refusal = await accept_exec_request(
+            ctx, request, cfg, event_type="exec_blocked")
+        if refusal is not None:
+            return refusal
+        assert accepted is not None  # the gate returns exactly one of the two
 
-        request_id = str(data.get("request_id") or uuid.uuid4())
-        # Absent, or present and unspawnable: a NUL cannot cross `execve`,
-        # and refusing it here rather than at the spawn keeps it out of the
-        # audit journal as well as out of the 500s (#288).
-        cmd, unusable = requested_command(data)
-        if unusable:
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, unusable, status=400, request_id=request_id)
+        request_id = accepted.request_id
+        cmd = accepted.cmd
+        cwd = accepted.cwd
+        timeout, max_output, env = (
+            accepted.timeout, accepted.max_output, accepted.env)
 
-        reason = ctx.blocked_reason(cmd)
-        if reason:
-            ctx.audit({"type": "exec_blocked", "request_id": request_id, "cmd": cmd,
-                       "reason": reason, "client": request.remote or "127.0.0.1"})
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, reason, status=403, request_id=request_id)
-
-        blocked = control_injection_response(
-            ctx=ctx, request=request, command=cmd, request_id=request_id,
-            event_type="exec_blocked_control", audit_fields={"cmd": cmd},
-        )
-        if blocked is not None:
-            return blocked
-
-        profile = cfg["profile"]
-        first = ctx.first_word(cmd)
-        if profile == "cautious":
-            reason = command_allowlist_reason(cmd, first, ctx.cautious_allow)
-            if reason:
-                reason = f"{reason}; use --profile owner-shell"
-                ctx.audit({"type": "exec_blocked", "request_id": request_id, "cmd": cmd,
-                           "reason": reason, "client": request.remote or "local-client"})
-                ctx.record_request(is_error=True, count_request=False)
-                return err_json(ctx, reason, status=403, request_id=request_id)
-
-        root: Path = cfg["root"]
-        boundary = None if cfg["allow_any_cwd"] else ctx.under_root
-        cwd, cwd_error = requested_cwd(data, root, under_root=boundary)
-        if cwd_error:
-            return _cwd_refusal(ctx, cwd_error, request_id)
-        assert cwd is not None  # pyrefly: the error branch returned already
-
-        timeout, max_output, env = limits_and_env(data, cfg, ctx)
-
-        sem: asyncio.Semaphore = cfg["semaphore"]
-        if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, "too many concurrent exec requests",
-                            status=429, request_id=request_id)
-
-        await sem.acquire()
-        cfg["active_exec"] += 1
-        ctx.audit({"type": "exec_start", "request_id": request_id, "cmd": cmd, "cwd": str(cwd),
-                   "timeout": timeout, "client": request.remote or "127.0.0.1"})
+        slot = ExecSlot(cfg)
+        if not await slot.try_acquire():
+            return too_many_concurrent(ctx, request_id)
 
         try:
+            # Inside the guard from the first statement after the acquire:
+            # anything that raises between taking the permit and the
+            # `finally` strands it for the life of the process (cubic,
+            # CodeRabbit). `ctx.audit` writes to disk, so it qualifies.
+            ctx.audit({"type": "exec_start", "request_id": request_id, "cmd": cmd, "cwd": str(cwd),
+                       "timeout": timeout, "client": request.remote or "127.0.0.1"})
             result = await await_while_client_connected(
                 request,
                 ctx.run_shell_command(
@@ -200,8 +166,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 status=500,
             )
         finally:
-            cfg["active_exec"] -= 1
-            sem.release()
+            slot.release()
 
     # v4.2.0 raw-script endpoint. Same auth + profile + control gates as
     # /v1/exec, but body-shape is raw script bytes and interpreter comes
@@ -295,21 +260,25 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
 
         # Concurrency gate: same semaphore as /v1/exec so the two
         # endpoints share fairness rather than doubling capacity.
-        sem: asyncio.Semaphore = cfg["semaphore"]
-        if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, "too many concurrent exec requests",
-                            status=429, request_id=request_id)
+        # The slot is taken here, before the script is staged on disk:
+        # a request that cannot run must not create a tmpfile it will
+        # never use, and taking it later leaves the same check-then-wait
+        # gap this class exists to close.
+        slot = ExecSlot(cfg)
+        if not await slot.try_acquire():
+            return too_many_concurrent(ctx, request_id)
 
-        # Write body to a tmpfile scoped to root so cross-mount deletes
-        # can't leak. mkstemp is race-free and gives us a mode 0o600 file.
-        tmp_dir = root / ".arena_script_tmp"
-        tmp_dir.mkdir(exist_ok=True)
-        fd, tmp_path = tempfile.mkstemp(prefix=f"scr-{request_id[:8]}-",
-                                        suffix=str(interp_cfg["suffix"]),
-                                        dir=str(tmp_dir))
-        os.close(fd)
+        # From here to the outer `finally` everything runs inside the
+        # guard. It used to start below the staging block, which left two
+        # ways out holding the permit (cubic): `mkdir`/`mkstemp` raising,
+        # and -- the reachable one -- the 403 for a blocked interpreter
+        # cmdline, a `return` written when the acquire was still further
+        # down. Measured on that code: three blocked scripts took a
+        # capacity-three bridge to `active_exec` 3 and it answered 429 to
+        # everything afterwards, for the life of the process.
+        tmp_path: str | None = None
         try:
+            tmp_path = stage_script(root, request_id, str(interp_cfg["suffix"]))
             Path(tmp_path).write_bytes(body)
             # Make the script executable so `sh <path>` works even when
             # umask is unusually restrictive.
@@ -339,8 +308,6 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
 
             env = os.environ.copy()
 
-            await sem.acquire()
-            cfg["active_exec"] += 1
             ctx.audit({"type": "exec_script_start", "request_id": request_id,
                        "interpreter": interp_key, "bytes": len(body),
                        "cwd": str(cwd), "timeout": timeout,
@@ -391,18 +358,31 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                      "interpreter": interp_key},
                     status=500,
                 )
-            finally:
-                cfg["active_exec"] -= 1
-                sem.release()
         finally:
+            slot.release()
             # Delete the tmp script even on error — no lingering
-            # bytes on disk. Ignore ENOENT if we never wrote it.
-            try:
-                os.unlink(tmp_path)
-            except FileNotFoundError:
-                pass
-            except Exception:
-                pass
+            # bytes on disk. Ignore ENOENT if we never wrote it, and skip
+            # it entirely if staging never got far enough to name one.
+            if tmp_path is not None:
+                try:
+                    os.unlink(tmp_path)
+                except FileNotFoundError:
+                    pass
+                except OSError as unlink_error:
+                    # Not fatal to the response the caller already has,
+                    # but not silent either: a permission or filesystem
+                    # error here leaves a staged script on disk, and
+                    # without a record they accumulate unexplained
+                    # (cubic, corgea). Audit, do not raise -- and the
+                    # audit itself writes to a file, so it needs the same
+                    # treatment: an exception raised in a `finally`
+                    # replaces the pending return, which would turn a
+                    # successful run into a 500 (cubic).
+                    with contextlib.suppress(Exception):
+                        ctx.audit({"type": "exec_script_cleanup_failed",
+                                   "request_id": request_id,
+                                   "path": tmp_path,
+                                   "error": repr(unlink_error)})
 
     # v4.3.0 NDJSON streaming endpoint. Same auth + gates as /v1/exec, but
     # emits one JSON event per line as bytes arrive from the child process
@@ -412,86 +392,54 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
     async def handle_v1_exec_stream(request: web.Request) -> web.StreamResponse:
         cfg = request.app[APP_CFG]
 
-        data, jerr = await parse_json_body(request, ctx)
-        if jerr is not None:
-            ctx.record_request(is_error=True, count_request=False)
-            return jerr
-        assert data is not None  # the guard above already proved this
+        accepted, refusal = await accept_exec_request(
+            ctx, request, cfg, event_type="exec_stream_blocked")
+        if refusal is not None:
+            return refusal
+        assert accepted is not None  # exactly one of the two is set
+        request_id = accepted.request_id
+        cmd = accepted.cmd
+        cwd = accepted.cwd
+        timeout = accepted.timeout
+        max_output = accepted.max_output
+        env = accepted.env
 
-        request_id = str(data.get("request_id") or uuid.uuid4())
-        # Absent, or present and unspawnable: a NUL cannot cross `execve`,
-        # and refusing it here rather than at the spawn keeps it out of the
-        # audit journal as well as out of the 500s (#288).
-        cmd, unusable = requested_command(data)
-        if unusable:
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, unusable, status=400, request_id=request_id)
+        # Before `prepare`, deliberately: once the 200 and its headers are
+        # on the wire a refusal can only be an error line inside a stream
+        # the client already believes succeeded.
+        slot = ExecSlot(cfg)
+        if not await slot.try_acquire():
+            return too_many_concurrent(ctx, request_id)
 
-        reason = ctx.blocked_reason(cmd)
-        if reason:
-            ctx.audit({"type": "exec_stream_blocked", "request_id": request_id, "cmd": cmd,
-                       "reason": reason, "client": request.remote or "127.0.0.1"})
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, reason, status=403, request_id=request_id)
-
-        blocked = control_injection_response(
-            ctx=ctx, request=request, command=cmd, request_id=request_id,
-            event_type="exec_stream_blocked_control", audit_fields={"cmd": cmd},
-        )
-        if blocked is not None:
-            return blocked
-
-        profile = cfg["profile"]
-        first = ctx.first_word(cmd)
-        if profile == "cautious":
-            reason = command_allowlist_reason(cmd, first, ctx.cautious_allow)
-            if reason:
-                reason = f"{reason}; use --profile owner-shell"
-                ctx.audit({"type": "exec_stream_blocked", "request_id": request_id, "cmd": cmd,
-                           "reason": reason, "client": request.remote or "local-client"})
-                ctx.record_request(is_error=True, count_request=False)
-                return err_json(ctx, reason, status=403, request_id=request_id)
-
-        root: Path = cfg["root"]
-        boundary = None if cfg["allow_any_cwd"] else ctx.under_root
-        cwd, cwd_error = requested_cwd(data, root, under_root=boundary)
-        if cwd_error:
-            return _cwd_refusal(ctx, cwd_error, request_id)
-        assert cwd is not None  # pyrefly: the error branch returned already
-
-        timeout, max_output, env = limits_and_env(data, cfg, ctx)
-
-        sem: asyncio.Semaphore = cfg["semaphore"]
-        if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, "too many concurrent exec requests",
-                            status=429, request_id=request_id)
-
-        # NDJSON stream: chunked transfer, one JSON object per line. Setting
-        # X-Accel-Buffering: no is a hint for reverse proxies (nginx) to not
-        # coalesce chunks — matters when the bridge sits behind a Tailscale
-        # funnel or similar. The response itself is unbuffered from aiohttp.
-        headers = dict(CORS_HEADERS)
-        headers["Content-Type"] = "application/x-ndjson"
-        headers["Cache-Control"] = "no-cache"
-        headers["X-Accel-Buffering"] = "no"
-        headers["X-Arena-Request-Id"] = request_id
-        response = web.StreamResponse(status=200, headers=headers)
-        response.enable_chunked_encoding()
-        await response.prepare(request)
-
-        async def _emit(event: dict) -> None:
-            line = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
-            await response.write(line)
-
-        await sem.acquire()
-        cfg["active_exec"] += 1
-        ctx.audit({"type": "exec_stream_start", "request_id": request_id, "cmd": cmd,
-                   "cwd": str(cwd), "timeout": timeout,
-                   "client": request.remote or "127.0.0.1"})
+        # `prepare` is I/O and can fail; so can the audit write. Both sit
+        # after the acquire, and before this guard existed either one
+        # raising left the permit held for the life of the process
+        # (cubic). Measured: five failed `prepare` calls took a
+        # capacity-three bridge to zero and /v1/exec answered 429.
         exit_event: dict | None = None
         stream = None
+        # Named before the guard: `prepare` failing means the `except` and
+        # `finally` below run without them, and a NameError there would
+        # replace the real error with a misleading one.
+        response: web.StreamResponse | None = None
+        emit = None
         try:
+            stream_response = await prepared_ndjson_response(request, request_id)
+            response = stream_response
+
+            async def _emit(event: dict) -> None:
+                # Closes over the non-optional local, so no assert is
+                # needed to satisfy the type -- and an assert here would
+                # be caught by the `except Exception` below, which Sonar
+                # reads as a bug (S5915) and is right to.
+                line = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
+                await stream_response.write(line)
+
+            emit = _emit
+
+            ctx.audit({"type": "exec_stream_start", "request_id": request_id, "cmd": cmd,
+                       "cwd": str(cwd), "timeout": timeout,
+                       "client": request.remote or "127.0.0.1"})
             # Keep the first write inside the lifecycle guard: an immediate
             # reset must still release the semaphore and active_exec count.
             await _emit({"type": "meta", "request_id": request_id,
@@ -509,17 +457,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 request_id=request_id,
             )
 
-            duration = float(exit_event.get("duration_sec", 0.0)) if exit_event else 0.0
-            timed_out = bool(exit_event.get("timed_out")) if exit_event else False
-            exit_code = exit_event.get("exit_code") if exit_event else None
-            event_type = "exec_stream_timeout" if timed_out else "exec_stream_done"
-            ctx.audit({"type": event_type, "request_id": request_id, "cmd": cmd,
-                       "exit_code": exit_code, "duration": duration,
-                       "truncated": bool(exit_event.get("truncated")) if exit_event else False,
-                       "stdout_bytes": exit_event.get("stdout_bytes") if exit_event else 0,
-                       "stderr_bytes": exit_event.get("stderr_bytes") if exit_event else 0})
-            ctx.record_request(duration=duration, is_exec=True,
-                               is_error=timed_out or (exit_code != 0))
+            record_stream_outcome(ctx, exit_event, request_id=request_id, cmd=cmd)
         except ClientDisconnected:
             record_client_disconnect(
                 ctx, request, event_type="exec_stream_client_disconnected",
@@ -531,20 +469,26 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             ctx.record_request(duration=0.0, is_exec=True, is_error=True)
             # Best-effort tail-event so the client sees a terminal marker
             # even after an internal error.
-            try:
-                await _emit({"type": "error", "request_id": request_id,
-                             "error": "Internal error"})
-            except Exception:
-                pass
+            if emit is not None:
+                try:
+                    await emit({"type": "error", "request_id": request_id,
+                                "error": "Internal error"})
+                except Exception:
+                    pass
         finally:
             if stream is not None:
                 await stream.aclose()
-            cfg["active_exec"] -= 1
-            sem.release()
-            try:
-                await response.write_eof()
-            except Exception:
-                pass
+            slot.release()
+            if response is not None:
+                try:
+                    await response.write_eof()
+                except Exception:
+                    pass
+        if response is None:
+            # `prepare` never succeeded, so nothing was written and the
+            # handler owes the caller an ordinary error response.
+            return err_json(ctx, "Internal error", status=500,
+                            request_id=request_id)
         return response
 
     @authed(ctx, auto_record=False)

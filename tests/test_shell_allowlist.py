@@ -82,12 +82,24 @@ def test_python_dash_c_is_not_ordinary_use(monkeypatch) -> None:
 
 def test_every_shell_backed_allowlist_surface_uses_the_shared_guard() -> None:
     root = Path(__file__).resolve().parents[1]
+    # One entry per shell-backed surface, counting the call rather than
+    # naming the file it used to live in. Both JSON exec endpoints now
+    # share arena/exec/request_gate.py, so the two copies that used to sit
+    # in arena/exec/handlers.py are one call there (#333). The guard did
+    # not go away; it has a single new address instead of two old ones.
     expected_calls = {
         "arena/api_v2/exec_handler.py": 1,
         "arena/sandbox/handlers.py": 1,
-        "arena/exec/handlers.py": 2,
+        "arena/exec/request_gate.py": 1,
         "arena/mcp/tool_exec.py": 1,
     }
+    # And the surface that delegates must not grow a private copy back.
+    handlers = (root / "arena/exec/handlers.py").read_text(encoding="utf-8")
+    assert handlers.count("command_allowlist_reason(") == 0, (
+        "arena/exec/handlers.py should reach the allowlist through "
+        "accept_exec_request, not call it directly")
+    assert handlers.count("accept_exec_request(") == 2, (
+        "both JSON exec endpoints must go through the shared gate")
     for relative, count in expected_calls.items():
         source = (root / relative).read_text(encoding="utf-8")
         assert source.count("command_allowlist_reason(") == count, relative
