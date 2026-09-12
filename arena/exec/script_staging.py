@@ -23,10 +23,12 @@ _UNSAFE_IN_NAME = re.compile(r"[^A-Za-z0-9._-]")
 
 
 def stage_script(root: Path, request_id: str, suffix: str) -> str:
-    """Write the script body's file beside the root, owner-only.
+    """Create the empty owner-only file a script body will be written to.
 
-    Scoped to `root` so a cross-mount delete cannot leak it, and through
-    `mkstemp`, which is race-free and creates at mode 0o600.
+    Returns its path; writing the bytes is the caller's job. The file is
+    made by `mkstemp`, which is race-free and creates at mode 0o600, in a
+    `.arena_script_tmp` directory under `root` -- inside the same
+    filesystem as the root so a cross-mount delete cannot leak it.
     """
     tmp_dir = root / ".arena_script_tmp"
     tmp_dir.mkdir(exist_ok=True)
