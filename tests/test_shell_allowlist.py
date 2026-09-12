@@ -82,10 +82,16 @@ def test_python_dash_c_is_not_ordinary_use(monkeypatch) -> None:
 
 def test_every_shell_backed_allowlist_surface_uses_the_shared_guard() -> None:
     root = Path(__file__).resolve().parents[1]
+    # One entry per shell-backed surface, counting the call rather than
+    # naming the file it used to live in. /v1/exec/stream's copy moved to
+    # arena/exec/request_gate.py when the two JSON exec endpoints stopped
+    # carrying the same preamble twice (#333); the guard did not go away,
+    # so neither does its count -- it just has a new address.
     expected_calls = {
         "arena/api_v2/exec_handler.py": 1,
         "arena/sandbox/handlers.py": 1,
-        "arena/exec/handlers.py": 2,
+        "arena/exec/handlers.py": 1,
+        "arena/exec/request_gate.py": 1,
         "arena/mcp/tool_exec.py": 1,
     }
     for relative, count in expected_calls.items():
