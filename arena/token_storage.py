@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 
@@ -39,6 +40,27 @@ class TokenFileVanishedError(OSError):
         self.target = target
 
 
+def _classify_post_replace(
+        target: Path, mode_error: OSError | None, still_ours: bool) -> None:
+    """Turn the outcome of a post-replace mode change into the right type.
+
+    Two answers matter once `os.replace` has run (#211), and a caller
+    decides on them whether to keep the new token in memory:
+
+    * the file is provably ours and only the mode is in doubt -- the
+      rotation took, so `TokenFileModeWarning`. Raising a plain error here
+      is the defect: the caller kept the old credential while the next
+      restart read the new one off disk, locking every client out;
+    * the path is gone or holds someone else's file -- nothing usable was
+      installed, so `TokenFileVanishedError`, even when the mode change
+      itself succeeded.
+    """
+    if not still_ours:
+        raise TokenFileVanishedError(target) from mode_error
+    if mode_error is not None:
+        raise TokenFileModeWarning(target, mode_error) from mode_error
+
+
 def _settle_by_descriptor(target: Path, fd: int) -> None:
     """Re-apply the mode through the descriptor we replaced into place.
 
@@ -50,42 +72,48 @@ def _settle_by_descriptor(target: Path, fd: int) -> None:
     and `os.fstat` always reports our identity; only the path lookup can
     disagree, which is exactly the signal wanted.
     """
-    mode_error: OSError | None = None
-    try:
-        os.fchmod(fd, 0o600)
-    except OSError as exc:
-        mode_error = exc
-    try:
-        at_path = os.stat(target).st_ino
-    except OSError:
-        raise TokenFileVanishedError(target) from mode_error
-    if at_path != os.fstat(fd).st_ino:
-        raise TokenFileVanishedError(target) from mode_error
-    if mode_error is not None:
-        raise TokenFileModeWarning(target, mode_error) from mode_error
+    mode_error = _attempt(lambda: os.fchmod(fd, 0o600))
+    at_path = _inode_of(target)
+    _classify_post_replace(
+        target, mode_error, at_path is not None and at_path == os.fstat(fd).st_ino)
 
 
 def _settle_by_path(target: Path, installed: int | None) -> None:
     """The same settlement where a descriptor cannot survive the rename.
 
     Windows refuses to rename a file that is still open, so the descriptor
-    is closed before `os.replace` there and the mode is re-applied by path. `installed` is the inode captured before the rename where the
-    OS exposes a stable one, and `None` otherwise -- in which case only the
+    is closed before `os.replace` there and the mode is re-applied by
+    path. `installed` is the inode captured before the rename where the OS
+    exposes a stable one, and `None` otherwise -- in which case only the
     file's disappearance is detectable, not a same-path swap.
     """
-    mode_error: OSError | None = None
+    mode_error = _attempt(lambda: os.chmod(target, 0o600))
+    current = _inode_of(target)
+    _classify_post_replace(
+        target, mode_error,
+        current is not None and (installed is None or current == installed))
+
+
+def _attempt(action: Callable[[], None]) -> OSError | None:
+    """Run `action`, returning the `OSError` it raised rather than raising.
+
+    The mode change has to be attempted before the identity check, but its
+    failure is only classifiable once identity is known, so the error is
+    carried rather than thrown.
+    """
     try:
-        os.chmod(target, 0o600)
+        action()
     except OSError as exc:
-        mode_error = exc
+        return exc
+    return None
+
+
+def _inode_of(target: Path) -> int | None:
+    """`target`'s inode, or `None` if it cannot be stat'd at all."""
     try:
-        current = os.stat(target).st_ino
+        return os.stat(target).st_ino
     except OSError:
-        raise TokenFileVanishedError(target) from mode_error
-    if installed is not None and current != installed:
-        raise TokenFileVanishedError(target) from mode_error
-    if mode_error is not None:
-        raise TokenFileModeWarning(target, mode_error) from mode_error
+        return None
 
 
 def _write_temp_beside(target: Path, token: str) -> tuple[Path, int]:

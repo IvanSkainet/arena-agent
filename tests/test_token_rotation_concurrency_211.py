@@ -79,7 +79,7 @@ def test_rotations_do_not_overlap_each_other(
 
 async def _rotations_do_not_overlap(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from arena.admin import handlers as admin_handlers
+    from arena.admin import token_rotation as admin_handlers
 
     real = admin_handlers.token_regenerate
     live = {"n": 0}
@@ -120,7 +120,7 @@ def test_the_rotation_lock_is_per_application(tmp_path: Path) -> None:
     """
     from aiohttp import web
 
-    from arena.admin.handlers import _rotation_lock_for
+    from arena.admin.token_rotation import _rotation_lock_for
 
     first, second = web.Application(), web.Application()
 

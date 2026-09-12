@@ -278,7 +278,7 @@ def test_the_regenerate_handler_keeps_the_redactor_in_step(monkeypatch):
     function and watching the registry answers the same question without
     either failure mode.
     """
-    from arena.admin.handlers import _install_rotated_token
+    from arena.admin.token_rotation import _install_rotated_token
 
     registered: list[tuple[str, str]] = []
     unregistered: list[str] = []
@@ -286,7 +286,7 @@ def test_the_regenerate_handler_keeps_the_redactor_in_step(monkeypatch):
     class _Ctx:
         pass
 
-    import arena.admin.handlers as handlers_mod
+    import arena.admin.token_rotation as handlers_mod
 
     monkeypatch.setattr(
         handlers_mod, "register_literal_secret",
@@ -312,8 +312,8 @@ def test_the_old_literal_survives_a_failed_registration(monkeypatch):
     reason the handler checks the return value rather than calling both
     unconditionally.
     """
-    import arena.admin.handlers as handlers_mod
-    from arena.admin.handlers import _install_rotated_token
+    import arena.admin.token_rotation as handlers_mod
+    from arena.admin.token_rotation import _install_rotated_token
 
     unregistered: list[str] = []
     monkeypatch.setattr(
@@ -656,7 +656,7 @@ def _call_token_regenerate(monkeypatch, tmp_path, cfg, fake_result):
     from arena.handler_context import AdminHandlerContext
 
     monkeypatch.setattr(
-        "arena.admin.handlers.token_regenerate",
+        "arena.admin.token_rotation.token_regenerate",
         lambda *a, **k: dict(fake_result),
     )
 
