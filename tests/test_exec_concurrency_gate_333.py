@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import sys
 import time
 from pathlib import Path
 
@@ -35,6 +36,13 @@ TOKEN = "t" * 43
 SCRIPT_INTERPRETER = "python"
 SLOW_SCRIPT = b"import time\ntime.sleep(2)\n"
 
+# `sleep 2` is not a command on Windows: the live run there returned it in
+# 0.02s, every "accepted" request finished instantly, and the relative
+# timing assertion below had nothing to compare against. The interpreter
+# running the suite is the one thing guaranteed present on every runner,
+# and quoting handles a path with spaces (`C:\Program Files\...`).
+SLOW_COMMAND = f'"{sys.executable}" -c "import time; time.sleep(2)"'
+
 
 def _script_headers(cwd: Path) -> dict[str, str]:
     headers = dict(auth_header(TOKEN))
@@ -53,6 +61,15 @@ def _assert_refused_without_queueing(
     is unmistakable next to them, however slow the machine is.
     """
     assert accepted, "nothing was accepted, so there is no baseline"
+    # The baseline has to be real work. On Windows `sleep 2` is not a
+    # command, so the accepted requests came back in 0.02s and the
+    # comparison below was between two instant numbers -- it passed
+    # locally and failed on the live Windows run for reasons that had
+    # nothing to do with queueing. A baseline that fast means the
+    # command did not run, which is its own bug and says so.
+    assert min(accepted) > 0.5, (
+        f"the accepted work finished in {min(accepted):.2f}s -- it never "
+        f"ran, so there is nothing to compare a refusal against")
     assert refusal < min(accepted) / 2, (
         f"the refusal took {refusal:.2f}s against accepted work at "
         f"{min(accepted):.2f}s -- it queued rather than being refused")
@@ -83,7 +100,7 @@ def test_a_request_over_capacity_is_refused_not_parked(
 async def _over_capacity_is_refused(tmp_path: Path, path: str) -> None:
     async with running_client(tmp_path, TOKEN) as client:
         busy = [
-            asyncio.create_task(_status_and_duration(client, path, "sleep 2"))
+            asyncio.create_task(_status_and_duration(client, path, SLOW_COMMAND))
             for _ in range(MAX_CONCURRENT + 1)
         ]
         results = await asyncio.gather(*busy)
@@ -134,7 +151,7 @@ async def _slots_come_back(tmp_path: Path) -> None:
         assert cfg["active_exec"] == 0, cfg["active_exec"]
 
         results = await asyncio.gather(*[
-            _status_and_duration(client, "/v1/exec", "sleep 1")
+            _status_and_duration(client, "/v1/exec", SLOW_COMMAND)
             for _ in range(MAX_CONCURRENT)
         ])
 
@@ -168,7 +185,7 @@ async def _refusal_survives_disagreement(tmp_path: Path, path: str) -> None:
         cfg["active_exec"] = 0
 
         results = await asyncio.gather(*[
-            _status_and_duration(client, path, "sleep 2") for _ in range(2)
+            _status_and_duration(client, path, SLOW_COMMAND) for _ in range(2)
         ])
 
     refused = [(status, seconds) for status, seconds in results if status == 429]

@@ -68,8 +68,9 @@ async def accept_exec_request(
         ctx.record_request(is_error=True, count_request=False)
         return None, err_json(ctx, unusable, status=400, request_id=request_id)
 
-    refusal = _policy_refusal(ctx, request, cfg, cmd=cmd,
-                              request_id=request_id, event_type=event_type)
+    refusal = _policy_refusal(_Subject(
+        ctx=ctx, request=request, cfg=cfg, cmd=cmd,
+        request_id=request_id, event_type=event_type))
     if refusal is not None:
         return None, refusal
 
@@ -92,37 +93,53 @@ async def accept_exec_request(
         max_output=max_output, env=env), None
 
 
-def _policy_refusal(ctx: Any, request: web.Request, cfg: dict, *,
-                    cmd: str, request_id: str,
-                    event_type: str) -> web.Response | None:
+@dataclass(frozen=True)
+class _Subject:
+    """One command under judgement, with everything needed to judge it.
+
+    A parameter object rather than six arguments: the gates each need a
+    different subset, and threading all six through every one of them is
+    what CodeScene flags as an Excess Number of Function Arguments.
+    """
+
+    ctx: Any
+    request: web.Request
+    cfg: dict
+    cmd: str
+    request_id: str
+    event_type: str
+
+    def refuse(self, reason: str, *, client: str) -> web.Response:
+        """Audit a 403 and build it."""
+        self.ctx.audit({"type": self.event_type, "request_id": self.request_id,
+                        "cmd": self.cmd, "reason": reason, "client": client})
+        self.ctx.record_request(is_error=True, count_request=False)
+        return err_json(self.ctx, reason, status=403,
+                        request_id=self.request_id)
+
+
+def _policy_refusal(subject: _Subject) -> web.Response | None:
     """The three policy gates: blocklist, control characters, profile."""
-    reason = ctx.blocked_reason(cmd)
+    ctx, request = subject.ctx, subject.request
+
+    reason = ctx.blocked_reason(subject.cmd)
     if reason:
-        return _refuse(ctx, reason, cmd=cmd, request_id=request_id,
-                       event_type=event_type,
-                       client=request.remote or "127.0.0.1")
+        return subject.refuse(reason, client=request.remote or "127.0.0.1")
 
     blocked = control_injection_response(
-        ctx=ctx, request=request, command=cmd, request_id=request_id,
-        event_type=f"{event_type}_control", audit_fields={"cmd": cmd},
+        ctx=ctx, request=request, command=subject.cmd,
+        request_id=subject.request_id,
+        event_type=f"{subject.event_type}_control",
+        audit_fields={"cmd": subject.cmd},
     )
     if blocked is not None:
         return blocked
 
-    if cfg["profile"] != "cautious":
+    if subject.cfg["profile"] != "cautious":
         return None
-    reason = command_allowlist_reason(cmd, ctx.first_word(cmd), ctx.cautious_allow)
+    reason = command_allowlist_reason(
+        subject.cmd, ctx.first_word(subject.cmd), ctx.cautious_allow)
     if not reason:
         return None
-    return _refuse(ctx, f"{reason}; use --profile owner-shell", cmd=cmd,
-                   request_id=request_id, event_type=event_type,
-                   client=request.remote or "local-client")
-
-
-def _refuse(ctx: Any, reason: str, *, cmd: str, request_id: str,
-            event_type: str, client: str) -> web.Response:
-    """Audit a 403 and build it."""
-    ctx.audit({"type": event_type, "request_id": request_id, "cmd": cmd,
-               "reason": reason, "client": client})
-    ctx.record_request(is_error=True, count_request=False)
-    return err_json(ctx, reason, status=403, request_id=request_id)
+    return subject.refuse(f"{reason}; use --profile owner-shell",
+                          client=request.remote or "local-client")
