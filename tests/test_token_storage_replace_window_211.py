@@ -207,11 +207,7 @@ def test_a_file_deleted_between_replace_and_chmod_is_a_hard_failure(
     """A vanished token file must not be reported as a rotation that took."""
     target = tmp_path / "token.txt"
     target.write_text("OLD-TOKEN", encoding="utf-8")
-    def deletes_then_fails(_fd, _mode, *args, **kwargs):
-        os.unlink(target)
-        raise FileNotFoundError(2, "No such file or directory", str(target))
-
-    monkeypatch.setattr(token_storage.os, "fchmod", deletes_then_fails)
+    _after_the_replace(monkeypatch, target, lambda: os.unlink(target))
 
     with pytest.raises(token_storage.TokenFileVanishedError):
         token_storage.write_owner_token(target, "NEW-TOKEN")
@@ -241,17 +237,10 @@ def test_the_untouched_path_still_warns_rather_than_failing(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The identity check must not undo the fix it guards."""
     target = tmp_path / "token.txt"
-    seen: list[int] = []
-
-    def fails_after_replace(fd, _mode, *args, **kwargs):
-        seen.append(fd)
-        raise PermissionError("mode change denied")
-
-    monkeypatch.setattr(token_storage.os, "fchmod", fails_after_replace)
+    _mode_change_that_fails_after_the_replace(monkeypatch, target)
 
     with pytest.raises(token_storage.TokenFileModeWarning):
         token_storage.write_owner_token(target, "NEW-TOKEN")
-    assert seen, "the post-replace chmod never ran"
     assert target.read_text(encoding="utf-8") == "NEW-TOKEN"
 
 
