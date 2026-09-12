@@ -24,13 +24,27 @@ from aiohttp.test_utils import TestClient, TestServer
 
 import unified_bridge as ub
 
+MAX_CONCURRENT = 3
+"""Capacity of this bridge, used for both the limit and the semaphore.
+
+One name for the two because they were two numbers before (#333): the
+semaphore admitted one request while the 429 gate compared against three,
+so the gate never fired and everything over capacity queued instead.
+"""
+
 
 def build_app(root: Path, token: str) -> web.Application:
     app = ub.make_app({
         "token": token, "profile": "owner-shell", "root": root,
-        "active_exec": 0, "max_concurrent": 3, "audit": "audit",
+        "active_exec": 0, "max_concurrent": MAX_CONCURRENT, "audit": "audit",
         "timeout": 60, "max_timeout": 3600, "max_output": 2000000,
-        "allow_any_cwd": False, "semaphore": asyncio.Semaphore(1),
+        "allow_any_cwd": False,
+        # Sized from max_concurrent, not a literal (#333). It was
+        # Semaphore(1) against max_concurrent 3, and this is the config
+        # scripts/serve_bridge_for_fuzzing.py serves, so the fuzz gate
+        # was hitting a bridge whose real capacity was a third of what
+        # its own 429 gate was comparing against.
+        "semaphore": asyncio.Semaphore(MAX_CONCURRENT),
     })
     # Lifecycle hooks tear down the shared executor and poison later tests;
     # routing and parsing do not need the background workers.

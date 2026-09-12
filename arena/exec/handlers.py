@@ -22,7 +22,6 @@ instead of blocking on the full response.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import signal
@@ -43,6 +42,7 @@ from arena.exec.client_lifecycle import (
     forward_stream_events,
     record_client_disconnect,
 )
+from arena.exec.concurrency import ExecSlot, too_many_concurrent
 from arena.exec.control_gate import control_injection_response
 from arena.exec.interpreters import (
     _INTERPRETERS,
@@ -148,14 +148,10 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
 
         timeout, max_output, env = limits_and_env(data, cfg, ctx)
 
-        sem: asyncio.Semaphore = cfg["semaphore"]
-        if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, "too many concurrent exec requests",
-                            status=429, request_id=request_id)
+        slot = ExecSlot(cfg)
+        if not await slot.try_acquire():
+            return too_many_concurrent(ctx, request_id)
 
-        await sem.acquire()
-        cfg["active_exec"] += 1
         ctx.audit({"type": "exec_start", "request_id": request_id, "cmd": cmd, "cwd": str(cwd),
                    "timeout": timeout, "client": request.remote or "127.0.0.1"})
 
@@ -200,8 +196,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 status=500,
             )
         finally:
-            cfg["active_exec"] -= 1
-            sem.release()
+            slot.release()
 
     # v4.2.0 raw-script endpoint. Same auth + profile + control gates as
     # /v1/exec, but body-shape is raw script bytes and interpreter comes
@@ -295,11 +290,13 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
 
         # Concurrency gate: same semaphore as /v1/exec so the two
         # endpoints share fairness rather than doubling capacity.
-        sem: asyncio.Semaphore = cfg["semaphore"]
-        if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, "too many concurrent exec requests",
-                            status=429, request_id=request_id)
+        # The slot is taken here, before the script is staged on disk:
+        # a request that cannot run must not create a tmpfile it will
+        # never use, and taking it later leaves the same check-then-wait
+        # gap this class exists to close.
+        slot = ExecSlot(cfg)
+        if not await slot.try_acquire():
+            return too_many_concurrent(ctx, request_id)
 
         # Write body to a tmpfile scoped to root so cross-mount deletes
         # can't leak. mkstemp is race-free and gives us a mode 0o600 file.
@@ -339,8 +336,6 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
 
             env = os.environ.copy()
 
-            await sem.acquire()
-            cfg["active_exec"] += 1
             ctx.audit({"type": "exec_script_start", "request_id": request_id,
                        "interpreter": interp_key, "bytes": len(body),
                        "cwd": str(cwd), "timeout": timeout,
@@ -392,8 +387,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                     status=500,
                 )
             finally:
-                cfg["active_exec"] -= 1
-                sem.release()
+                slot.release()
         finally:
             # Delete the tmp script even on error — no lingering
             # bytes on disk. Ignore ENOENT if we never wrote it.
@@ -461,11 +455,12 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
 
         timeout, max_output, env = limits_and_env(data, cfg, ctx)
 
-        sem: asyncio.Semaphore = cfg["semaphore"]
-        if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, "too many concurrent exec requests",
-                            status=429, request_id=request_id)
+        # Before `prepare`, deliberately: once the 200 and its headers are
+        # on the wire a refusal can only be an error line inside a stream
+        # the client already believes succeeded.
+        slot = ExecSlot(cfg)
+        if not await slot.try_acquire():
+            return too_many_concurrent(ctx, request_id)
 
         # NDJSON stream: chunked transfer, one JSON object per line. Setting
         # X-Accel-Buffering: no is a hint for reverse proxies (nginx) to not
@@ -484,8 +479,6 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             line = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
             await response.write(line)
 
-        await sem.acquire()
-        cfg["active_exec"] += 1
         ctx.audit({"type": "exec_stream_start", "request_id": request_id, "cmd": cmd,
                    "cwd": str(cwd), "timeout": timeout,
                    "client": request.remote or "127.0.0.1"})
@@ -539,8 +532,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         finally:
             if stream is not None:
                 await stream.aclose()
-            cfg["active_exec"] -= 1
-            sem.release()
+            slot.release()
             try:
                 await response.write_eof()
             except Exception:
