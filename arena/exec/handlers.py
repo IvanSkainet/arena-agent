@@ -51,6 +51,10 @@ from arena.exec.interpreters import (
     interpreter_path_arg,
     interpreter_runs_here,
 )
+from arena.exec.ndjson_stream import (
+    prepared_ndjson_response,
+    record_stream_outcome,
+)
 from arena.exec.request_shape import (
     OUTSIDE_ROOT,
     limits_and_env,
@@ -63,7 +67,6 @@ from arena.exec.script_staging import stage_script
 from arena.handler_context import ExecHandlerContext
 from arena.handler_helpers import authed, err_json, parse_json_body
 from arena.security_commands import command_allowlist_reason
-from arena.web_utils import CORS_HEADERS
 
 
 @dataclass(frozen=True)
@@ -481,23 +484,16 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         response: web.StreamResponse | None = None
         emit = None
         try:
-            # NDJSON stream: chunked transfer, one JSON object per line. Setting
-            # X-Accel-Buffering: no is a hint for reverse proxies (nginx) to not
-            # coalesce chunks — matters when the bridge sits behind a Tailscale
-            # funnel or similar. The response itself is unbuffered from aiohttp.
-            headers = dict(CORS_HEADERS)
-            headers["Content-Type"] = "application/x-ndjson"
-            headers["Cache-Control"] = "no-cache"
-            headers["X-Accel-Buffering"] = "no"
-            headers["X-Arena-Request-Id"] = request_id
-            response = web.StreamResponse(status=200, headers=headers)
-            response.enable_chunked_encoding()
-            await response.prepare(request)
+            stream_response = await prepared_ndjson_response(request, request_id)
+            response = stream_response
 
             async def _emit(event: dict) -> None:
-                assert response is not None  # set immediately above
+                # Closes over the non-optional local, so no assert is
+                # needed to satisfy the type -- and an assert here would
+                # be caught by the `except Exception` below, which Sonar
+                # reads as a bug (S5915) and is right to.
                 line = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
-                await response.write(line)
+                await stream_response.write(line)
 
             emit = _emit
 
@@ -521,17 +517,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 request_id=request_id,
             )
 
-            duration = float(exit_event.get("duration_sec", 0.0)) if exit_event else 0.0
-            timed_out = bool(exit_event.get("timed_out")) if exit_event else False
-            exit_code = exit_event.get("exit_code") if exit_event else None
-            event_type = "exec_stream_timeout" if timed_out else "exec_stream_done"
-            ctx.audit({"type": event_type, "request_id": request_id, "cmd": cmd,
-                       "exit_code": exit_code, "duration": duration,
-                       "truncated": bool(exit_event.get("truncated")) if exit_event else False,
-                       "stdout_bytes": exit_event.get("stdout_bytes") if exit_event else 0,
-                       "stderr_bytes": exit_event.get("stderr_bytes") if exit_event else 0})
-            ctx.record_request(duration=duration, is_exec=True,
-                               is_error=timed_out or (exit_code != 0))
+            record_stream_outcome(ctx, exit_event, request_id=request_id, cmd=cmd)
         except ClientDisconnected:
             record_client_disconnect(
                 ctx, request, event_type="exec_stream_client_disconnected",
