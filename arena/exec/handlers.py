@@ -58,16 +58,12 @@ from arena.exec.ndjson_stream import (
 from arena.exec.request_gate import accept_exec_request
 from arena.exec.request_shape import (
     OUTSIDE_ROOT,
-    limits_and_env,
-    requested_command,
-    requested_cwd,
     usable_cwd,
 )
 from arena.exec.runner import run_shell_command_stream
 from arena.exec.script_staging import stage_script
 from arena.handler_context import ExecHandlerContext
 from arena.handler_helpers import authed, err_json, parse_json_body
-from arena.security_commands import command_allowlist_reason
 
 
 @dataclass(frozen=True)
@@ -103,54 +99,20 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
     async def handle_v1_exec(request: web.Request) -> web.Response:
         cfg = request.app[APP_CFG]
 
-        data, jerr = await parse_json_body(request, ctx)
-        if jerr is not None:
-            ctx.record_request(is_error=True, count_request=False)
-            return jerr
-        assert data is not None  # the guard above already proved this
+        # The same gate the streaming endpoint uses. Keeping a second copy
+        # here meant a guard added to one endpoint silently missed the
+        # other (cubic), which is the exact shape of #93.
+        accepted, refusal = await accept_exec_request(
+            ctx, request, cfg, event_type="exec_blocked")
+        if refusal is not None:
+            return refusal
+        assert accepted is not None  # the gate returns exactly one of the two
 
-        request_id = str(data.get("request_id") or uuid.uuid4())
-        # Absent, or present and unspawnable: a NUL cannot cross `execve`,
-        # and refusing it here rather than at the spawn keeps it out of the
-        # audit journal as well as out of the 500s (#288).
-        cmd, unusable = requested_command(data)
-        if unusable:
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, unusable, status=400, request_id=request_id)
-
-        reason = ctx.blocked_reason(cmd)
-        if reason:
-            ctx.audit({"type": "exec_blocked", "request_id": request_id, "cmd": cmd,
-                       "reason": reason, "client": request.remote or "127.0.0.1"})
-            ctx.record_request(is_error=True, count_request=False)
-            return err_json(ctx, reason, status=403, request_id=request_id)
-
-        blocked = control_injection_response(
-            ctx=ctx, request=request, command=cmd, request_id=request_id,
-            event_type="exec_blocked_control", audit_fields={"cmd": cmd},
-        )
-        if blocked is not None:
-            return blocked
-
-        profile = cfg["profile"]
-        first = ctx.first_word(cmd)
-        if profile == "cautious":
-            reason = command_allowlist_reason(cmd, first, ctx.cautious_allow)
-            if reason:
-                reason = f"{reason}; use --profile owner-shell"
-                ctx.audit({"type": "exec_blocked", "request_id": request_id, "cmd": cmd,
-                           "reason": reason, "client": request.remote or "local-client"})
-                ctx.record_request(is_error=True, count_request=False)
-                return err_json(ctx, reason, status=403, request_id=request_id)
-
-        root: Path = cfg["root"]
-        boundary = None if cfg["allow_any_cwd"] else ctx.under_root
-        cwd, cwd_error = requested_cwd(data, root, under_root=boundary)
-        if cwd_error:
-            return _cwd_refusal(ctx, cwd_error, request_id)
-        assert cwd is not None  # pyrefly: the error branch returned already
-
-        timeout, max_output, env = limits_and_env(data, cfg, ctx)
+        request_id = accepted.request_id
+        cmd = accepted.cmd
+        cwd = accepted.cwd
+        timeout, max_output, env = (
+            accepted.timeout, accepted.max_output, accepted.env)
 
         slot = ExecSlot(cfg)
         if not await slot.try_acquire():

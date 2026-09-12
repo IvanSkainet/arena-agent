@@ -305,22 +305,29 @@ async def _blocked_scripts_do_not_leak(tmp_path: Path) -> None:
             if isinstance(obj, ExecHandlerContext)
         ]
         assert contexts, "no ExecHandlerContext to reach the blocklist through"
+        # Put each original back afterwards rather than replacing it with
+        # an allow-all stand-in: these are live objects reached through
+        # `gc`, and leaving a different callback behind is a change this
+        # test has no business making (cubic).
+        originals = [(c, c.blocked_reason) for c in contexts]
         for context in contexts:
             object.__setattr__(
                 context, "blocked_reason", lambda _cmd: "blocked for the test")
 
-        headers = _script_headers(tmp_path)
-        for _ in range(MAX_CONCURRENT + 2):
-            response = await client.post(
-                "/v1/exec/script", headers=headers, data=SLOW_SCRIPT)
-            await response.text()
-            assert response.status == 403, response.status
-            assert cfg["active_exec"] == 0, (
-                f"a blocked script kept the slot: active_exec="
-                f"{cfg['active_exec']}")
+        try:
+            headers = _script_headers(tmp_path)
+            for _ in range(MAX_CONCURRENT + 2):
+                response = await client.post(
+                    "/v1/exec/script", headers=headers, data=SLOW_SCRIPT)
+                await response.text()
+                assert response.status == 403, response.status
+                assert cfg["active_exec"] == 0, (
+                    f"a blocked script kept the slot: active_exec="
+                    f"{cfg['active_exec']}")
+        finally:
+            for context, original in originals:
+                object.__setattr__(context, "blocked_reason", original)
 
-        for context in contexts:
-            object.__setattr__(context, "blocked_reason", lambda _cmd: None)
         status, _ = await _status_and_duration(client, "/v1/exec", "echo ok")
 
     assert status == 200, f"the bridge was exhausted by refusals: {status}"
@@ -341,12 +348,21 @@ async def _failed_prepare_does_not_leak(tmp_path: Path) -> None:
 
     original = web.StreamResponse.prepare
 
-    async def refuses_to_prepare(self, request):  # noqa: ANN001, ARG001
-        raise RuntimeError("prepare failed")
-
     async with running_client(tmp_path, TOKEN) as client:
         cfg = client.app[APP_CFG]
-        web.StreamResponse.prepare = refuses_to_prepare
+        # Count the prepares that actually raised. Suppressing the
+        # exception and never looking at the status let this test pass
+        # while exercising nothing at all -- if the monkeypatch stops
+        # applying, every stream succeeds and the leak goes unmeasured
+        # (cubic).
+        refused = 0
+
+        async def counting_refusal(self, request):  # noqa: ANN001, ARG001
+            nonlocal refused
+            refused += 1
+            raise RuntimeError("prepare failed")
+
+        web.StreamResponse.prepare = counting_refusal
         try:
             for _ in range(MAX_CONCURRENT + 2):
                 with contextlib.suppress(Exception):
@@ -359,6 +375,13 @@ async def _failed_prepare_does_not_leak(tmp_path: Path) -> None:
                     f"{cfg['active_exec']}")
         finally:
             web.StreamResponse.prepare = original
+
+        # At least once per request -- aiohttp also prepares the 500 it
+        # builds after the handler raises, so the count runs ahead of the
+        # request count. The point is that it is not zero.
+        assert refused >= MAX_CONCURRENT + 2, (
+            f"the injected prepare failure fired {refused} times for "
+            f"{MAX_CONCURRENT + 2} requests: the test measured nothing")
 
         status, _ = await _status_and_duration(client, "/v1/exec", "echo ok")
 
