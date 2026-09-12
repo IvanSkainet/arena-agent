@@ -34,39 +34,63 @@ from tests.test_token_regenerate_status_211 import (
     _write_tokens_under,
 )
 
-
 # ---------------------------------------------------------------------------
 # The chmod-after-replace window (cubic, P1)
 # ---------------------------------------------------------------------------
-def _mode_change_that_fails_after_the_replace(monkeypatch):
+# `write_owner_token` chmods the temporary file by path, calls
+# `os.replace`, then re-applies the mode. On POSIX that second call goes
+# through the descriptor it kept open (`os.fchmod`, so a swapped path
+# cannot redirect it); elsewhere the file cannot stay open across a
+# rename, so it is `os.chmod` on the target. These helpers hook whichever
+# one the platform actually uses -- patching only `os.fchmod` made all of
+# these tests fail on the five windows-latest jobs while passing locally.
+_POST_REPLACE_CALL = "fchmod" if os.name == "posix" else "chmod"
+
+
+def _is_the_post_replace_call(first_argument, target: Path) -> bool:
+    """Is this the mode change that happens after the rename?
+
+    On POSIX the call takes the descriptor, and there is exactly one
+    `os.fchmod` in the write, so any call qualifies. On the path-based
+    side both the temporary file and the target go through `os.chmod`, so
+    only a call naming the target counts.
+    """
+    if _POST_REPLACE_CALL == "fchmod":
+        return True
+    return Path(first_argument) == target
+
+
+def _mode_change_that_fails_after_the_replace(monkeypatch, target: Path):
     """Let the pre-replace chmod through, fail the post-replace one.
 
-    `write_owner_token` chmods the temporary file by path, calls
-    `os.replace`, then re-applies the mode through the descriptor it kept
-    open (`os.fchmod`, so a swapped path cannot redirect it). Only that
-    second call is past the point of no return, so only it is made to
-    fail.
+    Only the second call is past the point of no return, so only it is
+    made to fail.
     """
-    def denied(_fd, _mode, *args, **kwargs):
-        raise PermissionError("chmod after replace failed")
+    real = getattr(token_storage.os, _POST_REPLACE_CALL)
 
-    monkeypatch.setattr(token_storage.os, "fchmod", denied)
+    def denied(first, mode, *args, **kwargs):
+        if _is_the_post_replace_call(first, target):
+            raise PermissionError("chmod after replace failed")
+        return real(first, mode, *args, **kwargs)
+
+    monkeypatch.setattr(token_storage.os, _POST_REPLACE_CALL, denied)
 
 
-def _after_the_replace(monkeypatch, tamper):
+def _after_the_replace(monkeypatch, target: Path, tamper):
     """Run `tamper()` at the post-replace mode change, then succeed.
 
     Used to model another process reaching the path in the window the
     identity check guards, with the mode change itself working fine.
     """
-    real_fchmod = token_storage.os.fchmod
+    real = getattr(token_storage.os, _POST_REPLACE_CALL)
 
-    def meddles(fd, mode, *args, **kwargs):
-        result = real_fchmod(fd, mode, *args, **kwargs)
-        tamper()
+    def meddles(first, mode, *args, **kwargs):
+        result = real(first, mode, *args, **kwargs)
+        if _is_the_post_replace_call(first, target):
+            tamper()
         return result
 
-    monkeypatch.setattr(token_storage.os, "fchmod", meddles)
+    monkeypatch.setattr(token_storage.os, _POST_REPLACE_CALL, meddles)
 
 
 def test_a_chmod_failure_after_the_replace_is_not_a_failed_rotation(
@@ -82,7 +106,7 @@ def test_a_chmod_failure_after_the_replace_is_not_a_failed_rotation(
 
     target = tmp_path / "token.txt"
     target.write_text("the-old-one", encoding="utf-8")
-    _mode_change_that_fails_after_the_replace(monkeypatch)
+    _mode_change_that_fails_after_the_replace(monkeypatch, target)
 
     result = token_regenerate(str(target), default_token_file=target)
 
@@ -107,7 +131,7 @@ def test_the_handler_keeps_memory_and_disk_in_step_through_that_window(
 async def _memory_and_disk_agree(tmp_path: Path, monkeypatch) -> None:
     async with running_client(tmp_path, TOKEN) as client:
         target = _write_tokens_under(client, tmp_path)
-        _mode_change_that_fails_after_the_replace(monkeypatch)
+        _mode_change_that_fails_after_the_replace(monkeypatch, target)
 
         rotated = await client.post(
             "/v1/token/regenerate", headers=auth_header(TOKEN))
@@ -247,7 +271,7 @@ def test_first_start_survives_a_chmod_failure_after_the_replace(
     from arena.bootstrap_token import resolve_token
 
     target = tmp_path / "token.txt"
-    _mode_change_that_fails_after_the_replace(monkeypatch)
+    _mode_change_that_fails_after_the_replace(monkeypatch, target)
     monkeypatch.delenv("ARENA_TOKEN_FILE", raising=False)
     monkeypatch.delenv("ARENA_LOCAL_BRIDGE_TOKEN", raising=False)
     logged: list[str] = []
@@ -321,7 +345,7 @@ def test_a_swap_is_caught_even_when_the_chmod_itself_succeeds(
     target.write_text("OLD-TOKEN", encoding="utf-8")
     intruder = tmp_path / "intruder.txt"
     intruder.write_text("SOMEONE-ELSES-TOKEN", encoding="utf-8")
-    _after_the_replace(monkeypatch, lambda: os.replace(intruder, target))
+    _after_the_replace(monkeypatch, target, lambda: os.replace(intruder, target))
 
     with pytest.raises(token_storage.TokenFileVanishedError):
         token_storage.write_owner_token(target, "NEW-TOKEN")
@@ -337,7 +361,7 @@ def test_a_vanished_file_is_not_a_mode_warning(
     the warning that means "rotated, check the permissions".
     """
     target = tmp_path / "token.txt"
-    _after_the_replace(monkeypatch, lambda: os.unlink(target))
+    _after_the_replace(monkeypatch, target, lambda: os.unlink(target))
 
     assert not issubclass(
         token_storage.TokenFileVanishedError, token_storage.TokenFileModeWarning)
@@ -351,7 +375,7 @@ def test_the_bridge_does_not_start_on_a_token_that_vanished(
     from arena.bootstrap_token import resolve_token
 
     target = tmp_path / "token.txt"
-    _after_the_replace(monkeypatch, lambda: os.unlink(target))
+    _after_the_replace(monkeypatch, target, lambda: os.unlink(target))
     monkeypatch.delenv("ARENA_TOKEN_FILE", raising=False)
     monkeypatch.delenv("ARENA_LOCAL_BRIDGE_TOKEN", raising=False)
 
@@ -379,7 +403,7 @@ def test_the_api_reports_a_vanished_token_as_a_failed_rotation(
             seen.append(victim)
             os.unlink(victim)
 
-    _after_the_replace(monkeypatch, unlink_the_token)
+    _after_the_replace(monkeypatch, victim, unlink_the_token)
     asyncio.run(_vanished_token_is_a_500(tmp_path, seen))
 
 

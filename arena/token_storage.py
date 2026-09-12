@@ -126,55 +126,67 @@ def write_owner_token(target: Path, token: str) -> None:
         raise OSError("refusing to replace a symlink token path")
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    tmp: Path | None = None
-    fd = -1
+    staged: _StagedToken | None = None
     try:
-        tmp, fd = _write_temp_beside(target, token)
+        staged = _StagedToken(*_write_temp_beside(target, token))
         # By path, deliberately: the pre-replace chmod is the one callers
         # and tests exercise as "the write failed and nothing was
         # installed", and the temporary name is ours alone, so there is no
         # swap window to close here. The descriptor matters only after the
         # rename, where the path stops being a reliable handle.
-        os.chmod(tmp, 0o600)
-        fd = _replace_and_settle(tmp, target, fd)
+        os.chmod(staged.path, 0o600)
+        _replace_and_settle(staged, target)
     finally:
-        _close_and_clean(fd, tmp)
+        if staged is not None:
+            staged.release()
 
 
-def _replace_and_settle(tmp: Path, target: Path, fd: int) -> int:
-    """Install `tmp` at `target` and re-apply the mode, returning the fd.
+class _StagedToken:
+    """The temporary file a rotation is staged in, and its open descriptor.
 
-    The descriptor is closed and `-1` returned where it cannot survive the
-    rename, so the caller's cleanup stays honest about what is still open.
+    Ownership of the descriptor lives here rather than in a local variable
+    because `os.replace` can raise after the descriptor has already been
+    closed. An earlier revision tracked it by reassigning a local from a
+    helper's return value, so a failed replace skipped the assignment and
+    the cleanup closed an already-closed fd -- which is how a rotation
+    that should have reported "the write failed, your old token is
+    intact" reported an EBADF instead, on Windows only.
     """
-    installed = os.stat(tmp).st_ino if os.name == "posix" else None
+
+    def __init__(self, path: Path, fd: int) -> None:
+        self.path = path
+        self.fd = fd
+
+    def close_descriptor(self) -> None:
+        if self.fd >= 0:
+            os.close(self.fd)
+            self.fd = -1
+
+    def release(self) -> None:
+        """Drop the descriptor and the temporary name, if either survives.
+
+        After a successful `os.replace` the name is already gone, so the
+        unlink only matters for the paths that failed before the rename.
+        """
+        self.close_descriptor()
+        try:
+            self.path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _replace_and_settle(staged: _StagedToken, target: Path) -> None:
+    """Install the staged file at `target` and re-apply the mode."""
+    installed = os.stat(staged.path).st_ino if os.name == "posix" else None
     if os.name != "posix":
         # Windows refuses to rename a file that is still open (WinError 32),
         # and its st_ino is not a stable identity anyway, so the descriptor
         # buys nothing there. Measured: keeping it open made every rotation
         # fail on all five windows-latest jobs. `os.fchmod` exists on 3.14
         # for Windows, so its presence is the wrong thing to test.
-        os.close(fd)
-        fd = -1
-    os.replace(tmp, target)
-    if fd >= 0:
-        _settle_by_descriptor(target, fd)
+        staged.close_descriptor()
+    os.replace(staged.path, target)
+    if staged.fd >= 0:
+        _settle_by_descriptor(target, staged.fd)
     else:
         _settle_by_path(target, installed)
-    return fd
-
-
-def _close_and_clean(fd: int, tmp: Path | None) -> None:
-    """Release the descriptor and remove the temporary file if it survived.
-
-    After a successful `os.replace` the temporary name is already gone, so
-    the unlink is only for the paths that failed before the rename.
-    """
-    if fd >= 0:
-        os.close(fd)
-    if tmp is None:
-        return
-    try:
-        tmp.unlink()
-    except FileNotFoundError:
-        pass
