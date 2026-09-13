@@ -276,26 +276,35 @@ def test_live_the_unfiltered_view_flags_the_real_foreground_window():
 def test_the_foreground_returned_is_the_one_the_flag_was_set_from(monkeypatch):
     """Runs on every platform, unlike the live test above.
 
-    Drives the real enumeration against a fake user32 and moves the
-    foreground *during* the walk, which is the case no Windows-only
-    test can stage on demand: `GetForegroundWindow` answers 111 when
-    the enumeration reads it and 999 afterwards. The returned
-    foreground must be the one the flags were computed from, 111, or
-    the cross-check in the live test is comparing against the wrong
-    number.
-    """
-    from arena.desktop.backends import windows as mod
+    The fake moves the foreground *while the enumeration is walking*:
+    `GetForegroundWindow` answers 111 when `_enumerate_windows` reads
+    it, and the second window's callback flips it to 999 mid-walk. A
+    correct implementation reads it once, so the flags and the returned
+    value both say 111; an implementation that re-read it -- on return,
+    or per window -- would answer 999 for one of them and this fails.
 
-    reads = []
+    The previous version of this test claimed to do that and did not:
+    the fake's second answer was never reached, so both assertions came
+    from the same single local and passed by construction. Review
+    called it the milder form of the tautology this PR removes, which
+    it was.
+    """
+    from arena.desktop.backends import _win32_windows as mod
+
+    state = {"fg": 111}
 
     class _FakeUser32:
         def GetForegroundWindow(self):
-            reads.append(1)
-            return 111 if len(reads) == 1 else 999
+            return state["fg"]
 
         def EnumWindows(self, cb, _lparam):
-            for hwnd in (111, 222):
-                cb(hwnd, 0)
+            # Focus moves away before the window that holds it is
+            # described, so an implementation that re-reads the
+            # foreground per window flags nothing, while one that read
+            # it once still flags 111.
+            state["fg"] = 999
+            cb(111, 0)
+            cb(222, 0)
             return True
 
         def IsWindowVisible(self, hwnd):
@@ -326,8 +335,143 @@ def test_the_foreground_returned_is_the_one_the_flag_was_set_from(monkeypatch):
 
     windows, foreground = mod.list_windows_with_foreground(visible_only=False)
 
+    assert state["fg"] == 999, "the fake did not actually move the foreground"
     assert foreground == 111
     assert [w["id"] for w in windows if w["active"]] == ["111"]
+
+
+def _fake_user32_listing(windows, *, foreground=0, hidden=()):
+    """A user32 stand-in enumerating `windows` as (hwnd, title, class)."""
+
+    class _Fake:
+        def GetForegroundWindow(self):
+            return foreground
+
+        def EnumWindows(self, cb, _lparam):
+            for hwnd, _title, _cls in windows:
+                cb(hwnd, 0)
+            return True
+
+        def IsWindowVisible(self, hwnd):
+            return 0 if hwnd in hidden else 1
+
+        def GetWindowTextLengthW(self, hwnd):
+            return len(dict((h, t) for h, t, _c in windows)[hwnd])
+
+        def GetWindowTextW(self, hwnd, buf, _n):
+            buf.value = dict((h, t) for h, t, _c in windows)[hwnd]
+            return len(buf.value)
+
+        def GetClassNameW(self, hwnd, buf, _n):
+            buf.value = dict((h, c) for h, _t, c in windows)[hwnd]
+            return len(buf.value)
+
+        def GetWindowThreadProcessId(self, hwnd, pid_ref):
+            pid_ref._obj.value = 4242
+            return 1
+
+        def IsIconic(self, hwnd):
+            return 0
+
+    return _Fake()
+
+
+def test_the_filtered_listing_drops_shell_windows_on_every_platform(monkeypatch):
+    """The filter is applied by `list_windows`, not merely defined.
+
+    `_is_untitled_shell_window` having the right answer means nothing
+    if the enumeration stops consulting it, and the only thing covering
+    that was a Windows-only live test. Caught by mutation: deleting the
+    `visible_only and` guard in `_describe_window` left every test
+    green.
+    """
+    from arena.desktop.backends import _win32_windows as mod
+
+    listing = [
+        (111, "", "Shell_TrayWnd"),
+        (222, "Real window", "Chrome_WidgetWin_1"),
+        (333, "", "Progman"),
+        (444, "Titled tray", "Shell_TrayWnd"),
+    ]
+    monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+    monkeypatch.setattr(mod, "user32", _fake_user32_listing(listing))
+    monkeypatch.setattr(mod, "_api", types.SimpleNamespace(EnumWindowsProc=lambda fn: fn))
+    monkeypatch.setattr(mod, "_best_window_geometry", lambda hwnd, owner_pid: ({}, None, "test"))
+
+    assert [w["id"] for w in mod.list_windows()] == ["222", "444"]
+    # Unfiltered keeps them all, or the assertion above is satisfied by
+    # an enumeration that simply lost the windows.
+    assert [w["id"] for w in mod.list_windows(visible_only=False)] == ["111", "222", "333", "444"]
+
+
+def test_the_filtered_listing_drops_invisible_windows(monkeypatch):
+    """The other half of `visible_only`, also Windows-only until now.
+
+    Same mutation argument as the shell-class filter: removing the
+    `visible_only and not visible` guard left every test green.
+    """
+    from arena.desktop.backends import _win32_windows as mod
+
+    listing = [(111, "Hidden", "Chrome_WidgetWin_1"), (222, "Shown", "Chrome_WidgetWin_1")]
+    monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+    monkeypatch.setattr(mod, "user32", _fake_user32_listing(listing, hidden={111}))
+    monkeypatch.setattr(mod, "_api", types.SimpleNamespace(EnumWindowsProc=lambda fn: fn))
+    monkeypatch.setattr(mod, "_best_window_geometry", lambda hwnd, owner_pid: ({}, None, "test"))
+
+    assert [w["id"] for w in mod.list_windows()] == ["222"]
+    everything = mod.list_windows(visible_only=False)
+    assert [w["id"] for w in everything] == ["111", "222"]
+    assert [w["visible"] for w in everything] == [False, True]
+
+
+def test_a_null_foreground_is_reported_as_zero(monkeypatch):
+    """`GetForegroundWindow` returns NULL when nothing has the focus.
+
+    Its restype is `wt.HWND` (`c_void_p`), and ctypes hands back `None`
+    rather than 0, so `int(fg)` raised `TypeError` straight out of
+    `list_windows` -- on a locked screen, which is precisely the
+    desktop state this issue is about. Raised in review.
+    """
+    from arena.desktop.backends import _win32_windows as mod
+
+    class _NoForeground:
+        def GetForegroundWindow(self):
+            return None
+
+        def EnumWindows(self, cb, _lparam):
+            cb(111, 0)
+            return True
+
+        def IsWindowVisible(self, hwnd):
+            return 1
+
+        def GetWindowTextLengthW(self, hwnd):
+            return 5
+
+        def GetWindowTextW(self, hwnd, buf, _n):
+            buf.value = "w111"
+            return 4
+
+        def GetClassNameW(self, hwnd, buf, _n):
+            buf.value = "TestClass"
+            return 9
+
+        def GetWindowThreadProcessId(self, hwnd, pid_ref):
+            pid_ref._obj.value = 4242
+            return 1
+
+        def IsIconic(self, hwnd):
+            return 0
+
+    monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+    monkeypatch.setattr(mod, "user32", _NoForeground())
+    monkeypatch.setattr(mod, "_api", types.SimpleNamespace(EnumWindowsProc=lambda fn: fn))
+    monkeypatch.setattr(mod, "_best_window_geometry", lambda hwnd, owner_pid: ({}, None, "test"))
+
+    windows, foreground = mod.list_windows_with_foreground(visible_only=False)
+
+    assert foreground == 0
+    assert [w["id"] for w in windows if w["active"]] == []
 
 
 def test_the_foreground_is_not_kept_on_the_module(monkeypatch):
@@ -339,9 +483,14 @@ def test_the_foreground_is_not_kept_on_the_module(monkeypatch):
     revision, which did exactly that. The value is returned instead,
     and this keeps it that way.
     """
-    from arena.desktop.backends import windows as mod
+    from arena.desktop.backends import _win32_windows as enumeration, windows as mod
 
-    stateful = [name for name in dir(mod) if "LAST_FOREGROUND" in name.upper()]
+    stateful = [
+        name
+        for module in (mod, enumeration)
+        for name in dir(module)
+        if "LAST_FOREGROUND" in name.upper()
+    ]
     assert stateful == []
 
 
