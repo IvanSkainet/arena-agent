@@ -54,25 +54,37 @@ _ALLOW_MARKER = "allow_network"
 _LOOPBACK_HOSTNAMES = frozenset({"localhost", "localhost.localdomain", ""})
 
 
-# Variables the *harness* owns rather than the code under test, so
-# clearing them would break the run itself: CI sets
-# `ARENA_TEST_EXECUTION_GUARD` to arm the collection floor, the two
-# budget knobs tune timeouts for slow runners, and the e2e job points
-# `ARENA_E2E_*` at the wheel it just built.
+# Namespaces the *harness* owns rather than the code under test:
+# `ARENA_TEST_*` configures the run (`ARENA_TEST_EXECUTION_GUARD` arms
+# the collection floor in ci.yml, the budget knobs tune timeouts for
+# slow runners) and `ARENA_E2E_*` points the e2e job at the wheel it
+# just built. Matched by prefix rather than by exact name: an allowlist
+# of literals silently shrinks every time someone adds a knob, and the
+# failure is invisible -- the run still passes, just checking less.
+_HARNESS_OWNED_PREFIXES = ("ARENA_TEST_", "ARENA_E2E_")
+
+# Harness switches that predate the naming convention and so are not
+# covered by a prefix. `ARENA_SKIP_BROWSER_E2E=1` is a developer's way
+# of turning browser E2E off; clearing it would silently *run* the
+# tests they asked to skip.
 _HARNESS_OWNED_VARIABLES = frozenset({
-    "ARENA_TEST_EXECUTION_GUARD",
-    "ARENA_TEST_GIT_TIMEOUT",
-    "ARENA_TEST_NODE_TIMEOUT",
-    "ARENA_E2E_EXPECT_VERSION",
-    "ARENA_E2E_SERVER_CMD",
+    "ARENA_SKIP_BROWSER_E2E",
 })
+
+
+def _is_harness_owned(name: str) -> bool:
+    """Does this name configure the test run rather than the product?"""
+    return (
+        name in _HARNESS_OWNED_VARIABLES
+        or name.startswith(_HARNESS_OWNED_PREFIXES)
+    )
 
 
 def _ambient_arena_variables() -> tuple[str, ...]:
     """Which `ARENA_*` names is the surrounding shell supplying?"""
     return tuple(sorted(
         name for name in os.environ
-        if name.startswith("ARENA_") and name not in _HARNESS_OWNED_VARIABLES
+        if name.startswith("ARENA_") and not _is_harness_owned(name)
     ))
 
 

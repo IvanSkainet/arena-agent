@@ -82,21 +82,55 @@ def test_an_inherited_value_does_not_reach_a_running_test(tmp_path):
     )
     assert completed.returncode == 0, (
         "an ARENA_* value exported by the shell reached a test:\n"
-        + completed.stdout[-2000:]
+        + completed.stdout[-2000:] + "\n" + completed.stderr[-2000:]
     )
 
 
-def test_the_harness_owned_names_are_left_alone(suite_conftest):
-    """Clearing everything would disarm the guards CI relies on.
+@pytest.mark.parametrize("name", [
+    "ARENA_TEST_EXECUTION_GUARD",
+    "ARENA_TEST_GIT_TIMEOUT",
+    "ARENA_TEST_NODE_TIMEOUT",
+    "ARENA_E2E_EXPECT_VERSION",
+    "ARENA_E2E_SERVER_CMD",
+    "ARENA_SKIP_BROWSER_E2E",
+])
+def test_the_harness_owned_names_are_left_alone(name, suite_conftest):
+    """Clearing these would disarm the guards the run relies on.
 
-    `ARENA_TEST_EXECUTION_GUARD` arms the collection floor in
-    `ci.yml`; the e2e job points `ARENA_E2E_SERVER_CMD` at the wheel it
-    just built. Removing those would make the run pass while checking
-    less, which is the failure mode this repo cares most about.
+    `ARENA_TEST_EXECUTION_GUARD` arms the collection floor in `ci.yml`,
+    the e2e job points `ARENA_E2E_SERVER_CMD` at the wheel it just
+    built, and `ARENA_SKIP_BROWSER_E2E=1` is how a developer turns
+    browser E2E off. Removing any of them makes the run pass while
+    checking less -- the failure mode this repo cares most about.
     """
-    owned = suite_conftest._HARNESS_OWNED_VARIABLES
-    assert "ARENA_TEST_EXECUTION_GUARD" in owned
-    assert "ARENA_E2E_SERVER_CMD" in owned
+    assert suite_conftest._is_harness_owned(name)
+
+
+@pytest.mark.parametrize("name", [
+    "ARENA_TEST_A_KNOB_ADDED_TOMORROW",
+    "ARENA_E2E_TIMEOUT",
+])
+def test_the_harness_namespaces_are_matched_by_prefix(name, suite_conftest):
+    """A new knob in an owned namespace is owned without an edit here.
+
+    Raised in review by coderabbit and by cubic from opposite ends: an
+    allowlist of literal names shrinks silently every time someone adds
+    a variable, and the resulting breakage is the quiet kind -- the
+    suite still passes, it just stops honouring the switch.
+    """
+    assert suite_conftest._is_harness_owned(name)
+
+
+def test_the_browser_skip_switch_survives(monkeypatch, suite_conftest):
+    """`ARENA_SKIP_BROWSER_E2E=1` must not be cleared into a *run*.
+
+    `tests/e2e/test_dashboard_browser.py:48` reads it in a module-level
+    `skipif`, so deleting it turns "skip these" into "run these" with
+    no diagnostic at all.
+    """
+    monkeypatch.setenv("ARENA_SKIP_BROWSER_E2E", "1")
+    assert "ARENA_SKIP_BROWSER_E2E" not in (
+        suite_conftest._ambient_arena_variables())
 
 
 def test_an_inherited_value_is_reported_as_ambient(monkeypatch, suite_conftest):
@@ -105,11 +139,16 @@ def test_an_inherited_value_is_reported_as_ambient(monkeypatch, suite_conftest):
     assert "ARENA_TOKEN_FILE" in suite_conftest._ambient_arena_variables()
 
 
-def test_a_harness_owned_value_is_not_reported_as_ambient(
+def test_a_product_name_that_merely_contains_e2e_is_still_ambient(
         monkeypatch, suite_conftest):
-    """...but the harness's own knobs are not."""
-    monkeypatch.setenv("ARENA_TEST_EXECUTION_GUARD", "1")
-    assert "ARENA_TEST_EXECUTION_GUARD" not in (
+    """The prefix must not be read as "contains".
+
+    `ARENA_SKIP_BROWSER_E2E` is owned by name, but a product variable
+    that happens to mention E2E is not, and matching loosely would
+    quietly re-open the hole this change closes.
+    """
+    monkeypatch.setenv("ARENA_BRIDGE_E2E_URL", "http://example.invalid")
+    assert "ARENA_BRIDGE_E2E_URL" in (
         suite_conftest._ambient_arena_variables())
 
 
@@ -179,5 +218,6 @@ def test_the_two_known_victims_pass_with_the_variable_set(
     )
     assert completed.returncode == 0, (
         f"{target} fails when {variable} is set in the ambient "
-        f"environment:\n{completed.stdout[-2000:]}"
+        f"environment:\n{completed.stdout[-2000:]}\n"
+        f"{completed.stderr[-2000:]}"
     )
