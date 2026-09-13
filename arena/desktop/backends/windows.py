@@ -282,22 +282,26 @@ def _is_untitled_shell_window(title: str, cls: str) -> bool:
     return not title and cls in _SHELL_WINDOW_CLASSES
 
 
-# The foreground HWND that the most recent `list_windows` call used to
-# compute `active`. Exposed for #351: the flag is set against one read
-# of `GetForegroundWindow()` taken inside the call, so a test -- or any
-# caller wanting to cross-check the flag -- has no other way to name
-# the value it was compared with. Reading the API again gives a third
-# snapshot, and focus that leaves and returns during the enumeration
-# (A->B->A) makes the outer reads agree while `active` reflects B.
-_LAST_FOREGROUND_SNAPSHOT: dict[str, int] = {"hwnd": 0}
+def list_windows_with_foreground(*, visible_only: bool = True) -> tuple[list[dict[str, Any]], int]:
+    """`list_windows`, plus the foreground HWND it compared against.
+
+    Added for #351. `active` is set from one `GetForegroundWindow()`
+    read taken inside the enumeration, and a caller wanting to
+    cross-check the flag had no way to name that value: reading the API
+    again returns a *different* snapshot, and focus that leaves and
+    comes back during the walk (A->B->A) makes two outer reads agree
+    while the flag holds B.
+
+    Returned rather than stashed on the module. A module-global would
+    be shared state: these backend functions run under
+    `run_in_executor`, so a concurrent enumeration on another worker
+    could overwrite the value between a caller's own call and its read.
+    A return value belongs to the call that produced it.
+    """
+    return _enumerate_windows(visible_only=visible_only)
 
 
-def last_foreground_snapshot() -> int:
-    """The foreground HWND used by the last `list_windows` call, or 0."""
-    return _LAST_FOREGROUND_SNAPSHOT["hwnd"]
-
-
-def list_windows(*, visible_only: bool = True) -> list[dict[str, Any]]:
+def _enumerate_windows(*, visible_only: bool = True) -> tuple[list[dict[str, Any]], int]:
     """Enumerate top-level windows.
 
     Returns a list of dicts with:
@@ -314,7 +318,6 @@ def list_windows(*, visible_only: bool = True) -> list[dict[str, Any]]:
         raise NotImplementedError("windows backend not available on this platform")
 
     fg = user32.GetForegroundWindow()
-    _LAST_FOREGROUND_SNAPSHOT["hwnd"] = int(fg)
     results: list[dict[str, Any]] = []
 
     def _proc(hwnd: int, _lparam: int) -> bool:
@@ -357,7 +360,13 @@ def list_windows(*, visible_only: bool = True) -> list[dict[str, Any]]:
 
     cb = _api.EnumWindowsProc(_proc)
     user32.EnumWindows(cb, 0)
-    return results
+    return results, int(fg)
+
+
+def list_windows(*, visible_only: bool = True) -> list[dict[str, Any]]:
+    """Enumerate top-level windows. See `_enumerate_windows` for the fields."""
+    windows, _foreground = _enumerate_windows(visible_only=visible_only)
+    return windows
 
 
 def get_active_window() -> dict[str, Any] | None:

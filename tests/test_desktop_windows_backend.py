@@ -20,6 +20,7 @@ router.
 from __future__ import annotations
 
 import sys
+import types
 
 import pytest
 
@@ -244,32 +245,24 @@ def test_live_the_unfiltered_list_does_keep_the_shell_windows():
 def test_live_the_unfiltered_view_flags_the_real_foreground_window():
     """The unfiltered enumeration must contain and flag the true HWND.
 
-    Checked against `last_foreground_snapshot()` -- the exact value
-    `list_windows` compared each window with -- rather than against a
-    fresh `GetForegroundWindow()` read.
+    Both halves come from one `list_windows_with_foreground()` call, so
+    the flags are checked against the very value they were set from.
 
-    Three earlier revisions of this test were tautologies: they
-    compared the returned list against itself, so nothing could
-    contradict anything (`len(flagged) <= 1` cannot fail when one `fg`
-    is tested against each window). The revision after that bracketed
-    the call with two `GetForegroundWindow()` reads and skipped when
-    they differed -- still wrong, as review pointed out: `active` is
-    set from a *third* read taken inside the call, so focus that leaves
-    and comes back during the enumeration (A->B->A) leaves the outer
-    reads agreeing while the flag holds B, and the test fails on a
-    correct backend.
+    Three earlier revisions of this test were tautologies -- they
+    compared the returned list against itself, and `len(flagged) <= 1`
+    cannot fail when a single `fg` is tested against each window. The
+    revision after that bracketed the call with two
+    `GetForegroundWindow()` reads and skipped when they differed, which
+    review showed was still wrong: the flag is set from a third read
+    inside the call, so focus that leaves and returns during the walk
+    (A->B->A) leaves the outer reads agreeing while the flag holds B.
 
-    Naming the snapshot in the backend removes the guesswork instead of
-    narrowing the window: there is now exactly one value that decided
-    the flag, and the test reads it.
-
-    The empty case is asserted rather than skipped past. It is
-    reachable: `_proc` swallows per-window exceptions, so a window that
-    raises while being described drops out of the enumeration --
-    including the foreground one, which is the #351 symptom.
+    The empty case is asserted, not skipped past. It is reachable:
+    `_proc` swallows per-window exceptions, so a window that raises
+    while being described drops out of the enumeration -- including the
+    foreground one, which is the #351 symptom.
     """
-    everything = win_backend.list_windows(visible_only=False)
-    fg = win_backend.last_foreground_snapshot()
+    everything, fg = win_backend.list_windows_with_foreground(visible_only=False)
     flagged = [w["id"] for w in everything if w.get("active")]
 
     if not fg:
@@ -280,24 +273,76 @@ def test_live_the_unfiltered_view_flags_the_real_foreground_window():
     )
 
 
-def test_the_foreground_snapshot_records_what_the_flag_was_compared_with():
+def test_the_foreground_returned_is_the_one_the_flag_was_set_from(monkeypatch):
     """Runs on every platform, unlike the live test above.
 
-    `last_foreground_snapshot()` is only trustworthy if it is written
-    on the same line of reasoning that sets `active`. This pins the
-    accessor to the stored value so the two cannot drift apart on
-    platforms where the live test never runs.
+    Drives the real enumeration against a fake user32 and moves the
+    foreground *during* the walk, which is the case no Windows-only
+    test can stage on demand: `GetForegroundWindow` answers 111 when
+    the enumeration reads it and 999 afterwards. The returned
+    foreground must be the one the flags were computed from, 111, or
+    the cross-check in the live test is comparing against the wrong
+    number.
     """
     from arena.desktop.backends import windows as mod
 
-    previous = mod._LAST_FOREGROUND_SNAPSHOT["hwnd"]
-    try:
-        mod._LAST_FOREGROUND_SNAPSHOT["hwnd"] = 4242
-        assert mod.last_foreground_snapshot() == 4242
-        mod._LAST_FOREGROUND_SNAPSHOT["hwnd"] = 0
-        assert mod.last_foreground_snapshot() == 0
-    finally:
-        mod._LAST_FOREGROUND_SNAPSHOT["hwnd"] = previous
+    reads = []
+
+    class _FakeUser32:
+        def GetForegroundWindow(self):
+            reads.append(1)
+            return 111 if len(reads) == 1 else 999
+
+        def EnumWindows(self, cb, _lparam):
+            for hwnd in (111, 222):
+                cb(hwnd, 0)
+            return True
+
+        def IsWindowVisible(self, hwnd):
+            return 1
+
+        def GetWindowTextLengthW(self, hwnd):
+            return 5
+
+        def GetWindowTextW(self, hwnd, buf, _n):
+            buf.value = f"w{hwnd}"
+            return len(buf.value)
+
+        def GetClassNameW(self, hwnd, buf, _n):
+            buf.value = "TestClass"
+            return len(buf.value)
+
+        def GetWindowThreadProcessId(self, hwnd, pid_ref):
+            pid_ref._obj.value = 4242
+            return 1
+
+        def IsIconic(self, hwnd):
+            return 0
+
+    monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+    monkeypatch.setattr(mod, "user32", _FakeUser32())
+    monkeypatch.setattr(mod, "_api", types.SimpleNamespace(EnumWindowsProc=lambda fn: fn))
+    monkeypatch.setattr(mod, "_best_window_geometry", lambda hwnd, owner_pid: ({}, None, "test"))
+
+    windows, foreground = mod.list_windows_with_foreground(visible_only=False)
+
+    assert foreground == 111
+    assert [w["id"] for w in windows if w["active"]] == ["111"]
+
+
+def test_the_foreground_is_not_kept_on_the_module(monkeypatch):
+    """A module-global would be shared between concurrent enumerations.
+
+    These backend calls run under `run_in_executor`, so a second worker
+    enumerating windows could overwrite a stashed snapshot between a
+    caller's own call and its read -- raised in review on the previous
+    revision, which did exactly that. The value is returned instead,
+    and this keeps it that way.
+    """
+    from arena.desktop.backends import windows as mod
+
+    stateful = [name for name in dir(mod) if "LAST_FOREGROUND" in name.upper()]
+    assert stateful == []
 
 
 def test_the_shell_window_filter_is_what_hides_the_foreground():
