@@ -113,6 +113,35 @@ def _nt_refusal(name: str) -> str | None:
     return None
 
 
+def escapes_the_root(path: Path, root: Path) -> bool:
+    """Does *path* land anywhere other than directly under *root*?
+
+    Two separate escapes, both raised in review on #350:
+
+    * out of the tree -- `missions_dir/plain` is a symlink to somewhere
+      else, so the name passes every string check and the path still
+      resolves outside;
+    * sideways within the tree -- `missions_dir/alias` links to
+      `missions_dir/real`, which *is* contained, so a containment test
+      alone lets a write land on another mission's files.
+
+    So containment is checked against the resolved root, and the final
+    component must additionally not be a link: a mission directory is
+    a directory, never an alias for one.
+
+    `RuntimeError` is caught alongside `OSError` because a symlink loop
+    is reported differently across the versions in the CI matrix --
+    3.13 raises `OSError`, earlier ones `RuntimeError`. Either way the
+    answer is "this escapes", not a traceback.
+    """
+    try:
+        if path.is_symlink():
+            return True
+        return not path.resolve().is_relative_to(root.resolve())
+    except (OSError, ValueError, RuntimeError):
+        return True
+
+
 def not_a_single_directory_name(name: str, *, label: str = "mission name") -> str | None:
     """Why this identifier is not a plain name inside its directory.
 
@@ -217,4 +246,4 @@ def _looks_unsafe(name: str) -> bool:
     that check runs, so it must not be the weak link: a ``name`` of
     ``../../etc`` would otherwise have its existence probed here.
     """
-    return ".." in name or "/" in name or "\\" in name or name.startswith(".")
+    return not_a_single_directory_name(name) is not None

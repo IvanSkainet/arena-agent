@@ -28,7 +28,10 @@ from pathlib import Path
 import pytest
 
 from arena.resources.mission_catalog import mission_dir
-from arena.resources.mission_identifier import not_a_single_directory_name
+from arena.resources.mission_identifier import (
+    escapes_the_root,
+    not_a_single_directory_name,
+)
 from arena.resources.missions_manage import _slug, create_mission_from_draft
 
 # Names that navigate somewhere other than "one directory below the
@@ -242,3 +245,147 @@ def test_the_module_imports_cleanly():
     would surface as an ImportError only on a cold interpreter.
     """
     assert "arena.resources.mission_identifier" in sys.modules
+
+
+# --------------------------------------------------------------------
+# Symlinks. Raised in review by sourcery, coderabbit and cubic
+# independently: the first revision closed the writer and left every
+# reader open, and treated "contained" as sufficient when an alias
+# *inside* the root can still land on another mission's files.
+
+@pytest.fixture
+def linked_tree(tmp_path: Path):
+    """A missions root holding both kinds of dangerous alias."""
+    missions = tmp_path / "missions"
+    missions.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "mission.json").write_text('{"id": "stolen"}', encoding="utf-8")
+    real = missions / "real"
+    real.mkdir()
+    (real / "mission.json").write_text("ORIGINAL", encoding="utf-8")
+    try:
+        os.symlink(outside, missions / "out", target_is_directory=True)
+        os.symlink(real, missions / "alias", target_is_directory=True)
+    except (OSError, NotImplementedError):  # pragma: no cover - Windows ACL
+        pytest.skip("cannot create a directory symlink on this machine")
+    return missions, outside, real
+
+
+def test_a_reader_does_not_follow_a_link_out_of_the_root(linked_tree):
+    """`mission_dir` validated the string and returned the path unread.
+
+    Every mission read funnels through it -- status, report, history,
+    lineage, family, show -- so a single planted link served an
+    external `mission.json` to all of them.
+    """
+    missions, _outside, _real = linked_tree
+
+    with pytest.raises(ValueError, match="escapes"):
+        mission_dir(missions, "out")
+
+
+def test_a_writer_does_not_follow_a_link_out_of_the_root(linked_tree):
+    missions, outside, _real = linked_tree
+
+    result = _create(missions, "out")
+
+    assert result["ok"] is False
+    assert result["status"] == 400
+    assert (outside / "mission.json").read_text(encoding="utf-8") == '{"id": "stolen"}'
+
+
+def test_an_alias_onto_another_mission_is_refused(linked_tree):
+    """Containment alone is not enough.
+
+    `missions/alias -> missions/real` resolves *inside* the root, so an
+    `is_relative_to` test passes it, and `overwrite=True` then rewrites
+    the other mission's `mission.json` and `PLAN.md` through the alias.
+    """
+    missions, _outside, real = linked_tree
+
+    result = _create(missions, "alias")
+
+    assert result["ok"] is False
+    assert result["status"] == 400
+    assert (real / "mission.json").read_text(encoding="utf-8") == "ORIGINAL"
+
+
+def test_a_reader_refuses_the_in_root_alias_too(linked_tree):
+    """Writer and reader stay in step on links, as they now do on names."""
+    missions, _outside, _real = linked_tree
+
+    with pytest.raises(ValueError, match="escapes"):
+        mission_dir(missions, "alias")
+
+
+def test_a_real_directory_is_not_an_escape(tmp_path):
+    """The link check must not refuse ordinary missions."""
+    missions = tmp_path / "missions"
+    (missions / "plain").mkdir(parents=True)
+
+    assert escapes_the_root(missions / "plain", missions) is False
+
+
+def test_a_path_that_does_not_exist_yet_is_not_an_escape(tmp_path):
+    """Creation asks before the directory exists; that is not a failure."""
+    missions = tmp_path / "missions"
+    missions.mkdir()
+
+    assert escapes_the_root(missions / "not-created-yet", missions) is False
+
+
+@pytest.mark.parametrize("blow_up", [OSError, RuntimeError, ValueError])
+def test_a_resolution_failure_fails_closed(tmp_path, monkeypatch, blow_up):
+    """Whatever `resolve()` raises, the answer is "escapes", not a 500.
+
+    Version-dependent, which is why this injects the exception instead
+    of building the condition: a symlink loop surfaces as `OSError` on
+    3.13 and `RuntimeError` on 3.10-3.12, and both are in the CI
+    matrix. Constructing a real loop would exercise only whichever
+    interpreter happens to be running -- and in fact could not reach
+    the handler at all on 3.13, where `is_symlink()` answers first.
+    """
+    missions = tmp_path / "missions"
+    missions.mkdir()
+
+    def refuse(*_args, **_kwargs):
+        raise blow_up("resolution failed")
+
+    monkeypatch.setattr(Path, "resolve", refuse)
+
+    assert escapes_the_root(missions / "anything", missions) is True
+
+
+def test_a_symlink_loop_fails_closed(tmp_path):
+    """The real condition, on whatever interpreter is running."""
+    missions = tmp_path / "missions"
+    missions.mkdir()
+    first = missions / "first"
+    second = missions / "second"
+    try:
+        os.symlink(second, first)
+        os.symlink(first, second)
+    except (OSError, NotImplementedError):  # pragma: no cover - Windows ACL
+        pytest.skip("cannot create a symlink on this machine")
+
+    assert escapes_the_root(first, missions) is True
+
+    result = _create(missions, "first")
+    assert result["ok"] is False
+    assert result["status"] == 400
+
+
+def test_the_pre_stat_guard_uses_the_shared_rule():
+    """`_looks_unsafe` was a second copy of the same predicate.
+
+    It gates the `.exists()` probes inside `resolve_mission_name`, so
+    if the two drifted, resolution would stat a name the writer and the
+    reader both reject. It now delegates.
+    """
+    from arena.resources import mission_identifier
+
+    for name in NAVIGATING_NAMES:
+        assert mission_identifier._looks_unsafe(name) is True
+    for name in PLAIN_NAMES:
+        assert mission_identifier._looks_unsafe(name) is False

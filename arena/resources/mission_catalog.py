@@ -6,6 +6,7 @@ from typing import Any
 
 from arena.jsonshape import loads_object
 from arena.resources.mission_identifier import (
+    escapes_the_root,
     not_a_single_directory_name,
     resolve_mission_name,
     unusable_directory_name,
@@ -42,7 +43,15 @@ def mission_dir(missions_dir: Path, name: str) -> Path:
         # to a name it cannot hold arrive as exceptions from inside
         # `Path.exists()`, which reached the client as 500s (#286).
         raise ValueError(unusable)
-    return missions_dir / resolve_mission_name(missions_dir, name)
+    resolved = missions_dir / resolve_mission_name(missions_dir, name)
+    if escapes_the_root(resolved, missions_dir):
+        # The name says nothing about where the entry points. Raised in
+        # review on #350 by all three reviewers: with only the string
+        # check here, `missions_dir/plain` as a symlink let every reader
+        # -- status, report, history, family, show -- load a
+        # `mission.json` from outside the root.
+        raise ValueError("mission name escapes the missions directory")
+    return resolved
 
 
 

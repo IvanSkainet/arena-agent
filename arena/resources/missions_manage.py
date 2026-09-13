@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 from arena.missions_cli.templates import TEMPLATES_DATA
 from arena.resources.mission_identifier import (
+    escapes_the_root,
     not_a_single_directory_name,
     unusable_directory_name,
 )
@@ -91,21 +92,6 @@ def compose_mission_draft(*, goal: str, context: str = "", constraints: list[str
 
 
 
-def _stays_inside(path: Path, root: Path) -> bool:
-    """Does *path* really land under *root* once links are resolved?
-
-    `strict=False`: the mission directory is about to be created, so it
-    does not exist yet and a strict resolve would raise. The parents
-    that do exist are still resolved, which is what a planted symlink
-    would have to go through.
-    """
-    try:
-        resolved_root = root.resolve()
-        return path.resolve().is_relative_to(resolved_root)
-    except (OSError, ValueError):
-        return False
-
-
 def create_mission_from_draft(*, missions_dir: Path, draft: dict[str, Any], mission_id: str = "", overwrite: bool = False) -> dict[str, Any]:
     title = str(draft.get("title", "") or draft.get("goal", "") or "mission")
     mid = mission_id or dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + _slug(title) + "-" + uuid.uuid4().hex[:6]
@@ -131,11 +117,11 @@ def create_mission_from_draft(*, missions_dir: Path, draft: dict[str, Any], miss
         # -- and answered `ok: True`. The same call now decides for both.
         return {"ok": False, "error": navigates, "status": 400}
     path = missions_dir / mid
-    if not _stays_inside(path, missions_dir):
-        # Belt to the name check's braces: the string can be a plain name
-        # and still land outside, because `missions_dir` itself may contain
-        # a symlink. Checked against the resolved root the way
-        # `arena/resources/listing.py` does it for #120.
+    if escapes_the_root(path, missions_dir):
+        # Belt to the name check's braces: a plain name can still land
+        # elsewhere through a symlink -- out of the tree, or sideways onto
+        # another mission's files, which `overwrite=True` would then
+        # rewrite. Shared with the readers so one rule governs both.
         return {"ok": False, "error": "mission id escapes the missions directory", "status": 400}
     if path.exists() and not overwrite:
         return {"ok": False, "error": f"mission already exists: {mid}", "status": 409}
