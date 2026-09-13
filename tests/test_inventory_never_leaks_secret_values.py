@@ -100,8 +100,13 @@ def test_secret_names_are_still_reported():
     assert CANARY not in json.dumps(out, default=str)
 
 
-def test_every_collector_actually_runs():
-    """Silent exceptions would turn the leak tests into skips."""
+def test_every_collector_actually_runs(resolves_this_machine):
+    """Silent exceptions would turn the leak tests into skips.
+
+    Two collectors call `socket.getfqdn()`, which answers "what am I
+    called" with a reverse lookup; the fixture answers it locally so
+    this stays a test about collectors rather than about DNS (#334).
+    """
     raised = []
     for section in REGISTRY:
         try:

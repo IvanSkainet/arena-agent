@@ -223,7 +223,7 @@ def test_fetch_asset_size_returns_none_on_network_error(monkeypatch):
 # ---------------------------------------------------------------------------
 # Download + verify
 # ---------------------------------------------------------------------------
-def test_download_release_detects_sha_mismatch(monkeypatch, tmp_path):
+def test_download_release_detects_sha_mismatch(monkeypatch, tmp_path, resolves_public_names):
     from arena.admin import auto_update as au, auto_update_fetch as auf
 
     payload = b"fake-zip-contents"

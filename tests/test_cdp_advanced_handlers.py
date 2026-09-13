@@ -159,7 +159,7 @@ def test_session_check_disconnected_and_success():
     assert _json(ok) == {"ok": True, "domain": "example.com", "healthy": True, "auth_cookie_names": ["sid", "auth"]}
 
 
-def test_stealth_extract_and_shot_success():
+def test_stealth_extract_and_shot_success(resolves_public_names):
     state = {"connected": True, "port": 9222, "headless": True, "manager": _Manager()}
     handlers = make_cdp_advanced_handlers(_ctx(state))
 

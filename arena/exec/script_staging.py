@@ -7,19 +7,32 @@ a separate question from how requests are gated.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import os
-import re
 import tempfile
 from pathlib import Path
 
 __all__ = ["stage_script"]
 
-# Everything outside this is dropped from the filename. `request_id` is
-# client-controlled (`X-Arena-Request-Id`), and mkstemp treats a prefix
-# containing a separator as nested path components: a request id of
-# `a/b/c` asked it to create `scr-a/b/c-XXXX.py` under a directory that
-# does not exist, so the endpoint answered 500 (cubic).
-_UNSAFE_IN_NAME = re.compile(r"[^A-Za-z0-9._-]")
+def _name_fragment(request_id: str) -> str:
+    """A short, filename-safe stand-in for a client-controlled id.
+
+    `request_id` arrives in `X-Arena-Request-Id` and used to be spliced
+    into the filename after a regex stripped the dangerous characters.
+    That was sound -- separators could not survive it -- but it left
+    client data on a filesystem path, which CodeQL reports as
+    `py/path-injection` (2 high alerts, #346) because it does not model
+    the regex as a sanitiser. A permanently-red required security gate
+    is worse than the argument is worth, and there is a construction
+    with nothing to argue about: hash the id.
+
+    The output is hex, so it cannot contain a separator, cannot be `..`
+    and has a fixed length whatever arrives. It is still deterministic,
+    so the same request keeps the same staged filename, and the audit
+    event records both the id and the path when the two need joining.
+    """
+    return hashlib.sha256(request_id.encode("utf-8", "surrogatepass")
+                          ).hexdigest()[:8]
 
 
 def stage_script(root: Path, request_id: str, suffix: str) -> str:
@@ -45,8 +58,7 @@ def stage_script(root: Path, request_id: str, suffix: str) -> str:
     else:
         with contextlib.suppress(OSError, NotImplementedError):
             tmp_dir.chmod(0o700)
-    safe_id = _UNSAFE_IN_NAME.sub("-", request_id)[:8] or "anon"
-    fd, tmp_path = tempfile.mkstemp(prefix=f"scr-{safe_id}-",
+    fd, tmp_path = tempfile.mkstemp(prefix=f"scr-{_name_fragment(request_id)}-",
                                     suffix=suffix, dir=str(tmp_dir))
     os.close(fd)
     return tmp_path

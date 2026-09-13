@@ -140,7 +140,7 @@ def test_cdp_navigate_requires_valid_json_and_url():
     assert _json(missing) == {"ok": False, "error": "missing 'url' parameter"}
 
 
-def test_cdp_navigate_success_updates_navigation_time_and_syncs_tabs():
+def test_cdp_navigate_success_updates_navigation_time_and_syncs_tabs(resolves_public_names):
     tab = _Tab()
     manager = _Manager()
     state = {"manager": manager, "last_navigation_time": None}

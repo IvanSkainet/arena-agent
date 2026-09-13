@@ -86,7 +86,7 @@ def test_ssrf_bypass_is_refused(url, reason):
 
 
 @pytest.mark.parametrize("url", MUST_ALLOW)
-def test_ordinary_public_urls_are_allowed(url):
+def test_ordinary_public_urls_are_allowed(url, resolves_public_names):
     """A validator that blocks everything is not a validator."""
     assert _validate_url(url) is None, f"legitimate URL refused: {url!r}"
 

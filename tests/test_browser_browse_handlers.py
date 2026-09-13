@@ -82,7 +82,7 @@ def test_browser_browse_requires_url(tmp_path):
     assert body == {"ok": False, "error": "missing 'url' parameter"}
 
 
-def test_browser_browse_stealth_requires_browseract_skill(tmp_path):
+def test_browser_browse_stealth_requires_browseract_skill(tmp_path, resolves_public_names):
     handler = make_browser_browse_handlers(_ctx(tmp_path)).browse
     response = asyncio.run(handler(_JsonRequest({"url": "https://example.com", "stealth": True})))
     body = _json(response)
@@ -90,7 +90,7 @@ def test_browser_browse_stealth_requires_browseract_skill(tmp_path):
     assert body == {"ok": False, "error": "BrowserAct skill not installed"}
 
 
-def test_browser_browse_cdp_missing_module_returns_503(tmp_path):
+def test_browser_browse_cdp_missing_module_returns_503(tmp_path, resolves_public_names):
     handler = make_browser_browse_handlers(_ctx(tmp_path)).browse
     response = asyncio.run(handler(_JsonRequest({"url": "https://example.com"})))
     body = _json(response)
