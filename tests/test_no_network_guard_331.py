@@ -495,7 +495,7 @@ def test_a_literal_does_not_buy_a_free_reverse_lookup(suite_conftest, call):
 # The suppression below is for bandit B104: these parameters name the
 # spellings CPython treats as "this machine", not an interface being
 # bound to.
-@pytest.mark.parametrize("host", ["", "0.0.0.0", "::"])  # noqa: S104
+@pytest.mark.parametrize("host", ["", "0.0.0.0", "::"])  # noqa: S104  # nosec B104
 def test_asking_for_this_machines_own_name_is_still_a_lookup(
         suite_conftest, host):
     """`getfqdn("")` names no remote host but queries the resolver.

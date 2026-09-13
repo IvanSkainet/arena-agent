@@ -128,7 +128,7 @@ def _means_this_machine(host: object) -> bool:
     # *matched*, not an address being bound to. Recognising "0.0.0.0"
     # here is what stops a lookup going out, so the scanner has the
     # sign backwards.
-    wildcard_spellings = ("", "0.0.0.0", "::")  # noqa: S104
+    wildcard_spellings = ("", "0.0.0.0", "::")  # noqa: S104  # nosec B104
     return isinstance(host, str) and host.strip() in wildcard_spellings
 
 
