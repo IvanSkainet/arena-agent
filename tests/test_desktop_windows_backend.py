@@ -241,27 +241,42 @@ def test_live_the_unfiltered_list_does_keep_the_shell_windows():
 
 
 @_WIN_ONLY
-def test_live_the_foreground_is_flagged_in_the_unfiltered_view():
-    """The invariant #351 was really about, on one snapshot.
+def test_live_the_unfiltered_view_flags_the_real_foreground_window():
+    """The unfiltered enumeration must contain and flag the true HWND.
 
-    `list_windows()` hides untitled shell windows while
-    `get_active_window()` reads the unfiltered enumeration, so the two
-    legitimately disagree whenever the taskbar holds the focus -- which
-    is exactly what happens under `cmd /c start /b`, how the live gate
-    runs the suite. The old test demanded an `active` entry in the
-    *filtered* list and so failed on a correct backend.
+    Asserted against `GetForegroundWindow()` read directly here, which
+    is the only independent source available: `active` is computed as
+    `hwnd == fg` inside `list_windows`, so anything derived from the
+    returned list alone cannot contradict it. Two earlier revisions of
+    this test were tautologies for exactly that reason -- `len(flagged)
+    <= 1` cannot fail when one `fg` is compared against each window,
+    and an `if flagged:` guard quietly passes when the list is empty,
+    which is the very symptom #351 is about.
 
-    The unfiltered view has no such excuse: whatever holds the
-    foreground is in it. Reading `visible_only=False` once means
-    `GetForegroundWindow()` is read once too, so focus moving
-    afterwards cannot make this fail -- an earlier revision compared
-    two separate calls and review was right that it was racy.
+    That empty case is reachable rather than theoretical: `_proc`
+    swallows per-window exceptions (`except Exception: pass`,
+    windows.py:338), so a window that raises while being described is
+    dropped from the enumeration -- including the foreground one.
+
+    A fresh `GetForegroundWindow()` can disagree with the one taken
+    inside the call if focus moved in between, so the check is skipped
+    when the two differ rather than asserted; a race must not be
+    reported as a defect. That is a real skip on a moving target, not
+    the "mostly does not run" kind rejected earlier in this PR.
     """
+    fg_before = win_backend.user32.GetForegroundWindow()
     everything = win_backend.list_windows(visible_only=False)
-    flagged = [w for w in everything if w.get("active")]
-    assert len(flagged) <= 1
-    if flagged:
-        assert flagged[0]["id"].isdigit()
+    fg_after = win_backend.user32.GetForegroundWindow()
+    if fg_before != fg_after:
+        pytest.skip("focus moved while the enumeration was running")
+    if not fg_before:
+        assert [w for w in everything if w.get("active")] == []
+        return
+
+    flagged = [w["id"] for w in everything if w.get("active")]
+    assert flagged == [str(fg_before)], (
+        f"foreground {fg_before} missing or mis-flagged in the unfiltered view"
+    )
 
 
 def test_the_shell_window_filter_is_what_hides_the_foreground():
