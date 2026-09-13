@@ -369,8 +369,13 @@ def _guarded_resolver(real_resolver: Any, *, literals_are_local: bool) -> Any:
         # `getnameinfo` takes a sockaddr tuple, not a bare host.
         if isinstance(host, tuple) and host:
             host = host[0]
+        # `None` is the wildcard-bind spelling for a *forward* lookup and
+        # means nothing on a reverse one, so the exemption does not
+        # travel with it (cubic). The reverse entry points reject None
+        # themselves, but a guard should not be the thing relying on
+        # that.
         local = _is_loopback(host) or (
-            _needs_no_resolver(host) if literals_are_local else host is None)
+            literals_are_local and _needs_no_resolver(host))
         if not local:
             raise _refuse_resolution(host)
         return real_resolver(*args, **kwargs)

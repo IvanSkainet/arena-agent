@@ -498,6 +498,18 @@ def test_a_loopback_literal_may_still_be_reversed(suite_conftest, call):
     assert getattr(socket, call)("127.0.0.1")
 
 
+@pytest.mark.parametrize("call", ["getfqdn", "gethostbyaddr"])
+def test_none_is_not_a_wildcard_on_a_reverse_lookup(suite_conftest, call):
+    """The wildcard exemption belongs to the forward direction only.
+
+    `getaddrinfo(None, port)` means "bind everywhere"; `gethostbyaddr(None)`
+    means nothing at all, so carrying the exemption across let an
+    unexamined call through the guard (cubic).
+    """
+    with pytest.raises(suite_conftest.NetworkUseInTest):
+        getattr(socket, call)(None)
+
+
 def test_a_wildcard_bind_lookup_is_not_refused(suite_conftest):
     """`getaddrinfo(None, port)` asks no nameserver.
 
