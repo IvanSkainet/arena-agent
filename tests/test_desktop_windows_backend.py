@@ -167,10 +167,63 @@ def test_live_capture_screenshot_returns_bytes():
 
 
 @_WIN_ONLY
-def test_live_list_windows_includes_active():
+def test_live_list_windows_returns_usable_entries():
+    """The part that is about the code: the list has the right shape.
+
+    Split out of `test_live_list_windows_includes_active` (#351), which
+    also demanded that some window be marked active. That second
+    assertion is about the state of the desktop, not about
+    `list_windows`, and it made the whole test fail whenever nothing
+    held the keyboard focus.
+    """
     wins = win_backend.list_windows()
     assert isinstance(wins, list)
-    assert any(w.get("active") for w in wins)
+    assert wins, "no visible top-level windows at all"
+    for w in wins:
+        assert w["id"].isdigit()
+        assert isinstance(w["title"], str)
+        assert isinstance(w["active"], bool)
+
+
+@_WIN_ONLY
+def test_live_at_most_one_window_is_marked_active():
+    """Whatever the desktop is doing, two foreground windows is a bug.
+
+    This holds with the screen locked, with everything minimised and
+    from a background process, so it is the half of the old assertion
+    that was always about the code.
+    """
+    wins = win_backend.list_windows()
+    assert len([w for w in wins if w.get("active")]) <= 1
+
+
+@_WIN_ONLY
+def test_live_the_active_window_is_flagged_when_the_list_keeps_it():
+    """The real invariant: the two views must agree about the same HWND.
+
+    `list_windows()` hides untitled shell windows -- the taskbar, the
+    desktop, the IME -- while `get_active_window()` looks at the
+    unfiltered enumeration, so the foreground window is not always in
+    the list. When it *is*, exactly that entry must carry `active`.
+
+    This is what #351 turned out to be. Running the suite in the
+    background (`cmd /c start /b`, which is how the live gate runs it)
+    leaves the taskbar in the foreground: class `Shell_TrayWnd`, empty
+    title, dropped by the filter. So nothing in the list was marked
+    active and the old assertion failed -- on a machine where the
+    backend was working correctly, and while
+    `test_live_get_active_window_has_id_and_title`, which reads the
+    unfiltered view, passed in the same run.
+    """
+    active = win_backend.get_active_window()
+    if active is None:
+        pytest.skip("nothing holds the keyboard focus on this desktop")
+    wins = win_backend.list_windows()
+    listed = [w for w in wins if w["id"] == active["id"]]
+    if not listed:
+        pytest.skip(f"the foreground window is filtered out of the list (class {active.get('class')!r})")
+    assert listed[0]["active"] is True
+    assert [w["id"] for w in wins if w.get("active")] == [active["id"]]
 
 
 @_WIN_ONLY
