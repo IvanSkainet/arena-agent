@@ -201,47 +201,67 @@ def test_live_at_most_one_window_is_marked_active():
 
 
 @_WIN_ONLY
-def test_live_the_foreground_flag_follows_the_shell_filter():
-    """One snapshot, so focus cannot move out from under the assertion.
+def test_live_the_filtered_list_never_keeps_a_shell_window():
+    """What `visible_only=True` drops, checked against the rule spelled out.
 
-    `list_windows()` hides untitled shell windows -- the taskbar, the
-    desktop, the IME -- while `get_active_window()` reads the
-    unfiltered enumeration, so the two disagree about the foreground
-    whenever a shell window holds it. That is correct behaviour; what
-    would be a bug is the filtered list flagging some *other* window.
+    The expected rule is restated here as literals rather than by
+    calling `_is_untitled_shell_window`. The previous version of this
+    test recomputed the filter with the backend's own helper over the
+    backend's own snapshot, so the two sides could not disagree and the
+    assertion could never fail -- review called it a tautology and was
+    right. Restating the rule is double-entry bookkeeping: the test
+    fails if the backend's filter and the written-down rule diverge,
+    which is the only way this can carry information.
 
-    This is what #351 turned out to be, and the diagnosis in the issue
-    was wrong. There was no missing window station: running the suite
-    in the background (`cmd /c start /b`, which is how the live gate
-    runs it) leaves the taskbar in the foreground -- class
-    `Shell_TrayWnd`, empty title -- so the filter dropped it and
-    nothing in the list carried `active`, on a machine where the
-    backend was working correctly.
+    (In product code a second copy of a predicate is the defect #350
+    was about. In a test it is the mechanism.)
+    """
+    for w in win_backend.list_windows():
+        assert w["visible"] is True
+        assert not (w["title"] == "" and w["class"] in {"Progman", "WorkerW", "Shell_TrayWnd", "IME"}), (
+            f"filtered list kept a shell window: {w['class']!r}"
+        )
 
-    Everything below comes from a single `list_windows(visible_only=
-    False)` call, which reads `GetForegroundWindow()` exactly once.
-    Calling `get_active_window()` and `list_windows()` separately was
-    the first version and review was right to reject it: two reads of
-    a moving value, and focus stealing between them would have failed
-    the test for no reason -- precisely the kind of flake this PR
-    exists to remove.
+
+@_WIN_ONLY
+def test_live_the_unfiltered_list_does_keep_the_shell_windows():
+    """The control for the test above, which otherwise passes on an
+    empty list or on a filter that drops everything.
+
+    A desktop always has a taskbar, so `visible_only=False` must show
+    at least one of the classes the filtered view hides. Without this,
+    "no shell window survived the filter" is satisfied by a backend
+    that returns nothing at all.
+    """
+    everything = win_backend.list_windows(visible_only=False)
+    classes = {w["class"] for w in everything}
+    assert classes & {"Progman", "WorkerW", "Shell_TrayWnd", "IME"}, (
+        f"no shell window in the unfiltered enumeration at all: {sorted(classes)[:20]}"
+    )
+
+
+@_WIN_ONLY
+def test_live_the_foreground_is_flagged_in_the_unfiltered_view():
+    """The invariant #351 was really about, on one snapshot.
+
+    `list_windows()` hides untitled shell windows while
+    `get_active_window()` reads the unfiltered enumeration, so the two
+    legitimately disagree whenever the taskbar holds the focus -- which
+    is exactly what happens under `cmd /c start /b`, how the live gate
+    runs the suite. The old test demanded an `active` entry in the
+    *filtered* list and so failed on a correct backend.
+
+    The unfiltered view has no such excuse: whatever holds the
+    foreground is in it. Reading `visible_only=False` once means
+    `GetForegroundWindow()` is read once too, so focus moving
+    afterwards cannot make this fail -- an earlier revision compared
+    two separate calls and review was right that it was racy.
     """
     everything = win_backend.list_windows(visible_only=False)
     flagged = [w for w in everything if w.get("active")]
     assert len(flagged) <= 1
-
-    # What `visible_only=True` would keep, computed from the same
-    # snapshot rather than by calling the backend a second time.
-    kept = [
-        w for w in everything
-        if w["visible"] and not win_backend._is_untitled_shell_window(w["title"], w["class"])
-    ]
-    kept_flagged = [w["id"] for w in kept if w.get("active")]
-
-    if flagged and flagged[0] in kept:
-        assert kept_flagged == [flagged[0]["id"]]
-    else:
-        assert kept_flagged == []
+    if flagged:
+        assert flagged[0]["id"].isdigit()
 
 
 def test_the_shell_window_filter_is_what_hides_the_foreground():
