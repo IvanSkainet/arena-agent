@@ -116,6 +116,17 @@ def _is_address_literal(host: object) -> bool:
     return True
 
 
+def _means_this_machine(host: object) -> bool:
+    """Is this the "resolve my own name" spelling of a reverse lookup?
+
+    `getfqdn("")`, `getfqdn("0.0.0.0")` and `getfqdn("::")` all substitute
+    `gethostname()` and then reverse-resolve it, so they reach the
+    resolver despite naming no remote host. The empty string is the one
+    that matters here because `_is_loopback` already calls it local.
+    """
+    return isinstance(host, str) and host.strip() in ("", "0.0.0.0", "::")
+
+
 def _sends_nothing(sock: socket.socket) -> bool:
     """Is `connect` on this socket a local operation?
 
@@ -374,8 +385,15 @@ def _guarded_resolver(real_resolver: Any, *, literals_are_local: bool) -> Any:
         # travel with it (cubic). The reverse entry points reject None
         # themselves, but a guard should not be the thing relying on
         # that.
-        local = _is_loopback(host) or (
-            literals_are_local and _needs_no_resolver(host))
+        #
+        # `""` is in `_LOOPBACK_HOSTNAMES` for the same forward-only
+        # reason, and on a reverse lookup it is not loopback at all: it
+        # means "this machine", and CPython's `getfqdn` turns it into
+        # `gethostbyaddr(gethostname())` -- a real PTR query. Verified:
+        # `getfqdn("")` returns this host's FQDN (coderabbit).
+        local = (_is_loopback(host) and not _means_this_machine(host)
+                 if not literals_are_local
+                 else _is_loopback(host) or _needs_no_resolver(host))
         if not local:
             raise _refuse_resolution(host)
         return real_resolver(*args, **kwargs)

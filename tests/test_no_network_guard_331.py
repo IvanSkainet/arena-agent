@@ -492,6 +492,33 @@ def test_a_literal_does_not_buy_a_free_reverse_lookup(suite_conftest, call):
             getattr(socket, call)(public_literal)
 
 
+@pytest.mark.parametrize("host", ["", "0.0.0.0", "::"])
+def test_asking_for_this_machines_own_name_is_still_a_lookup(
+        suite_conftest, host):
+    """`getfqdn("")` names no remote host but queries the resolver.
+
+    CPython substitutes `gethostname()` and reverse-resolves it, so an
+    empty name reaches a PTR query -- and `""` is in
+    `_LOOPBACK_HOSTNAMES`, which would have waved it through on the
+    reverse path (coderabbit). Verified against CPython's `getfqdn`
+    source, not assumed.
+
+    The refusal has to name the argument that was passed. Without the
+    fix an empty name still ends in a refusal, but one raised a level
+    down by the nested `gethostbyaddr` naming this machine's hostname --
+    and only because that hostname happens not to be loopback. On a
+    host called `localhost` the inner guard would allow it and the
+    lookup would go out. Asserting *which* host was refused is what
+    distinguishes the two.
+    """
+    with pytest.raises(suite_conftest.NetworkUseInTest) as caught:
+        socket.getfqdn(host)
+    assert str(caught.value).startswith(
+        f"this test tried to resolve {host!r}."), (
+        f"refused the wrong thing -- the guard let {host!r} through and "
+        f"something downstream caught it: {caught.value}")
+
+
 @pytest.mark.parametrize("call", ["getfqdn", "gethostbyaddr"])
 def test_a_loopback_literal_may_still_be_reversed(suite_conftest, call):
     """Loopback keeps working in both directions."""
