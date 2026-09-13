@@ -492,10 +492,9 @@ def test_a_literal_does_not_buy_a_free_reverse_lookup(suite_conftest, call):
             getattr(socket, call)(public_literal)
 
 
-# The suppression below is for bandit B104: these parameters name the
-# spellings CPython treats as "this machine", not an interface being
-# bound to.
-@pytest.mark.parametrize("host", ["", "0.0.0.0", "::"])  # noqa: S104  # nosec B104
+@pytest.mark.parametrize("host", ["", "0.0.0.0", "::"])  # noqa: S104  # nosec B104 -- pytest feeds these
+# as lookup arguments, not bind addresses: they are the spellings
+# CPython rewrites to gethostname() before a reverse query.
 def test_asking_for_this_machines_own_name_is_still_a_lookup(
         suite_conftest, host):
     """`getfqdn("")` names no remote host but queries the resolver.

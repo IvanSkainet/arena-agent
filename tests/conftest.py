@@ -124,11 +124,9 @@ def _means_this_machine(host: object) -> bool:
     resolver despite naming no remote host. The empty string is the one
     that matters here because `_is_loopback` already calls it local.
     """
-    # The suppression below is for bandit B104: these are names being
-    # *matched*, not an address being bound to. Recognising "0.0.0.0"
-    # here is what stops a lookup going out, so the scanner has the
-    # sign backwards.
-    wildcard_spellings = ("", "0.0.0.0", "::")  # noqa: S104  # nosec B104
+    wildcard_spellings = ("", "0.0.0.0", "::")  # noqa: S104  # nosec B104 -- match list, not a bind: the
+    # caller feeds these names to a resolver, and recognising them is
+    # exactly what refuses the lookup. Nothing here opens a socket.
     return isinstance(host, str) and host.strip() in wildcard_spellings
 
 
