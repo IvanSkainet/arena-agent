@@ -266,6 +266,22 @@ def _best_window_geometry(hwnd: int, owner_pid: int | None = None) -> tuple[dict
 # ---------------------------------------------------------------------------
 # Window listing
 # ---------------------------------------------------------------------------
+_SHELL_WINDOW_CLASSES = frozenset({"Progman", "WorkerW", "Shell_TrayWnd", "IME"})
+
+
+def _is_untitled_shell_window(title: str, cls: str) -> bool:
+    """Is this the desktop, the taskbar or the IME rather than a window?
+
+    Extracted from the inline condition in `list_windows` for #351.
+    This rule is why `list_windows()` and `get_active_window()` can
+    name different foreground windows -- the taskbar holds the focus
+    whenever the suite runs from a background process -- and while it
+    lived inline the only thing covering it was a Windows-only live
+    test. As a function it is checked on every platform in CI.
+    """
+    return not title and cls in _SHELL_WINDOW_CLASSES
+
+
 def list_windows(*, visible_only: bool = True) -> list[dict[str, Any]]:
     """Enumerate top-level windows.
 
@@ -297,7 +313,7 @@ def list_windows(*, visible_only: bool = True) -> list[dict[str, Any]]:
             cls_buf = ctypes.create_unicode_buffer(256)
             user32.GetClassNameW(hwnd, cls_buf, 256)
             cls = cls_buf.value or ""
-            if visible_only and not title and cls in {"Progman", "WorkerW", "Shell_TrayWnd", "IME"}:
+            if visible_only and _is_untitled_shell_window(title, cls):
                 return True
             pid = wt.DWORD(0)
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))

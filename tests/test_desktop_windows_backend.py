@@ -198,32 +198,60 @@ def test_live_at_most_one_window_is_marked_active():
 
 
 @_WIN_ONLY
-def test_live_the_active_window_is_flagged_when_the_list_keeps_it():
-    """The real invariant: the two views must agree about the same HWND.
+def test_live_the_two_window_views_agree_about_the_foreground():
+    """The real invariant: the list and `get_active_window` never disagree.
 
     `list_windows()` hides untitled shell windows -- the taskbar, the
-    desktop, the IME -- while `get_active_window()` looks at the
+    desktop, the IME -- while `get_active_window()` reads the
     unfiltered enumeration, so the foreground window is not always in
-    the list. When it *is*, exactly that entry must carry `active`.
+    the list. Both outcomes are correct; what would be a bug is the
+    list flagging some *other* window as active.
 
-    This is what #351 turned out to be. Running the suite in the
-    background (`cmd /c start /b`, which is how the live gate runs it)
-    leaves the taskbar in the foreground: class `Shell_TrayWnd`, empty
-    title, dropped by the filter. So nothing in the list was marked
-    active and the old assertion failed -- on a machine where the
-    backend was working correctly, and while
-    `test_live_get_active_window_has_id_and_title`, which reads the
-    unfiltered view, passed in the same run.
+    This is what #351 turned out to be, and the diagnosis in the issue
+    was wrong. There was no missing window station: running the suite
+    in the background (`cmd /c start /b`, which is how the live gate
+    runs it) leaves the taskbar in the foreground -- class
+    `Shell_TrayWnd`, empty title -- and the filter on line 300 of the
+    backend drops it. So nothing in the list carried `active` and the
+    old assertion failed, on a machine where the backend was working
+    correctly, while `test_live_get_active_window_has_id_and_title`
+    passed in the same run off the unfiltered view.
+
+    Written as an assertion in every branch rather than a `skipif`: the
+    foreground can be a filtered shell window at any moment, including
+    interactively, so a skip here would mean a test that mostly does
+    not run.
     """
     active = win_backend.get_active_window()
-    if active is None:
-        pytest.skip("nothing holds the keyboard focus on this desktop")
     wins = win_backend.list_windows()
-    listed = [w for w in wins if w["id"] == active["id"]]
-    if not listed:
-        pytest.skip(f"the foreground window is filtered out of the list (class {active.get('class')!r})")
-    assert listed[0]["active"] is True
-    assert [w["id"] for w in wins if w.get("active")] == [active["id"]]
+    flagged = [w["id"] for w in wins if w.get("active")]
+
+    if active is None:
+        assert flagged == []
+        return
+    if any(w["id"] == active["id"] for w in wins):
+        assert flagged == [active["id"]]
+    else:
+        # The foreground window is filtered out of the list. The list
+        # must then flag nothing -- not some other window.
+        assert flagged == []
+
+
+def test_the_shell_window_filter_is_what_hides_the_foreground():
+    """Runs everywhere, including CI on Linux, unlike the live tests.
+
+    The classes dropped from `list_windows` are the whole reason the
+    two views can disagree, so the rule gets a test that does not
+    depend on what the operator's desktop is doing. Without this, the
+    only coverage of the behaviour behind #351 is a Windows-only test
+    whose branch depends on the moment it runs.
+    """
+    hidden = win_backend._is_untitled_shell_window
+    for cls in ("Progman", "WorkerW", "Shell_TrayWnd", "IME"):
+        assert hidden("", cls) is True
+        assert hidden("Real title", cls) is False
+    assert hidden("", "Chrome_WidgetWin_1") is False
+    assert hidden("", "") is False
 
 
 @_WIN_ONLY
