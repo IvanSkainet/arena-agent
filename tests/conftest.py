@@ -40,6 +40,7 @@ reviewable act instead of a silent `urlopen`.
 from __future__ import annotations
 
 import ipaddress
+import os
 import socket
 from typing import Any
 
@@ -53,11 +54,69 @@ _ALLOW_MARKER = "allow_network"
 _LOOPBACK_HOSTNAMES = frozenset({"localhost", "localhost.localdomain", ""})
 
 
+# Namespaces the *harness* owns rather than the code under test:
+# `ARENA_TEST_*` configures the run (`ARENA_TEST_EXECUTION_GUARD` arms
+# the collection floor in ci.yml, the budget knobs tune timeouts for
+# slow runners) and `ARENA_E2E_*` points the e2e job at the wheel it
+# just built. Matched by prefix rather than by exact name: an allowlist
+# of literals silently shrinks every time someone adds a knob, and the
+# failure is invisible -- the run still passes, just checking less.
+_HARNESS_OWNED_PREFIXES = ("ARENA_TEST_", "ARENA_E2E_")
+
+# Harness switches that predate the naming convention and so are not
+# covered by a prefix. `ARENA_SKIP_BROWSER_E2E=1` is a developer's way
+# of turning browser E2E off; clearing it would silently *run* the
+# tests they asked to skip.
+_HARNESS_OWNED_VARIABLES = frozenset({
+    "ARENA_SKIP_BROWSER_E2E",
+})
+
+
+def _is_harness_owned(name: str) -> bool:
+    """Does this name configure the test run rather than the product?"""
+    return (
+        name in _HARNESS_OWNED_VARIABLES
+        or name.startswith(_HARNESS_OWNED_PREFIXES)
+    )
+
+
+def _ambient_arena_variables() -> tuple[str, ...]:
+    """Which `ARENA_*` names is the surrounding shell supplying?"""
+    return tuple(sorted(
+        name for name in os.environ
+        if name.startswith("ARENA_") and not _is_harness_owned(name)
+    ))
+
+
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
         f"{_ALLOW_MARKER}: test may open sockets to hosts other than loopback",
     )
+    _hide_ambient_arena_configuration()
+
+
+def _hide_ambient_arena_configuration() -> None:
+    """Hide the developer's own `ARENA_*` configuration from the suite.
+
+    #342: `resolve_token` consults `ARENA_TOKEN_FILE` before the path it
+    was handed, so on a machine where the bridge is installed
+    `test_resolve_token_reports_chmod_failure` quietly exercised the real
+    token file and never reached the branch it was written for. Hosted
+    runners are clean, which is why this is invisible in CI and shows up
+    only on a developer machine -- precisely where the live run that
+    gates every merge is measured.
+
+    This runs at configure time rather than in an autouse fixture
+    because the values are read at import: `arena/agent_helpers/files.py`
+    evaluates `ROOT = get_agent_home()` at module scope, and by the time
+    a fixture executes the constant is already wrong.
+
+    A test that wants one of these set still sets it itself with
+    `monkeypatch.setenv`; only inherited values are removed, once.
+    """
+    for name in _ambient_arena_variables():
+        del os.environ[name]
 
 
 class NetworkUseInTest(RuntimeError):
