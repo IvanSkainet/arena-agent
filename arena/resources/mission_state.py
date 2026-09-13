@@ -12,7 +12,7 @@ from arena.resources.mission_catalog import (
     mission_dir,
     summarize_mission_dir,
 )
-from arena.resources.mission_identifier import contained_child
+from arena.resources.mission_identifier import contained_child, contained_entries
 from arena.resources.mission_lineage import get_mission_lineage
 
 
@@ -53,9 +53,7 @@ def get_mission_history(missions_dir: Path, name: str) -> dict[str, Any]:
     logs_dir = contained_child(path, "logs")
     step_logs = []
     if logs_dir is not None:
-        for log_path in sorted(logs_dir.glob("step-*.json")):
-            if contained_child(logs_dir, log_path.name) is None:
-                continue
+        for log_path in contained_entries(logs_dir, "step-*.json"):
             try:
                 entry = json.loads(log_path.read_text(encoding="utf-8"))
             except Exception:

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.resources.mission_catalog import summarize_mission_dir
+from arena.resources.mission_identifier import contained_child, contained_entries
 from arena.resources.mission_lineage import get_mission_lineage
 
 
@@ -23,13 +24,13 @@ def get_mission_family(missions_dir: Path, name: str) -> dict[str, Any]:
         return {"ok": False, "error": f"mission {name!r} has no usable id",
                 "status": 404}
     members = []
-    if missions_dir.exists():
-        for path in sorted(missions_dir.iterdir()):
-            if not path.is_dir() or not (path / "mission.json").exists():
-                continue
-            item = summarize_mission_dir(path)
-            if str(item.get("root_mission_id") or item.get("id") or item.get("name") or "") == root_id:
-                members.append(item)
+    # Fourth copy of the same walk (#350), now the shared one.
+    for path in contained_entries(missions_dir):
+        if not path.is_dir() or contained_child(path, "mission.json") is None:
+            continue
+        item = summarize_mission_dir(path)
+        if str(item.get("root_mission_id") or item.get("id") or item.get("name") or "") == root_id:
+            members.append(item)
     members.sort(key=lambda item: (int(item.get("lineage_depth", 0) or 0), str(item.get("created_at", "") or ""), str(item.get("name", "") or "")))
     index = {str(item.get("id") or item.get("name") or ""): item for item in members}
     children_by_parent: dict[str, list[dict[str, Any]]] = {}

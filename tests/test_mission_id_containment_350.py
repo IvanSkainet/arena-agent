@@ -575,3 +575,112 @@ def test_an_ordinary_directory_reports_no_reparse_tag(tmp_path: Path):
     plain.mkdir()
 
     assert mission_identifier.escapes_the_root(plain, missions) is False
+
+
+@pytest.fixture()
+def aliased_mission_directory(tmp_path: Path):
+    """A missions root where one entry is a link to an external mission.
+
+    The third revision contained the *contents* of a mission directory
+    and left the walk over the root itself unguarded: `is_dir()`
+    follows the alias and answers yes.
+    """
+    missions = tmp_path / "missions"
+    missions.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    # The external mission claims the same lineage root as the real one
+    # on purpose: the family view filters by `root_mission_id`, so an
+    # external mission with a different root is excluded by the filter
+    # rather than by the containment check, and the test would pass
+    # against an unguarded walk.
+    (outside / "mission.json").write_text(
+        '{"id": "LEAKED", "lineage": {"root_mission_id": "real"}}', encoding="utf-8"
+    )
+    real = missions / "real"
+    real.mkdir()
+    (real / "mission.json").write_text('{"id": "real", "lineage": {}}', encoding="utf-8")
+    try:
+        os.symlink(outside, missions / "linked", target_is_directory=True)
+    except (OSError, NotImplementedError):  # pragma: no cover - Windows ACL
+        pytest.skip("cannot create a directory symlink on this machine")
+    return missions
+
+
+def test_an_aliased_mission_directory_is_not_listed(aliased_mission_directory):
+    from arena.resources.mission_catalog import catalog_missions
+
+    assert [item["id"] for item in catalog_missions(aliased_mission_directory)["items"]] == ["real"]
+
+
+def test_an_aliased_mission_directory_is_not_in_the_family_view(aliased_mission_directory):
+    from arena.resources.mission_family import get_mission_family
+
+    family = get_mission_family(aliased_mission_directory, "real")
+    assert [member["id"] for member in family.get("members", [])] == ["real"]
+
+
+def test_an_aliased_mission_directory_is_not_in_the_lineage_index(aliased_mission_directory):
+    """The lineage index was the third independent copy of this walk."""
+    from arena.resources.mission_lineage import _summaries
+
+    assert [item["id"] for item in _summaries(aliased_mission_directory)] == ["real"]
+
+
+def test_a_linked_step_file_does_not_inflate_the_log_count(tmp_path: Path):
+    """`log_count` globbed the directory while history filtered it.
+
+    Two surfaces counting the same files by different rules is how this
+    issue started, so the count goes through the shared walk too.
+    """
+    from arena.resources.mission_catalog import summarize_mission_dir
+
+    missions = tmp_path / "missions"
+    missions.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "step-9.json").write_text("{}", encoding="utf-8")
+    real = missions / "real"
+    real.mkdir()
+    (real / "mission.json").write_text('{"id": "real"}', encoding="utf-8")
+    logs = real / "logs"
+    logs.mkdir()
+    (logs / "step-0.json").write_text("{}", encoding="utf-8")
+    try:
+        os.symlink(outside / "step-9.json", logs / "step-9.json")
+    except (OSError, NotImplementedError):  # pragma: no cover - Windows ACL
+        pytest.skip("cannot create a symlink on this machine")
+
+    summary = summarize_mission_dir(mission_dir(missions, "real"))
+    assert summary["log_count"] == 1
+
+
+def test_every_mission_walk_uses_the_shared_one(aliased_mission_directory):
+    """The catalog, the family view and the lineage index must agree.
+
+    They held three copies of `iterdir()` plus
+    `(path / "mission.json").exists()`, and a rule with three copies is
+    a rule three places can disagree about -- which is the whole of
+    #350. This is the test that fails if a fourth walk appears.
+    """
+    from arena.resources.mission_catalog import catalog_missions
+    from arena.resources.mission_family import get_mission_family
+    from arena.resources.mission_lineage import _summaries
+
+    catalog = {item["id"] for item in catalog_missions(aliased_mission_directory)["items"]}
+    lineage = {item["id"] for item in _summaries(aliased_mission_directory)}
+    family = {m["id"] for m in get_mission_family(aliased_mission_directory, "real").get("members", [])}
+    assert catalog == lineage == family == {"real"}
+
+
+def test_contained_entries_keeps_ordinary_entries(tmp_path: Path):
+    """The control: the shared walk must not simply return nothing."""
+    from arena.resources.mission_identifier import contained_entries
+
+    root = tmp_path / "root"
+    root.mkdir()
+    for name in ("b", "a", "c"):
+        (root / name).mkdir()
+
+    assert [p.name for p in contained_entries(root)] == ["a", "b", "c"]
+    assert contained_entries(tmp_path / "missing") == []

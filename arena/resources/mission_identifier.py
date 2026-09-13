@@ -195,6 +195,29 @@ def contained_child(directory: Path, name: str) -> Path | None:
     return child
 
 
+def contained_entries(directory: Path, pattern: str = "*") -> list[Path]:
+    """Entries of *directory* matching *pattern*, aliases dropped.
+
+    Four places walked the missions root with their own `iterdir()` and
+    their own `(path / "mission.json").exists()` -- the catalog, the
+    lineage index, the family view and `log_count`. Each followed a
+    symlinked or junctioned mission directory straight out of the tree,
+    because `is_dir()` follows the alias and says yes.
+
+    One function for the whole shape, for the reason this issue keeps
+    teaching: a rule with four copies is a rule that four places can
+    disagree about. Sorted, so callers that relied on `sorted(...)`
+    keep their order.
+    """
+    if not directory.exists():
+        return []
+    try:
+        entries = sorted(directory.glob(pattern))
+    except OSError:
+        return []
+    return [entry for entry in entries if not escapes_the_root(entry, directory)]
+
+
 def not_a_single_directory_name(name: str, *, label: str = "mission name") -> str | None:
     """Why this identifier is not a plain name inside its directory.
 

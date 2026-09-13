@@ -7,6 +7,7 @@ from typing import Any
 from arena.jsonshape import loads_object
 from arena.resources.mission_identifier import (
     contained_child,
+    contained_entries,
     escapes_the_root,
     not_a_single_directory_name,
     resolve_mission_name,
@@ -176,7 +177,9 @@ def summarize_mission_dir(path: Path) -> dict[str, Any]:
         "failed_steps_count": len(latest_failed_steps),
         "report_exists": report is not None,
         "report_path": str(report) if report is not None else None,
-        "log_count": len(list(logs.glob("step-*.json"))) if logs is not None else 0,
+        # `glob` follows a linked step file like any other; the count is
+        # taken over contained entries only, same as the history surface.
+        "log_count": len(contained_entries(logs, "step-*.json")) if logs is not None else 0,
         "path": str(path),
     }
 
@@ -192,11 +195,14 @@ def catalog_missions(
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
+    # `contained_entries` rather than `iterdir`: `is_dir()` follows a
+    # symlinked or junctioned mission directory and answers yes, so the
+    # listing read and reported missions from outside the root.
     all_items = [
         summarize_mission_dir(path)
-        for path in sorted(missions_dir.iterdir())
-        if missions_dir.exists() and path.is_dir() and contained_child(path, "mission.json") is not None
-    ] if missions_dir.exists() else []
+        for path in contained_entries(missions_dir)
+        if path.is_dir() and contained_child(path, "mission.json") is not None
+    ]
     state_q = str(state or "").strip().lower()
     template_q = str(template or "").strip().lower()
     query_q = str(query or "").strip().lower()
