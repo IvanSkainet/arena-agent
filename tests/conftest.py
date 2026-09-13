@@ -40,6 +40,7 @@ reviewable act instead of a silent `urlopen`.
 from __future__ import annotations
 
 import ipaddress
+import os
 import socket
 from typing import Any
 
@@ -53,11 +54,57 @@ _ALLOW_MARKER = "allow_network"
 _LOOPBACK_HOSTNAMES = frozenset({"localhost", "localhost.localdomain", ""})
 
 
+# Variables the *harness* owns rather than the code under test, so
+# clearing them would break the run itself: CI sets
+# `ARENA_TEST_EXECUTION_GUARD` to arm the collection floor, the two
+# budget knobs tune timeouts for slow runners, and the e2e job points
+# `ARENA_E2E_*` at the wheel it just built.
+_HARNESS_OWNED_VARIABLES = frozenset({
+    "ARENA_TEST_EXECUTION_GUARD",
+    "ARENA_TEST_GIT_TIMEOUT",
+    "ARENA_TEST_NODE_TIMEOUT",
+    "ARENA_E2E_EXPECT_VERSION",
+    "ARENA_E2E_SERVER_CMD",
+})
+
+
+def _ambient_arena_variables() -> tuple[str, ...]:
+    """Which `ARENA_*` names is the surrounding shell supplying?"""
+    return tuple(sorted(
+        name for name in os.environ
+        if name.startswith("ARENA_") and name not in _HARNESS_OWNED_VARIABLES
+    ))
+
+
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
         f"{_ALLOW_MARKER}: test may open sockets to hosts other than loopback",
     )
+    _hide_ambient_arena_configuration()
+
+
+def _hide_ambient_arena_configuration() -> None:
+    """Hide the developer's own `ARENA_*` configuration from the suite.
+
+    #342: `resolve_token` consults `ARENA_TOKEN_FILE` before the path it
+    was handed, so on a machine where the bridge is installed
+    `test_resolve_token_reports_chmod_failure` quietly exercised the real
+    token file and never reached the branch it was written for. Hosted
+    runners are clean, which is why this is invisible in CI and shows up
+    only on a developer machine -- precisely where the live run that
+    gates every merge is measured.
+
+    This runs at configure time rather than in an autouse fixture
+    because the values are read at import: `arena/agent_helpers/files.py`
+    evaluates `ROOT = get_agent_home()` at module scope, and by the time
+    a fixture executes the constant is already wrong.
+
+    A test that wants one of these set still sets it itself with
+    `monkeypatch.setenv`; only inherited values are removed, once.
+    """
+    for name in _ambient_arena_variables():
+        del os.environ[name]
 
 
 class NetworkUseInTest(RuntimeError):
