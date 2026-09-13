@@ -83,7 +83,17 @@ def _dwm_frame_geometry(hwnd: int) -> dict[str, int] | None:
 
 def _window_rect_geometry(hwnd: int) -> tuple[dict[str, int], str]:
     rect = wt.RECT()
-    user32.GetWindowRect(hwnd, ctypes.byref(rect))
+    if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        # A zero return leaves `rect` at its default, and reporting
+        # that as a measurement labelled `get_window_rect` claims an
+        # authority the call never gave. Raised in review. The fallback
+        # chain below is exactly what a failed measurement should take,
+        # so the source says so.
+        logger.debug("[desktop] GetWindowRect failed for hwnd %s", hwnd)
+        client = _client_rect_geometry(hwnd)
+        if client:
+            return client, "client_rect"
+        return {"x": 0, "y": 0, "width": 0, "height": 0}, "unavailable"
     geom = _rect_to_geometry(rect)
     dwm_geom = _dwm_frame_geometry(hwnd)
     if dwm_geom is not None:
@@ -129,11 +139,22 @@ def _child_window_candidates(hwnd: int, owner_pid: int | None = None) -> list[di
                 "minimized": bool(user32.IsIconic(child)),
                 "geometry_source": source,
             })
+        except OSError as exc:
+            # Expected: a child window can close between being
+            # enumerated and being measured. Raising would abort
+            # `EnumChildWindows` and drop every sibling, so enumeration
+            # continues -- quietly, because this is normal.
+            logger.debug("[desktop] skipping child hwnd %s of %s: %s", child, hwnd, exc)
         except Exception:
-            # Same callback constraint as the top-level walk: raising
-            # here would abort `EnumChildWindows` and drop every
-            # sibling, so it is logged and enumeration continues.
-            logger.debug("[desktop] skipping child hwnd %s of %s", child, hwnd, exc_info=True)
+            # Not expected: a `TypeError` or `KeyError` here is a bug in
+            # this module, not a window disappearing. It still must not
+            # cross the ctypes callback boundary, but it must not hide
+            # at debug either -- raised in review, and right: a
+            # programmer error showing up as "fewer child windows" is
+            # how this stays unnoticed.
+            logger.warning(
+                "[desktop] unexpected failure describing child hwnd %s of %s", child, hwnd, exc_info=True
+            )
         return True
 
     cb = _api.EnumWindowsProc(_proc)
@@ -268,15 +289,17 @@ def _enumerate_windows(*, visible_only: bool = True) -> tuple[list[dict[str, Any
     def _proc(hwnd: int, _lparam: int) -> bool:
         try:
             item = _describe_window(hwnd, foreground=fg, visible_only=visible_only)
+        except OSError as exc:
+            # Expected: a window can vanish between being enumerated
+            # and being described. Must not propagate -- this is a
+            # ctypes callback inside `EnumWindows`, and raising across
+            # that boundary aborts the walk and loses every window, not
+            # just this one.
+            logger.debug("[desktop] skipping hwnd %s: %s", hwnd, exc)
         except Exception:
-            # Must not propagate: this runs as a ctypes callback from
-            # inside `EnumWindows`, and raising across that boundary
-            # aborts the walk and loses every window, not just this
-            # one. A window can vanish mid-enumeration, so failures are
-            # expected -- but they are now visible rather than silent
-            # (raised in review: a dropped window used to be
-            # indistinguishable from a window that does not exist).
-            logger.debug("[desktop] skipping hwnd %s: could not describe it", hwnd, exc_info=True)
+            # Not expected: a bug in this module rather than a window
+            # closing. Same boundary constraint, louder report.
+            logger.warning("[desktop] unexpected failure describing hwnd %s", hwnd, exc_info=True)
         else:
             if item is not None:
                 results.append(item)

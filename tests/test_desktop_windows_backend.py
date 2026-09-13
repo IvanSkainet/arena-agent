@@ -457,6 +457,67 @@ def test_a_window_that_cannot_be_described_is_logged_not_swallowed(monkeypatch, 
     )
 
 
+def test_an_unexpected_failure_is_louder_than_a_vanished_window(monkeypatch, caplog):
+    """A bug in this module must not read as "fewer windows today".
+
+    `OSError` means a window closed mid-enumeration -- normal, logged
+    at debug. A `TypeError` or `KeyError` means this code is wrong, and
+    at debug it would be invisible in production where the level is
+    usually higher. Raised in review, and the distinction is the point:
+    the broad handler exists for the ctypes boundary, not to equate the
+    two.
+    """
+    from arena.desktop.backends import _win32_windows as mod
+
+    listing = [(111, "Fine", "Chrome_WidgetWin_1"), (222, "Broken", "Chrome_WidgetWin_1")]
+
+    def _bug(hwnd, owner_pid):
+        if hwnd == 222:
+            raise TypeError("this is a programmer error, not a closed window")
+        return {}, None, "test"
+
+    monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+    monkeypatch.setattr(mod, "user32", _fake_user32_listing(listing))
+    monkeypatch.setattr(mod, "_api", types.SimpleNamespace(EnumWindowsProc=lambda fn: fn))
+    monkeypatch.setattr(mod, "_best_window_geometry", _bug)
+
+    with caplog.at_level("WARNING", logger=mod.__name__):
+        windows = mod.list_windows()
+
+    assert [w["id"] for w in windows] == ["111"]
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert warnings, "a programmer error was logged at debug and would vanish in production"
+    assert "222" in warnings[0].getMessage()
+
+
+def test_a_failed_window_measurement_is_not_reported_as_a_measurement(monkeypatch):
+    """`GetWindowRect` returning zero leaves the struct untouched.
+
+    Reporting those defaults as geometry labelled `get_window_rect`
+    claims an authority the call never gave, and downstream treats the
+    source as authoritative. Raised in review.
+    """
+    from arena.desktop.backends import _win32_windows as mod
+
+    class _FailingRect:
+        def GetWindowRect(self, hwnd, _ref):
+            return 0
+
+        def GetClientRect(self, hwnd, _ref):
+            return 0
+
+        def ClientToScreen(self, hwnd, _ref):
+            return 0
+
+    monkeypatch.setattr(mod, "user32", _FailingRect())
+    monkeypatch.setattr(mod, "dwmapi", None)
+
+    geometry, source = mod._window_rect_geometry(4242)
+
+    assert source == "unavailable"
+    assert geometry == {"x": 0, "y": 0, "width": 0, "height": 0}
+
+
 def test_a_null_foreground_is_reported_as_zero(monkeypatch):
     """`GetForegroundWindow` returns NULL when nothing has the focus.
 
