@@ -178,7 +178,10 @@ def test_live_list_windows_returns_usable_entries():
     """
     wins = win_backend.list_windows()
     assert isinstance(wins, list)
-    assert wins, "no visible top-level windows at all"
+    # Deliberately not `assert wins`. Raised in review, and correct:
+    # with everything minimised or the screen locked the filtered list
+    # is legitimately empty, and demanding an entry would put the same
+    # desktop-state dependency back that this change removes.
     for w in wins:
         assert w["id"].isdigit()
         assert isinstance(w["title"], str)
@@ -198,43 +201,47 @@ def test_live_at_most_one_window_is_marked_active():
 
 
 @_WIN_ONLY
-def test_live_the_two_window_views_agree_about_the_foreground():
-    """The real invariant: the list and `get_active_window` never disagree.
+def test_live_the_foreground_flag_follows_the_shell_filter():
+    """One snapshot, so focus cannot move out from under the assertion.
 
     `list_windows()` hides untitled shell windows -- the taskbar, the
     desktop, the IME -- while `get_active_window()` reads the
-    unfiltered enumeration, so the foreground window is not always in
-    the list. Both outcomes are correct; what would be a bug is the
-    list flagging some *other* window as active.
+    unfiltered enumeration, so the two disagree about the foreground
+    whenever a shell window holds it. That is correct behaviour; what
+    would be a bug is the filtered list flagging some *other* window.
 
     This is what #351 turned out to be, and the diagnosis in the issue
     was wrong. There was no missing window station: running the suite
     in the background (`cmd /c start /b`, which is how the live gate
     runs it) leaves the taskbar in the foreground -- class
-    `Shell_TrayWnd`, empty title -- and the filter on line 300 of the
-    backend drops it. So nothing in the list carried `active` and the
-    old assertion failed, on a machine where the backend was working
-    correctly, while `test_live_get_active_window_has_id_and_title`
-    passed in the same run off the unfiltered view.
+    `Shell_TrayWnd`, empty title -- so the filter dropped it and
+    nothing in the list carried `active`, on a machine where the
+    backend was working correctly.
 
-    Written as an assertion in every branch rather than a `skipif`: the
-    foreground can be a filtered shell window at any moment, including
-    interactively, so a skip here would mean a test that mostly does
-    not run.
+    Everything below comes from a single `list_windows(visible_only=
+    False)` call, which reads `GetForegroundWindow()` exactly once.
+    Calling `get_active_window()` and `list_windows()` separately was
+    the first version and review was right to reject it: two reads of
+    a moving value, and focus stealing between them would have failed
+    the test for no reason -- precisely the kind of flake this PR
+    exists to remove.
     """
-    active = win_backend.get_active_window()
-    wins = win_backend.list_windows()
-    flagged = [w["id"] for w in wins if w.get("active")]
+    everything = win_backend.list_windows(visible_only=False)
+    flagged = [w for w in everything if w.get("active")]
+    assert len(flagged) <= 1
 
-    if active is None:
-        assert flagged == []
-        return
-    if any(w["id"] == active["id"] for w in wins):
-        assert flagged == [active["id"]]
+    # What `visible_only=True` would keep, computed from the same
+    # snapshot rather than by calling the backend a second time.
+    kept = [
+        w for w in everything
+        if w["visible"] and not win_backend._is_untitled_shell_window(w["title"], w["class"])
+    ]
+    kept_flagged = [w["id"] for w in kept if w.get("active")]
+
+    if flagged and flagged[0] in kept:
+        assert kept_flagged == [flagged[0]["id"]]
     else:
-        # The foreground window is filtered out of the list. The list
-        # must then flag nothing -- not some other window.
-        assert flagged == []
+        assert kept_flagged == []
 
 
 def test_the_shell_window_filter_is_what_hides_the_foreground():
