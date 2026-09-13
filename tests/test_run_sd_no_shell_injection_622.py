@@ -177,7 +177,7 @@ def test_a_metacharacter_in_an_argument_stays_an_argument(tmp_path):
     )
 
 
-def test_the_navigation_policy_does_not_make_the_url_shell_safe():
+def test_the_navigation_policy_does_not_make_the_url_shell_safe(resolves_public_names):
     """Recorded because it is the tempting wrong fix.
 
     "browser.shot validates the URL first" is true and irrelevant: the

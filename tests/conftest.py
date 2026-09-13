@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+from typing import Any
 
 import pytest
 
@@ -82,6 +83,37 @@ def _is_loopback(host: object) -> bool:
         # be a DNS query -- a network call made by the thing meant to
         # prevent network calls -- so it is refused unresolved.
         return False
+
+
+def _needs_no_resolver(host: object) -> bool:
+    """Is this a lookup in name only, settled without a nameserver?
+
+    Two spellings qualify. An address literal parses and returns. And
+    `None` -- `getaddrinfo(None, port)` is the standard wildcard-bind
+    spelling, equivalent to `""`, which was already allowed; glibc
+    answers it from the local address without asking anyone, so
+    refusing it would trip a bind-all test over a hazard that is not
+    there (cubic).
+    """
+    return host is None or _is_address_literal(host)
+
+
+def _is_address_literal(host: object) -> bool:
+    """Is this already an address, needing no resolver to understand?
+
+    `getaddrinfo("8.8.8.8", None)` parses the string and returns; it asks
+    no nameserver, blocks on nothing and sends nothing. Refusing it would
+    make the guard lie about what it caught -- and it would break the
+    SSRF validator's literal path, which resolves the literal it was
+    handed on purpose.
+    """
+    if not isinstance(host, str):
+        return False
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False
+    return True
 
 
 def _sends_nothing(sock: socket.socket) -> bool:
@@ -270,6 +302,213 @@ def _install_send_guards(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(socket.socket, "sendmsg", guarded_sendmsg)
 
 
+def _refuse_resolution(host: object) -> NetworkUseInTest:
+    """The refusal a name lookup gets, worded for a name lookup."""
+    return NetworkUseInTest(
+        f"this test tried to resolve {host!r}. The suite runs with the "
+        f"network closed, and a name lookup is a network call: on a host "
+        f"with a slow or broken resolver it blocks exactly like a "
+        f"`connect`, and on Windows pytest-timeout can only end that by "
+        f"killing the interpreter, so the run is lost and the truncated "
+        f"log still looks clean (#331, #334).\n"
+        f"Resolution is also an egress channel in its own right -- the "
+        f"name being looked up is data leaving the machine.\n"
+        f"Patch the resolver in the test (`socket.getaddrinfo`), use an "
+        f"address literal, or -- if the test genuinely needs the outside "
+        f"world -- mark it `@pytest.mark.{_ALLOW_MARKER}`."
+    )
+
+
+# What `getfqdn()` with no argument is asking about: the local machine's
+# own name, resolved through a reverse lookup that talks to the same
+# resolver as everything else here.
+_THIS_MACHINE = "<this machine>"
+
+
+# Every way to reach the resolver, not just the three obvious ones.
+# `getfqdn` and `gethostbyaddr` do reverse lookups and `getnameinfo`
+# resolves both directions; all three block on a slow resolver exactly
+# like `getaddrinfo`, and `getfqdn` is used in production
+# (`arena/inventory/probe_identity.py:21`,
+# `arena/inventory/probe_environment.py`), so a test exercising that
+# code path could still hang or leak a query (cubic).
+#
+# `gethostname` is deliberately absent: it reads a local name out of the
+# kernel and asks no nameserver.
+_FORWARD_RESOLVERS = ("getaddrinfo", "gethostbyname", "gethostbyname_ex")
+
+# The reverse direction, where the literal exemption does not hold. On a
+# forward lookup an address literal parses and returns without asking
+# anyone. On a reverse lookup the literal IS the query: measured,
+# `socket.gethostbyaddr("8.8.8.8")` returns `dns.google` -- a PTR query
+# that went out past the guard (cubic). So these take the loopback rule
+# with no exemption.
+_REVERSE_RESOLVERS = ("getfqdn", "gethostbyaddr", "getnameinfo")
+
+_RESOLVER_ENTRY_POINTS = _FORWARD_RESOLVERS + _REVERSE_RESOLVERS
+
+
+def _guarded_resolver(real_resolver: Any, *, literals_are_local: bool) -> Any:
+    """Wrap one resolver entry point in the loopback policy.
+
+    `literals_are_local` is the difference between the two directions:
+    true for a forward lookup, where an address literal is parsed
+    locally, and false for a reverse one, where the literal is precisely
+    what gets asked about.
+    """
+    def guarded(*args, **kwargs):
+        # `getfqdn()` takes no argument and means "this machine", which
+        # is a local question -- but it answers it with a reverse lookup,
+        # so it still has to be refused. Defaulting the absent host to
+        # the empty string would exempt it (`""` is in
+        # `_LOOPBACK_HOSTNAMES`), so the no-argument call is named
+        # explicitly instead. Reading it as a required parameter broke
+        # two inventory collectors with a TypeError.
+        host = args[0] if args else kwargs.get(
+            "host", kwargs.get("name", _THIS_MACHINE))
+        # `getnameinfo` takes a sockaddr tuple, not a bare host.
+        if isinstance(host, tuple) and host:
+            host = host[0]
+        # `None` is the wildcard-bind spelling for a *forward* lookup and
+        # means nothing on a reverse one, so the exemption does not
+        # travel with it (cubic). The reverse entry points reject None
+        # themselves, but a guard should not be the thing relying on
+        # that.
+        local = _is_loopback(host) or (
+            literals_are_local and _needs_no_resolver(host))
+        if not local:
+            raise _refuse_resolution(host)
+        return real_resolver(*args, **kwargs)
+
+    return guarded
+
+
+def _install_resolver_guards(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Refuse the calls that turn a name into an address.
+
+    The connect guards close the socket calls but not the lookup that
+    precedes them (cubic, aikido, independently). A measured full run
+    made 45 non-loopback lookups, `registry.npmjs.org`, `github.com` and
+    `api.github.com` among them -- real queries to a real resolver on
+    every run, reaching the network the guard above claims to have shut.
+
+    Address literals still pass: `getaddrinfo("8.8.8.8", ...)` parses a
+    string and asks no nameserver, so refusing it would name a hazard
+    that is not there. A *name* is refused unresolved -- deciding whether
+    a name is local requires the very lookup being guarded -- except
+    "localhost", which RFC 6761 reserves to loopback, the same exemption
+    `_is_loopback` already makes.
+    """
+    for entry_point in _RESOLVER_ENTRY_POINTS:
+        real = getattr(socket, entry_point, None)
+        if real is not None:
+            monkeypatch.setattr(socket, entry_point, _guarded_resolver(
+                real, literals_are_local=entry_point in _FORWARD_RESOLVERS))
+
+
+# The address every stubbed lookup answers with. It has to satisfy
+# `ipaddress.is_global`, because that is what the SSRF validator checks,
+# and the RFC 5737 documentation ranges do not: Python reports
+# `203.0.113.10` as `is_private`, so a stub using one would have made
+# every "public URL is allowed" test assert the opposite of its name.
+# This is the address `example.com` published for years -- recognisable,
+# and nothing in the suite ever connects to it, since the connect guard
+# is still in force.
+_PUBLIC_STUB_IP = "93.184.216.34"
+
+
+def _stub_answer(host: object) -> str:
+    """What the stub resolves `host` to.
+
+    An address literal answers as itself: `_validate_url` resolves the
+    literal it was handed and re-checks the result, so echoing a
+    different address would silently change the verdict under the test.
+    One function for all three stubs, because `gethostbyname_ex` did not
+    do this and would have flipped a verdict for a literal (cubic).
+    """
+    return host if _is_address_literal(host) else _PUBLIC_STUB_IP
+
+
+@pytest.fixture
+def resolves_public_names(monkeypatch: pytest.MonkeyPatch):
+    """Answer every name lookup with one fixed public address.
+
+    Twenty-one tests assert that a *public* URL passes the SSRF
+    validator, and the validator settles that by resolving the host and
+    checking the addresses (`arena/security_ssrf.py`,
+    `arena/security_http.py`). With a real resolver those tests were
+    quietly asking the developer's DNS what `example.com` and
+    `api.github.com` resolve to -- so their verdict depended on the
+    network, and on a machine behind a captive portal that answers
+    everything with a private address, they would have failed for a
+    reason that has nothing to do with the code (#334).
+
+    Returning a fixed documentation address makes the assertion mean what
+    it says: given a host that resolves publicly, the validator allows
+    it. Tests that need a *private* answer patch the resolver themselves;
+    this fixture is for the ordinary case.
+    """
+    def resolve(host, port=None, *args, **kwargs):
+        address = _stub_answer(host)
+        socktype = kwargs.get("type", args[1] if len(args) > 1 else 0)
+        return [(socket.AF_INET, socktype or socket.SOCK_STREAM, 6, "",
+                 (address, port or 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    monkeypatch.setattr(socket, "gethostbyname", _stub_answer)
+    monkeypatch.setattr(
+        socket, "gethostbyname_ex",
+        lambda host: (host, [], [_stub_answer(host)]))
+    return _PUBLIC_STUB_IP
+
+
+# What a LAN lookup answers with. A real private address, because the
+# tests that want one are about LAN behaviour: answering them with the
+# public stub would have them assert against an address that is not on
+# any LAN (cubic).
+_LAN_STUB_IP = "192.168.7.20"
+
+
+@pytest.fixture
+def resolves_this_machine(monkeypatch: pytest.MonkeyPatch):
+    """Answer the machine's own reverse lookups without going out.
+
+    `socket.getfqdn()` asks a local question -- what am I called -- but
+    answers it with a reverse lookup through the same resolver, so the
+    guard refuses it. Two inventory collectors do exactly that on every
+    run. Stub the answer rather than exempt `getfqdn`: the lookup is
+    still a lookup, and a test that wants it should say so.
+    """
+    monkeypatch.setattr(socket, "getfqdn", lambda *_a, **_k: "test-host.local")
+    monkeypatch.setattr(
+        socket, "gethostbyaddr",
+        lambda *_a, **_k: ("test-host.local", [], ["127.0.0.1"]))
+    return "test-host.local"
+
+
+@pytest.fixture
+def resolves_the_local_hostname(monkeypatch: pytest.MonkeyPatch):
+    """Resolve this machine's own name to a fixed private address.
+
+    `arena/mobile/access_info.py` enumerates LAN addresses by resolving
+    `socket.gethostname()`, so a test about LAN URLs needs that lookup to
+    answer -- and to answer with something that is actually a LAN
+    address. Only the local hostname is stubbed; everything else stays
+    refused.
+    """
+    local_names = {socket.gethostname(), socket.gethostname().lower()}
+    real_getaddrinfo = socket.getaddrinfo
+
+    def resolve(host, port=None, *args, **kwargs):
+        if host in local_names:
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "",
+                     (_LAN_STUB_IP, port or 0))]
+        return real_getaddrinfo(host, port, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    return _LAN_STUB_IP
+
+
 @pytest.fixture(autouse=True)
 def _no_outbound_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
     """Refuse non-loopback networking for the duration of each test."""
@@ -277,3 +516,4 @@ def _no_outbound_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
         return
     _install_connect_guards(monkeypatch)
     _install_send_guards(monkeypatch)
+    _install_resolver_guards(monkeypatch)
