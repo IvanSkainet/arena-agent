@@ -244,39 +244,60 @@ def test_live_the_unfiltered_list_does_keep_the_shell_windows():
 def test_live_the_unfiltered_view_flags_the_real_foreground_window():
     """The unfiltered enumeration must contain and flag the true HWND.
 
-    Asserted against `GetForegroundWindow()` read directly here, which
-    is the only independent source available: `active` is computed as
-    `hwnd == fg` inside `list_windows`, so anything derived from the
-    returned list alone cannot contradict it. Two earlier revisions of
-    this test were tautologies for exactly that reason -- `len(flagged)
-    <= 1` cannot fail when one `fg` is compared against each window,
-    and an `if flagged:` guard quietly passes when the list is empty,
-    which is the very symptom #351 is about.
+    Checked against `last_foreground_snapshot()` -- the exact value
+    `list_windows` compared each window with -- rather than against a
+    fresh `GetForegroundWindow()` read.
 
-    That empty case is reachable rather than theoretical: `_proc`
-    swallows per-window exceptions (`except Exception: pass`,
-    windows.py:338), so a window that raises while being described is
-    dropped from the enumeration -- including the foreground one.
+    Three earlier revisions of this test were tautologies: they
+    compared the returned list against itself, so nothing could
+    contradict anything (`len(flagged) <= 1` cannot fail when one `fg`
+    is tested against each window). The revision after that bracketed
+    the call with two `GetForegroundWindow()` reads and skipped when
+    they differed -- still wrong, as review pointed out: `active` is
+    set from a *third* read taken inside the call, so focus that leaves
+    and comes back during the enumeration (A->B->A) leaves the outer
+    reads agreeing while the flag holds B, and the test fails on a
+    correct backend.
 
-    A fresh `GetForegroundWindow()` can disagree with the one taken
-    inside the call if focus moved in between, so the check is skipped
-    when the two differ rather than asserted; a race must not be
-    reported as a defect. That is a real skip on a moving target, not
-    the "mostly does not run" kind rejected earlier in this PR.
+    Naming the snapshot in the backend removes the guesswork instead of
+    narrowing the window: there is now exactly one value that decided
+    the flag, and the test reads it.
+
+    The empty case is asserted rather than skipped past. It is
+    reachable: `_proc` swallows per-window exceptions, so a window that
+    raises while being described drops out of the enumeration --
+    including the foreground one, which is the #351 symptom.
     """
-    fg_before = win_backend.user32.GetForegroundWindow()
     everything = win_backend.list_windows(visible_only=False)
-    fg_after = win_backend.user32.GetForegroundWindow()
-    if fg_before != fg_after:
-        pytest.skip("focus moved while the enumeration was running")
-    if not fg_before:
-        assert [w for w in everything if w.get("active")] == []
-        return
-
+    fg = win_backend.last_foreground_snapshot()
     flagged = [w["id"] for w in everything if w.get("active")]
-    assert flagged == [str(fg_before)], (
-        f"foreground {fg_before} missing or mis-flagged in the unfiltered view"
+
+    if not fg:
+        assert flagged == []
+        return
+    assert flagged == [str(fg)], (
+        f"foreground {fg} missing or mis-flagged in the unfiltered view"
     )
+
+
+def test_the_foreground_snapshot_records_what_the_flag_was_compared_with():
+    """Runs on every platform, unlike the live test above.
+
+    `last_foreground_snapshot()` is only trustworthy if it is written
+    on the same line of reasoning that sets `active`. This pins the
+    accessor to the stored value so the two cannot drift apart on
+    platforms where the live test never runs.
+    """
+    from arena.desktop.backends import windows as mod
+
+    previous = mod._LAST_FOREGROUND_SNAPSHOT["hwnd"]
+    try:
+        mod._LAST_FOREGROUND_SNAPSHOT["hwnd"] = 4242
+        assert mod.last_foreground_snapshot() == 4242
+        mod._LAST_FOREGROUND_SNAPSHOT["hwnd"] = 0
+        assert mod.last_foreground_snapshot() == 0
+    finally:
+        mod._LAST_FOREGROUND_SNAPSHOT["hwnd"] = previous
 
 
 def test_the_shell_window_filter_is_what_hides_the_foreground():

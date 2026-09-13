@@ -282,6 +282,21 @@ def _is_untitled_shell_window(title: str, cls: str) -> bool:
     return not title and cls in _SHELL_WINDOW_CLASSES
 
 
+# The foreground HWND that the most recent `list_windows` call used to
+# compute `active`. Exposed for #351: the flag is set against one read
+# of `GetForegroundWindow()` taken inside the call, so a test -- or any
+# caller wanting to cross-check the flag -- has no other way to name
+# the value it was compared with. Reading the API again gives a third
+# snapshot, and focus that leaves and returns during the enumeration
+# (A->B->A) makes the outer reads agree while `active` reflects B.
+_LAST_FOREGROUND_SNAPSHOT: dict[str, int] = {"hwnd": 0}
+
+
+def last_foreground_snapshot() -> int:
+    """The foreground HWND used by the last `list_windows` call, or 0."""
+    return _LAST_FOREGROUND_SNAPSHOT["hwnd"]
+
+
 def list_windows(*, visible_only: bool = True) -> list[dict[str, Any]]:
     """Enumerate top-level windows.
 
@@ -299,6 +314,7 @@ def list_windows(*, visible_only: bool = True) -> list[dict[str, Any]]:
         raise NotImplementedError("windows backend not available on this platform")
 
     fg = user32.GetForegroundWindow()
+    _LAST_FOREGROUND_SNAPSHOT["hwnd"] = int(fg)
     results: list[dict[str, Any]] = []
 
     def _proc(hwnd: int, _lparam: int) -> bool:
