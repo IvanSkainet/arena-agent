@@ -276,12 +276,12 @@ def test_live_the_unfiltered_view_flags_the_real_foreground_window():
 def test_the_foreground_returned_is_the_one_the_flag_was_set_from(monkeypatch):
     """Runs on every platform, unlike the live test above.
 
-    The fake moves the foreground *while the enumeration is walking*:
-    `GetForegroundWindow` answers 111 when `_enumerate_windows` reads
-    it, and the second window's callback flips it to 999 mid-walk. A
-    correct implementation reads it once, so the flags and the returned
-    value both say 111; an implementation that re-read it -- on return,
-    or per window -- would answer 999 for one of them and this fails.
+    The fake answers 111 when `_enumerate_windows` reads the foreground
+    at the top, then flips to 999 inside `EnumWindows`, before the
+    window holding the focus is described. A correct implementation
+    reads the value once, so both the flags and the returned value say
+    111; one that re-reads it -- on return, or per window -- sees 999
+    and this fails.
 
     The previous version of this test claimed to do that and did not:
     the fake's second answer was never reached, so both assertions came
@@ -422,6 +422,39 @@ def test_the_filtered_listing_drops_invisible_windows(monkeypatch):
     everything = mod.list_windows(visible_only=False)
     assert [w["id"] for w in everything] == ["111", "222"]
     assert [w["visible"] for w in everything] == [False, True]
+
+
+def test_a_window_that_cannot_be_described_is_logged_not_swallowed(monkeypatch, caplog):
+    """A dropped window must not be indistinguishable from no window.
+
+    The callback cannot let the exception propagate -- it runs as a
+    ctypes callback inside `EnumWindows`, and raising across that
+    boundary aborts the walk and loses every window. But `except
+    Exception: pass` made a window that failed to describe look exactly
+    like a window that does not exist, which is the observability gap
+    raised in review.
+    """
+    from arena.desktop.backends import _win32_windows as mod
+
+    listing = [(111, "Fine", "Chrome_WidgetWin_1"), (222, "Broken", "Chrome_WidgetWin_1")]
+
+    def _boom(hwnd, owner_pid):
+        if hwnd == 222:
+            raise OSError("window vanished mid-enumeration")
+        return {}, None, "test"
+
+    monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+    monkeypatch.setattr(mod, "user32", _fake_user32_listing(listing))
+    monkeypatch.setattr(mod, "_api", types.SimpleNamespace(EnumWindowsProc=lambda fn: fn))
+    monkeypatch.setattr(mod, "_best_window_geometry", _boom)
+
+    with caplog.at_level("DEBUG", logger=mod.__name__):
+        windows = mod.list_windows()
+
+    assert [w["id"] for w in windows] == ["111"]
+    assert any("222" in record.getMessage() for record in caplog.records), (
+        "the dropped window left no trace in the log"
+    )
 
 
 def test_a_null_foreground_is_reported_as_zero(monkeypatch):

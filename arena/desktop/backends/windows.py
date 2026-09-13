@@ -52,6 +52,7 @@ from arena.desktop.backends import _win32_api as _api
 # router all reach these through `backends.windows`.
 from arena.desktop.backends._win32_windows import (  # noqa: F401
     _SHELL_WINDOW_CLASSES,
+    DWMWA_EXTENDED_FRAME_BOUNDS,
     _best_window_geometry,
     _child_window_candidates,
     _client_rect_geometry,

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes as wt
+import logging
 import sys
 from typing import Any
 
@@ -20,9 +21,10 @@ from arena.desktop.backends import _win32_api as _api
 
 user32 = _api.user32
 dwmapi = _api.dwmapi
-_ct: Any = ctypes
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 _IS_WINDOWS = sys.platform == "win32"
+
+logger = logging.getLogger(__name__)
 
 
 def _rect_to_geometry(rect: wt.RECT) -> dict[str, int]:
@@ -54,19 +56,38 @@ def _client_rect_geometry(hwnd: int) -> dict[str, int] | None:
     return {"x": int(pt.x), "y": int(pt.y), "width": width, "height": height}
 
 
+def _dwm_frame_geometry(hwnd: int) -> dict[str, int] | None:
+    """The DWM extended frame bounds, or None when unavailable.
+
+    Split out of `_window_rect_geometry` under #351: the nesting there
+    crossed CodeScene's threshold once the module moved. The `OSError`
+    is what a ctypes call into a missing or refusing `dwmapi` raises;
+    it means "no DWM answer", which is what the `None` says, so it is
+    logged at debug rather than swallowed silently.
+    """
+    if dwmapi is None:
+        return None
+    try:
+        dwm_rect = wt.RECT()
+        hr = dwmapi.DwmGetWindowAttribute(
+            wt.HWND(hwnd), DWMWA_EXTENDED_FRAME_BOUNDS, ctypes.byref(dwm_rect), ctypes.sizeof(dwm_rect)
+        )
+    except OSError as exc:
+        logger.debug("[desktop] dwm frame bounds unavailable for hwnd %s: %s", hwnd, exc)
+        return None
+    dwm_geom = _rect_to_geometry(dwm_rect)
+    if hr == 0 and _geometry_area(dwm_geom) > 0:
+        return dwm_geom
+    return None
+
+
 def _window_rect_geometry(hwnd: int) -> tuple[dict[str, int], str]:
     rect = wt.RECT()
     user32.GetWindowRect(hwnd, ctypes.byref(rect))
     geom = _rect_to_geometry(rect)
-    if dwmapi is not None:
-        try:
-            dwm_rect = wt.RECT()
-            hr = dwmapi.DwmGetWindowAttribute(wt.HWND(hwnd), DWMWA_EXTENDED_FRAME_BOUNDS, ctypes.byref(dwm_rect), ctypes.sizeof(dwm_rect))
-            dwm_geom = _rect_to_geometry(dwm_rect)
-            if hr == 0 and _geometry_area(dwm_geom) > 0:
-                return dwm_geom, "dwm_extended_frame_bounds"
-        except Exception:
-            pass
+    dwm_geom = _dwm_frame_geometry(hwnd)
+    if dwm_geom is not None:
+        return dwm_geom, "dwm_extended_frame_bounds"
     if _geometry_area(geom) <= 0:
         client = _client_rect_geometry(hwnd)
         if client:
@@ -109,7 +130,10 @@ def _child_window_candidates(hwnd: int, owner_pid: int | None = None) -> list[di
                 "geometry_source": source,
             })
         except Exception:
-            pass
+            # Same callback constraint as the top-level walk: raising
+            # here would abort `EnumChildWindows` and drop every
+            # sibling, so it is logged and enumeration continues.
+            logger.debug("[desktop] skipping child hwnd %s of %s", child, hwnd, exc_info=True)
         return True
 
     cb = _api.EnumWindowsProc(_proc)
@@ -244,10 +268,18 @@ def _enumerate_windows(*, visible_only: bool = True) -> tuple[list[dict[str, Any
     def _proc(hwnd: int, _lparam: int) -> bool:
         try:
             item = _describe_window(hwnd, foreground=fg, visible_only=visible_only)
+        except Exception:
+            # Must not propagate: this runs as a ctypes callback from
+            # inside `EnumWindows`, and raising across that boundary
+            # aborts the walk and loses every window, not just this
+            # one. A window can vanish mid-enumeration, so failures are
+            # expected -- but they are now visible rather than silent
+            # (raised in review: a dropped window used to be
+            # indistinguishable from a window that does not exist).
+            logger.debug("[desktop] skipping hwnd %s: could not describe it", hwnd, exc_info=True)
+        else:
             if item is not None:
                 results.append(item)
-        except Exception:
-            pass
         return True
 
     cb = _api.EnumWindowsProc(_proc)
