@@ -135,11 +135,64 @@ def escapes_the_root(path: Path, root: Path) -> bool:
     answer is "this escapes", not a traceback.
     """
     try:
-        if path.is_symlink():
+        if _aliases_another_entry(path):
             return True
         return not path.resolve().is_relative_to(root.resolve())
     except (OSError, ValueError, RuntimeError):
         return True
+
+
+def _aliases_another_entry(path: Path) -> bool:
+    """Is this entry a stand-in for something else on disk?
+
+    `is_symlink()` alone is a POSIX answer. Windows has a second kind
+    of alias -- a directory junction -- and Python reports it as a
+    plain directory: `stat` only sets the symlink bit for
+    `IO_REPARSE_TAG_SYMLINK`, while a junction carries
+    `IO_REPARSE_TAG_MOUNT_POINT`. `resolve()` follows it all the same,
+    so an in-root junction resolves to another mission and passes a
+    containment test. Raised in review on #350; this repository's CI
+    runs the suite on Windows, which is where it would land.
+
+    `st_reparse_tag` is a Windows-only field, so it is read through
+    `getattr` with a default of "no tag": elsewhere the platform has
+    one kind of link and `is_symlink` already answered for it. A
+    missing entry has no tag to read and is not an alias; whether it
+    may be written is the caller's containment check.
+    """
+    if path.is_symlink():
+        return True
+    try:
+        stat_result = path.lstat()
+    except OSError:
+        return False
+    return bool(getattr(stat_result, "st_reparse_tag", 0))
+
+
+def contained_child(directory: Path, name: str) -> Path | None:
+    """Return `directory/name` when it exists and is really inside it.
+
+    Containment of the mission directory says nothing about what lives
+    *inside* it. Raised in review on the second revision of #350: a
+    perfectly legitimate `missions/real/` whose `mission.json` is a
+    symlink to a file elsewhere passed the directory check, and
+    `summarize_mission_dir` then read the linked file -- status, report
+    and history returned its contents. The escape moved one level
+    deeper than the check, exactly as it did in
+    `arena/resources/listing.py` under #120, which is where this
+    remedy comes from.
+
+    The root here is the mission's own directory, not `missions_dir`:
+    a mission's files belong to that mission, so a link sideways into
+    a sibling mission is refused for the same reason as a link out of
+    the tree.
+    """
+    child = directory / name
+    if not child.exists():
+        return None
+    if escapes_the_root(child, directory):
+        return None
+    return child
 
 
 def not_a_single_directory_name(name: str, *, label: str = "mission name") -> str | None:

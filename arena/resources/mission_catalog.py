@@ -6,6 +6,7 @@ from typing import Any
 
 from arena.jsonshape import loads_object
 from arena.resources.mission_identifier import (
+    contained_child,
     escapes_the_root,
     not_a_single_directory_name,
     resolve_mission_name,
@@ -56,8 +57,13 @@ def mission_dir(missions_dir: Path, name: str) -> Path:
 
 
 def load_mission_json(path: Path) -> dict[str, Any]:
-    mission_file = path / "mission.json"
-    if not mission_file.exists():
+    # `contained_child` rather than `path / "mission.json"`: the
+    # directory being contained does not make its contents contained.
+    # Raised on the second revision of #350 -- a real mission directory
+    # holding a `mission.json` symlinked outside the root was read and
+    # returned by status, report and history.
+    mission_file = contained_child(path, "mission.json")
+    if mission_file is None:
         return {}
     try:
         return loads_object(mission_file.read_text(encoding="utf-8"))
@@ -129,8 +135,11 @@ def summarize_mission_dir(path: Path) -> dict[str, Any]:
     runs: list[dict[str, Any]] = [dict(r) for r in raw_runs] if isinstance(raw_runs, list) else []
     latest_run = runs[-1] if runs else None
     latest_failed_steps = extract_failed_steps(latest_run)
-    report = path / "REPORT.md"
-    logs = path / "logs"
+    # Same reason as in `load_mission_json`: a linked `REPORT.md` served
+    # its target's text through the report surface, and a linked `logs`
+    # directory listed step files from outside the tree.
+    report = contained_child(path, "REPORT.md")
+    logs = contained_child(path, "logs")
     raw_lineage = data.get("lineage")
     lineage: dict[str, Any] = raw_lineage if isinstance(raw_lineage, dict) else {}
     raw_ancestors = lineage.get("ancestor_ids")
@@ -161,13 +170,13 @@ def summarize_mission_dir(path: Path) -> dict[str, Any]:
         "runs_count": len(runs),
         "latest_run": latest_run,
         "latest_failed_steps": latest_failed_steps,
-        "has_report": report.exists(),
-        "has_logs": logs.exists() and logs.is_dir(),
+        "has_report": report is not None,
+        "has_logs": logs is not None and logs.is_dir(),
         "latest_exit_code": _latest_exit_code(latest_run),
         "failed_steps_count": len(latest_failed_steps),
-        "report_exists": report.exists(),
-        "report_path": str(report) if report.exists() else None,
-        "log_count": len(list(logs.glob("step-*.json"))) if logs.exists() else 0,
+        "report_exists": report is not None,
+        "report_path": str(report) if report is not None else None,
+        "log_count": len(list(logs.glob("step-*.json"))) if logs is not None else 0,
         "path": str(path),
     }
 
@@ -186,7 +195,7 @@ def catalog_missions(
     all_items = [
         summarize_mission_dir(path)
         for path in sorted(missions_dir.iterdir())
-        if missions_dir.exists() and path.is_dir() and (path / "mission.json").exists()
+        if missions_dir.exists() and path.is_dir() and contained_child(path, "mission.json") is not None
     ] if missions_dir.exists() else []
     state_q = str(state or "").strip().lower()
     template_q = str(template or "").strip().lower()

@@ -389,3 +389,189 @@ def test_the_pre_stat_guard_uses_the_shared_rule():
         assert mission_identifier._looks_unsafe(name) is True
     for name in PLAIN_NAMES:
         assert mission_identifier._looks_unsafe(name) is False
+
+
+@pytest.fixture()
+def mission_with_linked_files(tmp_path: Path):
+    """A contained mission directory whose *contents* point outside.
+
+    The second revision of #350 contained the directory and stopped
+    there. This is the shape that got past it: `missions/real/` is a
+    genuine directory, created normally, and every file inside it is a
+    link somewhere else.
+    """
+    missions = tmp_path / "missions"
+    missions.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "mission.json").write_text('{"id": "LEAKED", "title": "external"}', encoding="utf-8")
+    (outside / "REPORT.md").write_text("EXTERNAL REPORT", encoding="utf-8")
+    logs = outside / "logs"
+    logs.mkdir()
+    (logs / "step-1.json").write_text('{"cmd": "rm -rf /", "exit_code": 0}', encoding="utf-8")
+    real = missions / "real"
+    real.mkdir()
+    try:
+        os.symlink(outside / "mission.json", real / "mission.json")
+        os.symlink(outside / "REPORT.md", real / "REPORT.md")
+        os.symlink(logs, real / "logs", target_is_directory=True)
+    except (OSError, NotImplementedError):  # pragma: no cover - Windows ACL
+        pytest.skip("cannot create a symlink on this machine")
+    return missions
+
+
+def test_a_linked_mission_file_inside_a_real_directory_is_not_read(mission_with_linked_files):
+    """The directory was contained; `mission.json` inside it was not.
+
+    `mission_dir` accepted `real` because `real` is a real directory,
+    and `load_mission_json` then opened the link and returned the
+    external file's contents to status, report, history, lineage,
+    family and show alike.
+    """
+    from arena.resources.mission_catalog import load_mission_json
+
+    path = mission_dir(mission_with_linked_files, "real")
+    assert load_mission_json(path) == {}
+
+
+def test_a_linked_report_is_not_served(mission_with_linked_files):
+    from arena.resources.mission_catalog import summarize_mission_dir
+
+    summary = summarize_mission_dir(mission_dir(mission_with_linked_files, "real"))
+    assert summary["has_report"] is False
+    assert summary["report_path"] is None
+    assert summary["report_exists"] is False
+
+
+def test_a_linked_logs_directory_is_not_walked(mission_with_linked_files):
+    """`log_count` and the history surface both walked the linked tree."""
+    from arena.resources.mission_catalog import summarize_mission_dir
+    from arena.resources.mission_state import get_mission_history
+
+    summary = summarize_mission_dir(mission_dir(mission_with_linked_files, "real"))
+    assert summary["has_logs"] is False
+    assert summary["log_count"] == 0
+
+    history = get_mission_history(mission_with_linked_files, "real")
+    assert history["step_logs"] == []
+
+
+def test_a_linked_step_file_inside_a_real_logs_directory_is_skipped(tmp_path: Path):
+    """One level deeper again: real `logs/`, linked `step-1.json`.
+
+    Containing the directory does not contain its entries, which is the
+    whole lesson of this revision, so the check is applied per file.
+    """
+    from arena.resources.mission_state import get_mission_history
+
+    missions = tmp_path / "missions"
+    missions.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "step-1.json").write_text('{"cmd": "rm -rf /", "exit_code": 0}', encoding="utf-8")
+    real = missions / "real"
+    real.mkdir()
+    (real / "mission.json").write_text('{"id": "real"}', encoding="utf-8")
+    logs = real / "logs"
+    logs.mkdir()
+    (logs / "step-0.json").write_text('{"cmd": "echo hi", "exit_code": 0}', encoding="utf-8")
+    try:
+        os.symlink(outside / "step-1.json", logs / "step-1.json")
+    except (OSError, NotImplementedError):  # pragma: no cover - Windows ACL
+        pytest.skip("cannot create a symlink on this machine")
+
+    history = get_mission_history(missions, "real")
+    names = [entry["name"] for entry in history["step_logs"]]
+    assert names == ["step-0"]
+
+
+def test_a_mission_whose_file_is_linked_is_not_listed(mission_with_linked_files):
+    """`catalog_missions` used its own `(path / "mission.json").exists()`.
+
+    A fourth copy of the same question in a fourth place: the listing
+    would have shown the mission while every read of it returned
+    nothing.
+    """
+    from arena.resources.mission_catalog import catalog_missions
+
+    assert catalog_missions(mission_with_linked_files)["items"] == []
+
+
+def test_an_ordinary_mission_still_reads_end_to_end(tmp_path: Path):
+    """The control: nothing linked, everything visible.
+
+    Without this the checks above are satisfied by a function that
+    always answers "no".
+    """
+    from arena.resources.mission_catalog import catalog_missions, summarize_mission_dir
+    from arena.resources.mission_state import get_mission_history
+
+    missions = tmp_path / "missions"
+    missions.mkdir()
+    real = missions / "real"
+    real.mkdir()
+    (real / "mission.json").write_text('{"id": "real", "title": "Real"}', encoding="utf-8")
+    (real / "REPORT.md").write_text("the report", encoding="utf-8")
+    logs = real / "logs"
+    logs.mkdir()
+    (logs / "step-0.json").write_text('{"cmd": "echo hi", "exit_code": 0}', encoding="utf-8")
+
+    summary = summarize_mission_dir(mission_dir(missions, "real"))
+    assert summary["id"] == "real"
+    assert summary["has_report"] is True
+    assert summary["report_path"] is not None
+    assert summary["has_logs"] is True
+    assert summary["log_count"] == 1
+    assert [item["id"] for item in catalog_missions(missions)["items"]] == ["real"]
+    assert [entry["name"] for entry in get_mission_history(missions, "real")["step_logs"]] == ["step-0"]
+
+
+def test_a_windows_junction_is_treated_as_an_alias(tmp_path: Path, monkeypatch):
+    """A junction is not a symlink and Python does not call it one.
+
+    `stat` sets the symlink bit only for `IO_REPARSE_TAG_SYMLINK`; a
+    junction carries `IO_REPARSE_TAG_MOUNT_POINT` and arrives as a
+    plain directory, while `resolve()` follows it regardless. So an
+    in-root junction to another mission passed containment. The tag is
+    injected because this machine is not Windows and the CI matrix
+    includes one that is -- a test that only exercises the current
+    platform says nothing about the other.
+    """
+    from arena.resources import mission_identifier
+
+    missions = tmp_path / "missions"
+    missions.mkdir()
+    entry = missions / "junction"
+    entry.mkdir()
+
+    real_lstat = Path.lstat
+
+    class _WithTag:
+        def __init__(self, wrapped):
+            self._wrapped = wrapped
+            self.st_reparse_tag = 0xA0000003  # IO_REPARSE_TAG_MOUNT_POINT
+
+        def __getattr__(self, name):
+            return getattr(self._wrapped, name)
+
+    monkeypatch.setattr(Path, "lstat", lambda self: _WithTag(real_lstat(self)))
+
+    assert mission_identifier.escapes_the_root(entry, missions) is True
+    with pytest.raises(ValueError):
+        mission_dir(missions, "junction")
+
+
+def test_an_ordinary_directory_reports_no_reparse_tag(tmp_path: Path):
+    """The other half: platforms without the attribute must not escape.
+
+    `st_reparse_tag` exists only on Windows, so reading it has to mean
+    "not an alias" everywhere else rather than "cannot tell, refuse".
+    """
+    from arena.resources import mission_identifier
+
+    missions = tmp_path / "missions"
+    missions.mkdir()
+    plain = missions / "plain"
+    plain.mkdir()
+
+    assert mission_identifier.escapes_the_root(plain, missions) is False

@@ -12,6 +12,7 @@ from arena.resources.mission_catalog import (
     mission_dir,
     summarize_mission_dir,
 )
+from arena.resources.mission_identifier import contained_child
 from arena.resources.mission_lineage import get_mission_lineage
 
 
@@ -46,10 +47,15 @@ def get_mission_history(missions_dir: Path, name: str) -> dict[str, Any]:
         return status
     path = Path(status["mission"]["path"])
     data = load_mission_json(path)
-    logs_dir = path / "logs"
+    # The mission directory is contained, its contents are not: #350
+    # review showed a linked `logs` directory serving step files from
+    # outside the tree, and a contained directory can hold linked files.
+    logs_dir = contained_child(path, "logs")
     step_logs = []
-    if logs_dir.exists():
+    if logs_dir is not None:
         for log_path in sorted(logs_dir.glob("step-*.json")):
+            if contained_child(logs_dir, log_path.name) is None:
+                continue
             try:
                 entry = json.loads(log_path.read_text(encoding="utf-8"))
             except Exception:
