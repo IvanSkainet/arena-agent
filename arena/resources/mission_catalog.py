@@ -6,6 +6,7 @@ from typing import Any
 
 from arena.jsonshape import loads_object
 from arena.resources.mission_identifier import (
+    not_a_single_directory_name,
     resolve_mission_name,
     unusable_directory_name,
 )
@@ -27,8 +28,13 @@ def mission_dir(missions_dir: Path, name: str) -> Path:
     identifier that already resolves is never rewritten, so an unknown
     mission still 404s under the name the caller actually used.
     """
-    if ".." in name or "/" in name or "\\" in name or name.startswith("."):
-        raise ValueError("invalid mission name")
+    navigates = not_a_single_directory_name(name)
+    if navigates:
+        # Was an inline condition with the same effect. Moved to the
+        # shared function in #350 so the writer cannot disagree: it
+        # accepted every name this rejected, and wrote missions outside
+        # `missions_dir` as a result.
+        raise ValueError(navigates)
     unusable = unusable_directory_name(name)
     if unusable:
         # Refused here rather than at the first `stat`: every mission read

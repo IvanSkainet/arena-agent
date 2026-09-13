@@ -12,7 +12,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from arena.missions_cli.templates import TEMPLATES_DATA
-from arena.resources.mission_identifier import unusable_directory_name
+from arena.resources.mission_identifier import (
+    not_a_single_directory_name,
+    unusable_directory_name,
+)
 from arena.resources.mission_state import infer_rerun_step
 
 _TEMPLATE_HINTS = {
@@ -31,7 +34,18 @@ def _now() -> str:
 
 
 def _slug(text: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9._-]+", "-", str(text or "").strip()).strip("-").lower() or "mission"
+    """Fold a title into the name fragment of a generated mission id.
+
+    The collapse of dot runs is not cosmetic (#350): the fragment goes
+    into an id that `mission_dir` later has to accept, and that reader
+    refuses any name containing `..`. Without this, a title of
+    `Ship v2..final` created a mission that could not be read back or
+    listed afterwards -- written successfully, addressable by nothing.
+    A leading dot goes for the same reason.
+    """
+    slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(text or "").strip())
+    slug = re.sub(r"\.{2,}", ".", slug).strip("-.").lower()
+    return slug or "mission"
 
 
 
@@ -77,6 +91,21 @@ def compose_mission_draft(*, goal: str, context: str = "", constraints: list[str
 
 
 
+def _stays_inside(path: Path, root: Path) -> bool:
+    """Does *path* really land under *root* once links are resolved?
+
+    `strict=False`: the mission directory is about to be created, so it
+    does not exist yet and a strict resolve would raise. The parents
+    that do exist are still resolved, which is what a planted symlink
+    would have to go through.
+    """
+    try:
+        resolved_root = root.resolve()
+        return path.resolve().is_relative_to(resolved_root)
+    except (OSError, ValueError):
+        return False
+
+
 def create_mission_from_draft(*, missions_dir: Path, draft: dict[str, Any], mission_id: str = "", overwrite: bool = False) -> dict[str, Any]:
     title = str(draft.get("title", "") or draft.get("goal", "") or "mission")
     mid = mission_id or dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + _slug(title) + "-" + uuid.uuid4().hex[:6]
@@ -94,7 +123,20 @@ def create_mission_from_draft(*, missions_dir: Path, draft: dict[str, Any], miss
         # `UnicodeEncodeError` -- and all three arrived as 500s. The reader
         # half is in `mission_dir`.
         return {"ok": False, "error": unusable, "status": 400}
+    navigates = not_a_single_directory_name(mid, label="mission id")
+    if navigates:
+        # #350: the reader refused these all along and the writer refused
+        # nothing, so `mission_id="../../secrets"` wrote a mission outside
+        # `missions_dir` -- overwriting whatever `mission.json` lived there
+        # -- and answered `ok: True`. The same call now decides for both.
+        return {"ok": False, "error": navigates, "status": 400}
     path = missions_dir / mid
+    if not _stays_inside(path, missions_dir):
+        # Belt to the name check's braces: the string can be a plain name
+        # and still land outside, because `missions_dir` itself may contain
+        # a symlink. Checked against the resolved root the way
+        # `arena/resources/listing.py` does it for #120.
+        return {"ok": False, "error": "mission id escapes the missions directory", "status": 400}
     if path.exists() and not overwrite:
         return {"ok": False, "error": f"mission already exists: {mid}", "status": 409}
     lineage = dict(draft.get("lineage") or {}) if isinstance(draft.get("lineage"), dict) else {}

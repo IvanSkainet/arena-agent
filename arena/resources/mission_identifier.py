@@ -113,6 +113,41 @@ def _nt_refusal(name: str) -> str | None:
     return None
 
 
+def not_a_single_directory_name(name: str, *, label: str = "mission name") -> str | None:
+    """Why this identifier is not a plain name inside its directory.
+
+    Separate from `unusable_directory_name`, which asks whether the
+    filesystem can *hold* the name. This asks the earlier question:
+    does the name address one directory directly under the root, or
+    does it navigate somewhere else?
+
+    #350: the reader has always refused these -- `mission_dir` raised
+    `ValueError("invalid mission name")` for `..`, a separator, or a
+    leading dot -- while the writer refused nothing, so
+    `mission_id="../../secrets"` created a mission outside
+    `missions_dir` and overwrote whatever `mission.json` it found
+    there, answering `ok: True`. Both sides now ask the same function,
+    because two independent opinions about the same string is how they
+    drifted apart.
+
+    `..` is rejected anywhere in the name, not only as a whole
+    component. That is stricter than containment requires -- `a..b`
+    navigates nowhere -- but it is the rule the reader already
+    enforced, and a mission the writer accepts and the reader cannot
+    open is its own bug (a title of `Ship v2..final` produced exactly
+    that).
+    """
+    if not name:
+        return f"{label} cannot be empty"
+    if "/" in name or "\\" in name:
+        return f"{label} cannot contain a path separator"
+    if ".." in name:
+        return f"{label} cannot contain '..'"
+    if name.startswith("."):
+        return f"{label} cannot start with a dot"
+    return None
+
+
 def unusable_directory_name(name: str, *, label: str = "mission name") -> str | None:
     """Why this identifier cannot be a directory name, or None if it can.
 
