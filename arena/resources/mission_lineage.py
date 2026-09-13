@@ -5,15 +5,16 @@ from pathlib import Path
 from typing import Any
 
 from arena.resources.mission_catalog import mission_dir, summarize_mission_dir
+from arena.resources.mission_identifier import contained_child, contained_entries
 
 
 def _summaries(missions_dir: Path) -> list[dict[str, Any]]:
-    if not missions_dir.exists():
-        return []
+    # Third copy of the same walk (#350): `iterdir` plus `is_dir()`
+    # followed an aliased mission directory out of the root.
     return [
         summarize_mission_dir(path)
-        for path in sorted(missions_dir.iterdir())
-        if path.is_dir() and (path / "mission.json").exists()
+        for path in contained_entries(missions_dir)
+        if path.is_dir() and contained_child(path, "mission.json") is not None
     ]
 
 

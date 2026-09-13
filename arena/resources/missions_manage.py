@@ -12,7 +12,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from arena.missions_cli.templates import TEMPLATES_DATA
-from arena.resources.mission_identifier import unusable_directory_name
+from arena.resources.mission_identifier import (
+    escapes_the_root,
+    not_a_single_directory_name,
+    unusable_directory_name,
+)
 from arena.resources.mission_state import infer_rerun_step
 
 _TEMPLATE_HINTS = {
@@ -31,7 +35,18 @@ def _now() -> str:
 
 
 def _slug(text: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9._-]+", "-", str(text or "").strip()).strip("-").lower() or "mission"
+    """Fold a title into the name fragment of a generated mission id.
+
+    The collapse of dot runs is not cosmetic (#350): the fragment goes
+    into an id that `mission_dir` later has to accept, and that reader
+    refuses any name containing `..`. Without this, a title of
+    `Ship v2..final` created a mission that could not be read back or
+    listed afterwards -- written successfully, addressable by nothing.
+    A leading dot goes for the same reason.
+    """
+    slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(text or "").strip())
+    slug = re.sub(r"\.{2,}", ".", slug).strip("-.").lower()
+    return slug or "mission"
 
 
 
@@ -94,7 +109,20 @@ def create_mission_from_draft(*, missions_dir: Path, draft: dict[str, Any], miss
         # `UnicodeEncodeError` -- and all three arrived as 500s. The reader
         # half is in `mission_dir`.
         return {"ok": False, "error": unusable, "status": 400}
+    navigates = not_a_single_directory_name(mid, label="mission id")
+    if navigates:
+        # #350: the reader refused these all along and the writer refused
+        # nothing, so `mission_id="../../secrets"` wrote a mission outside
+        # `missions_dir` -- overwriting whatever `mission.json` lived there
+        # -- and answered `ok: True`. The same call now decides for both.
+        return {"ok": False, "error": navigates, "status": 400}
     path = missions_dir / mid
+    if escapes_the_root(path, missions_dir):
+        # Belt to the name check's braces: a plain name can still land
+        # elsewhere through a symlink -- out of the tree, or sideways onto
+        # another mission's files, which `overwrite=True` would then
+        # rewrite. Shared with the readers so one rule governs both.
+        return {"ok": False, "error": "mission id escapes the missions directory", "status": 400}
     if path.exists() and not overwrite:
         return {"ok": False, "error": f"mission already exists: {mid}", "status": 409}
     lineage = dict(draft.get("lineage") or {}) if isinstance(draft.get("lineage"), dict) else {}

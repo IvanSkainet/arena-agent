@@ -6,6 +6,10 @@ from typing import Any
 
 from arena.jsonshape import loads_object
 from arena.resources.mission_identifier import (
+    contained_child,
+    contained_entries,
+    escapes_the_root,
+    not_a_single_directory_name,
     resolve_mission_name,
     unusable_directory_name,
 )
@@ -27,8 +31,13 @@ def mission_dir(missions_dir: Path, name: str) -> Path:
     identifier that already resolves is never rewritten, so an unknown
     mission still 404s under the name the caller actually used.
     """
-    if ".." in name or "/" in name or "\\" in name or name.startswith("."):
-        raise ValueError("invalid mission name")
+    navigates = not_a_single_directory_name(name)
+    if navigates:
+        # Was an inline condition with the same effect. Moved to the
+        # shared function in #350 so the writer cannot disagree: it
+        # accepted every name this rejected, and wrote missions outside
+        # `missions_dir` as a result.
+        raise ValueError(navigates)
     unusable = unusable_directory_name(name)
     if unusable:
         # Refused here rather than at the first `stat`: every mission read
@@ -36,13 +45,26 @@ def mission_dir(missions_dir: Path, name: str) -> Path:
         # to a name it cannot hold arrive as exceptions from inside
         # `Path.exists()`, which reached the client as 500s (#286).
         raise ValueError(unusable)
-    return missions_dir / resolve_mission_name(missions_dir, name)
+    resolved = missions_dir / resolve_mission_name(missions_dir, name)
+    if escapes_the_root(resolved, missions_dir):
+        # The name says nothing about where the entry points. Raised in
+        # review on #350 by all three reviewers: with only the string
+        # check here, `missions_dir/plain` as a symlink let every reader
+        # -- status, report, history, family, show -- load a
+        # `mission.json` from outside the root.
+        raise ValueError("mission name escapes the missions directory")
+    return resolved
 
 
 
 def load_mission_json(path: Path) -> dict[str, Any]:
-    mission_file = path / "mission.json"
-    if not mission_file.exists():
+    # `contained_child` rather than `path / "mission.json"`: the
+    # directory being contained does not make its contents contained.
+    # Raised on the second revision of #350 -- a real mission directory
+    # holding a `mission.json` symlinked outside the root was read and
+    # returned by status, report and history.
+    mission_file = contained_child(path, "mission.json")
+    if mission_file is None:
         return {}
     try:
         return loads_object(mission_file.read_text(encoding="utf-8"))
@@ -114,8 +136,11 @@ def summarize_mission_dir(path: Path) -> dict[str, Any]:
     runs: list[dict[str, Any]] = [dict(r) for r in raw_runs] if isinstance(raw_runs, list) else []
     latest_run = runs[-1] if runs else None
     latest_failed_steps = extract_failed_steps(latest_run)
-    report = path / "REPORT.md"
-    logs = path / "logs"
+    # Same reason as in `load_mission_json`: a linked `REPORT.md` served
+    # its target's text through the report surface, and a linked `logs`
+    # directory listed step files from outside the tree.
+    report = contained_child(path, "REPORT.md")
+    logs = contained_child(path, "logs")
     raw_lineage = data.get("lineage")
     lineage: dict[str, Any] = raw_lineage if isinstance(raw_lineage, dict) else {}
     raw_ancestors = lineage.get("ancestor_ids")
@@ -146,13 +171,15 @@ def summarize_mission_dir(path: Path) -> dict[str, Any]:
         "runs_count": len(runs),
         "latest_run": latest_run,
         "latest_failed_steps": latest_failed_steps,
-        "has_report": report.exists(),
-        "has_logs": logs.exists() and logs.is_dir(),
+        "has_report": report is not None,
+        "has_logs": logs is not None and logs.is_dir(),
         "latest_exit_code": _latest_exit_code(latest_run),
         "failed_steps_count": len(latest_failed_steps),
-        "report_exists": report.exists(),
-        "report_path": str(report) if report.exists() else None,
-        "log_count": len(list(logs.glob("step-*.json"))) if logs.exists() else 0,
+        "report_exists": report is not None,
+        "report_path": str(report) if report is not None else None,
+        # `glob` follows a linked step file like any other; the count is
+        # taken over contained entries only, same as the history surface.
+        "log_count": len(contained_entries(logs, "step-*.json")) if logs is not None else 0,
         "path": str(path),
     }
 
@@ -168,11 +195,14 @@ def catalog_missions(
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
+    # `contained_entries` rather than `iterdir`: `is_dir()` follows a
+    # symlinked or junctioned mission directory and answers yes, so the
+    # listing read and reported missions from outside the root.
     all_items = [
         summarize_mission_dir(path)
-        for path in sorted(missions_dir.iterdir())
-        if missions_dir.exists() and path.is_dir() and (path / "mission.json").exists()
-    ] if missions_dir.exists() else []
+        for path in contained_entries(missions_dir)
+        if path.is_dir() and contained_child(path, "mission.json") is not None
+    ]
     state_q = str(state or "").strip().lower()
     template_q = str(template or "").strip().lower()
     query_q = str(query or "").strip().lower()
