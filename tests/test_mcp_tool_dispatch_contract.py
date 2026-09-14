@@ -39,7 +39,6 @@ this test.
 from __future__ import annotations
 
 import json
-import os
 import sys
 import tempfile
 from pathlib import Path
@@ -70,9 +69,13 @@ _NEVER_ACCEPTABLE = ("TypeError:", "AttributeError:", "NameError:",
 
 
 @pytest.fixture(scope="module")
-def call_tool():
+def call_tool(monkeypatch_module):
     home = tempfile.mkdtemp(prefix="mcp-dispatch-")
-    os.environ["ARENA_AGENT_HOME"] = home
+    # Via monkeypatch rather than `os.environ[...] = home`: the raw
+    # assignment had nothing to undo it, so the tmpdir stayed in the
+    # environment for every module collected afterwards, and collection
+    # order is randomised (#348).
+    monkeypatch_module.setenv("ARENA_AGENT_HOME", home)
     root = Path(home)
 
     def _any(*a, **k):

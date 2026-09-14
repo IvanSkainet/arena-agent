@@ -16,13 +16,14 @@ REPL is documented as a Linux/macOS path).
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 import tempfile
 from pathlib import Path
 
 import pytest
+
+from tests._env_isolation import agent_home
 
 # Skip the entire file on Windows because arena.chat_cli.common
 # imports fcntl at top level, and fcntl is a POSIX-only module.
@@ -41,9 +42,12 @@ if sys.platform == "win32":
 # import time based on ARENA_AGENT_HOME. We point it at a
 # tmp path so we don't touch the real bridge.
 _tmp_home = Path(tempfile.mkdtemp(prefix="arena_chat_cli_test_"))
-os.environ["ARENA_AGENT_HOME"] = str(_tmp_home)
 
-from arena.chat_cli import common as chat_common  # noqa: E402
+# chat_cli.common does `os.umask(0o077)` and binds HOME at import from
+# ARENA_AGENT_HOME, so the variable must be set before this import and
+# released straight after; see `tests/_env_isolation.py` (#348).
+with agent_home(str(_tmp_home), "arena.chat_cli.common"):
+    from arena.chat_cli import common as chat_common  # noqa: E402
 
 
 # --------------------------------------------------------------------

@@ -242,6 +242,12 @@ def test_update_check_with_repo_override_and_malformed_json(monkeypatch):
     ctx = _MockContext()
     handlers = make_update_handlers(ctx)
 
+    # `update_check` writes the override into `os.environ` itself, so
+    # the value outlives the request and, without this, outlived the
+    # test: it was still set at session end (#348). `monkeypatch.setenv`
+    # here is not configuring anything -- it registers the name so the
+    # undo runs whatever the handler leaves behind.
+    monkeypatch.setenv("ARENA_UPDATE_REPO", "placeholder-restored-on-teardown")
     monkeypatch.delenv("ARENA_UPDATE_REPO", raising=False)
     req = _make_req("POST", "/v1/admin/update/check", {"repo": "custom/repo-test "})
 

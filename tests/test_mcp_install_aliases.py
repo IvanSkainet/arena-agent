@@ -55,13 +55,33 @@ def _fresh_modules(home: str):
 def sandbox(monkeypatch):
     home = tempfile.mkdtemp()
     previous = os.environ.get("ARENA_AGENT_HOME")
-    common, integ = _fresh_modules(home)
-    yield common, integ
-    if previous is None:
-        os.environ.pop("ARENA_AGENT_HOME", None)
-    else:
-        os.environ["ARENA_AGENT_HOME"] = previous
-    _fresh_modules(previous or os.path.expanduser("~/arena-bridge"))
+    # Inside the `try`: `_fresh_modules` sets ARENA_AGENT_HOME before
+    # it reloads anything, so a failure part-way through setup would
+    # otherwise leave the scratch home set for every later module.
+    try:
+        common, integ = _fresh_modules(home)
+        yield common, integ
+    finally:
+        # Reload the modules back to the ambient home *first*: the
+        # reload helper sets the variable as a side effect, so doing it
+        # after the restore re-introduced the very leak this is undoing
+        # -- and with `previous or "~/arena-bridge"` it left a value
+        # behind even when there had been none to begin with (#348).
+        #
+        # The restore is in a `finally` of its own so that a raising
+        # `_fresh_modules` cannot skip it and leak the tmp home into
+        # every later test.
+        try:
+            # `previous` is None when the harness scrubbed the ambient
+            # value, which is the normal case; reloading against the
+            # default home is what the rest of the suite expects to
+            # find, and the environment is put back either way below.
+            _fresh_modules(previous or os.path.expanduser("~/arena-bridge"))
+        finally:
+            if previous is None:
+                os.environ.pop("ARENA_AGENT_HOME", None)
+            else:
+                os.environ["ARENA_AGENT_HOME"] = previous
 
 
 # --------------------------------------------------------------------

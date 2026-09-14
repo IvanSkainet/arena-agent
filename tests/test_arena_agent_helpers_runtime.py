@@ -13,13 +13,14 @@ permission assertion is therefore skipped on
 from __future__ import annotations
 
 import json
-import os
 import stat
 import sys
 import tempfile
 from pathlib import Path
 
 import pytest
+
+from tests._env_isolation import agent_home
 
 # Same POSIX-only check as test_arena_agent_helpers_files:
 # NTFS ignores chmod, so the stat.S_IMODE == 0o600 assertion
@@ -32,9 +33,13 @@ _POSIX_ONLY = pytest.mark.skipif(
 
 
 _tmp_home = Path(tempfile.mkdtemp(prefix="arena_helpers_runtime_"))
-os.environ["ARENA_AGENT_HOME"] = str(_tmp_home)
 
-from arena.agent_helpers import runtime  # noqa: E402
+# `files.ROOT`/`FACTS` are evaluated at import, so the variable has to
+# be set before this import and released straight after it; see
+# `tests/_env_isolation.py` for why each teardown step is needed (#348).
+with agent_home(str(_tmp_home),
+                "arena.agent_helpers.runtime", "arena.agent_helpers.files"):
+    from arena.agent_helpers import runtime  # noqa: E402
 
 
 def test_load_facts_returns_empty_when_no_file(monkeypatch, tmp_path):

@@ -88,6 +88,184 @@ def _ambient_arena_variables() -> tuple[str, ...]:
     ))
 
 
+_ARENA_AT_SESSION_START: dict[str, str] = {}
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """Photograph the `ARENA_*` environment the suite starts from.
+
+    Compared again by `pytest_collection_finish` (per module, below)
+    and by `pytest_sessionfinish`. #348: five
+    modules set `ARENA_AGENT_HOME` with a bare assignment and never
+    undid it, so the value stayed for every module *collected after*
+    them -- and `pytest-randomly` reorders collection, so which value a
+    later test read depended on the seed. That is the mechanism behind
+    "fails once in a while, passes on re-run".
+    """
+    _ARENA_AT_SESSION_START.clear()
+    _ARENA_AT_SESSION_START.update(
+        {name: value for name, value in os.environ.items()
+         if name.startswith("ARENA_")})
+
+
+def _arena_leaks_by_origin() -> dict[str, dict[str, tuple[str | None, str | None]]]:
+    """Every leak, keyed by a phrase naming where it came from.
+
+    A variable a module set at import and never restored shows up in
+    both views -- the per-module record and the session comparison. It
+    is reported under the module, since that line says everything the
+    anonymous one does and also names the culprit; the session entry
+    then carries only what no import explains, i.e. a fixture or test
+    body that forgot its teardown.
+
+    The de-duplication matches on the whole change, not just the name.
+    Matching on the name alone hid the end state whenever a module set
+    a value at import and something later changed it again: the report
+    showed the module's value and never mentioned what the session
+    actually ended with.
+    """
+    by_module = {f" while importing {module}": changed
+                 for module, changed in _ARENA_CHANGED_BY_MODULE.items()}
+    attributed = {(name, change)
+                  for changed in by_module.values()
+                  for name, change in changed.items()}
+    unattributed = {
+        name: change
+        for name, change in arena_variables_leaked_during_the_session().items()
+        if (name, change) not in attributed
+    }
+    return {where: what
+            for where, what in {"": unattributed, **by_module}.items()
+            if what}
+
+
+def _report_arena_leaks(
+        session: pytest.Session,
+        leaked: dict[str, dict[str, tuple[str | None, str | None]]]) -> None:
+    """Write the leak report to the terminal, if there is one attached."""
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is None:
+        return
+    reporter.write_sep("=", "ARENA_* environment leaked", red=True)
+    for where, changed in leaked.items():
+        for name, (before, after) in changed.items():
+            reporter.write_line(f"  {name}: {before!r} -> {after!r}{where}")
+    # Both hints when both kinds are present: they are different bugs
+    # with different fixes, and printing only one sends half the
+    # reported leaks to the wrong remedy.
+    if any(where for where in leaked):
+        reporter.write_line(
+            "  a module changed the environment without undoing it; later "
+            "modules then depend on collection order (#348)")
+    if "" in leaked:
+        reporter.write_line(
+            "  a fixture or test body changed the environment without "
+            "undoing it; use monkeypatch.setenv so it is rolled back (#348)")
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Fail the run if the suite ended with a different `ARENA_*` set.
+
+    A hook rather than a test: a test can only observe what ran before
+    it, so as a test this check passed or failed depending on where
+    `pytest-randomly` placed it -- order-dependent, which is the exact
+    defect it exists to catch. Verified by mutation: reintroducing the
+    leak in `test_mcp_install_aliases` left the test-shaped version
+    green whenever it was collected first.
+
+    Reported as a warning plus a non-zero exit rather than by raising,
+    so it cannot be mistaken for one of the run's own failures.
+
+    Covers the per-module mutations too, not just the session
+    endpoints. The tests below assert the same things, but a test can
+    be deselected -- `-k` on an unrelated name would silently switch
+    the guard off, and a transient leak (one module sets, a later one
+    restores) shows up in neither endpoint snapshot. The hook always
+    runs.
+    """
+    leaked = _arena_leaks_by_origin()
+    if not leaked:
+        return
+    _report_arena_leaks(session, leaked)
+    if exitstatus == 0:
+        session.exitstatus = 1
+
+
+_ARENA_AFTER_COLLECTION: dict[str, str] = {}
+_ARENA_CHANGED_BY_MODULE: dict[str, dict[str, tuple[str | None, str | None]]] = {}
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_make_collect_report(collector: pytest.Collector):
+    """Snapshot around each module import, so leaks can be attributed.
+
+    The endpoint comparison (start vs end of collection) misses a
+    module that sets a value which a *later* module restores: the two
+    snapshots match, yet everything imported in between saw the leaked
+    value. Wrapping each import catches that, and names the module
+    responsible rather than just the variable.
+
+    This hook and not `pytest_collectstart`, which fires before the
+    module is imported -- wrapping it measured nothing, and a
+    deliberately transient leak went unreported.
+    """
+    if not isinstance(collector, pytest.Module):
+        yield
+        return
+    before = {n: v for n, v in os.environ.items() if n.startswith("ARENA_")}
+    outcome = yield
+    after = {n: v for n, v in os.environ.items() if n.startswith("ARENA_")}
+    changed = _compare_arena_snapshots(before, after)
+    if changed:
+        _ARENA_CHANGED_BY_MODULE[str(collector.nodeid)] = changed
+    return outcome
+
+
+def arena_variables_changed_per_module() -> dict[
+        str, dict[str, tuple[str | None, str | None]]]:
+    """`{module nodeid: {name: (before, after)}}` for each importer."""
+    return dict(_ARENA_CHANGED_BY_MODULE)
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    """Photograph it again once every test module has been imported.
+
+    This is the snapshot that makes the guard deterministic. The leaks
+    in #348 were module-level assignments, so they all happen during
+    collection, before any test runs -- which means the difference
+    between these two snapshots is the same whatever order
+    `pytest-randomly` picks, and whatever subset `-k` selects.
+    """
+    _ARENA_AFTER_COLLECTION.clear()
+    _ARENA_AFTER_COLLECTION.update(
+        {name: value for name, value in os.environ.items()
+         if name.startswith("ARENA_")})
+
+
+def arena_variables_set_during_collection() -> dict[str, tuple[str | None, str | None]]:
+    """`{name: (at start, after importing every test module)}`."""
+    return _compare_arena_snapshots(
+        _ARENA_AT_SESSION_START, _ARENA_AFTER_COLLECTION)
+
+
+def _compare_arena_snapshots(
+        before: dict[str, str],
+        after: dict[str, str]) -> dict[str, tuple[str | None, str | None]]:
+    names = set(before) | set(after)
+    return {
+        name: (before.get(name), after.get(name))
+        for name in sorted(names)
+        if before.get(name) != after.get(name)
+    }
+
+
+def arena_variables_leaked_during_the_session() -> dict[str, tuple[str | None, str | None]]:
+    """`{name: (at start, at end)}` for every `ARENA_*` that moved."""
+    current = {name: value for name, value in os.environ.items()
+               if name.startswith("ARENA_")}
+    return _compare_arena_snapshots(_ARENA_AT_SESSION_START, current)
+
+
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
@@ -117,6 +295,22 @@ def _hide_ambient_arena_configuration() -> None:
     """
     for name in _ambient_arena_variables():
         del os.environ[name]
+
+
+@pytest.fixture(scope="module")
+def monkeypatch_module():
+    """`monkeypatch` with module scope, for module-scoped fixtures.
+
+    pytest's own `monkeypatch` is function-scoped and cannot be
+    requested by a `scope="module"` fixture. Without this the usual
+    workaround is a raw `os.environ[...] = ...` with nothing to undo
+    it, which is exactly how #348's leaks were written: the value then
+    survives into every module collected afterwards, and collection
+    order is randomised, so what a later test reads depends on the
+    seed.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        yield patch
 
 
 class NetworkUseInTest(RuntimeError):
