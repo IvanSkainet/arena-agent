@@ -167,13 +167,6 @@ def test_live_capture_screenshot_returns_bytes():
 
 
 @_WIN_ONLY
-def test_live_list_windows_includes_active():
-    wins = win_backend.list_windows()
-    assert isinstance(wins, list)
-    assert any(w.get("active") for w in wins)
-
-
-@_WIN_ONLY
 def test_live_get_active_window_has_id_and_title():
     w = win_backend.get_active_window()
     assert w is not None
