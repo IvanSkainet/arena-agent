@@ -76,6 +76,8 @@ from arena.admin.update_github import (
     from_api_release as _from_api_release,
     github_token as _github_token,
     http_get_json as _http_get_json,
+    is_newer,
+    parse_version,
     pick_asset as _pick_asset,
     resolve_latest_via_redirect as _resolve_latest_via_redirect,
 )
@@ -103,7 +105,8 @@ _USER_AGENT = f"arena-agent-auto-update/{_CURRENT_VERSION}"
 
 # `_pick_asset` is re-exported, not used here: it lost its only in-module
 # caller to update_github in #361, but is still imported from here.
-__all_helpers = [_write_windows_installer, _pick_asset]  # keep imports visible
+__all_helpers = [_write_windows_installer, _pick_asset,
+                 is_newer, parse_version]  # keep imports visible
 
 
 from arena.admin.auto_update_fetch import download_release  # noqa: E402
@@ -148,33 +151,6 @@ def _install_root() -> Path:
 # ---------------------------------------------------------------------------
 # Version parsing + comparison
 # ---------------------------------------------------------------------------
-
-def parse_version(tag: str) -> tuple[int, ...]:
-    """`v3.84.7` / `3.84.7` / `v3.84.7-rc1` -> `(3, 84, 7)`.
-
-    Non-numeric suffixes are dropped; ordering follows plain integer
-    tuple comparison which is enough for the semver-lite scheme this
-    project actually uses.
-    """
-    s = (tag or "").strip().lstrip("vV")
-    parts: list[int] = []
-    for chunk in s.split("."):
-        buf = ""
-        for ch in chunk:
-            if ch.isdigit():
-                buf += ch
-            else:
-                break
-        if not buf:
-            break
-        parts.append(int(buf))
-    return tuple(parts) if parts else (0,)
-
-
-def is_newer(candidate: str, baseline: str) -> bool:
-    """Strictly greater than the baseline."""
-    return parse_version(candidate) > parse_version(baseline)
-
 
 # ---------------------------------------------------------------------------
 # GitHub helpers (moved to arena.admin.update_github in v3.86.2 so this
@@ -424,8 +400,7 @@ def check_updates(*, current_version: str | None = None,
     api_data, api_error = _latest_release_via_api(repo) if token else (None, None)
 
     if api_data is not None:
-        return _from_api_release(api_data, repo=repo, baseline=baseline,
-                                 err=_err, is_newer=is_newer)
+        return _from_api_release(api_data, repo=repo, baseline=baseline)
 
     # Redirect fallback (no token, or API refused).
     tag = _resolve_latest_via_redirect(repo)

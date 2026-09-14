@@ -23,7 +23,6 @@ import os
 import re
 import urllib.error
 import urllib.request
-from collections.abc import Callable
 from typing import Any
 
 _USER_AGENT_PREFIX = "arena-agent-auto-update"
@@ -304,17 +303,50 @@ def resolve_latest_via_redirect(repo: str) -> str | None:
         return None
 
 
-def from_api_release(api_data: dict[str, Any], *, repo: str, baseline: str,
-                     err: Callable[..., dict[str, Any]],
-                     is_newer: Callable[[str, str], bool]) -> dict[str, Any]:
+# --------------------------------------------------------------------
+# Version comparison. Moved from auto_update in #361 together with
+# `from_api_release`, which needs it: keeping it there would have meant
+# passing it in as an argument, and auto_update cannot be imported from
+# here without a cycle. It depends on nothing else, so it sits at the
+# bottom of the graph where both modules can reach it. auto_update
+# re-exports both names, which tests and callers import from there.
+# --------------------------------------------------------------------
+
+def parse_version(tag: str) -> tuple[int, ...]:
+    """`v3.84.7` / `3.84.7` / `v3.84.7-rc1` -> `(3, 84, 7)`.
+
+    Non-numeric suffixes are dropped; ordering follows plain integer
+    tuple comparison which is enough for the semver-lite scheme this
+    project actually uses.
+    """
+    s = (tag or "").strip().lstrip("vV")
+    parts: list[int] = []
+    for chunk in s.split("."):
+        buf = ""
+        for ch in chunk:
+            if ch.isdigit():
+                buf += ch
+            else:
+                break
+        if not buf:
+            break
+        parts.append(int(buf))
+    return tuple(parts) if parts else (0,)
+
+
+def is_newer(candidate: str, baseline: str) -> bool:
+    """Strictly greater than the baseline."""
+    return parse_version(candidate) > parse_version(baseline)
+
+
+def from_api_release(api_data: dict[str, Any], *,
+                     repo: str, baseline: str) -> dict[str, Any]:
     """Shape the answer from the JSON API, which knows asset digests.
 
     Lives here rather than in `auto_update` because that module was at
     the 600-line cap (#361) and this is pure shaping of a GitHub
     payload -- no network of its own.
 
-    `err` and `is_newer` are parameters, not imports: `auto_update`
-    already imports this module, so importing back would be a cycle.
     Its two sibling helpers stay in `auto_update` on purpose -- they
     call the fetchers that tests monkeypatch by name on that module,
     and moving them silently broke four of those tests.
@@ -322,8 +354,9 @@ def from_api_release(api_data: dict[str, Any], *, repo: str, baseline: str,
     tag = str(api_data.get("tag_name") or "")
     asset = pick_asset(api_data.get("assets") or [])
     if asset is None:
-        return err(f"release {tag} has no downloadable zip",
-                    repo=repo, tag=tag)
+        return {"ok": False,
+                "error": f"release {tag} has no downloadable zip",
+                "repo": repo, "tag": tag}
     return {
         "ok": True,
         "repo": repo,
