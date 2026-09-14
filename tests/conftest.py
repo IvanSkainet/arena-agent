@@ -150,11 +150,14 @@ def _report_arena_leaks(
     for where, changed in leaked.items():
         for name, (before, after) in changed.items():
             reporter.write_line(f"  {name}: {before!r} -> {after!r}{where}")
+    # Both hints when both kinds are present: they are different bugs
+    # with different fixes, and printing only one sends half the
+    # reported leaks to the wrong remedy.
     if any(where for where in leaked):
         reporter.write_line(
             "  a module changed the environment without undoing it; later "
             "modules then depend on collection order (#348)")
-    else:
+    if "" in leaked:
         reporter.write_line(
             "  a fixture or test body changed the environment without "
             "undoing it; use monkeypatch.setenv so it is rolled back (#348)")
