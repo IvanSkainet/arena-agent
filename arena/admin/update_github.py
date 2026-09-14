@@ -23,6 +23,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from typing import Any
 
 _USER_AGENT_PREFIX = "arena-agent-auto-update"
@@ -339,8 +340,9 @@ def is_newer(candidate: str, baseline: str) -> bool:
     return parse_version(candidate) > parse_version(baseline)
 
 
-def from_api_release(api_data: dict[str, Any], *,
-                     repo: str, baseline: str) -> dict[str, Any]:
+def from_api_release(api_data: dict[str, Any], *, repo: str, baseline: str,
+                     pick: Callable[[list[dict[str, Any]]],
+                                    dict[str, Any] | None] = None) -> dict[str, Any]:
     """Shape the answer from the JSON API, which knows asset digests.
 
     Lives here rather than in `auto_update` because that module was at
@@ -350,9 +352,17 @@ def from_api_release(api_data: dict[str, Any], *,
     Its two sibling helpers stay in `auto_update` on purpose -- they
     call the fetchers that tests monkeypatch by name on that module,
     and moving them silently broke four of those tests.
+
+    `pick` exists for the same reason: `auto_update._pick_asset` is a
+    documented hook that tests and callers monkeypatch to control asset
+    selection. Resolving it here at module scope would capture the
+    unpatched function, so the caller passes its own alias in and the
+    hook keeps working. Defaults to the local `pick_asset` for direct
+    callers.
     """
     tag = str(api_data.get("tag_name") or "")
-    asset = pick_asset(api_data.get("assets") or [])
+    chooser = pick if pick is not None else pick_asset
+    asset = chooser(api_data.get("assets") or [])
     if asset is None:
         return {"ok": False,
                 "error": f"release {tag} has no downloadable zip",

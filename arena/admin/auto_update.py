@@ -105,7 +105,7 @@ _USER_AGENT = f"arena-agent-auto-update/{_CURRENT_VERSION}"
 
 # `_pick_asset` is re-exported, not used here: it lost its only in-module
 # caller to update_github in #361, but is still imported from here.
-__all_helpers = [_write_windows_installer, _pick_asset,
+__all_helpers = [_write_windows_installer,
                  is_newer, parse_version]  # keep imports visible
 
 
@@ -400,7 +400,12 @@ def check_updates(*, current_version: str | None = None,
     api_data, api_error = _latest_release_via_api(repo) if token else (None, None)
 
     if api_data is not None:
-        return _from_api_release(api_data, repo=repo, baseline=baseline)
+        # `_pick_asset` passed explicitly, not left to the callee's
+        # module-level name: it is a documented monkeypatch hook on
+        # *this* module, and a callee resolving its own copy would
+        # silently ignore the patch (#361 review).
+        return _from_api_release(api_data, repo=repo, baseline=baseline,
+                                 pick=_pick_asset)
 
     # Redirect fallback (no token, or API refused).
     tag = _resolve_latest_via_redirect(repo)

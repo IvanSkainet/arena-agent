@@ -145,3 +145,30 @@ def test_the_environment_variable_still_configures_the_repository(
         "a blank override must fall back to configuration, not blank out the repo")
     assert au._repo("call/scoped") == "call/scoped", (
         "an explicit override must win over the ambient configuration")
+
+
+def test_pick_asset_stays_a_working_monkeypatch_hook(monkeypatch) -> None:
+    """Moving code must not turn a patch point into decoration.
+
+    `auto_update._pick_asset` is patched by existing tests to control
+    asset selection. Extracting the API shaper into `update_github`
+    left that alias re-exported but unused, so patches on it were
+    silently ignored while the import still looked right -- caught in
+    review, reproduced here before fixing.
+    """
+    api = {"tag_name": "v9.9.9", "assets": [
+        {"name": "arena-agent-v9.9.9.zip",
+         "browser_download_url": "https://example/v.zip",
+         "size": 5, "digest": "sha256:ab"}]}
+    chosen = {"name": "chosen-by-the-patch", "browser_download_url": "https://example/p.zip",
+              "size": 1, "digest": "sha256:cd"}
+
+    monkeypatch.setattr(au, "_github_token", lambda: "token")
+    monkeypatch.setattr(au, "_http_get_json", lambda url: api)
+    monkeypatch.setattr(au, "_pick_asset", lambda assets: chosen)
+
+    result = au.check_updates(current_version="1.0.0")
+
+    assert result["asset_name"] == "chosen-by-the-patch", (
+        "check_updates ignored the patched _pick_asset, so the alias is "
+        "decoration rather than the documented hook")
