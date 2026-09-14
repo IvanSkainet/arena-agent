@@ -5,7 +5,12 @@ from pathlib import Path
 from typing import Any
 
 from arena.resources.mission_catalog import summarize_mission_dir
-from arena.resources.mission_identifier import contained_child, contained_entries
+from arena.resources.mission_identifier import (
+    contained_child,
+    contained_entries,
+    index_missions_by_id,
+    mission_item_id,
+)
 from arena.resources.mission_lineage import get_mission_lineage
 
 
@@ -14,7 +19,7 @@ def get_mission_family(missions_dir: Path, name: str) -> dict[str, Any]:
     if not lineage.get("ok"):
         return lineage
     root = lineage.get("root") or lineage.get("mission") or {}
-    root_id = str(root.get("id") or root.get("name") or "").strip()
+    root_id = mission_item_id(root)
     if not root_id:
         # A mission whose id is entirely whitespace -- `str.strip()` removes
         # U+0085 and friends, not just spaces -- leaves nothing to group a
@@ -29,16 +34,16 @@ def get_mission_family(missions_dir: Path, name: str) -> dict[str, Any]:
         if not path.is_dir() or contained_child(path, "mission.json") is None:
             continue
         item = summarize_mission_dir(path)
-        if str(item.get("root_mission_id") or item.get("id") or item.get("name") or "") == root_id:
+        if mission_item_id(item, prefer_root=True) == root_id:
             members.append(item)
     members.sort(key=lambda item: (int(item.get("lineage_depth", 0) or 0), str(item.get("created_at", "") or ""), str(item.get("name", "") or "")))
-    index = {str(item.get("id") or item.get("name") or ""): item for item in members}
+    index = index_missions_by_id(members)
     children_by_parent: dict[str, list[dict[str, Any]]] = {}
     for item in members:
         parent = str(item.get("parent_mission_id") or "").strip()
         if parent:
             children_by_parent.setdefault(parent, []).append(item)
-    leaves = [item for item in members if not children_by_parent.get(str(item.get("id") or item.get("name") or ""))]
+    leaves = [item for item in members if not children_by_parent.get(mission_item_id(item))]
     states: dict[str, int] = {}
     templates: dict[str, int] = {}
     origins: dict[str, int] = {}
@@ -52,7 +57,7 @@ def get_mission_family(missions_dir: Path, name: str) -> dict[str, Any]:
         current = leaf
         seen: set[str] = set()
         while current:
-            cid = str(current.get("id") or current.get("name") or "")
+            cid = mission_item_id(current)
             if not cid or cid in seen:
                 break
             seen.add(cid)
@@ -60,7 +65,7 @@ def get_mission_family(missions_dir: Path, name: str) -> dict[str, Any]:
             parent_id = str(current.get("parent_mission_id") or "").strip()
             current = index.get(parent_id)
         branches.append({
-            "leaf_id": str(leaf.get("id") or leaf.get("name") or ""),
+            "leaf_id": mission_item_id(leaf),
             "depth": int(leaf.get("lineage_depth", 0) or 0),
             "state": leaf.get("state", "unknown"),
             "path": list(reversed(path_ids)),

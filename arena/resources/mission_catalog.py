@@ -9,6 +9,7 @@ from arena.resources.mission_identifier import (
     contained_child,
     contained_entries,
     escapes_the_root,
+    mission_item_id,
     not_a_single_directory_name,
     resolve_mission_name,
     unusable_directory_name,
@@ -230,7 +231,7 @@ def catalog_missions(
     states: dict[str, int] = {}
     templates: dict[str, int] = {}
     for item in items:
-        item["child_count"] = int(children_by_parent.get(str(item.get("id") or item.get("name") or ""), 0))
+        item["child_count"] = int(children_by_parent.get(mission_item_id(item), 0))
         states[item.get("state", "unknown")] = states.get(item.get("state", "unknown"), 0) + 1
         key = item.get("template", "") or "unknown"
         templates[key] = templates.get(key, 0) + 1
