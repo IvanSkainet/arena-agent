@@ -25,6 +25,39 @@ from arena.resources.mission_identifier import mission_item_id
 from arena.resources.mission_lineage import get_mission_lineage
 
 
+def _within_deadline(call, *, caplog, seconds: float, on_timeout: str):
+    """Run `call` on a thread and fail if it has not returned in time.
+
+    Separate from the test because the plumbing is not what the test is
+    about -- CodeScene put the combined version at the complexity
+    threshold and review said the same.
+
+    The exception handling is the point, not boilerplate: without the
+    `finally` an exception would leave the event unset and the deadline
+    would report a hang, diagnosing a crash as the very thing the
+    deadline exists to distinguish. The traceback is carried back and
+    re-raised here, where `threading.excepthook` cannot swallow it.
+    """
+    finished = threading.Event()
+    box: dict[str, object] = {}
+
+    def _run() -> None:
+        try:
+            with caplog.at_level("WARNING"):
+                box["value"] = call()
+        except BaseException as exc:  # noqa: BLE001 - re-raised below
+            box["error"] = exc
+        finally:
+            finished.set()
+
+    threading.Thread(target=_run, daemon=True).start()
+    assert finished.wait(timeout=seconds), on_timeout
+    error = box.get("error")
+    if isinstance(error, BaseException):
+        raise error
+    return box["value"]
+
+
 def _mission(root: Path, dirname: str, doc: dict) -> Path:
     directory = root / dirname
     directory.mkdir(parents=True)
@@ -106,6 +139,18 @@ def test_two_ids_that_differ_only_by_padding_do_not_overwrite_each_other(
         "a collision between two stored ids was resolved without a word")
 
 
+def _lineage_of_a_two_mission_cycle(tmp_path: Path, caplog) -> dict:
+    """Two missions each recorded as the other's parent, walked safely."""
+    for dirname, own, parent in (("a", "A", "B"), ("b", "B", "A")):
+        _mission(tmp_path, dirname, {
+            "id": own, "lineage": {"parent_mission_id": parent, "depth": 1}})
+    lineage = _within_deadline(
+        lambda: get_mission_lineage(tmp_path, "a"), caplog=caplog, seconds=20,
+        on_timeout="the descendant walk did not terminate on a cyclic parent link")
+    assert isinstance(lineage, dict)
+    return lineage
+
+
 def test_a_cycle_in_the_stored_parent_links_does_not_hang_the_walk(
         tmp_path: Path, caplog) -> None:
     """Two missions each recorded as the other's parent must terminate.
@@ -123,43 +168,24 @@ def test_a_cycle_in_the_stored_parent_links_does_not_hang_the_walk(
     Run in a thread with a deadline because the failure mode is a hang,
     and a test that hangs reports nothing at all.
     """
-    for dirname, own, parent in (("a", "A", "B"), ("b", "B", "A")):
-        _mission(tmp_path, dirname, {
-            "id": own, "lineage": {"parent_mission_id": parent, "depth": 1}})
+    lineage = _lineage_of_a_two_mission_cycle(tmp_path, caplog)
 
-    finished = threading.Event()
-    result: dict[str, object] = {}
-
-    def _walk() -> None:
-        # `finally`, because an exception would otherwise leave
-        # `finished` unset and the deadline below would report a hang.
-        # The deadline exists to tell a hang apart from everything
-        # else, so it must not be the thing that hides a crash --
-        # raised in review. The traceback is kept and re-raised on the
-        # main thread, where `threading.excepthook` cannot swallow it.
-        try:
-            with caplog.at_level("WARNING"):
-                result["lineage"] = get_mission_lineage(tmp_path, "a")
-        except BaseException as exc:  # noqa: BLE001 - re-raised below
-            result["error"] = exc
-        finally:
-            finished.set()
-
-    threading.Thread(target=_walk, daemon=True).start()
-
-    assert finished.wait(timeout=20), (
-        "the descendant walk did not terminate on a cyclic parent link")
-    if isinstance(result.get("error"), BaseException):
-        raise result["error"]
-    lineage = result["lineage"]
-    assert isinstance(lineage, dict) and lineage["ok"] is True
+    assert lineage["ok"] is True
     assert len(lineage["descendants"]) == 2, (
         "each mission in the cycle should appear exactly once")
+
+
+def test_the_revisit_warning_does_not_pick_a_cause(tmp_path: Path, caplog) -> None:
+    """A repeated id has two causes and the message must name both.
+
+    Cyclic parent links produce it, and so do two missions normalising
+    to the same id -- the collision this PR made reachable. Blaming the
+    cycle alone sends the reader to the wrong file. Raised in review.
+    """
+    _lineage_of_a_two_mission_cycle(tmp_path, caplog)
+
     warned = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
     assert any("twice" in message for message in warned), warned
-    # The message must not commit to a cause: a repeated id is also
-    # what two missions sharing one normalised id produce, and naming
-    # only the cycle sends the reader to the wrong file.
     assert any("share this id" in message for message in warned), warned
 
 
