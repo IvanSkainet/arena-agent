@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs
 
 #: Query keys accepted for a mission identifier, in priority order.
@@ -285,6 +286,36 @@ def unusable_directory_name(name: str, *, label: str = "mission name") -> str | 
         if nt_reason:
             return f"{label} {nt_reason}"
     return None
+
+
+def mission_item_id(item: dict[str, Any], *, prefer_root: bool = False) -> str:
+    """The identifier of a summarised mission, computed one way everywhere.
+
+    The expression `str(item.get("id") or item.get("name") or "")` was
+    written thirteen times across the mission modules and was not the
+    same expression thirteen times: some copies called `.strip()` and
+    some did not. That is not a style difference. `mission_family`
+    stripped the root's id and then compared unstripped ids against it,
+    so a mission whose stored id carries a trailing space fell out of
+    its own family -- while its children, which reference the id as
+    written, stayed in. `mission_lineage` had the same split between
+    the parent id it indexed by and the key it looked children up with.
+
+    #350 was about one rule living in several places and those places
+    disagreeing. This is the same shape with a quieter symptom, so it
+    gets the same answer: one function, always stripped.
+
+    `prefer_root` is for the one caller that means a different question
+    -- "which family does this belong to" rather than "what is this" --
+    and says so at the call site instead of by reordering a chain of
+    `or`s that reads identically to the others.
+    """
+    keys = ("root_mission_id", "id", "name") if prefer_root else ("id", "name")
+    for key in keys:
+        value = str(item.get(key) or "").strip()
+        if value:
+            return value
+    return ""
 
 
 def resolve_mission_name(missions_dir: Path, name: str) -> str:

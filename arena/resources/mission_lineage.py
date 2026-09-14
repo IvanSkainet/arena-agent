@@ -5,7 +5,11 @@ from pathlib import Path
 from typing import Any
 
 from arena.resources.mission_catalog import mission_dir, summarize_mission_dir
-from arena.resources.mission_identifier import contained_child, contained_entries
+from arena.resources.mission_identifier import (
+    contained_child,
+    contained_entries,
+    mission_item_id,
+)
 
 
 def _summaries(missions_dir: Path) -> list[dict[str, Any]]:
@@ -26,7 +30,7 @@ def build_followup_lineage(
     recovery: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     current = dict(mission.get("lineage") or {})
-    parent_id = str(mission.get("id") or mission.get("name") or "").strip()
+    parent_id = mission_item_id(mission)
     root_id = str(current.get("root_mission_id") or parent_id or "").strip()
     inherited = [str(item).strip() for item in list(current.get("ancestor_ids") or []) if str(item).strip()]
     ancestor_ids = list(dict.fromkeys([*inherited, parent_id] if parent_id else inherited))
@@ -57,7 +61,7 @@ def get_mission_lineage(missions_dir: Path, name: str) -> dict[str, Any]:
     if not path.exists() or not path.is_dir():
         return {"ok": False, "error": f"mission '{name}' not found", "status": 404}
     items = _summaries(missions_dir)
-    index = {str(item.get("id") or item.get("name")): item for item in items}
+    index = {mission_item_id(item): item for item in items}
     current = index.get(path.name) or summarize_mission_dir(path)
     children_by_parent: dict[str, list[dict[str, Any]]] = {}
     for item in items:
@@ -73,16 +77,16 @@ def get_mission_lineage(missions_dir: Path, name: str) -> dict[str, Any]:
         ancestors.append(parent)
         parent_id = str(parent.get("parent_mission_id") or "").strip()
     ancestors.reverse()
-    children = sorted(children_by_parent.get(str(current.get("id") or current.get("name") or ""), []), key=lambda item: str(item.get("created_at", "") or item.get("last_activity_at", "")))
+    children = sorted(children_by_parent.get(mission_item_id(current), []), key=lambda item: str(item.get("created_at", "") or item.get("last_activity_at", "")))
     descendants: list[dict[str, Any]] = []
     stack = list(children)
     while stack:
         item = stack.pop(0)
         descendants.append(item)
-        stack.extend(children_by_parent.get(str(item.get("id") or item.get("name") or ""), []))
+        stack.extend(children_by_parent.get(mission_item_id(item), []))
     siblings = []
     if current.get("parent_mission_id"):
-        siblings = [item for item in children_by_parent.get(str(current.get("parent_mission_id")), []) if str(item.get("id") or item.get("name")) != str(current.get("id") or current.get("name"))]
+        siblings = [item for item in children_by_parent.get(str(current.get("parent_mission_id") or "").strip(), []) if mission_item_id(item) != mission_item_id(current)]
     root = index.get(str(current.get("root_mission_id") or "")) or (ancestors[0] if ancestors else current)
     return {
         "ok": True,
