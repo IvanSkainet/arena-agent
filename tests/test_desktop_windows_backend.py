@@ -490,6 +490,36 @@ def test_an_unexpected_failure_is_louder_than_a_vanished_window(monkeypatch, cap
     assert "222" in warnings[0].getMessage()
 
 
+def test_a_zero_sized_window_is_still_a_real_measurement(monkeypatch):
+    """An empty rect that the API *did* return is a fact, not a failure.
+
+    The distinction the `unavailable` source exists to make: a
+    collapsed window legitimately measures zero, and calling that
+    "unavailable" would lose the difference between "the window has no
+    size" and "we could not ask".
+    """
+    from arena.desktop.backends import _win32_windows as mod
+
+    class _ZeroRect:
+        def GetWindowRect(self, hwnd, ref):
+            ref._obj.left = ref._obj.top = ref._obj.right = ref._obj.bottom = 0
+            return 1
+
+        def GetClientRect(self, hwnd, _ref):
+            return 0
+
+        def ClientToScreen(self, hwnd, _ref):
+            return 0
+
+    monkeypatch.setattr(mod, "user32", _ZeroRect())
+    monkeypatch.setattr(mod, "dwmapi", None)
+
+    geometry, source = mod._window_rect_geometry(4242)
+
+    assert source == "get_window_rect"
+    assert geometry == {"x": 0, "y": 0, "width": 0, "height": 0}
+
+
 def test_a_failed_window_measurement_is_not_reported_as_a_measurement(monkeypatch):
     """`GetWindowRect` returning zero leaves the struct untouched.
 

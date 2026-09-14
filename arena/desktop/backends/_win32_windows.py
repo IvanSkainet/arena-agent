@@ -81,28 +81,44 @@ def _dwm_frame_geometry(hwnd: int) -> dict[str, int] | None:
     return None
 
 
-def _window_rect_geometry(hwnd: int) -> tuple[dict[str, int], str]:
+def _window_rect_geometry_or_none(hwnd: int) -> dict[str, int] | None:
+    """`GetWindowRect` as a measurement, or None when the call failed.
+
+    A zero return leaves the `RECT` at its defaults, and passing those
+    on labelled `get_window_rect` claims an authority the call never
+    gave -- raised in review. Reported as None so the caller treats it
+    the same as any other source that had no answer.
+    """
     rect = wt.RECT()
     if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-        # A zero return leaves `rect` at its default, and reporting
-        # that as a measurement labelled `get_window_rect` claims an
-        # authority the call never gave. Raised in review. The fallback
-        # chain below is exactly what a failed measurement should take,
-        # so the source says so.
         logger.debug("[desktop] GetWindowRect failed for hwnd %s", hwnd)
-        client = _client_rect_geometry(hwnd)
-        if client:
-            return client, "client_rect"
-        return {"x": 0, "y": 0, "width": 0, "height": 0}, "unavailable"
-    geom = _rect_to_geometry(rect)
+        return None
+    return _rect_to_geometry(rect)
+
+
+def _window_rect_geometry(hwnd: int) -> tuple[dict[str, int], str]:
+    """The best geometry available for a window, and where it came from.
+
+    Written as a flat list of sources in order of preference rather
+    than nested conditionals: CodeScene flagged the nesting twice, and
+    the second time it was because the `GetWindowRect` failure path had
+    grown its own copy of the client-rect fallback. One chain, one
+    fallback, one place to change it.
+    """
     dwm_geom = _dwm_frame_geometry(hwnd)
     if dwm_geom is not None:
         return dwm_geom, "dwm_extended_frame_bounds"
-    if _geometry_area(geom) <= 0:
-        client = _client_rect_geometry(hwnd)
-        if client:
-            return client, "client_rect"
-    return geom, "get_window_rect"
+    window_geom = _window_rect_geometry_or_none(hwnd)
+    if window_geom is not None and _geometry_area(window_geom) > 0:
+        return window_geom, "get_window_rect"
+    client = _client_rect_geometry(hwnd)
+    if client:
+        return client, "client_rect"
+    if window_geom is not None:
+        # A real measurement that happens to be empty: a collapsed or
+        # zero-sized window is a fact about the window, not a failure.
+        return window_geom, "get_window_rect"
+    return {"x": 0, "y": 0, "width": 0, "height": 0}, "unavailable"
 
 
 def _select_best_visual_child(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
