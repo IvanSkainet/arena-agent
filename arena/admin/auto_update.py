@@ -76,8 +76,7 @@ from arena.admin.update_github import (
     from_api_release as _from_api_release,
     github_token as _github_token,
     http_get_json as _http_get_json,
-    # Re-exported for callers that import it from here by name (#361).
-    pick_asset as _pick_asset,  # noqa: F401
+    pick_asset as _pick_asset,
     resolve_latest_via_redirect as _resolve_latest_via_redirect,
 )
 from arena.admin.update_targets import (  # noqa: F401
@@ -102,7 +101,9 @@ _HTTP_TIMEOUT = 15
 _USER_AGENT = f"arena-agent-auto-update/{_CURRENT_VERSION}"
 
 
-__all_helpers = [_write_windows_installer]  # keep import visible to linters
+# `_pick_asset` is re-exported, not used here: it lost its only in-module
+# caller to update_github in #361, but is still imported from here.
+__all_helpers = [_write_windows_installer, _pick_asset]  # keep imports visible
 
 
 from arena.admin.auto_update_fetch import download_release  # noqa: E402
