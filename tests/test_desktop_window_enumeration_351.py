@@ -328,8 +328,19 @@ def test_a_window_that_cannot_be_described_is_logged_not_swallowed(monkeypatch, 
         windows = mod.list_windows()
 
     assert [w["id"] for w in windows] == ["111"]
-    assert any("222" in record.getMessage() for record in caplog.records), (
-        "the dropped window left no trace in the log"
+    # Filtered to DEBUG deliberately. Asserting only that 222 appears
+    # *somewhere* in the log would also pass if a vanished window were
+    # reported at WARNING -- the level this module reserves for its own
+    # bugs -- so the quiet-vs-loud split would be pinned from one side
+    # only. Raised in review; the sibling test names WARNING, so this
+    # one names DEBUG.
+    quiet = [r for r in caplog.records if r.levelname == "DEBUG" and "222" in r.getMessage()]
+    assert quiet, (
+        "the dropped window left no DEBUG trace: "
+        f"{[(r.levelname, r.getMessage()) for r in caplog.records]}"
+    )
+    assert not [r for r in caplog.records if r.levelno > 20], (
+        "a window that merely closed was reported as a fault"
     )
 
 
