@@ -131,20 +131,36 @@ def test_a_cycle_in_the_stored_parent_links_does_not_hang_the_walk(
     result: dict[str, object] = {}
 
     def _walk() -> None:
-        with caplog.at_level("WARNING"):
-            result["lineage"] = get_mission_lineage(tmp_path, "a")
-        finished.set()
+        # `finally`, because an exception would otherwise leave
+        # `finished` unset and the deadline below would report a hang.
+        # The deadline exists to tell a hang apart from everything
+        # else, so it must not be the thing that hides a crash --
+        # raised in review. The traceback is kept and re-raised on the
+        # main thread, where `threading.excepthook` cannot swallow it.
+        try:
+            with caplog.at_level("WARNING"):
+                result["lineage"] = get_mission_lineage(tmp_path, "a")
+        except BaseException as exc:  # noqa: BLE001 - re-raised below
+            result["error"] = exc
+        finally:
+            finished.set()
 
     threading.Thread(target=_walk, daemon=True).start()
 
     assert finished.wait(timeout=20), (
         "the descendant walk did not terminate on a cyclic parent link")
+    if isinstance(result.get("error"), BaseException):
+        raise result["error"]
     lineage = result["lineage"]
     assert isinstance(lineage, dict) and lineage["ok"] is True
     assert len(lineage["descendants"]) == 2, (
         "each mission in the cycle should appear exactly once")
-    assert any("cycle" in r.getMessage() for r in caplog.records
-               if r.levelname == "WARNING")
+    warned = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("twice" in message for message in warned), warned
+    # The message must not commit to a cause: a repeated id is also
+    # what two missions sharing one normalised id produce, and naming
+    # only the cycle sends the reader to the wrong file.
+    assert any("share this id" in message for message in warned), warned
 
 
 def test_the_root_question_is_asked_by_name_not_by_argument_order(

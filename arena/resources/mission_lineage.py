@@ -101,9 +101,16 @@ def get_mission_lineage(missions_dir: Path, name: str) -> dict[str, Any]:
         for child in children_by_parent.get(mission_item_id(item), []):
             child_id = mission_item_id(child)
             if child_id in visited:
+                # A revisit has two causes and the message must not
+                # pick one: either the stored parent links form a
+                # cycle, or two distinct missions normalise to the same
+                # id -- the very collision this PR made reachable.
+                # Raised in review, because blaming a cycle for a
+                # collision sends the reader looking in the wrong file.
                 logger.warning(
-                    "[missions] lineage of %r revisits %r; the stored parent "
-                    "links form a cycle", name, child.get("name"))
+                    "[missions] lineage of %r reaches the id %r twice, via %r; "
+                    "the stored parent links form a cycle or two missions "
+                    "share this id", name, child_id, child.get("name"))
                 continue
             visited.add(child_id)
             queue.append(child)
