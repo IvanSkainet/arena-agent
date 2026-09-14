@@ -112,7 +112,22 @@ def _err(msg: str, **extra: Any) -> dict[str, Any]:
     return payload
 
 
-def _repo() -> str:
+def _repo(override: str | None = None) -> str:
+    """The repository to check against: per-call override, else the env.
+
+    The override is an argument rather than a write to `os.environ`,
+    which is how the admin handler used to pass it (#361). Process-wide
+    state made a per-request parameter permanent and global: one
+    `/update/check` carrying `{"repo": ...}` repointed every later
+    request, including ones that asked for nothing.
+
+    `ARENA_UPDATE_REPO` keeps working as deployment configuration; it
+    is only the request-scoped path that no longer goes through it.
+    """
+    if override is not None:
+        candidate = override.strip()
+        if candidate:
+            return candidate
     return os.environ.get("ARENA_UPDATE_REPO", DEFAULT_REPO).strip()
 
 
@@ -166,7 +181,8 @@ def is_newer(candidate: str, baseline: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def check_updates(*, current_version: str | None = None) -> dict[str, Any]:
+def check_updates(*, current_version: str | None = None,
+                  repo: str | None = None) -> dict[str, Any]:
     """Ask GitHub what the latest release is.
 
     v3.85.3: two-tier strategy so anonymous bridges don't 403:
@@ -178,11 +194,15 @@ def check_updates(*, current_version: str | None = None) -> dict[str, Any]:
          path failed to yield a tag. When the API answers 403 we
          gracefully fall through to a redirect-only response.
 
+    `repo` overrides the configured repository for this call only.
+    Callers used to do it by assigning to `os.environ`, which outlived
+    the request and changed the answer for everyone else (#361).
+
     Never raises. On total failure returns `{ok: False, error: ...}`
     so the HTTP handler can surface the real reason.
     """
     baseline = current_version or _CURRENT_VERSION
-    repo = _repo()
+    repo = _repo(repo)
     token = _github_token()
 
     # Fast path: try the JSON API only if we have a token (no rate

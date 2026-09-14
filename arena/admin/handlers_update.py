@@ -77,16 +77,19 @@ def make_update_handlers(ctx):
         """POST /v1/admin/update/check -- talk to GitHub, return the
         latest release + whether we need updating. Body is optional
         `{repo?: str}` to override the default repo (test-friendly)."""
+        repo = ""
         try:
             body = await request.json()
             if isinstance(body, dict):
                 repo = str(body.get("repo") or "").strip()
-                if repo:
-                    import os
-                    os.environ["ARENA_UPDATE_REPO"] = repo
         except Exception:
             pass
-        res = await _run(ctx, _upd.check_updates)
+        # Passed as an argument, not written to `os.environ`. The write
+        # outlived the request: one call carrying `repo` repointed the
+        # update source for the whole process, for every later caller,
+        # and the status endpoint then reported the override as if it
+        # were configuration (#361).
+        res = await _run(ctx, _upd.check_updates, repo=repo or None)
         ctx.audit({
             "type": "admin.update.check",
             "current": res.get("current"),

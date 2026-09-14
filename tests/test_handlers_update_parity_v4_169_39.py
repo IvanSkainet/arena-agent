@@ -242,28 +242,35 @@ def test_update_check_with_repo_override_and_malformed_json(monkeypatch):
     ctx = _MockContext()
     handlers = make_update_handlers(ctx)
 
-    # `update_check` writes the override into `os.environ` itself, so
-    # the value outlives the request and, without this, outlived the
-    # test: it was still set at session end (#348). `monkeypatch.setenv`
-    # here is not configuring anything -- it registers the name so the
-    # undo runs whatever the handler leaves behind.
-    monkeypatch.setenv("ARENA_UPDATE_REPO", "placeholder-restored-on-teardown")
     monkeypatch.delenv("ARENA_UPDATE_REPO", raising=False)
     req = _make_req("POST", "/v1/admin/update/check", {"repo": "custom/repo-test "})
 
     check_res = {"ok": True, "current": "1.0", "latest": "1.0", "needs_update": False}
-    with patch("arena.admin.auto_update.check_updates", return_value=check_res):
+    # The override is asserted where it now travels -- the call
+    # argument. It used to be asserted on `os.environ`, which is what
+    # made the leak in #361 look like intended behaviour: the test
+    # pinned the very write that outlived the request.
+    seen: list[str | None] = []
+
+    def _record(*, current_version=None, repo=None):
+        seen.append(repo)
+        return check_res
+
+    with patch("arena.admin.auto_update.check_updates", side_effect=_record):
         resp = asyncio.run(handlers["update_check"](req))
         assert resp.status == 200
-        import os
-        assert os.environ.get("ARENA_UPDATE_REPO") == "custom/repo-test"
+    assert seen == ["custom/repo-test"]
+    import os
+    assert "ARENA_UPDATE_REPO" not in os.environ, (
+        "the request-scoped override must not become process-wide state")
 
-    # Missing/null override must not synthesize a repository name.
-    monkeypatch.delenv("ARENA_UPDATE_REPO", raising=False)
-    for payload in ({}, {"repo": None}):
+    # Missing/null/blank override must not synthesize a repository name.
+    for payload in ({}, {"repo": None}, {"repo": "   "}):
+        seen.clear()
         req_empty = _make_req("POST", "/v1/admin/update/check", payload)
-        with patch("arena.admin.auto_update.check_updates", return_value=check_res):
+        with patch("arena.admin.auto_update.check_updates", side_effect=_record):
             assert asyncio.run(handlers["update_check"](req_empty)).status == 200
+        assert seen == [None], payload
         assert "ARENA_UPDATE_REPO" not in os.environ
 
     # Malformed json fallback
