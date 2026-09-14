@@ -108,6 +108,45 @@ def pytest_sessionstart(session: pytest.Session) -> None:
          if name.startswith("ARENA_")})
 
 
+def _arena_leaks_by_origin() -> dict[str, dict[str, tuple[str | None, str | None]]]:
+    """Every leak, keyed by a phrase naming where it came from.
+
+    A variable a module set at import and never restored shows up in
+    both views -- the per-module record and the session comparison. It
+    is reported under the module, since that line says everything the
+    anonymous one does and also names the culprit; the session entry
+    then carries only what no import explains, i.e. a fixture or test
+    body that forgot its teardown.
+    """
+    by_module = {f" while importing {module}": changed
+                 for module, changed in _ARENA_CHANGED_BY_MODULE.items()}
+    attributed = {name for changed in by_module.values() for name in changed}
+    unattributed = {
+        name: change
+        for name, change in arena_variables_leaked_during_the_session().items()
+        if name not in attributed
+    }
+    return {where: what
+            for where, what in {"": unattributed, **by_module}.items()
+            if what}
+
+
+def _report_arena_leaks(
+        session: pytest.Session,
+        leaked: dict[str, dict[str, tuple[str | None, str | None]]]) -> None:
+    """Write the leak report to the terminal, if there is one attached."""
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is None:
+        return
+    reporter.write_sep("=", "ARENA_* environment leaked", red=True)
+    for where, changed in leaked.items():
+        for name, (before, after) in changed.items():
+            reporter.write_line(f"  {name}: {before!r} -> {after!r}{where}")
+    reporter.write_line(
+        "  a module changed the environment without undoing it; later "
+        "modules then depend on collection order (#348)")
+
+
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     """Fail the run if the suite ended with a different `ARENA_*` set.
 
@@ -128,34 +167,10 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     restores) shows up in neither endpoint snapshot. The hook always
     runs.
     """
-    by_module = {f" while importing {module}": changed
-                 for module, changed in _ARENA_CHANGED_BY_MODULE.items()}
-    # A variable a module set and never restored shows up in both
-    # views. Report it once, under the module -- that line says
-    # everything the anonymous one does and also names the culprit.
-    # What is left over for the session line is what no import
-    # explains: a fixture or a test body that forgot its teardown.
-    attributed = {name for changed in by_module.values() for name in changed}
-    unattributed = {
-        name: change
-        for name, change in arena_variables_leaked_during_the_session().items()
-        if name not in attributed
-    }
-    leaked = {where: what
-              for where, what in {"": unattributed, **by_module}.items()
-              if what}
+    leaked = _arena_leaks_by_origin()
     if not leaked:
         return
-    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
-    if reporter is not None:
-        reporter.write_sep("=", "ARENA_* environment leaked", red=True)
-        for where, changed in leaked.items():
-            for name, (before, after) in changed.items():
-                reporter.write_line(
-                    f"  {name}: {before!r} -> {after!r}{where}")
-        reporter.write_line(
-            "  a module changed the environment without undoing it; later "
-            "modules then depend on collection order (#348)")
+    _report_arena_leaks(session, leaked)
     if exitstatus == 0:
         session.exitstatus = 1
 
