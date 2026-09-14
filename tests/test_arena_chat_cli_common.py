@@ -41,9 +41,27 @@ if sys.platform == "win32":
 # import time based on ARENA_AGENT_HOME. We point it at a
 # tmp path so we don't touch the real bridge.
 _tmp_home = Path(tempfile.mkdtemp(prefix="arena_chat_cli_test_"))
+_previous_home = os.environ.get("ARENA_AGENT_HOME")
 os.environ["ARENA_AGENT_HOME"] = str(_tmp_home)
 
 from arena.chat_cli import common as chat_common  # noqa: E402
+
+# The variable was only ever needed for the line above: `HOME` is bound
+# at import and does not consult the environment again. Leaving it set
+# made it the ambient value for every module collected afterwards, and
+# collection order is randomised, so which value a later test saw
+# depended on the seed (#348).
+# `chat_common.HOME` stays bound to the tmp path for as long as the
+# module sits in `sys.modules`, so the next module to import it would
+# be handed this tmp home however the environment looks by then.
+# Evicting it is what actually ends this module's influence; restoring
+# the variable only stops the *next* import from reading a stale value.
+sys.modules.pop("arena.chat_cli.common", None)
+
+if _previous_home is None:
+    os.environ.pop("ARENA_AGENT_HOME", None)
+else:
+    os.environ["ARENA_AGENT_HOME"] = _previous_home
 
 
 # --------------------------------------------------------------------
