@@ -117,14 +117,22 @@ def _arena_leaks_by_origin() -> dict[str, dict[str, tuple[str | None, str | None
     anonymous one does and also names the culprit; the session entry
     then carries only what no import explains, i.e. a fixture or test
     body that forgot its teardown.
+
+    The de-duplication matches on the whole change, not just the name.
+    Matching on the name alone hid the end state whenever a module set
+    a value at import and something later changed it again: the report
+    showed the module's value and never mentioned what the session
+    actually ended with.
     """
     by_module = {f" while importing {module}": changed
                  for module, changed in _ARENA_CHANGED_BY_MODULE.items()}
-    attributed = {name for changed in by_module.values() for name in changed}
+    attributed = {(name, change)
+                  for changed in by_module.values()
+                  for name, change in changed.items()}
     unattributed = {
         name: change
         for name, change in arena_variables_leaked_during_the_session().items()
-        if name not in attributed
+        if (name, change) not in attributed
     }
     return {where: what
             for where, what in {"": unattributed, **by_module}.items()
@@ -142,9 +150,14 @@ def _report_arena_leaks(
     for where, changed in leaked.items():
         for name, (before, after) in changed.items():
             reporter.write_line(f"  {name}: {before!r} -> {after!r}{where}")
-    reporter.write_line(
-        "  a module changed the environment without undoing it; later "
-        "modules then depend on collection order (#348)")
+    if any(where for where in leaked):
+        reporter.write_line(
+            "  a module changed the environment without undoing it; later "
+            "modules then depend on collection order (#348)")
+    else:
+        reporter.write_line(
+            "  a fixture or test body changed the environment without "
+            "undoing it; use monkeypatch.setenv so it is rolled back (#348)")
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
