@@ -103,8 +103,9 @@ _HTTP_TIMEOUT = 15
 _USER_AGENT = f"arena-agent-auto-update/{_CURRENT_VERSION}"
 
 
-# `_pick_asset` is re-exported, not used here: it lost its only in-module
-# caller to update_github in #361, but is still imported from here.
+# `_pick_asset` is deliberately *not* listed here. It is a live hook,
+# passed explicitly into `from_api_release` below so that patches on
+# this module's attribute take effect (#361) -- not a bare re-export.
 __all_helpers = [_write_windows_installer,
                  is_newer, parse_version]  # keep imports visible
 
