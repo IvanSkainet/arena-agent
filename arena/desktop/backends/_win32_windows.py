@@ -15,6 +15,7 @@ import ctypes
 import ctypes.wintypes as wt
 import logging
 import sys
+from collections.abc import Callable
 from typing import Any
 
 from arena.desktop.backends import _win32_api as _api
@@ -293,6 +294,40 @@ def list_windows_with_foreground(*, visible_only: bool = True) -> tuple[list[dic
     return _enumerate_windows(visible_only=visible_only)
 
 
+def _collector(
+    results: list[dict[str, Any]], *, foreground: int, visible_only: bool
+) -> Callable[[int, int], bool]:
+    """The `EnumWindows` callback, as a named function rather than a closure.
+
+    Lifted out of `_enumerate_windows` because CodeScene counts a
+    nested function's branches against its host, and the two exception
+    arms pushed the host to the threshold. The behaviour is unchanged:
+    `foreground` is captured once, from the single read the caller
+    made, which is the whole point of #351.
+    """
+
+    def _proc(hwnd: int, _lparam: int) -> bool:
+        try:
+            item = _describe_window(hwnd, foreground=foreground, visible_only=visible_only)
+        except OSError as exc:
+            # Expected: a window can vanish between being enumerated
+            # and being described. Must not propagate -- this is a
+            # ctypes callback inside `EnumWindows`, and raising across
+            # that boundary aborts the walk and loses every window, not
+            # just this one.
+            logger.debug("[desktop] skipping hwnd %s: %s", hwnd, exc)
+        except Exception:
+            # Not expected: a bug in this module rather than a window
+            # closing. Same boundary constraint, louder report.
+            logger.warning("[desktop] unexpected failure describing hwnd %s", hwnd, exc_info=True)
+        else:
+            if item is not None:
+                results.append(item)
+        return True
+
+    return _proc
+
+
 def _enumerate_windows(*, visible_only: bool = True) -> tuple[list[dict[str, Any]], int]:
     """Enumerate top-level windows.
 
@@ -321,26 +356,9 @@ def _enumerate_windows(*, visible_only: bool = True) -> tuple[list[dict[str, Any
     fg = int(user32.GetForegroundWindow() or 0)
     results: list[dict[str, Any]] = []
 
-    def _proc(hwnd: int, _lparam: int) -> bool:
-        try:
-            item = _describe_window(hwnd, foreground=fg, visible_only=visible_only)
-        except OSError as exc:
-            # Expected: a window can vanish between being enumerated
-            # and being described. Must not propagate -- this is a
-            # ctypes callback inside `EnumWindows`, and raising across
-            # that boundary aborts the walk and loses every window, not
-            # just this one.
-            logger.debug("[desktop] skipping hwnd %s: %s", hwnd, exc)
-        except Exception:
-            # Not expected: a bug in this module rather than a window
-            # closing. Same boundary constraint, louder report.
-            logger.warning("[desktop] unexpected failure describing hwnd %s", hwnd, exc_info=True)
-        else:
-            if item is not None:
-                results.append(item)
-        return True
-
-    cb = _api.EnumWindowsProc(_proc)
+    cb = _api.EnumWindowsProc(
+        _collector(results, foreground=fg, visible_only=visible_only)
+    )
     if not user32.EnumWindows(cb, 0):
         # The callback returns True on every path, so a zero return is
         # the enumeration itself failing, not a callback stopping it.
