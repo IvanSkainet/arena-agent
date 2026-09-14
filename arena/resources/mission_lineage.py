@@ -8,6 +8,7 @@ from arena.resources.mission_catalog import mission_dir, summarize_mission_dir
 from arena.resources.mission_identifier import (
     contained_child,
     contained_entries,
+    index_missions_by_id,
     mission_item_id,
 )
 
@@ -61,7 +62,7 @@ def get_mission_lineage(missions_dir: Path, name: str) -> dict[str, Any]:
     if not path.exists() or not path.is_dir():
         return {"ok": False, "error": f"mission '{name}' not found", "status": 404}
     items = _summaries(missions_dir)
-    index = {mission_item_id(item): item for item in items}
+    index = index_missions_by_id(items)
     current = index.get(path.name) or summarize_mission_dir(path)
     children_by_parent: dict[str, list[dict[str, Any]]] = {}
     for item in items:

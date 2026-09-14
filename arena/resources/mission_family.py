@@ -8,6 +8,7 @@ from arena.resources.mission_catalog import summarize_mission_dir
 from arena.resources.mission_identifier import (
     contained_child,
     contained_entries,
+    index_missions_by_id,
     mission_item_id,
 )
 from arena.resources.mission_lineage import get_mission_lineage
@@ -36,7 +37,7 @@ def get_mission_family(missions_dir: Path, name: str) -> dict[str, Any]:
         if mission_item_id(item, prefer_root=True) == root_id:
             members.append(item)
     members.sort(key=lambda item: (int(item.get("lineage_depth", 0) or 0), str(item.get("created_at", "") or ""), str(item.get("name", "") or "")))
-    index = {mission_item_id(item): item for item in members}
+    index = index_missions_by_id(members)
     children_by_parent: dict[str, list[dict[str, Any]]] = {}
     for item in members:
         parent = str(item.get("parent_mission_id") or "").strip()

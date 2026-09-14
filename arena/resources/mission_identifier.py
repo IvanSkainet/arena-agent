@@ -29,10 +29,13 @@ per-handler parsing, and that is how the three surfaces drifted apart.
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
+
+logger = logging.getLogger(__name__)
 
 #: Query keys accepted for a mission identifier, in priority order.
 #: ``name`` wins when both are supplied and disagree -- it is the
@@ -286,6 +289,38 @@ def unusable_directory_name(name: str, *, label: str = "mission name") -> str | 
         if nt_reason:
             return f"{label} {nt_reason}"
     return None
+
+
+def index_missions_by_id(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Index summaries by identifier, first writer winning.
+
+    A plain dict comprehension lets the last item with a given id
+    overwrite the earlier one. That was harmless while ids were
+    compared verbatim, because two directories had to store the very
+    same string to collide. Stripping made collisions reachable from
+    ids that merely look alike -- `"dup"` and `" dup "` -- and review
+    caught that the index would then silently answer with whichever
+    happened to be walked last.
+
+    Two missions claiming one canonical id is a fact about the stored
+    data, not something this function can resolve, so it does not
+    pretend to: the first one wins, deterministically, because
+    `contained_entries` sorts, and the loser is logged rather than
+    disappearing quietly. Callers that need to detect the clash can
+    compare `len(index)` against `len(items)`.
+    """
+    index: dict[str, dict[str, Any]] = {}
+    for item in items:
+        key = mission_item_id(item)
+        if not key:
+            continue
+        if key in index:
+            logger.warning(
+                "[missions] %r and %r both resolve to the id %r; keeping the first",
+                index[key].get("name"), item.get("name"), key)
+            continue
+        index[key] = item
+    return index
 
 
 def mission_item_id(item: dict[str, Any], *, prefer_root: bool = False) -> str:
