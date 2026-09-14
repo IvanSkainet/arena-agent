@@ -136,19 +136,22 @@ def _child_window_candidates(hwnd: int, owner_pid: int | None = None) -> list[di
         try:
             visible = bool(user32.IsWindowVisible(child))
             pid = wt.DWORD(0)
-            user32.GetWindowThreadProcessId(child, ctypes.byref(pid))
+            if not user32.GetWindowThreadProcessId(child, ctypes.byref(pid)):
+                # A zero return leaves `pid` at 0, and pid 0 is the
+                # System Idle Process -- so an entry built from it does
+                # not look broken, it looks wrong. Raised in review:
+                # partial data that reads as valid is worse than no
+                # entry, because nothing downstream can tell.
+                logger.debug("[desktop] no pid for child hwnd %s of %s", child, hwnd)
+                return True
             if owner_pid is not None and int(pid.value) != int(owner_pid):
                 return True
-            title_len = user32.GetWindowTextLengthW(child)
-            title_buf = ctypes.create_unicode_buffer(title_len + 2)
-            user32.GetWindowTextW(child, title_buf, title_len + 2)
-            cls_buf = ctypes.create_unicode_buffer(256)
-            user32.GetClassNameW(child, cls_buf, 256)
+            title, cls = _window_text(child)
             geom, source = _window_rect_geometry(child)
             children.append({
                 "id": str(child),
-                "title": title_buf.value or "",
-                "class": cls_buf.value or "",
+                "title": title,
+                "class": cls,
                 "pid": int(pid.value),
                 "geometry": geom,
                 "visible": visible,
@@ -174,7 +177,13 @@ def _child_window_candidates(hwnd: int, owner_pid: int | None = None) -> list[di
         return True
 
     cb = _api.EnumWindowsProc(_proc)
-    user32.EnumChildWindows(wt.HWND(hwnd), cb, 0)
+    if not user32.EnumChildWindows(wt.HWND(hwnd), cb, 0):
+        # Not raised, unlike the top-level walk: children only refine a
+        # window's geometry, and a parent with no enumerable children
+        # is ordinary -- `EnumChildWindows` also returns zero when
+        # there are none. Losing the refinement is acceptable; losing
+        # the window is not.
+        logger.debug("[desktop] EnumChildWindows returned zero for hwnd %s", hwnd)
     return children
 
 
@@ -209,12 +218,22 @@ def _is_untitled_shell_window(title: str, cls: str) -> bool:
 
 
 def _window_text(hwnd: int) -> tuple[str, str]:
-    """The title and class name of a window, each possibly empty."""
+    """The title and class name of a window, each possibly empty.
+
+    Only the class name can report failure usefully. Every window has
+    one, so a zero-length copy means the call failed and is logged.
+    `GetWindowTextW` returns zero both for a genuine failure and for a
+    window whose title is legitimately empty -- and untitled windows
+    are common enough here that the filter in `_is_untitled_shell_window`
+    is built around them -- so the two cannot be told apart at this
+    level and an empty title is taken at face value.
+    """
     title_len = user32.GetWindowTextLengthW(hwnd)
     title_buf = ctypes.create_unicode_buffer(title_len + 2)
     user32.GetWindowTextW(hwnd, title_buf, title_len + 2)
     cls_buf = ctypes.create_unicode_buffer(256)
-    user32.GetClassNameW(hwnd, cls_buf, 256)
+    if not user32.GetClassNameW(hwnd, cls_buf, 256):
+        logger.debug("[desktop] no class name for hwnd %s", hwnd)
     return title_buf.value or "", cls_buf.value or ""
 
 
@@ -322,7 +341,14 @@ def _enumerate_windows(*, visible_only: bool = True) -> tuple[list[dict[str, Any
         return True
 
     cb = _api.EnumWindowsProc(_proc)
-    user32.EnumWindows(cb, 0)
+    if not user32.EnumWindows(cb, 0):
+        # The callback returns True on every path, so a zero return is
+        # the enumeration itself failing, not a callback stopping it.
+        # Raised in review. Returning the partial list would report
+        # "these are the windows" when the truthful answer is "the walk
+        # broke"; `window_catalog` already turns the exception into
+        # `ok: False` with the message, which is the honest reply.
+        raise OSError(_api.kernel32.GetLastError(), "EnumWindows failed")
     return results, fg
 
 

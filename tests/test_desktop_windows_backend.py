@@ -225,20 +225,32 @@ def test_live_the_filtered_list_never_keeps_a_shell_window():
 
 
 @_WIN_ONLY
-def test_live_the_unfiltered_list_does_keep_the_shell_windows():
+def test_live_the_filter_removes_windows_rather_than_finding_none():
     """The control for the test above, which otherwise passes on an
     empty list or on a filter that drops everything.
 
-    A desktop always has a taskbar, so `visible_only=False` must show
-    at least one of the classes the filtered view hides. Without this,
-    "no shell window survived the filter" is satisfied by a backend
-    that returns nothing at all.
+    An earlier version demanded that `visible_only=False` show one of
+    the shell classes. Review pointed out that this asserts a property
+    of the host, not of the backend: Server Core has no Explorer, and
+    Shell Launcher can replace it, so enumeration could be perfectly
+    correct and the test still fail. The deterministic fake covers
+    "unfiltered keeps shell windows" without needing a taskbar.
+
+    What is left is the part that is genuinely about this code: the
+    filtered view is a subset of the unfiltered one, and enumeration
+    returned something to filter in the first place. That is what makes
+    "no shell window survived the filter" carry information.
     """
     everything = win_backend.list_windows(visible_only=False)
-    classes = {w["class"] for w in everything}
-    assert classes & {"Progman", "WorkerW", "Shell_TrayWnd", "IME"}, (
-        f"no shell window in the unfiltered enumeration at all: {sorted(classes)[:20]}"
-    )
+    filtered = win_backend.list_windows(visible_only=True)
+
+    assert everything, "unfiltered enumeration returned nothing at all"
+    assert len(filtered) <= len(everything)
+    unfiltered_classes = {w["class"] for w in everything}
+    for w in filtered:
+        assert w["class"] in unfiltered_classes, (
+            f"filtered view invented a window the unfiltered walk never saw: {w['class']!r}"
+        )
 
 
 @_WIN_ONLY
@@ -268,8 +280,14 @@ def test_live_the_unfiltered_view_flags_the_real_foreground_window():
     if not fg:
         assert flagged == []
         return
-    assert flagged == [str(fg)], (
-        f"foreground {fg} missing or mis-flagged in the unfiltered view"
+    # Not `flagged == [str(fg)]`: the foreground window can close, or
+    # fail to be described, between the snapshot and the walk reaching
+    # it, and then it is legitimately absent -- the docstring above
+    # already says that path is reachable. Raised in review. What must
+    # never happen is a *different* window wearing the flag, and that
+    # is what this still catches; the deterministic test pins identity.
+    assert flagged in ([], [str(fg)]), (
+        f"a window other than foreground {fg} was flagged active: {flagged}"
     )
 
 
@@ -488,6 +506,88 @@ def test_an_unexpected_failure_is_louder_than_a_vanished_window(monkeypatch, cap
     warnings = [r for r in caplog.records if r.levelname == "WARNING"]
     assert warnings, "a programmer error was logged at debug and would vanish in production"
     assert "222" in warnings[0].getMessage()
+
+
+def test_a_broken_enumeration_is_not_reported_as_an_empty_desktop(monkeypatch):
+    """`EnumWindows` returning zero must raise, not return a short list.
+
+    The callback returns True on every path, so a zero return is the
+    walk itself failing. Handing back whatever was collected says "this
+    is the desktop" when the truthful answer is "the walk broke", and
+    `window_catalog` turns the exception into `ok: False` with the
+    message -- the difference between a caller that knows it has
+    nothing and one that believes an empty desktop.
+    """
+    import types
+
+    from arena.desktop.backends import _win32_windows as mod
+
+    class _FailingEnum:
+        def GetForegroundWindow(self):
+            return 0
+
+        def EnumWindows(self, cb, _lparam):
+            cb(111, 0)
+            return 0
+
+        def IsWindowVisible(self, hwnd):
+            return 1
+
+        def GetWindowTextLengthW(self, hwnd):
+            return 4
+
+    monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+    monkeypatch.setattr(mod, "user32", _FailingEnum())
+    monkeypatch.setattr(
+        mod, "_api", types.SimpleNamespace(
+            EnumWindowsProc=lambda fn: fn,
+            kernel32=types.SimpleNamespace(GetLastError=lambda: 1400),
+        )
+    )
+    monkeypatch.setattr(
+        mod, "_describe_window",
+        lambda hwnd, *, foreground, visible_only: {"id": str(hwnd), "active": False},
+    )
+
+    with pytest.raises(OSError) as caught:
+        mod.list_windows_with_foreground(visible_only=False)
+
+    assert caught.value.errno == 1400
+
+
+def test_a_child_with_no_owning_process_is_left_out(monkeypatch):
+    """A failed `GetWindowThreadProcessId` leaves pid at 0 -- the System
+    Idle Process -- so an entry built from it does not look broken, it
+    looks wrong. Raised in review: partial data that reads as valid is
+    worse than a missing entry, because nothing downstream can tell.
+    """
+    import types
+
+    from arena.desktop.backends import _win32_windows as mod
+
+    class _NoPid:
+        def EnumChildWindows(self, hwnd, cb, _lparam):
+            cb(777, 0)
+            return 1
+
+        def IsWindowVisible(self, hwnd):
+            return 1
+
+        def GetWindowThreadProcessId(self, hwnd, _ref):
+            return 0
+
+        def IsIconic(self, hwnd):
+            return 0
+
+    monkeypatch.setattr(mod, "user32", _NoPid())
+    monkeypatch.setattr(mod, "_api", types.SimpleNamespace(EnumWindowsProc=lambda fn: fn))
+    monkeypatch.setattr(mod, "_window_text", lambda hwnd: ("t", "c"))
+    monkeypatch.setattr(
+        mod, "_window_rect_geometry",
+        lambda hwnd: ({"x": 0, "y": 0, "width": 1, "height": 1}, "test"),
+    )
+
+    assert mod._child_window_candidates(1, owner_pid=None) == []
 
 
 def test_a_zero_sized_window_is_still_a_real_measurement(monkeypatch):
