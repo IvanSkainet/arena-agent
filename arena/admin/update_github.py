@@ -342,7 +342,8 @@ def is_newer(candidate: str, baseline: str) -> bool:
 
 def from_api_release(api_data: dict[str, Any], *, repo: str, baseline: str,
                      pick: Callable[[list[dict[str, Any]]],
-                                    dict[str, Any] | None] = None) -> dict[str, Any]:
+                                    dict[str, Any] | None] | None = None,
+                     ) -> dict[str, Any]:
     """Shape the answer from the JSON API, which knows asset digests.
 
     Lives here rather than in `auto_update` because that module was at
