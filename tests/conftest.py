@@ -128,12 +128,22 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     restores) shows up in neither endpoint snapshot. The hook always
     runs.
     """
-    leaked = {
-        "": arena_variables_leaked_during_the_session(),
-        **{f" while importing {module}": changed
-           for module, changed in _ARENA_CHANGED_BY_MODULE.items()},
+    by_module = {f" while importing {module}": changed
+                 for module, changed in _ARENA_CHANGED_BY_MODULE.items()}
+    # A variable a module set and never restored shows up in both
+    # views. Report it once, under the module -- that line says
+    # everything the anonymous one does and also names the culprit.
+    # What is left over for the session line is what no import
+    # explains: a fixture or a test body that forgot its teardown.
+    attributed = {name for changed in by_module.values() for name in changed}
+    unattributed = {
+        name: change
+        for name, change in arena_variables_leaked_during_the_session().items()
+        if name not in attributed
     }
-    leaked = {where: what for where, what in leaked.items() if what}
+    leaked = {where: what
+              for where, what in {"": unattributed, **by_module}.items()
+              if what}
     if not leaked:
         return
     reporter = session.config.pluginmanager.get_plugin("terminalreporter")
