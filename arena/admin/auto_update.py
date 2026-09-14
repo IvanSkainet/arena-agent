@@ -73,9 +73,11 @@ from arena.admin.deployment_tombstones import stage_release_tombstones
 from arena.admin.update_github import (
     fetch_asset_size as _fetch_asset_size,
     fetch_changelog_section as _fetch_changelog_section,
+    from_api_release as _from_api_release,
     github_token as _github_token,
     http_get_json as _http_get_json,
-    pick_asset as _pick_asset,
+    # Re-exported for callers that import it from here by name (#361).
+    pick_asset as _pick_asset,  # noqa: F401
     resolve_latest_via_redirect as _resolve_latest_via_redirect,
 )
 from arena.admin.update_targets import (  # noqa: F401
@@ -181,84 +183,35 @@ def is_newer(candidate: str, baseline: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def check_updates(*, current_version: str | None = None,
-                  repo: str | None = None) -> dict[str, Any]:
-    """Ask GitHub what the latest release is.
+def _latest_release_via_api(
+        repo: str) -> tuple[dict[str, Any] | None, str | None]:
+    """`(release json, None)` or `(None, why it could not be fetched)`.
 
-    v3.85.3: two-tier strategy so anonymous bridges don't 403:
-
-      1. Try the redirect on `github.com/<repo>/releases/latest`.
-         This costs zero API quota. We use it to learn the tag name
-         and to construct predictable asset URLs.
-      2. Only call the JSON API if we have a token OR the redirect
-         path failed to yield a tag. When the API answers 403 we
-         gracefully fall through to a redirect-only response.
-
-    `repo` overrides the configured repository for this call only.
-    Callers used to do it by assigning to `os.environ`, which outlived
-    the request and changed the answer for everyone else (#361).
-
-    Never raises. On total failure returns `{ok: False, error: ...}`
-    so the HTTP handler can surface the real reason.
+    Split out of `check_updates` so the two fetch strategies read as
+    two steps; the caller decides what a failure means, since a failed
+    API call is not fatal -- the redirect path still resolves a tag.
     """
-    baseline = current_version or _CURRENT_VERSION
-    repo = _repo(repo)
-    token = _github_token()
+    try:
+        data = _http_get_json(
+            f"https://api.github.com/repos/{repo}/releases/latest")
+    except urllib.error.HTTPError as e:
+        return None, f"GitHub API returned HTTP {e.code}"
+    except urllib.error.URLError as e:
+        return None, f"GitHub API unreachable: {e.reason}"
+    except Exception as e:
+        return None, f"GitHub API failure: {e!r}"
+    return (data if isinstance(data, dict) else None), None
 
-    # Fast path: try the JSON API only if we have a token (no rate
-    # limit worry) OR if it's the first thing we know how to do.
-    api_error = None
-    api_data: dict[str, Any] | None = None
-    if token:
-        try:
-            data = _http_get_json(
-                f"https://api.github.com/repos/{repo}/releases/latest")
-            if isinstance(data, dict):
-                api_data = data
-        except urllib.error.HTTPError as e:
-            api_error = f"GitHub API returned HTTP {e.code}"
-        except urllib.error.URLError as e:
-            api_error = f"GitHub API unreachable: {e.reason}"
-        except Exception as e:
-            api_error = f"GitHub API failure: {e!r}"
 
-    if api_data is not None:
-        tag = str(api_data.get("tag_name") or "")
-        assets = api_data.get("assets") or []
-        asset = _pick_asset(assets)
-        if asset is None:
-            return _err(f"release {tag} has no downloadable zip",
-                        repo=repo, tag=tag)
-        return {
-            "ok": True,
-            "repo": repo,
-            "current": baseline,
-            "latest": tag.lstrip("vV"),
-            "latest_tag": tag,
-            "needs_update": is_newer(tag, baseline),
-            "asset_name": asset.get("name"),
-            "asset_url": asset.get("browser_download_url"),
-            "asset_size_bytes": asset.get("size"),
-            "asset_digest": asset.get("digest"),
-            "published_at": api_data.get("published_at"),
-            "release_url": api_data.get("html_url"),
-            "body": (api_data.get("body") or "")[:2000],
-            "source": "api",
-        }
+def _from_redirect_tag(tag: str, *, repo: str, baseline: str,
+                       api_error: str | None) -> dict[str, Any]:
+    """Shape the answer from the redirect path, which has no digest.
 
-    # Redirect fallback (no token, or API refused).
-    tag = _resolve_latest_via_redirect(repo)
-    if not tag:
-        return _err(
-            api_error or "could not resolve latest release "
-            "(neither the API nor the /releases/latest redirect responded)",
-            repo=repo,
-            hint=("Set GITHUB_TOKEN or GH_TOKEN in the bridge's environment "
-                  "to bypass the 60/hour anonymous rate limit."),
-        )
-    # Build the canonical asset URL. Release zip is always
-    # arena-agent-<tag>.zip AND a stable alias arena-agent.zip;
-    # both live at /releases/download/<tag>/<name>.
+    Asset URLs are constructed rather than read back, so this path
+    cannot verify SHA-256 -- hence `asset_digest: None`. `api_error`
+    is carried through only to explain, in the hint, why the richer
+    path was not used.
+    """
     asset_name_versioned = f"arena-agent-{tag}.zip"
     asset_name_alias = "arena-agent.zip"
     asset_url = f"https://github.com/{repo}/releases/download/{tag}/{asset_name_versioned}"
@@ -439,6 +392,52 @@ def _swap_unix(payload_root: Path, install_root: Path, *,
         "swapped": swapped,
         "rollback_path": str(backup_root) if backup_root is not None else None,
     }
+
+
+def check_updates(*, current_version: str | None = None,
+                  repo: str | None = None) -> dict[str, Any]:
+    """Ask GitHub what the latest release is.
+
+    v3.85.3: two-tier strategy so anonymous bridges don't 403:
+
+      1. Try the redirect on `github.com/<repo>/releases/latest`.
+         This costs zero API quota. We use it to learn the tag name
+         and to construct predictable asset URLs.
+      2. Only call the JSON API if we have a token OR the redirect
+         path failed to yield a tag. When the API answers 403 we
+         gracefully fall through to a redirect-only response.
+
+    `repo` overrides the configured repository for this call only.
+    Callers used to do it by assigning to `os.environ`, which outlived
+    the request and changed the answer for everyone else (#361).
+
+    Never raises. On total failure returns `{ok: False, error: ...}`
+    so the HTTP handler can surface the real reason.
+    """
+    baseline = current_version or _CURRENT_VERSION
+    repo = _repo(repo)
+    token = _github_token()
+
+    # Fast path: try the JSON API only if we have a token (no rate
+    # limit worry) OR if it's the first thing we know how to do.
+    api_data, api_error = _latest_release_via_api(repo) if token else (None, None)
+
+    if api_data is not None:
+        return _from_api_release(api_data, repo=repo, baseline=baseline,
+                                 err=_err, is_newer=is_newer)
+
+    # Redirect fallback (no token, or API refused).
+    tag = _resolve_latest_via_redirect(repo)
+    if not tag:
+        return _err(
+            api_error or "could not resolve latest release "
+            "(neither the API nor the /releases/latest redirect responded)",
+            repo=repo,
+            hint=("Set GITHUB_TOKEN or GH_TOKEN in the bridge's environment "
+                  "to bypass the 60/hour anonymous rate limit."),
+        )
+    return _from_redirect_tag(tag, repo=repo, baseline=baseline,
+                              api_error=api_error)
 
 
 def apply_update(*, asset_url: str, asset_name: str,

@@ -23,6 +23,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from typing import Any
 
 _USER_AGENT_PREFIX = "arena-agent-auto-update"
@@ -301,3 +302,41 @@ def resolve_latest_via_redirect(repo: str) -> str | None:
         return location[idx + len(marker):].split("?")[0].split("#")[0]
     except Exception:
         return None
+
+
+def from_api_release(api_data: dict[str, Any], *, repo: str, baseline: str,
+                     err: Callable[..., dict[str, Any]],
+                     is_newer: Callable[[str, str], bool]) -> dict[str, Any]:
+    """Shape the answer from the JSON API, which knows asset digests.
+
+    Lives here rather than in `auto_update` because that module was at
+    the 600-line cap (#361) and this is pure shaping of a GitHub
+    payload -- no network of its own.
+
+    `err` and `is_newer` are parameters, not imports: `auto_update`
+    already imports this module, so importing back would be a cycle.
+    Its two sibling helpers stay in `auto_update` on purpose -- they
+    call the fetchers that tests monkeypatch by name on that module,
+    and moving them silently broke four of those tests.
+    """
+    tag = str(api_data.get("tag_name") or "")
+    asset = pick_asset(api_data.get("assets") or [])
+    if asset is None:
+        return err(f"release {tag} has no downloadable zip",
+                    repo=repo, tag=tag)
+    return {
+        "ok": True,
+        "repo": repo,
+        "current": baseline,
+        "latest": tag.lstrip("vV"),
+        "latest_tag": tag,
+        "needs_update": is_newer(tag, baseline),
+        "asset_name": asset.get("name"),
+        "asset_url": asset.get("browser_download_url"),
+        "asset_size_bytes": asset.get("size"),
+        "asset_digest": asset.get("digest"),
+        "published_at": api_data.get("published_at"),
+        "release_url": api_data.get("html_url"),
+        "body": (api_data.get("body") or "")[:2000],
+        "source": "api",
+    }
