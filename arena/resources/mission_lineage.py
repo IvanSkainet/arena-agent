@@ -1,6 +1,8 @@
 """Mission lineage helpers for parent/child iteration chains."""
 from __future__ import annotations
 
+import logging
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,8 @@ from arena.resources.mission_identifier import (
     index_missions_by_id,
     mission_item_id,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _summaries(missions_dir: Path) -> list[dict[str, Any]]:
@@ -80,11 +84,29 @@ def get_mission_lineage(missions_dir: Path, name: str) -> dict[str, Any]:
     ancestors.reverse()
     children = sorted(children_by_parent.get(mission_item_id(current), []), key=lambda item: str(item.get("created_at", "") or item.get("last_activity_at", "")))
     descendants: list[dict[str, Any]] = []
-    stack = list(children)
-    while stack:
-        item = stack.pop(0)
+    # `deque` rather than `list.pop(0)`, which shifts every remaining
+    # element and makes the walk quadratic (raised in review).
+    #
+    # `visited` is the more important half. The ancestor walk above has
+    # guarded against a cycle in the stored parent links since it was
+    # written; this one never did, so two missions each recorded as the
+    # other's parent made it append for ever -- not slow, hung, with the
+    # list growing until the process died. Probed on master before
+    # changing anything: it hangs there too.
+    queue = deque(children)
+    visited = {mission_item_id(item) for item in children}
+    while queue:
+        item = queue.popleft()
         descendants.append(item)
-        stack.extend(children_by_parent.get(mission_item_id(item), []))
+        for child in children_by_parent.get(mission_item_id(item), []):
+            child_id = mission_item_id(child)
+            if child_id in visited:
+                logger.warning(
+                    "[missions] lineage of %r revisits %r; the stored parent "
+                    "links form a cycle", name, child.get("name"))
+                continue
+            visited.add(child_id)
+            queue.append(child)
     siblings = []
     if current.get("parent_mission_id"):
         siblings = [item for item in children_by_parent.get(str(current.get("parent_mission_id") or "").strip(), []) if mission_item_id(item) != mission_item_id(current)]

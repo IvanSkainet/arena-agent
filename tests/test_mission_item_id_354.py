@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -105,6 +106,47 @@ def test_two_ids_that_differ_only_by_padding_do_not_overwrite_each_other(
         "a collision between two stored ids was resolved without a word")
 
 
+def test_a_cycle_in_the_stored_parent_links_does_not_hang_the_walk(
+        tmp_path: Path, caplog) -> None:
+    """Two missions each recorded as the other's parent must terminate.
+
+    Found while acting on a review note about `list.pop(0)` being
+    quadratic: the descendant walk had no visited-set at all, so a
+    cycle did not make it slow, it made it append for ever until the
+    process died. The ancestor walk a few lines above has guarded
+    against exactly this since it was written -- one traversal had the
+    check and its neighbour did not, which is the shape #354 is about.
+
+    Probed against master first: it hangs there too, so this is a
+    pre-existing defect being fixed, not one introduced here.
+
+    Run in a thread with a deadline because the failure mode is a hang,
+    and a test that hangs reports nothing at all.
+    """
+    for dirname, own, parent in (("a", "A", "B"), ("b", "B", "A")):
+        _mission(tmp_path, dirname, {
+            "id": own, "lineage": {"parent_mission_id": parent, "depth": 1}})
+
+    finished = threading.Event()
+    result: dict[str, object] = {}
+
+    def _walk() -> None:
+        with caplog.at_level("WARNING"):
+            result["lineage"] = get_mission_lineage(tmp_path, "a")
+        finished.set()
+
+    threading.Thread(target=_walk, daemon=True).start()
+
+    assert finished.wait(timeout=20), (
+        "the descendant walk did not terminate on a cyclic parent link")
+    lineage = result["lineage"]
+    assert isinstance(lineage, dict) and lineage["ok"] is True
+    assert len(lineage["descendants"]) == 2, (
+        "each mission in the cycle should appear exactly once")
+    assert any("cycle" in r.getMessage() for r in caplog.records
+               if r.levelname == "WARNING")
+
+
 def test_the_root_question_is_asked_by_name_not_by_argument_order(
         tmp_path: Path) -> None:
     """`prefer_root=True` means a different question, not a reordering.
@@ -132,55 +174,65 @@ def test_a_missing_id_falls_back_to_the_directory_name() -> None:
     assert mission_item_id({}) == ""
 
 
-def _modules_computing_an_id_themselves(resources: Path) -> set[str]:
-    """Modules containing `X.get(<id>) or Y.get(<name>)`, found by AST.
+def _is_get_of(node: ast.AST, key: str) -> bool:
+    """True for `<anything>.get("<key>")` -- the shape, not its spelling."""
+    return (isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and len(node.args) == 1
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == key)
 
-    The first version of this guard was a regex over the source text,
-    and review pointed out it only recognised double-quoted keys: the
-    same expression with `'id'` would slip past and the test would
-    still be green while the invariant it names was broken. A guard
-    that can be defeated by a quote character is worse than none,
-    because it reads like coverage.
 
-    Parsing removes the spelling question entirely -- quotes, spacing
-    and line breaks are gone by the time the tree exists, so there is
-    one thing to recognise instead of a list of ways to write it.
+def _mentions_get_of(node: ast.AST, key: str) -> bool:
+    return any(_is_get_of(child, key) for child in ast.walk(node))
+
+
+def _is_label_chain(node: ast.AST) -> bool:
+    """True for `title or name or id` -- a label, not an identifier.
+
+    That chain asks for the most human-readable name and is
+    deliberately unstripped, because the value goes into prose rather
+    than into a dict key. Recognised by its first operand so the guard
+    does not need a module allowlist, which is the thing that would
+    quietly grow.
     """
-    def _is_get_of(node: ast.AST, key: str) -> bool:
-        return (isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "get"
-                and len(node.args) == 1
-                and isinstance(node.args[0], ast.Constant)
-                and node.args[0].value == key)
+    return (isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or)
+            and _is_get_of(node.values[0], "title"))
 
-    def _mentions(node: ast.AST, key: str) -> bool:
-        return any(_is_get_of(child, key) for child in ast.walk(node))
 
-    def _is_label_chain(node: ast.AST) -> bool:
-        # `title or name or id` is a different question -- the most
-        # human-readable label, not the identifier -- and it is
-        # deliberately unstripped because it goes into prose, not into
-        # a dict key. Recognised by the first operand so the guard does
-        # not drag `mission_recovery` in and teach the next person to
-        # widen the allowlist instead of reading it.
-        return (isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or)
-                and _is_get_of(node.values[0], "title"))
+def _computes_an_id(node: ast.AST) -> bool:
+    """True for an `or` chain that reimplements `mission_item_id`."""
+    if not (isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or)):
+        return False
+    if not (_mentions_get_of(node, "id") and _mentions_get_of(node, "name")):
+        return False
+    # The label chain can sit inside an f-string, in which case the
+    # outer `or` is not itself the chain but contains it and nothing
+    # else that computes an identifier.
+    return not any(_is_label_chain(child) for child in ast.walk(node))
 
-    offenders = set()
-    for path in sorted(resources.glob("*.py")):
-        if path.name == "mission_identifier.py":
-            continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if (isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or)
-                    and _mentions(node, "id") and _mentions(node, "name")
-                    # A chain can be nested inside an f-string, in which
-                    # case the outer `or` is not the label chain but
-                    # contains it and nothing else that computes an id.
-                    and not any(_is_label_chain(c) for c in ast.walk(node))):
-                offenders.add(path.name)
-    return offenders
+
+def _modules_computing_an_id_themselves(resources: Path) -> set[str]:
+    """Modules that compute a mission id instead of calling the helper.
+
+    The first version of this guard was a regex over source text, and
+    review pointed out it only recognised double-quoted keys: the same
+    expression with `'id'` would slip past while the test stayed green.
+    A guard a quote character defeats is worse than none, because it
+    reads like coverage. Parsing erases the spelling question.
+
+    Split into named predicates rather than one nested walk -- CodeScene
+    put the combined version at complexity 18, and the pieces are
+    separately meaningful anyway.
+    """
+    return {
+        path.name
+        for path in sorted(resources.glob("*.py"))
+        if path.name != "mission_identifier.py"
+        and any(_computes_an_id(node)
+                for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))))
+    }
 
 
 def test_no_module_grows_a_thirteenth_copy_of_the_identifier() -> None:
