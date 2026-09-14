@@ -24,15 +24,53 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
+from types import ModuleType
 
 import pytest
-
-from tests.conftest import arena_variables_set_during_collection
 
 _REPOSITORY = Path(__file__).resolve().parents[1]
 
 
-def test_importing_every_test_module_sets_no_arena_variable() -> None:
+@pytest.fixture
+def suite_conftest(request: pytest.FixtureRequest) -> ModuleType:
+    """The live `tests/conftest.py`, as pytest loaded it.
+
+    Not `from tests.conftest import ...`: `tests/` has no
+    `__init__.py`, so that statement builds a *second* module object
+    whose snapshot dicts are empty, and every assertion below would
+    pass by measuring nothing. Confirmed by inspection -- `conftest`
+    and `tests.conftest` were two distinct objects in `sys.modules`.
+    Same lookup, and same reason, as `test_no_network_guard_331.py`.
+    """
+    module = request.config.pluginmanager.get_plugin(
+        str(Path(__file__).resolve().parent / "conftest.py"))
+    assert module is not None, (
+        "tests/conftest.py is not among the loaded plugins, so the "
+        "environment-leak guard is not installed")
+    return module
+
+
+def test_the_guard_under_test_is_the_one_pytest_loaded(
+        suite_conftest: ModuleType) -> None:
+    """Guards against the whole file silently measuring nothing.
+
+    A duplicate conftest object has empty snapshots, so every leak
+    check here would pass no matter how badly the suite leaked. The
+    session-start snapshot is never empty in practice -- pytest's own
+    machinery aside, the harness sets `ARENA_*` values of its own --
+    but the failure being excluded is reading a module that was never
+    populated at all.
+    """
+    assert suite_conftest.__file__ is not None
+    assert Path(suite_conftest.__file__).resolve() == (
+        Path(__file__).resolve().parent / "conftest.py")
+    assert hasattr(suite_conftest, "_ARENA_AT_SESSION_START"), (
+        "the loaded conftest has no session-start snapshot, so the guard "
+        "below would compare two empty dicts and always pass")
+
+
+def test_importing_every_test_module_sets_no_arena_variable(
+        suite_conftest: ModuleType) -> None:
     """The deterministic half of the guard.
 
     Every leak in #348 is a module-level assignment, so it happens
@@ -41,12 +79,28 @@ def test_importing_every_test_module_sets_no_arena_variable() -> None:
     `pytest-randomly` picks and whatever `-k` selects -- unlike an
     end-of-session check, which only sees the modules that ran.
     """
-    leaked = arena_variables_set_during_collection()
+    leaked = suite_conftest.arena_variables_set_during_collection()
 
     assert leaked == {}, (
         "importing the test suite changed the ARENA_* environment; a module "
         "is assigning to os.environ at import scope without restoring it, "
         f"which makes later modules depend on collection order: {leaked}")
+
+
+def test_no_module_changes_an_arena_variable_while_being_imported(
+        suite_conftest: ModuleType) -> None:
+    """Stricter than the endpoint comparison, and it names the culprit.
+
+    A module can set a value that a later module restores: the
+    start/end snapshots then match while every module imported in
+    between saw the leak. Reproduced with a throwaway pair -- the
+    endpoint check reported `{}`, this one reported both modules.
+    """
+    changed = suite_conftest.arena_variables_changed_per_module()
+
+    assert changed == {}, (
+        "these modules changed the ARENA_* environment while being "
+        f"imported, which later modules then inherit: {changed}")
 
 
 def test_a_module_that_binds_a_tmp_home_does_not_hand_it_to_the_next_importer(
@@ -63,22 +117,36 @@ def test_a_module_that_binds_a_tmp_home_does_not_hand_it_to_the_next_importer(
     Found by shuffling collection order: `test_facts_path_shape` failed
     under two seeds out of three with every ARENA_* variable correctly
     restored.
+
+    The temp directory is `tmp_path`-owned rather than a fresh
+    `mkdtemp`, so the subprocess leaves nothing behind in the system
+    temp on every run.
     """
     reader = tmp_path / "test_reads_root.py"
-    reader.write_text(textwrap.dedent('''
+    reader.write_text(textwrap.dedent(f'''
         import os
         import sys
-        import tempfile
         from pathlib import Path
 
-        os.environ["ARENA_AGENT_HOME"] = tempfile.mkdtemp(prefix="first_importer_")
+        os.environ["ARENA_AGENT_HOME"] = {str(tmp_path / "first-home")!r}
         import arena.agent_helpers.files  # noqa: E402
         sys.modules.pop("arena.agent_helpers.files", None)
+        _package = sys.modules.get("arena.agent_helpers")
+        if getattr(_package, "files", None) is not None:
+            delattr(_package, "files")
         os.environ.pop("ARENA_AGENT_HOME", None)
 
-        def test_a_later_import_is_not_given_the_first_tmp_home():
+        def test_a_later_qualified_import_is_not_given_the_first_tmp_home():
             import arena.agent_helpers.files as reimported
             assert reimported.ROOT == Path.home() / "arena-bridge"
+
+        def test_a_later_import_through_the_parent_package_is_not_either():
+            # `sys.modules` is not the only reference: importing a
+            # submodule binds it on its parent package too, and this
+            # import form reads that attribute. Verified by mutation --
+            # dropping only the sys.modules entry fails here.
+            from arena.agent_helpers import files
+            assert files.ROOT == Path.home() / "arena-bridge"
     '''), encoding="utf-8")
 
     result = _run_pytest(tmp_path, "test_reads_root.py")

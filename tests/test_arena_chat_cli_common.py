@@ -44,24 +44,34 @@ _tmp_home = Path(tempfile.mkdtemp(prefix="arena_chat_cli_test_"))
 _previous_home = os.environ.get("ARENA_AGENT_HOME")
 os.environ["ARENA_AGENT_HOME"] = str(_tmp_home)
 
-from arena.chat_cli import common as chat_common  # noqa: E402
+try:
+    from arena.chat_cli import common as chat_common  # noqa: E402
+finally:
+    # The variable was only ever needed for the line above: `HOME` is
+    # bound at import and does not consult the environment again.
+    # Leaving it set made it the ambient value for every module
+    # collected afterwards, and collection order is randomised, so
+    # which value a later test saw depended on the seed (#348).
+    #
+    # In a `finally` because a failing import is precisely when the
+    # cleanup still matters: pytest reports the collection error and
+    # keeps importing later modules, which would inherit the tmp home.
+    #
+    # `chat_common.HOME` stays bound to the tmp path for as long as the
+    # module object is reachable -- via `sys.modules`, and via the
+    # attribute the import bound on the parent package, which
+    # `from arena.chat_cli import common` would find. Both are dropped;
+    # restoring the variable only stops the *next* import reading a
+    # stale value, it does not release this one.
+    sys.modules.pop("arena.chat_cli.common", None)
+    _chat_cli_package = sys.modules.get("arena.chat_cli")
+    if getattr(_chat_cli_package, "common", None) is not None:
+        delattr(_chat_cli_package, "common")
 
-# The variable was only ever needed for the line above: `HOME` is bound
-# at import and does not consult the environment again. Leaving it set
-# made it the ambient value for every module collected afterwards, and
-# collection order is randomised, so which value a later test saw
-# depended on the seed (#348).
-# `chat_common.HOME` stays bound to the tmp path for as long as the
-# module sits in `sys.modules`, so the next module to import it would
-# be handed this tmp home however the environment looks by then.
-# Evicting it is what actually ends this module's influence; restoring
-# the variable only stops the *next* import from reading a stale value.
-sys.modules.pop("arena.chat_cli.common", None)
-
-if _previous_home is None:
-    os.environ.pop("ARENA_AGENT_HOME", None)
-else:
-    os.environ["ARENA_AGENT_HOME"] = _previous_home
+    if _previous_home is None:
+        os.environ.pop("ARENA_AGENT_HOME", None)
+    else:
+        os.environ["ARENA_AGENT_HOME"] = _previous_home
 
 
 # --------------------------------------------------------------------

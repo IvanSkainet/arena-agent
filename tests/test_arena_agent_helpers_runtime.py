@@ -35,28 +35,42 @@ _tmp_home = Path(tempfile.mkdtemp(prefix="arena_helpers_runtime_"))
 _previous_home = os.environ.get("ARENA_AGENT_HOME")
 os.environ["ARENA_AGENT_HOME"] = str(_tmp_home)
 
-from arena.agent_helpers import runtime  # noqa: E402
+try:
+    from arena.agent_helpers import runtime  # noqa: E402
+finally:
+    # Restored immediately: `files.ROOT` is evaluated at import, so the
+    # variable has done its job by the line above. Kept set, it became
+    # the ambient value for everything collected after this module,
+    # under a randomised collection order (#348).
+    #
+    # In a `finally` because a failing import is exactly when this must
+    # still happen: pytest reports the collection error and carries on
+    # importing later modules, which would otherwise inherit the tmp
+    # home -- the leak this file exists to remove, via the error path.
+    #
+    # Evicting the modules matters just as much. `files.ROOT` keeps
+    # pointing at the tmp home for as long as the module object is
+    # reachable, so a later importer is handed this module's tmp home
+    # whatever the environment says by then; restoring the variable
+    # alone does not undo that. `sys.modules` is not the only reference:
+    # importing a submodule also binds it as an attribute of its parent
+    # package, so `from arena.agent_helpers import files` would still
+    # find the stale object. Both are dropped.
+    for _bound_at_import in (
+            "arena.agent_helpers.runtime", "arena.agent_helpers.files"):
+        sys.modules.pop(_bound_at_import, None)
+    for _parent, _child in (("arena.agent_helpers", "runtime"),
+                            ("arena.agent_helpers", "files")):
+        _package = sys.modules.get(_parent)
+        if _package is not None:
+            delattr_target = getattr(_package, _child, None)
+            if delattr_target is not None:
+                delattr(_package, _child)
 
-# Restored immediately: `files.ROOT` is evaluated at import, so the
-# variable has done its job by this line. Kept set, it became the
-# ambient value for everything collected after this module, under a
-# randomised collection order (#348).
-#
-# Evicting the modules matters just as much. `files.ROOT` keeps
-# pointing at the tmp home for as long as the module object lives in
-# `sys.modules`, so a later module doing `import arena.agent_helpers
-# .files` is handed this module's tmp home no matter what the
-# environment says by then -- restoring the variable alone does not
-# undo that. Dropping them makes the next importer evaluate `ROOT`
-# against the environment it actually runs under.
-for _bound_at_import in (
-        "arena.agent_helpers.runtime", "arena.agent_helpers.files"):
-    sys.modules.pop(_bound_at_import, None)
-
-if _previous_home is None:
-    os.environ.pop("ARENA_AGENT_HOME", None)
-else:
-    os.environ["ARENA_AGENT_HOME"] = _previous_home
+    if _previous_home is None:
+        os.environ.pop("ARENA_AGENT_HOME", None)
+    else:
+        os.environ["ARENA_AGENT_HOME"] = _previous_home
 
 
 def test_load_facts_returns_empty_when_no_file(monkeypatch, tmp_path):

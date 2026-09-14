@@ -89,14 +89,13 @@ def _ambient_arena_variables() -> tuple[str, ...]:
 
 
 _ARENA_AT_SESSION_START: dict[str, str] = {}
-_ARENA_LEAK_REPORT = pytest.StashKey[dict]()
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
     """Photograph the `ARENA_*` environment the suite starts from.
 
-    Compared again at session end by
-    `test_the_suite_leaves_no_arena_variables_behind`. #348: five
+    Compared again by `pytest_collection_finish` (per module, below)
+    and by `pytest_sessionfinish`. #348: five
     modules set `ARENA_AGENT_HOME` with a bare assignment and never
     undid it, so the value stayed for every module *collected after*
     them -- and `pytest-randomly` reorders collection, so which value a
@@ -125,7 +124,6 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     leaked = arena_variables_leaked_during_the_session()
     if not leaked:
         return
-    session.config.stash[_ARENA_LEAK_REPORT] = leaked
     reporter = session.config.pluginmanager.get_plugin("terminalreporter")
     if reporter is not None:
         reporter.write_sep("=", "ARENA_* environment leaked", red=True)
@@ -139,6 +137,39 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 
 
 _ARENA_AFTER_COLLECTION: dict[str, str] = {}
+_ARENA_CHANGED_BY_MODULE: dict[str, dict[str, tuple[str | None, str | None]]] = {}
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_make_collect_report(collector: pytest.Collector):
+    """Snapshot around each module import, so leaks can be attributed.
+
+    The endpoint comparison (start vs end of collection) misses a
+    module that sets a value which a *later* module restores: the two
+    snapshots match, yet everything imported in between saw the leaked
+    value. Wrapping each import catches that, and names the module
+    responsible rather than just the variable.
+
+    This hook and not `pytest_collectstart`, which fires before the
+    module is imported -- wrapping it measured nothing, and a
+    deliberately transient leak went unreported.
+    """
+    if not isinstance(collector, pytest.Module):
+        yield
+        return
+    before = {n: v for n, v in os.environ.items() if n.startswith("ARENA_")}
+    outcome = yield
+    after = {n: v for n, v in os.environ.items() if n.startswith("ARENA_")}
+    changed = _compare_arena_snapshots(before, after)
+    if changed:
+        _ARENA_CHANGED_BY_MODULE[str(collector.nodeid)] = changed
+    return outcome
+
+
+def arena_variables_changed_per_module() -> dict[
+        str, dict[str, tuple[str | None, str | None]]]:
+    """`{module nodeid: {name: (before, after)}}` for each importer."""
+    return dict(_ARENA_CHANGED_BY_MODULE)
 
 
 def pytest_collection_finish(session: pytest.Session) -> None:
