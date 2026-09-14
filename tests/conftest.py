@@ -120,15 +120,29 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 
     Reported as a warning plus a non-zero exit rather than by raising,
     so it cannot be mistaken for one of the run's own failures.
+
+    Covers the per-module mutations too, not just the session
+    endpoints. The tests below assert the same things, but a test can
+    be deselected -- `-k` on an unrelated name would silently switch
+    the guard off, and a transient leak (one module sets, a later one
+    restores) shows up in neither endpoint snapshot. The hook always
+    runs.
     """
-    leaked = arena_variables_leaked_during_the_session()
+    leaked = {
+        "": arena_variables_leaked_during_the_session(),
+        **{f" while importing {module}": changed
+           for module, changed in _ARENA_CHANGED_BY_MODULE.items()},
+    }
+    leaked = {where: what for where, what in leaked.items() if what}
     if not leaked:
         return
     reporter = session.config.pluginmanager.get_plugin("terminalreporter")
     if reporter is not None:
         reporter.write_sep("=", "ARENA_* environment leaked", red=True)
-        for name, (before, after) in leaked.items():
-            reporter.write_line(f"  {name}: {before!r} -> {after!r}")
+        for where, changed in leaked.items():
+            for name, (before, after) in changed.items():
+                reporter.write_line(
+                    f"  {name}: {before!r} -> {after!r}{where}")
         reporter.write_line(
             "  a module changed the environment without undoing it; later "
             "modules then depend on collection order (#348)")

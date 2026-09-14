@@ -56,17 +56,25 @@ def sandbox(monkeypatch):
     home = tempfile.mkdtemp()
     previous = os.environ.get("ARENA_AGENT_HOME")
     common, integ = _fresh_modules(home)
-    yield common, integ
-    # Reload the modules back to the ambient home *first*: the reload
-    # helper sets the variable as a side effect, so doing it after the
-    # restore re-introduced the very leak this is undoing -- and with
-    # `previous or "~/arena-bridge"` it left a value behind even when
-    # there had been none to begin with (#348).
-    _fresh_modules(previous or os.path.expanduser("~/arena-bridge"))
-    if previous is None:
-        os.environ.pop("ARENA_AGENT_HOME", None)
-    else:
-        os.environ["ARENA_AGENT_HOME"] = previous
+    try:
+        yield common, integ
+    finally:
+        # Reload the modules back to the ambient home *first*: the
+        # reload helper sets the variable as a side effect, so doing it
+        # after the restore re-introduced the very leak this is undoing
+        # -- and with `previous or "~/arena-bridge"` it left a value
+        # behind even when there had been none to begin with (#348).
+        #
+        # The restore is in a `finally` of its own so that a raising
+        # `_fresh_modules` cannot skip it and leak the tmp home into
+        # every later test.
+        try:
+            _fresh_modules(previous or os.path.expanduser("~/arena-bridge"))
+        finally:
+            if previous is None:
+                os.environ.pop("ARENA_AGENT_HOME", None)
+            else:
+                os.environ["ARENA_AGENT_HOME"] = previous
 
 
 # --------------------------------------------------------------------

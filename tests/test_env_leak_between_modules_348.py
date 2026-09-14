@@ -156,6 +156,55 @@ def test_a_module_that_binds_a_tmp_home_does_not_hand_it_to_the_next_importer(
         f"the next importer:\n{result.stdout}")
 
 
+def test_a_cached_module_cannot_make_the_tmp_home_import_a_no_op(
+        tmp_path: Path) -> None:
+    """The inbound half of the eviction, and why it is not symmetry.
+
+    If one of the modules is already in `sys.modules` from an earlier
+    importer, the `import` under the temporary home does nothing and
+    the constants keep the *earlier* home -- so the test quietly
+    exercises the wrong directory while looking perfectly healthy.
+    Reproduced before fixing: with `arena.agent_helpers.files`
+    pre-imported, `runtime.FACTS` pointed into the first module's tmp
+    directory.
+    """
+    helper = tmp_path / "_env_isolation.py"
+    helper.write_text(
+        (_REPOSITORY / "tests" / "_env_isolation.py").read_text(encoding="utf-8"),
+        encoding="utf-8")
+    earlier = tmp_path / "test_aaa_imports_first.py"
+    earlier.write_text(textwrap.dedent(f'''
+        import os
+
+        os.environ["ARENA_AGENT_HOME"] = {str(tmp_path / "earlier-home")!r}
+        import arena.agent_helpers.files  # noqa: E402  -- left cached
+        os.environ.pop("ARENA_AGENT_HOME", None)
+
+        def test_placeholder():
+            assert True
+    '''), encoding="utf-8")
+    later = tmp_path / "test_zzz_imports_under_tmp_home.py"
+    later.write_text(textwrap.dedent(f'''
+        from _env_isolation import agent_home
+
+        _home = {str(tmp_path / "later-home")!r}
+        with agent_home(_home, "arena.agent_helpers.runtime",
+                        "arena.agent_helpers.files"):
+            from arena.agent_helpers import runtime
+
+        def test_facts_points_at_this_modules_own_home():
+            assert str(runtime.FACTS).startswith(_home), runtime.FACTS
+    '''), encoding="utf-8")
+
+    result = _run_pytest(
+        tmp_path, "test_aaa_imports_first.py",
+        "test_zzz_imports_under_tmp_home.py")
+
+    assert result.returncode == 0, (
+        "a module cached by an earlier importer was still in place, so the "
+        f"import under the tmp home kept the earlier value:\n{result.stdout}")
+
+
 def test_the_end_of_session_guard_is_a_hook_not_a_test(tmp_path: Path) -> None:
     """The session-end check must not itself depend on collection order.
 
@@ -267,8 +316,15 @@ def test_a_leak_really_does_change_what_a_later_module_reads(
     together = _run_pytest(a_leaking_module, "test_aaa_leaks.py", "test_zzz_reads.py")
     alone = _run_pytest(a_leaking_module, "test_zzz_reads.py")
 
-    assert together.returncode != 0, (
-        "the reader was expected to fail once the leaking module was "
+    # Named test outcomes, not the exit code: the copied conftest also
+    # fails the run for the leak itself, so a non-zero `together` would
+    # be satisfied without the reader ever observing the value -- the
+    # thing actually being demonstrated.
+    assert "test_sees_only_its_own_environment" in together.stdout, (
+        "expected the reader to be reported by name as failing once the "
+        f"leaking module was collected alongside it:\n{together.stdout}")
+    assert "1 failed" in together.stdout, (
+        "expected exactly the reader to fail once the leaking module was "
         f"collected alongside it:\n{together.stdout}")
     assert alone.returncode == 0, (
         "the reader was expected to pass on its own -- if it fails here the "
