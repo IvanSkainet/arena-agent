@@ -212,8 +212,10 @@ def test_a_kill_before_the_loop_exists_still_cleans_up() -> None:
     The workspace is created, prepared and the app built before
     `asyncio.run`. A signal there is still handled by the raising handler
     installed in `main`, and that is deliberate: it unwinds into the
-    try/finally the cleanup lives in. Killing repeatedly at increasing
-    delays walks the signal across that window.
+    try/finally the cleanup lives in. The window is narrow, so each
+    attempt polls for the workspace and signals the instant it appears
+    rather than guessing a delay -- fixed delays mostly fired before the
+    directory existed and asserted nothing (review).
     """
     exercised = 0
     for _ in range(3):
@@ -229,8 +231,15 @@ def test_a_kill_before_the_loop_exists_still_cleans_up() -> None:
         deadline = time.time() + 60
         while time.time() < deadline:
             created = sorted(set(glob.glob(WORKSPACE_GLOB)) - before)
-            if created or proc.poll() is not None:
+            if created:
                 break
+            if proc.poll() is not None:
+                # A bridge that died on its own never received the
+                # signal, so counting it as an attempt would let a
+                # startup crash pass for a passing test (review).
+                raise AssertionError(
+                    "the bridge exited before it created a workspace: "
+                    f"{proc.communicate()[0]}")
             time.sleep(0.005)
         proc.send_signal(signal.SIGTERM)
         try:
