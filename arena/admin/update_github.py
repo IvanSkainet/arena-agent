@@ -23,6 +23,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from typing import Any
 
 _USER_AGENT_PREFIX = "arena-agent-auto-update"
@@ -301,3 +302,85 @@ def resolve_latest_via_redirect(repo: str) -> str | None:
         return location[idx + len(marker):].split("?")[0].split("#")[0]
     except Exception:
         return None
+
+
+# --------------------------------------------------------------------
+# Version comparison. Moved from auto_update in #361 together with
+# `from_api_release`, which needs it: keeping it there would have meant
+# passing it in as an argument, and auto_update cannot be imported from
+# here without a cycle. It depends on nothing else, so it sits at the
+# bottom of the graph where both modules can reach it. auto_update
+# re-exports both names, which tests and callers import from there.
+# --------------------------------------------------------------------
+
+def parse_version(tag: str) -> tuple[int, ...]:
+    """`v3.84.7` / `3.84.7` / `v3.84.7-rc1` -> `(3, 84, 7)`.
+
+    Non-numeric suffixes are dropped; ordering follows plain integer
+    tuple comparison which is enough for the semver-lite scheme this
+    project actually uses.
+    """
+    s = (tag or "").strip().lstrip("vV")
+    parts: list[int] = []
+    for chunk in s.split("."):
+        buf = ""
+        for ch in chunk:
+            if ch.isdigit():
+                buf += ch
+            else:
+                break
+        if not buf:
+            break
+        parts.append(int(buf))
+    return tuple(parts) if parts else (0,)
+
+
+def is_newer(candidate: str, baseline: str) -> bool:
+    """Strictly greater than the baseline."""
+    return parse_version(candidate) > parse_version(baseline)
+
+
+def from_api_release(api_data: dict[str, Any], *, repo: str, baseline: str,
+                     pick: Callable[[list[dict[str, Any]]],
+                                    dict[str, Any] | None] | None = None,
+                     ) -> dict[str, Any]:
+    """Shape the answer from the JSON API, which knows asset digests.
+
+    Lives here rather than in `auto_update` because that module was at
+    the 600-line cap (#361) and this is pure shaping of a GitHub
+    payload -- no network of its own.
+
+    Its two sibling helpers stay in `auto_update` on purpose -- they
+    call the fetchers that tests monkeypatch by name on that module,
+    and moving them silently broke four of those tests.
+
+    `pick` exists for the same reason: `auto_update._pick_asset` is a
+    documented hook that tests and callers monkeypatch to control asset
+    selection. Resolving it here at module scope would capture the
+    unpatched function, so the caller passes its own alias in and the
+    hook keeps working. Defaults to the local `pick_asset` for direct
+    callers.
+    """
+    tag = str(api_data.get("tag_name") or "")
+    chooser = pick if pick is not None else pick_asset
+    asset = chooser(api_data.get("assets") or [])
+    if asset is None:
+        return {"ok": False,
+                "error": f"release {tag} has no downloadable zip",
+                "repo": repo, "tag": tag}
+    return {
+        "ok": True,
+        "repo": repo,
+        "current": baseline,
+        "latest": tag.lstrip("vV"),
+        "latest_tag": tag,
+        "needs_update": is_newer(tag, baseline),
+        "asset_name": asset.get("name"),
+        "asset_url": asset.get("browser_download_url"),
+        "asset_size_bytes": asset.get("size"),
+        "asset_digest": asset.get("digest"),
+        "published_at": api_data.get("published_at"),
+        "release_url": api_data.get("html_url"),
+        "body": (api_data.get("body") or "")[:2000],
+        "source": "api",
+    }
