@@ -33,6 +33,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -212,14 +213,22 @@ def _restores_in_teardown(manager: ast.AST) -> bool:
     (review). The restore only means anything where
     `remove_signal_handler` has just left SIG_DFL behind.
     """
+    return any(_is_signal_signal(call) for call in _teardown_calls(manager))
+
+
+def _teardown_calls(manager: ast.AST) -> Iterator[ast.Call]:
+    """Every call inside a `finally:` block under `manager`.
+
+    A generator so the caller is one flat `any(...)`: three nested loops
+    read as Deep Nested Complexity even though each level is trivial.
+    """
     for node in ast.walk(manager):
-        if not isinstance(node, ast.Try) or not node.finalbody:
+        if not isinstance(node, ast.Try):
             continue
         for stmt in node.finalbody:
             for child in ast.walk(stmt):
-                if isinstance(child, ast.Call) and _is_signal_signal(child):
-                    return True
-    return False
+                if isinstance(child, ast.Call):
+                    yield child
 
 
 def _is_signal_signal(call: ast.Call) -> bool:
