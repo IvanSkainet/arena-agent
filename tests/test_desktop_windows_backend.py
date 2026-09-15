@@ -189,10 +189,15 @@ def test_live_cursor_move_and_read_roundtrip():
     leave the mouse parked somewhere the user did not put it.
     """
     origin = win_backend.cursor_position()
-    target = (origin[0] + 4, origin[1] + 4)
+    # Offset well beyond the tolerance below. At +4px a completely
+    # broken `mouse_move` that did nothing would still land inside the
+    # 5px window and pass -- the assertion would be a tautology (review).
+    target = (origin[0] + 40, origin[1] + 40)
     try:
         win_backend.mouse_move(*target)
         x, y = win_backend.cursor_position()
+        assert (x, y) != origin, (
+            "mouse_move did not move the pointer at all")
         # Some Windows configurations move the cursor to the nearest
         # legal position, so we tolerate a small delta.
         assert abs(x - target[0]) < 5
