@@ -211,14 +211,19 @@ def _calls_signal_dot_signal(node: ast.AST) -> bool:
     threshold of 9.
     """
     for child in ast.walk(node):
-        if not isinstance(child, ast.Call):
-            continue
-        func = child.func
-        if (isinstance(func, ast.Attribute) and func.attr == "signal"
-                and isinstance(func.value, ast.Name)
-                and func.value.id == "signal" and len(child.args) == 2):
+        if isinstance(child, ast.Call) and _is_signal_signal(child):
             return True
     return False
+
+
+def _is_signal_signal(call: ast.Call) -> bool:
+    """`signal.signal(handler, previous)` -- the two-argument form."""
+    func = call.func
+    if not isinstance(func, ast.Attribute) or func.attr != "signal":
+        return False
+    if not isinstance(func.value, ast.Name) or func.value.id != "signal":
+        return False
+    return len(call.args) == 2
 
 
 def test_the_previous_handler_is_restored_when_the_loop_gives_the_signal_back(
