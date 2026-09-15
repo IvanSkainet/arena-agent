@@ -175,12 +175,30 @@ def test_live_get_active_window_has_id_and_title():
 
 @_WIN_ONLY
 def test_live_cursor_move_and_read_roundtrip():
-    win_backend.mouse_move(500, 500)
-    x, y = win_backend.cursor_position()
-    # Some Windows configurations move the cursor to the nearest
-    # legal position, so we tolerate a small delta.
-    assert abs(x - 500) < 5
-    assert abs(y - 500) < 5
+    """The real SetCursorPos/GetCursorPos round trip, without stealing the mouse.
+
+    This used to jump the pointer to an absolute (500, 500) and leave it
+    there, so anyone running the suite on a desktop had their mouse
+    teleport mid-run (#378). CI never noticed: the Windows jobs have no
+    interactive session, so moving the cursor affects nothing visible.
+
+    Two changes keep the coverage and drop the nuisance. The target is
+    derived from where the pointer already is, so the move is a few
+    pixels rather than a jump across the screen; and the original
+    position is restored in a `finally`, so a failed assertion does not
+    leave the mouse parked somewhere the user did not put it.
+    """
+    origin = win_backend.cursor_position()
+    target = (origin[0] + 4, origin[1] + 4)
+    try:
+        win_backend.mouse_move(*target)
+        x, y = win_backend.cursor_position()
+        # Some Windows configurations move the cursor to the nearest
+        # legal position, so we tolerate a small delta.
+        assert abs(x - target[0]) < 5
+        assert abs(y - target[1]) < 5
+    finally:
+        win_backend.mouse_move(*origin)
 
 
 @_WIN_ONLY

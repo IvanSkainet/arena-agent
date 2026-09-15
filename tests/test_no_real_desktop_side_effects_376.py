@@ -1,4 +1,4 @@
-"""Running the suite must not disturb the machine it runs on (#376).
+"""Running the suite must not disturb the machine it runs on (#376, #378).
 
 The dispatch contract test calls every declared MCP tool with `{}`, and
 `sys.notify` is one of them. Its handler called the module-level
@@ -231,6 +231,82 @@ def test_no_test_calls_the_real_notifier_unsubstituted() -> None:
         "these tests call send_notification with the real platform "
         "backends live; they pop a toast on whoever runs the suite:\n  "
         + "\n  ".join(offenders))
+
+
+# Win32 entry points that move the pointer or synthesise input.
+_INPUT_APIS = frozenset({"SetCursorPos", "mouse_event", "SendInput"})
+
+
+def _moves_the_pointer(tree: ast.AST) -> bool:
+    """True if the module calls a Win32 input API directly."""
+    return any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in _INPUT_APIS
+        for node in ast.walk(tree)
+    )
+
+
+def _restores_what_it_moved(tree: ast.AST) -> bool:
+    """True if a `finally:` block puts the pointer back.
+
+    Scoped to the teardown deliberately: a restore on the happy path
+    only is not a restore, because a failing assertion is exactly when
+    the pointer is left somewhere the user did not put it.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Try) and node.finalbody:
+            for stmt in node.finalbody:
+                for child in ast.walk(stmt):
+                    if isinstance(child, ast.Call) and _is_pointer_move(child):
+                        return True
+    return False
+
+
+def _is_pointer_move(call: ast.Call) -> bool:
+    """`<something>.mouse_move(...)` or a raw `SetCursorPos(...)`."""
+    func = call.func
+    if not isinstance(func, ast.Attribute):
+        return False
+    return func.attr in ("mouse_move", "SetCursorPos")
+
+
+def test_a_test_that_moves_the_real_pointer_puts_it_back() -> None:
+    """Moving the mouse mid-run is the user's machine, not the suite's.
+
+    `test_live_cursor_move_and_read_roundtrip` jumped the pointer to an
+    absolute (500, 500) and left it there (#378). CI could not see it --
+    the Windows runners have no interactive session -- so it was only
+    ever visible to whoever ran the suite on a desktop, which is who
+    reported it.
+
+    The live backend tests are worth keeping: they are the only thing
+    exercising the real round trip. What they must not do is finish with
+    the pointer somewhere else.
+    """
+    offenders = []
+    for path in sorted((REPO_ROOT / "tests").rglob("test_*.py")):
+        if path.name == Path(__file__).name:
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:                       # pragma: no cover
+            continue
+        if _calls_mouse_move(tree) and not _restores_what_it_moved(tree):
+            offenders.append(str(path.relative_to(REPO_ROOT)))
+
+    assert not offenders, (
+        "these tests move the real mouse pointer without restoring it in a "
+        "finally; the pointer ends the run wherever they left it:\n  "
+        + "\n  ".join(offenders))
+
+
+def _calls_mouse_move(tree: ast.AST) -> bool:
+    """True if the module drives the pointer at all."""
+    return any(
+        isinstance(node, ast.Call) and _is_pointer_move(node)
+        for node in ast.walk(tree)
+    ) or _moves_the_pointer(tree)
 
 
 def test_the_probe_that_found_this_is_not_left_behind() -> None:
