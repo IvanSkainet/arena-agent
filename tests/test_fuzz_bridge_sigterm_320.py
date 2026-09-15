@@ -203,16 +203,22 @@ def test_sigterm_while_serving_still_removes_the_workspace() -> None:
         + log)
 
 
-def _calls_signal_dot_signal(node: ast.AST) -> bool:
-    """True if `signal.signal(x, y)` is called anywhere under `node`.
+def _restores_in_teardown(manager: ast.AST) -> bool:
+    """True if the `finally:` block reinstates the previous handler.
 
-    Spelled as a predicate rather than inline: the same filter written
-    as a comprehension pushed its test to CC 11, past CodeScene's
-    threshold of 9.
+    Scoped to the teardown on purpose. Searching the whole function
+    accepted a `signal.signal(...)` anywhere in it -- including the
+    install path -- so the check passed while the restore was gone
+    (review). The restore only means anything where
+    `remove_signal_handler` has just left SIG_DFL behind.
     """
-    for child in ast.walk(node):
-        if isinstance(child, ast.Call) and _is_signal_signal(child):
-            return True
+    for node in ast.walk(manager):
+        if not isinstance(node, ast.Try) or not node.finalbody:
+            continue
+        for stmt in node.finalbody:
+            for child in ast.walk(stmt):
+                if isinstance(child, ast.Call) and _is_signal_signal(child):
+                    return True
     return False
 
 
@@ -248,9 +254,11 @@ def test_the_previous_handler_is_restored_when_the_loop_gives_the_signal_back(
     # Deleting the restore call has to fail this, and a substring check
     # did not: `add_signal_handler`, `remove_signal_handler` and
     # `getsignal` already satisfied "signal appears twice" on their own.
-    # So look for the call itself -- `signal.signal(...)` with
-    # two arguments, inside the teardown.
-    assert _calls_signal_dot_signal(manager), (
+    # Nor is "a two-argument signal.signal somewhere in the function"
+    # enough -- that also matches the install path. It has to be in the
+    # `finally`, which is the only place a restore undoes the SIG_DFL
+    # that `remove_signal_handler` leaves.
+    assert _restores_in_teardown(manager), (
         "nothing reinstalls the previous SIGTERM handler; "
         "remove_signal_handler leaves SIG_DFL behind")
 
