@@ -49,6 +49,7 @@ import shutil
 import signal
 import sys
 import tempfile
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -286,6 +287,17 @@ def _stop_on_sigterm() -> None:
     termination -- no `finally`, no `runner.cleanup()`, one temporary
     workspace left behind per run (sourcery and cubic). Raising instead
     gives asyncio a chance to unwind.
+
+    #320: this covers the window *outside* the event loop only -- the
+    workspace creation, `_prepare_workspace` and `build_app`, all of which
+    run before `asyncio.run` and are wrapped by `main`'s try/finally. Once
+    the loop exists, `_serve` takes the signal over with
+    `loop.add_signal_handler`, because a handler that raises is delivered
+    at an arbitrary bytecode boundary: with a busy GC the interrupt
+    surfaces inside a weakref callback rather than in the frame it was
+    meant to unwind. Measured -- SIGTERM sent from another thread while
+    the main thread churned weakrefs landed in
+    `_weakrefset.py::_remove` 6 times out of 14.
     """
     def _raise(signum: int, frame: object) -> None:  # noqa: ARG001
         raise KeyboardInterrupt(f"signal {signum}")
@@ -305,22 +317,86 @@ def _stop_on_sigterm() -> None:
 
 
 async def _serve(app: web.Application, port: int) -> None:
-    """Serve until interrupted, then shut the runner down properly.
+    """Serve until stopped, then shut the runner down properly.
 
     The loop has no exit of its own -- the job kills the process when the
     fuzz run finishes -- but Ctrl-C and SIGTERM arrive as CancelledError or
-    KeyboardInterrupt, and without the cleanup aiohttp leaves the socket and
+    a stop request, and without the cleanup aiohttp leaves the socket and
     its connections to the garbage collector (corgea).
+
+    #320: SIGTERM is taken off the raising handler while the loop runs.
+    `add_signal_handler` delivers through the loop's self-pipe, so the
+    wakeup happens at a point the loop chose instead of between two
+    arbitrary bytecodes, and the `finally` below runs in its own frame.
     """
     runner = web.AppRunner(app)
-    await runner.setup()
-    await web.TCPSite(runner, "127.0.0.1", port).start()
-    print(f"bridge listening on 127.0.0.1:{port}", flush=True)
+    stop = asyncio.Event()
+    # The whole serve lifetime is inside the guard, not just the wait
+    # (review): `runner.setup()` and `TCPSite.start()` await, so a SIGTERM
+    # during either one used to raise through the interpreter before the
+    # `finally` below existed to catch it, and a second SIGTERM arriving
+    # during `runner.cleanup()` would have hit the restored raising
+    # handler mid-cleanup. Owning the signal across both ends closes both.
+    with _loop_owns_sigterm(stop):
+        try:
+            await runner.setup()
+            await web.TCPSite(runner, "127.0.0.1", port).start()
+            print(f"bridge listening on 127.0.0.1:{port}", flush=True)
+            await stop.wait()
+            # Printed here as well as in `main`'s KeyboardInterrupt
+            # branch: a loop-delivered SIGTERM returns normally instead
+            # of raising, and the log line is what tells CI the stop was
+            # clean rather than a crash that happened to exit 0.
+            print("bridge stopped", flush=True)
+        finally:
+            await runner.cleanup()
+
+
+@contextlib.contextmanager
+def _loop_owns_sigterm(stop: asyncio.Event) -> Iterator[None]:
+    """Route SIGTERM to `stop` for as long as the loop is running.
+
+    The previous handler is put back on the way out rather than the
+    signal being left disarmed. `remove_signal_handler` restores
+    `SIG_DFL`, and `main`'s `finally` -- the one that deletes the
+    workspace -- runs after `asyncio.run` returns: measured, a SIGTERM in
+    that window kills the process outright (rc=-15) and leaks the
+    directory, which is the failure the handler exists to prevent.
+
+    Where the loop cannot take signals -- Windows' proactor loop, or any
+    non-main thread -- this yields without installing anything. That is
+    not a silent downgrade: `main` runs `_stop_on_sigterm` first, so the
+    raising handler is still in place on the main thread. Off the main
+    thread neither mechanism is available at all (`signal.signal` raises
+    ValueError, `add_signal_handler` RuntimeError -- both measured), so
+    the run says so out loud rather than pretending it is protected
+    (review).
+    """
+    loop = asyncio.get_running_loop()
+    previous = signal.getsignal(signal.SIGTERM)
     try:
-        while True:
-            await asyncio.sleep(IDLE_SLEEP_S)
+        loop.add_signal_handler(signal.SIGTERM, stop.set)
+    except (NotImplementedError, RuntimeError, ValueError):
+        if threading.current_thread() is not threading.main_thread():
+            print(
+                "warning: SIGTERM is unhandled (not the main thread); "
+                "a terminated run may leave its workspace behind",
+                file=sys.stderr, flush=True,
+            )
+        yield
+        return
+    try:
+        yield
     finally:
-        await runner.cleanup()
+        # Held across both halves (review): `remove_signal_handler`
+        # installs SIG_DFL, so a SIGTERM delivered between it and the
+        # restore below takes the default action and kills the process
+        # with the workspace still on disk. Measured in isolation -- the
+        # handler really is SIG_DFL inside that gap.
+        with _signals_held():
+            loop.remove_signal_handler(signal.SIGTERM)
+            with contextlib.suppress(TypeError, ValueError):
+                signal.signal(signal.SIGTERM, previous)
 
 
 if __name__ == "__main__":
