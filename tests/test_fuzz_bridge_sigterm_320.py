@@ -184,7 +184,7 @@ def test_sigterm_while_serving_still_removes_the_workspace() -> None:
     proc = _start(port)
     # An assertion between start and stop would otherwise leave a live
     # bridge holding the port and its workspace, and the next test's
-    # `_free_port` can hand out that same port (review).
+    # `_free_port` can hand out that same port.
     try:
         _wait_until_listening(proc, port)
         created = sorted(set(glob.glob(WORKSPACE_GLOB)) - before)
@@ -221,9 +221,24 @@ def test_the_previous_handler_is_restored_when_the_loop_gives_the_signal_back(
 
     body = ast.dump(manager)
     assert "remove_signal_handler" in body, body
-    # The restore has to be there as well, not just the removal.
-    assert body.count("signal") >= 2 and "getsignal" in ast.dump(tree), (
-        "the previous SIGTERM handler is never captured for restoration")
+
+    # Deleting the restore call has to fail this, and a substring check
+    # did not: `add_signal_handler`, `remove_signal_handler` and
+    # `getsignal` already satisfied "signal appears twice" on their own.
+    # So look for the call itself -- `signal.signal(...)` with
+    # two arguments, inside the teardown.
+    restores = [
+        node for node in ast.walk(manager)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "signal"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "signal"
+        and len(node.args) == 2
+    ]
+    assert restores, (
+        "nothing reinstalls the previous SIGTERM handler; "
+        "remove_signal_handler leaves SIG_DFL behind")
 
 
 def _wait_for_workspace(proc: subprocess.Popen[str],
@@ -231,10 +246,12 @@ def _wait_for_workspace(proc: subprocess.Popen[str],
     """Block until the bridge's workspace exists, and return it.
 
     Polled rather than slept for: fixed delays mostly fired before the
-    directory existed, so the caller asserted nothing (review). A bridge
+    directory existed, so the caller asserted nothing. A bridge
     that dies on its own never received the signal, so that is an
     outright failure instead of a quiet "attempt made" -- otherwise a
-    startup crash passes for a passing test.
+    startup crash passes for a passing test. Running out of time is a
+    failure for the same reason: returning an empty list would let the
+    caller signal a bridge that has nothing to clean up.
     """
     deadline = time.time() + 60
     while time.time() < deadline:
@@ -246,7 +263,10 @@ def _wait_for_workspace(proc: subprocess.Popen[str],
                 "the bridge exited before it created a workspace: "
                 f"{proc.communicate()[0]}")
         time.sleep(0.005)
-    return []
+    proc.kill()
+    raise AssertionError(
+        "the bridge never created a workspace within 60s: "
+        f"{proc.communicate()[0]}")
 
 
 def test_a_kill_before_the_loop_exists_still_cleans_up() -> None:
@@ -258,13 +278,13 @@ def test_a_kill_before_the_loop_exists_still_cleans_up() -> None:
     try/finally the cleanup lives in. The window is narrow, so each
     attempt polls for the workspace and signals the instant it appears
     rather than guessing a delay -- fixed delays mostly fired before the
-    directory existed and asserted nothing (review).
+    directory existed and asserted nothing.
     """
     exercised = 0
     for _ in range(3):
         before = set(glob.glob(WORKSPACE_GLOB))
         proc = _start(_free_port())
-        # Fixed delays were wrong (review): 0.05s and 0.1s land while the
+        # Fixed delays were wrong: 0.05s and 0.1s land while the
         # interpreter is still importing, before `main` has created
         # anything, so the assertion below held no matter what the
         # cleanup did. Poll for the directory instead and signal the
@@ -296,8 +316,15 @@ def test_a_kill_before_the_loop_exists_still_cleans_up() -> None:
         left = sorted(set(glob.glob(WORKSPACE_GLOB)) - before)
         assert left == [], (
             f"a SIGTERM during startup leaked a workspace: {left}\n{log}")
-        exercised += bool(created)
+        # "bridge listening" is printed once `_serve` has the loop
+        # handling signals, so its absence is the proof that this
+        # attempt really was pre-loop. Without it the attempt could
+        # have raced past `asyncio.run` and been counted as coverage of
+        # a window it never entered (review). Measured 12/12 pre-loop
+        # here, but measured is not guaranteed, so it is checked.
+        exercised += bool(created) and "bridge listening" not in log
 
     assert exercised, (
-        "every attempt signalled before the workspace existed, so nothing "
-        "about the pre-loop cleanup was exercised")
+        "every attempt signalled outside the pre-loop window -- either "
+        "before the workspace existed or after the loop took the signal "
+        "-- so nothing about the pre-loop cleanup was exercised")
