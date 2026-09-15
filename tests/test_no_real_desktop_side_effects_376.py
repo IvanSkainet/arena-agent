@@ -30,12 +30,45 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOL_MISC = REPO_ROOT / "arena" / "mcp" / "tool_misc.py"
 
-def _imports_from(tree: ast.AST, module: str) -> bool:
-    """True if `from <module> import ...` appears anywhere in `tree`."""
-    return any(
-        isinstance(node, ast.ImportFrom) and node.module == module
-        for node in ast.walk(tree)
-    )
+def _reaches_notifier(tree: ast.AST) -> list[str]:
+    """Every import in `tree` that can reach `arena.system.notification`.
+
+    Matching only `from arena.system.notification import ...` was not
+    enough (review): `import arena.system.notification as _n` and
+    `from arena.system import notification` both bypassed it, and a
+    handler could then call the real notifier while still making a
+    decorative `ctx.send_notification_sync` call to satisfy the check
+    below. Verified -- that exact shape passed all four tests and still
+    showed a toast.
+    """
+    found: list[str] = []
+    for node in ast.walk(tree):
+        found += _notifier_imports(node)
+    return found
+
+
+_NOTIFIER_MODULE = "arena.system.notification"
+
+
+def _notifier_imports(node: ast.AST) -> list[str]:
+    """The notifier modules one import statement brings into scope."""
+    return [name for name in _imported_names(node)
+            if name == _NOTIFIER_MODULE]
+
+
+def _imported_names(node: ast.AST) -> list[str]:
+    """Every dotted module path an import statement could refer to.
+
+    For `from X import a, b` that is `X`, `X.a` and `X.b`, because
+    `from arena.system import notification` reaches the notifier just as
+    surely as importing it by its full path does.
+    """
+    if isinstance(node, ast.Import):
+        return [a.name for a in node.names]
+    if isinstance(node, ast.ImportFrom):
+        module = node.module or ""
+        return [module] + [f"{module}.{a.name}" for a in node.names]
+    return []
 
 
 def _calls_attribute(tree: ast.AST, attr: str) -> bool:
@@ -57,10 +90,11 @@ def test_sys_notify_goes_through_the_context_not_a_module_import() -> None:
     """
     tree = ast.parse(TOOL_MISC.read_text(encoding="utf-8"))
 
-    assert not _imports_from(tree, "arena.system.notification"), (
-        "tool_misc imports the notifier directly again; `from ... import` "
-        "binds by value, so substituting it in the context has no effect "
-        "and the suite shows real toasts (#376)"
+    reached = _reaches_notifier(tree)
+    assert not reached, (
+        f"tool_misc imports the notifier directly again ({reached}); the "
+        "context substitution then has no effect and the suite shows real "
+        "toasts (#376)"
     )
 
     assert _calls_attribute(tree, "send_notification_sync"), (
@@ -78,9 +112,14 @@ def test_the_dispatch_contract_substitution_actually_reaches_the_handler(
     Without this, the structural test above is satisfied by a handler
     that takes the context and ignores it.
     """
-    from arena.mcp.tool_misc import handle_misc_tool
+    from arena.mcp import tool_misc
+    from arena.system import notification
 
     seen: list[tuple[str, str]] = []
+    real_calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        notification, "send_notification",
+        lambda t, m: real_calls.append((t, m)) or {"ok": False})
 
     class _Ctx:
         def send_notification_sync(self, title: str, message: str) -> dict:
@@ -90,7 +129,7 @@ def test_the_dispatch_contract_substitution_actually_reaches_the_handler(
         def play_beep_sync(self, *a, **k) -> dict:
             return {}
 
-    result = handle_misc_tool(
+    result = tool_misc.handle_misc_tool(
         "sys.notify", {"title": "t", "message": "m"},
         ctx=_Ctx(), run_local=None)
 
@@ -98,39 +137,95 @@ def test_the_dispatch_contract_substitution_actually_reaches_the_handler(
         "the handler bypassed the injected notifier, so a test that "
         "substitutes it still reaches the real desktop")
     assert result is not None
+    # Calling the injected notifier *and* the real one would satisfy the
+    # assertion above while still lighting up the desktop (review), so
+    # the real entry point is watched for the duration of the call.
+    assert real_calls == [], (
+        f"the handler also called the real notifier {real_calls}; the "
+        "injected seam is decorative")
+
+
+def _substitutes_the_notifier(tree: ast.AST) -> bool:
+    """True if the module replaces the notifier or one of its backends.
+
+    Looks for the assignment, not for the word. The first version of
+    this guard accepted any file that *mentioned* a backend name, which
+    a file can do in a comment while calling the live notifier two lines
+    later -- demonstrated, it passed (review).
+    """
+    return any(
+        _replaces_by_call(node) or _replaces_by_assignment(node)
+        for node in ast.walk(tree)
+    )
+
+
+_NOTIFIER_NAMES = frozenset({
+    "send_notification", "notify_windows", "notify_linux",
+    "notify_macos", "notify_android", "send_notification_sync",
+})
+
+
+def _replaces_by_call(node: ast.AST) -> bool:
+    """`monkeypatch.setattr(..., "notify_linux", ...)` or `patch("...")`."""
+    if not isinstance(node, ast.Call):
+        return False
+    return any(
+        isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+        and arg.value.rsplit(".", 1)[-1] in _NOTIFIER_NAMES
+        for arg in node.args
+    )
+
+
+def _replaces_by_assignment(node: ast.AST) -> bool:
+    """`notification.send_notification = ...`"""
+    if not isinstance(node, ast.Assign):
+        return False
+    return any(
+        isinstance(tgt, ast.Attribute) and tgt.attr in _NOTIFIER_NAMES
+        for tgt in node.targets
+    )
+
+
+def _calls_send_notification(tree: ast.AST) -> bool:
+    """True if `send_notification(...)` is called, however it is spelled."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name) and func.id == "send_notification":
+            return True
+        if isinstance(func, ast.Attribute) and func.attr == "send_notification":
+            return True
+    return False
 
 
 def test_no_test_calls_the_real_notifier_unsubstituted() -> None:
     """No test may call `send_notification` without replacing the backend.
 
-    A plain grep for the notification APIs was the first attempt and it
-    was wrong: `test_android_is_linux_v4_169_11.py` mentions
-    `notify-send` and `termux-notification` as *expected return values*
-    while monkeypatching every backend, which is a correct test. The
-    string appearing in a file says nothing; calling the entry point
-    with the platform notifiers live is what matters.
+    Two earlier versions of this guard were too loose, both caught in
+    review:
 
-    Checked at the source because on a headless runner there is nothing
-    to observe, and a test that silently cannot fail is worse than none.
+    * a plain grep for `notify-send` flagged
+      `test_android_is_linux_v4_169_11.py`, which is a *correct* test
+      that monkeypatches every backend and merely names those strings as
+      expected return values;
+    * matching the substitution by text accepted a file that mentioned a
+      backend in a comment while calling the live notifier.
+
+    So both halves are read from the AST now. It also walks
+    subdirectories: `tests/e2e/` was invisible to `glob`, which is where
+    a live-bridge test is most likely to reach a real desktop.
     """
     offenders = []
-    for path in sorted((REPO_ROOT / "tests").glob("test_*.py")):
+    for path in sorted((REPO_ROOT / "tests").rglob("test_*.py")):
         if path.name == Path(__file__).name:
             continue
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if "send_notification(" not in text:
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:                       # pragma: no cover
             continue
-        # Substituting any of the platform backends, or the entry point
-        # itself, means the call cannot reach the OS.
-        substituted = any(
-            marker in text for marker in (
-                "notify_windows", "notify_linux", "notify_macos",
-                "notify_android", "send_notification_sync",
-                'setattr(notification, "send_notification"',
-            )
-        )
-        if not substituted:
-            offenders.append(path.name)
+        if _calls_send_notification(tree) and not _substitutes_the_notifier(tree):
+            offenders.append(str(path.relative_to(REPO_ROOT)))
 
     assert not offenders, (
         "these tests call send_notification with the real platform "
