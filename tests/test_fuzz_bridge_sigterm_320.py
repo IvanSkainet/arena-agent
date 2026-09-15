@@ -135,7 +135,12 @@ def test_sigterm_while_serving_does_not_raise_through_the_interpreter() -> None:
     """
     port = _free_port()
     proc = _start(port)
-    _wait_until_listening(proc, port)
+    try:
+        _wait_until_listening(proc, port)
+    except BaseException:
+        proc.kill()
+        proc.communicate()
+        raise
     log = _stop_and_read(proc)
 
     assert proc.returncode == 0, log
@@ -154,9 +159,17 @@ def test_sigterm_while_serving_still_removes_the_workspace() -> None:
     before = set(glob.glob(WORKSPACE_GLOB))
     port = _free_port()
     proc = _start(port)
-    _wait_until_listening(proc, port)
-    created = sorted(set(glob.glob(WORKSPACE_GLOB)) - before)
-    assert len(created) == 1, f"expected one workspace, got {created}"
+    # An assertion between start and stop would otherwise leave a live
+    # bridge holding the port and its workspace, and the next test's
+    # `_free_port` can hand out that same port (review).
+    try:
+        _wait_until_listening(proc, port)
+        created = sorted(set(glob.glob(WORKSPACE_GLOB)) - before)
+        assert len(created) == 1, f"expected one workspace, got {created}"
+    except BaseException:
+        proc.kill()
+        proc.communicate()
+        raise
 
     log = _stop_and_read(proc)
 
@@ -202,17 +215,35 @@ def test_a_kill_before_the_loop_exists_still_cleans_up() -> None:
     try/finally the cleanup lives in. Killing repeatedly at increasing
     delays walks the signal across that window.
     """
-    for delay in (0.05, 0.1, 0.2):
+    exercised = 0
+    for _ in range(3):
         before = set(glob.glob(WORKSPACE_GLOB))
         proc = _start(_free_port())
-        time.sleep(delay)
+        # Fixed delays were wrong (review): 0.05s and 0.1s land while the
+        # interpreter is still importing, before `main` has created
+        # anything, so the assertion below held no matter what the
+        # cleanup did. Poll for the directory instead and signal the
+        # moment it exists -- that is the window this test is named for,
+        # and it is narrow because the loop starts right after.
+        created: list[str] = []
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            created = sorted(set(glob.glob(WORKSPACE_GLOB)) - before)
+            if created or proc.poll() is not None:
+                break
+            time.sleep(0.005)
         proc.send_signal(signal.SIGTERM)
         try:
             log = proc.communicate(timeout=60)[0]
         except subprocess.TimeoutExpired:
             proc.kill()
-            raise AssertionError(f"kill at {delay}s hung the bridge") from None
+            raise AssertionError("the bridge hung after SIGTERM") from None
 
         left = sorted(set(glob.glob(WORKSPACE_GLOB)) - before)
         assert left == [], (
-            f"a SIGTERM {delay}s in leaked a workspace: {left}\n{log}")
+            f"a SIGTERM during startup leaked a workspace: {left}\n{log}")
+        exercised += bool(created)
+
+    assert exercised, (
+        "every attempt signalled before the workspace existed, so nothing "
+        "about the pre-loop cleanup was exercised")
