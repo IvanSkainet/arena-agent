@@ -23,6 +23,7 @@ real notification API, and the tool must route through the context.
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -254,13 +255,27 @@ def _restores_what_it_moved(tree: ast.AST) -> bool:
     only is not a restore, because a failing assertion is exactly when
     the pointer is left somewhere the user did not put it.
     """
+    return any(_is_pointer_move(call) for call in _teardown_calls(tree))
+
+
+def _teardown_calls(tree: ast.AST) -> Iterator[ast.Call]:
+    """Every call inside a `finally:` block.
+
+    Two flat generators rather than one triple-nested loop: CodeScene
+    reads three levels as Deep Nested Complexity even when each level is
+    a single statement (learned the same way in #366).
+    """
+    for stmt in _finally_statements(tree):
+        for child in ast.walk(stmt):
+            if isinstance(child, ast.Call):
+                yield child
+
+
+def _finally_statements(tree: ast.AST) -> Iterator[ast.stmt]:
+    """Every statement in a `finally:` block anywhere in `tree`."""
     for node in ast.walk(tree):
-        if isinstance(node, ast.Try) and node.finalbody:
-            for stmt in node.finalbody:
-                for child in ast.walk(stmt):
-                    if isinstance(child, ast.Call) and _is_pointer_move(child):
-                        return True
-    return False
+        if isinstance(node, ast.Try):
+            yield from node.finalbody
 
 
 def _is_pointer_move(call: ast.Call) -> bool:
