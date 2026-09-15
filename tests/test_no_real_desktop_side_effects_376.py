@@ -290,7 +290,7 @@ def _teardown_calls(node: ast.AST) -> Iterator[ast.Call]:
                 yield child
 
 
-def _restores_the_saved_position(func: ast.FunctionDef) -> bool:
+def _restores_the_saved_position(func: ast.AST) -> bool:
     """True if this function's `finally:` puts the pointer back.
 
     Two things are required, both from review. The restore has to be in
@@ -307,7 +307,7 @@ def _restores_the_saved_position(func: ast.FunctionDef) -> bool:
     )
 
 
-def _assigned_names(func: ast.FunctionDef) -> set[str]:
+def _assigned_names(func: ast.AST) -> set[str]:
     """Every local name the function assigns to."""
     return {
         target.id
@@ -324,7 +324,7 @@ def _mentions_a_saved_name(arg: ast.expr, saved: set[str]) -> bool:
     )
 
 
-def _live_calls(func: ast.FunctionDef) -> Iterator[ast.AST]:
+def _live_calls(func: ast.AST) -> Iterator[ast.AST]:
     """Calls that actually execute, skipping `pytest.raises` bodies.
 
     `test_stub_calls_raise_notimplementederror_on_non_windows` calls
@@ -339,7 +339,7 @@ def _live_calls(func: ast.FunctionDef) -> Iterator[ast.AST]:
             yield node
 
 
-def _ids_inside_raises_blocks(func: ast.FunctionDef) -> set[int]:
+def _ids_inside_raises_blocks(func: ast.AST) -> set[int]:
     """`id()` of every node nested in a `with pytest.raises(...)` body."""
     guarded: set[int] = set()
     for block in _raises_blocks(func):
@@ -348,7 +348,7 @@ def _ids_inside_raises_blocks(func: ast.FunctionDef) -> set[int]:
     return guarded
 
 
-def _raises_blocks(func: ast.FunctionDef) -> Iterator[ast.With]:
+def _raises_blocks(func: ast.AST) -> Iterator[ast.With]:
     """Every `with pytest.raises(...):` in the function."""
     for node in ast.walk(func):
         if isinstance(node, ast.With) and _is_raises_block(node):
@@ -385,7 +385,9 @@ def _parsed(path: Path) -> ast.AST:
 def _leaking_pointer_functions(tree: ast.AST) -> Iterator[str]:
     """Names of functions that move the pointer without restoring it."""
     for func in ast.walk(tree):
-        if not isinstance(func, ast.FunctionDef):
+        # Async too: an `async def` test is an AsyncFunctionDef and was
+        # invisible to this walk entirely (review).
+        if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         if not any(_is_pointer_call(n) for n in _live_calls(func)):
             continue

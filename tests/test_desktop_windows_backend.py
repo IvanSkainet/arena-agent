@@ -192,7 +192,18 @@ def test_live_cursor_move_and_read_roundtrip():
     # Offset well beyond the tolerance below. At +4px a completely
     # broken `mouse_move` that did nothing would still land inside the
     # 5px window and pass -- the assertion would be a tautology (review).
-    target = (origin[0] + 40, origin[1] + 40)
+    #
+    # Toward the middle of the virtual screen, not blindly +40: near the
+    # right or bottom edge that target is off-screen, Windows clamps the
+    # cursor to the last legal pixel, and the test fails for a reason
+    # that has nothing to do with the backend (review).
+    left, top, width, height = win_backend.virtual_screen_rect()
+    centre = (left + width // 2, top + height // 2)
+    step = 40
+    target = (
+        origin[0] + (step if origin[0] < centre[0] else -step),
+        origin[1] + (step if origin[1] < centre[1] else -step),
+    )
     try:
         win_backend.mouse_move(*target)
         x, y = win_backend.cursor_position()
