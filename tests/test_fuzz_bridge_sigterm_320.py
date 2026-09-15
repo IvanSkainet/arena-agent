@@ -86,6 +86,21 @@ def _stop_and_read(proc: subprocess.Popen[str]) -> str:
         ) from None
 
 
+def _function_named(tree: ast.AST, name: str) -> ast.AST | None:
+    """The `def` or `async def` called `name`, or None.
+
+    Pulled out of the structural test: the two inline generator
+    expressions it replaces carried most of that test's complexity
+    (CC 12, over CodeScene's threshold of 9) without carrying any of
+    its meaning.
+    """
+    wanted = (ast.FunctionDef, ast.AsyncFunctionDef)
+    for node in ast.walk(tree):
+        if isinstance(node, wanted) and node.name == name:
+            return node
+    return None
+
+
 def test_the_running_loop_owns_sigterm_rather_than_a_raising_handler() -> None:
     """The deterministic guard, and the one that matters most.
 
@@ -103,23 +118,31 @@ def test_the_running_loop_owns_sigterm_rather_than_a_raising_handler() -> None:
     to break out.
     """
     tree = ast.parse(SERVER_PATH.read_text(encoding="utf-8"))
-    serve = next((n for n in ast.walk(tree)
-                  if isinstance(n, ast.AsyncFunctionDef) and n.name == "_serve"),
-                 None)
+    serve = _function_named(tree, "_serve")
     assert serve is not None, "_serve is gone"
 
-    manager = next((n for n in ast.walk(tree)
-                    if isinstance(n, ast.FunctionDef)
-                    and n.name == "_loop_owns_sigterm"), None)
+    manager = _function_named(tree, "_loop_owns_sigterm")
     assert manager is not None, (
         "nothing hands SIGTERM to the loop; a raising handler is back")
     assert "add_signal_handler" in ast.dump(manager), ast.dump(manager)
 
     serve_body = ast.dump(serve)
-    assert "_loop_owns_sigterm" in serve_body, (
-        "_serve does not put the signal under the loop's control")
     assert "IDLE_SLEEP_S" not in serve_body, (
         "_serve still sleeps forever, so only an exception can end it")
+
+    # The guard has to be *entered*, not merely mentioned: substituting
+    # `with _loop_owns_sigterm(stop):` for `if True:` leaves the name in
+    # the file (the import, the def) and passed a plain text check.
+    entered = [
+        item.context_expr for node in ast.walk(serve)
+        if isinstance(node, (ast.With, ast.AsyncWith))
+        for item in node.items
+    ]
+    assert any(isinstance(call, ast.Call)
+               and getattr(call.func, "id", "") == "_loop_owns_sigterm"
+               for call in entered), (
+        "_serve never enters _loop_owns_sigterm, so the signal is still "
+        "handled by whatever was installed before it")
 
 
 def test_sigterm_while_serving_does_not_raise_through_the_interpreter() -> None:
@@ -193,10 +216,7 @@ def test_the_previous_handler_is_restored_when_the_loop_gives_the_signal_back(
     """
     source = SERVER_PATH.read_text(encoding="utf-8")
     tree = ast.parse(source)
-    manager = next(
-        (node for node in ast.walk(tree)
-         if isinstance(node, ast.FunctionDef)
-         and node.name == "_loop_owns_sigterm"), None)
+    manager = _function_named(tree, "_loop_owns_sigterm")
     assert manager is not None, "the signal-ownership helper is gone"
 
     body = ast.dump(manager)
@@ -204,6 +224,29 @@ def test_the_previous_handler_is_restored_when_the_loop_gives_the_signal_back(
     # The restore has to be there as well, not just the removal.
     assert body.count("signal") >= 2 and "getsignal" in ast.dump(tree), (
         "the previous SIGTERM handler is never captured for restoration")
+
+
+def _wait_for_workspace(proc: subprocess.Popen[str],
+                        before: set[str]) -> list[str]:
+    """Block until the bridge's workspace exists, and return it.
+
+    Polled rather than slept for: fixed delays mostly fired before the
+    directory existed, so the caller asserted nothing (review). A bridge
+    that dies on its own never received the signal, so that is an
+    outright failure instead of a quiet "attempt made" -- otherwise a
+    startup crash passes for a passing test.
+    """
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        created = sorted(set(glob.glob(WORKSPACE_GLOB)) - before)
+        if created:
+            return created
+        if proc.poll() is not None:
+            raise AssertionError(
+                "the bridge exited before it created a workspace: "
+                f"{proc.communicate()[0]}")
+        time.sleep(0.005)
+    return []
 
 
 def test_a_kill_before_the_loop_exists_still_cleans_up() -> None:
@@ -227,20 +270,7 @@ def test_a_kill_before_the_loop_exists_still_cleans_up() -> None:
         # cleanup did. Poll for the directory instead and signal the
         # moment it exists -- that is the window this test is named for,
         # and it is narrow because the loop starts right after.
-        created: list[str] = []
-        deadline = time.time() + 60
-        while time.time() < deadline:
-            created = sorted(set(glob.glob(WORKSPACE_GLOB)) - before)
-            if created:
-                break
-            if proc.poll() is not None:
-                # A bridge that died on its own never received the
-                # signal, so counting it as an attempt would let a
-                # startup crash pass for a passing test (review).
-                raise AssertionError(
-                    "the bridge exited before it created a workspace: "
-                    f"{proc.communicate()[0]}")
-            time.sleep(0.005)
+        created = _wait_for_workspace(proc, before)
         proc.send_signal(signal.SIGTERM)
         try:
             log = proc.communicate(timeout=60)[0]
