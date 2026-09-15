@@ -333,13 +333,25 @@ def _live_calls(func: ast.FunctionDef) -> Iterator[ast.AST]:
     counting them made the guard demand a restore from a test that never
     touches the pointer.
     """
-    guarded: set[int] = set()
-    for node in ast.walk(func):
-        if isinstance(node, ast.With) and _is_raises_block(node):
-            guarded.update(id(child) for stmt in node.body
-                           for child in ast.walk(stmt))
+    guarded = _ids_inside_raises_blocks(func)
     for node in ast.walk(func):
         if id(node) not in guarded:
+            yield node
+
+
+def _ids_inside_raises_blocks(func: ast.FunctionDef) -> set[int]:
+    """`id()` of every node nested in a `with pytest.raises(...)` body."""
+    guarded: set[int] = set()
+    for block in _raises_blocks(func):
+        for stmt in block.body:
+            guarded.update(id(child) for child in ast.walk(stmt))
+    return guarded
+
+
+def _raises_blocks(func: ast.FunctionDef) -> Iterator[ast.With]:
+    """Every `with pytest.raises(...):` in the function."""
+    for node in ast.walk(func):
+        if isinstance(node, ast.With) and _is_raises_block(node):
             yield node
 
 
