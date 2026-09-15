@@ -203,6 +203,24 @@ def test_sigterm_while_serving_still_removes_the_workspace() -> None:
         + log)
 
 
+def _calls_signal_dot_signal(node: ast.AST) -> bool:
+    """True if `signal.signal(x, y)` is called anywhere under `node`.
+
+    Spelled as a predicate rather than inline: the same filter written
+    as a comprehension pushed its test to CC 11, past CodeScene's
+    threshold of 9.
+    """
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call):
+            continue
+        func = child.func
+        if (isinstance(func, ast.Attribute) and func.attr == "signal"
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "signal" and len(child.args) == 2):
+            return True
+    return False
+
+
 def test_the_previous_handler_is_restored_when_the_loop_gives_the_signal_back(
         ) -> None:
     """`remove_signal_handler` alone would reopen the hole after the loop.
@@ -227,16 +245,7 @@ def test_the_previous_handler_is_restored_when_the_loop_gives_the_signal_back(
     # `getsignal` already satisfied "signal appears twice" on their own.
     # So look for the call itself -- `signal.signal(...)` with
     # two arguments, inside the teardown.
-    restores = [
-        node for node in ast.walk(manager)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "signal"
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "signal"
-        and len(node.args) == 2
-    ]
-    assert restores, (
+    assert _calls_signal_dot_signal(manager), (
         "nothing reinstalls the previous SIGTERM handler; "
         "remove_signal_handler leaves SIG_DFL behind")
 
