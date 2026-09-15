@@ -37,6 +37,15 @@ def test_overlapping_rotations_leave_memory_and_disk_agreeing(
     the unlocked code: two runs in six diverged. Nothing is wrong until the
     bridge restarts and reads the file, at which point every client is
     locked out, which is exactly the outcome this PR exists to prevent.
+
+    #358: this used to require 200 from all eight. Rotation invalidates
+    the credential all eight presented, so that only held while every
+    request authenticated before the first rotation landed -- true when
+    the machine is idle, false under load, and it reddened a live gate
+    once. Staggering the arrivals by 10ms reproduces it: 200:1 401:7,
+    with memory and disk still agreeing. The consistency invariant is
+    what this test is named for, so the statuses are now checked for
+    what they must never be rather than pinned to the lucky case.
     """
     asyncio.run(_overlapping_rotations_agree(tmp_path))
 
@@ -50,12 +59,33 @@ async def _overlapping_rotations_agree(tmp_path: Path) -> None:
             client.post("/v1/token/regenerate", headers=auth_header(TOKEN))
             for _ in range(8)])
         handed_out = []
+        statuses = []
         for response in responses:
             payload = await json_payload(response)
-            assert response.status == 200, payload
-            handed_out.append(payload["token"])
+            statuses.append(response.status)
+            # A 401 is the endpoint working: whoever rotated first
+            # invalidated the credential the other seven presented. It is
+            # only reachable when a request authenticates after that
+            # rotation lands, which is a matter of scheduling -- see the
+            # status assertions below for why it is tolerated rather than
+            # required.
+            if response.status == 200:
+                handed_out.append(payload["token"])
         in_memory = client.app[APP_CFG]["token"]
         on_disk = (tmp_path / "token.txt").read_text(encoding="utf-8").strip()
+
+    # 500 is never acceptable here and is the strongest signal that the
+    # rotations were not serialised: unlocked, the concurrent writers
+    # clobber each other's temp file and the handler reports the write
+    # failure. Measured on the unlocked code, ten runs in ten produced at
+    # least one 500, while the divergence below showed up in three -- so
+    # folding 500 into "not 200" would have swapped a deterministic guard
+    # for a probabilistic one.
+    assert 500 not in statuses, (
+        f"a rotation failed to write; concurrent writers collided: {statuses}")
+    assert set(statuses) <= {200, 401}, statuses
+    assert 200 in statuses, (
+        f"every rotation was rejected, so nothing was exercised: {statuses}")
 
     assert in_memory == on_disk, (
         "the live credential and the token file diverged, so the next "
