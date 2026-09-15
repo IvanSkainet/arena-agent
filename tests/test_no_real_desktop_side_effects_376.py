@@ -1,4 +1,4 @@
-"""Running the suite must not disturb the machine it runs on (#376).
+"""Running the suite must not disturb the machine it runs on (#376, #378).
 
 The dispatch contract test calls every declared MCP tool with `{}`, and
 `sys.notify` is one of them. Its handler called the module-level
@@ -23,6 +23,7 @@ real notification API, and the tool must route through the context.
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -231,6 +232,191 @@ def test_no_test_calls_the_real_notifier_unsubstituted() -> None:
         "these tests call send_notification with the real platform "
         "backends live; they pop a toast on whoever runs the suite:\n  "
         + "\n  ".join(offenders))
+
+
+# Everything that can move or synthesise pointer input. Both the raw
+# Win32 entry points and the backend wrappers that call them, because a
+# test reaches the pointer through either (review).
+# Names that can only mean the physical pointer. `click` is deliberately
+# absent: CDP and Playwright both have a `click`, and neither touches the
+# system cursor -- including it made the guard fire on browser tests that
+# move nothing (checked against tests/e2e and the CDP handlers).
+_POINTER_APIS = frozenset({
+    "SetCursorPos", "mouse_event", "SendInput",   # raw user32
+    "mouse_move", "do_move", "do_click",          # desktop backend / helper
+})
+
+# Backend objects whose `.click()` really does drive the hardware. Scoped
+# by receiver so `page.click(...)` stays out of it.
+_POINTER_RECEIVERS = frozenset({
+    "win_backend", "windows", "_win", "user32", "helper_server",
+})
+
+
+def _is_pointer_call(node: ast.AST) -> bool:
+    """True if `node` is a call that can move or click the real pointer.
+
+    Matches the bare name too, so `from ... import mouse_move` followed
+    by `mouse_move(x, y)` is not a way around the guard.
+    """
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    if isinstance(func, ast.Attribute):
+        if func.attr in _POINTER_APIS:
+            return True
+        receiver = getattr(func.value, "id", "")
+        return func.attr == "click" and receiver in _POINTER_RECEIVERS
+    return isinstance(func, ast.Name) and func.id in _POINTER_APIS
+
+
+def _finally_statements(node: ast.AST) -> Iterator[ast.stmt]:
+    """Every statement in a `finally:` block under `node`."""
+    for child in ast.walk(node):
+        if isinstance(child, ast.Try):
+            yield from child.finalbody
+
+
+def _teardown_calls(node: ast.AST) -> Iterator[ast.Call]:
+    """Every call inside a `finally:` block under `node`.
+
+    Two flat generators rather than one triple-nested loop: CodeScene
+    reads three levels as Deep Nested Complexity even when each level is
+    a single statement (learned the same way in #366).
+    """
+    for stmt in _finally_statements(node):
+        for child in ast.walk(stmt):
+            if isinstance(child, ast.Call):
+                yield child
+
+
+def _restores_the_saved_position(func: ast.AST) -> bool:
+    """True if this function's `finally:` puts the pointer back.
+
+    Two things are required, both from review. The restore has to be in
+    *this* function -- a file-wide search let one compliant test cover
+    for a leaking one -- and it has to pass along a value the function
+    captured earlier, not just call a pointer API with fresh
+    coordinates, which would be a second teleport rather than a restore.
+    """
+    saved = _assigned_names(func)
+    return any(
+        _is_pointer_call(call)
+        and any(_mentions_a_saved_name(arg, saved) for arg in call.args)
+        for call in _teardown_calls(func)
+    )
+
+
+def _assigned_names(func: ast.AST) -> set[str]:
+    """Every local name the function assigns to."""
+    return {
+        target.id
+        for node in ast.walk(func) if isinstance(node, ast.Assign)
+        for target in node.targets if isinstance(target, ast.Name)
+    }
+
+
+def _mentions_a_saved_name(arg: ast.expr, saved: set[str]) -> bool:
+    """True if `arg` reads one of the names the function saved."""
+    return any(
+        isinstance(node, ast.Name) and node.id in saved
+        for node in ast.walk(arg)
+    )
+
+
+def _live_calls(func: ast.AST) -> Iterator[ast.AST]:
+    """Calls that actually execute, skipping `pytest.raises` bodies.
+
+    `test_stub_calls_raise_notimplementederror_on_non_windows` calls
+    every backend entry point inside `with pytest.raises(...)` precisely
+    to prove they refuse off Windows. Those calls move nothing, and
+    counting them made the guard demand a restore from a test that never
+    touches the pointer.
+    """
+    guarded = _ids_inside_raises_blocks(func)
+    for node in ast.walk(func):
+        if id(node) not in guarded:
+            yield node
+
+
+def _ids_inside_raises_blocks(func: ast.AST) -> set[int]:
+    """`id()` of every node nested in a `with pytest.raises(...)` body."""
+    guarded: set[int] = set()
+    for block in _raises_blocks(func):
+        for stmt in block.body:
+            guarded.update(id(child) for child in ast.walk(stmt))
+    return guarded
+
+
+def _raises_blocks(func: ast.AST) -> Iterator[ast.With]:
+    """Every `with pytest.raises(...):` in the function."""
+    for node in ast.walk(func):
+        if isinstance(node, ast.With) and _is_raises_block(node):
+            yield node
+
+
+def _is_raises_block(node: ast.With) -> bool:
+    """True for `with pytest.raises(...):`."""
+    for item in node.items:
+        call = item.context_expr
+        if isinstance(call, ast.Call):
+            func = call.func
+            if isinstance(func, ast.Attribute) and func.attr == "raises":
+                return True
+            if isinstance(func, ast.Name) and func.id == "raises":
+                return True
+    return False
+
+
+def _test_files() -> list[Path]:
+    """Every test module in the tree, this one excluded."""
+    return [p for p in sorted((REPO_ROOT / "tests").rglob("test_*.py"))
+            if p.name != Path(__file__).name]
+
+
+def _parsed(path: Path) -> ast.AST:
+    """The module's AST, or an empty one if it does not parse."""
+    try:
+        return ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:                           # pragma: no cover
+        return ast.Module(body=[], type_ignores=[])
+
+
+def _leaking_pointer_functions(tree: ast.AST) -> Iterator[str]:
+    """Names of functions that move the pointer without restoring it."""
+    for func in ast.walk(tree):
+        # Async too: an `async def` test is an AsyncFunctionDef and was
+        # invisible to this walk entirely (review).
+        if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if not any(_is_pointer_call(n) for n in _live_calls(func)):
+            continue
+        if not _restores_the_saved_position(func):
+            yield func.name
+
+
+def test_a_test_that_moves_the_real_pointer_puts_it_back() -> None:
+    """Moving the mouse mid-run is the user's machine, not the suite's.
+
+    `test_live_cursor_move_and_read_roundtrip` jumped the pointer to an
+    absolute (500, 500) and left it there (#378). CI could not see it --
+    the Windows runners have no interactive session -- so it was only
+    ever visible to whoever ran the suite on a desktop, which is who
+    reported it.
+
+    The live backend tests are worth keeping: they are the only thing
+    exercising the real round trip. What they must not do is finish with
+    the pointer somewhere else.
+    """
+    offenders = []
+    for path in _test_files():
+        for func in _leaking_pointer_functions(_parsed(path)):
+            offenders.append(f"{path.relative_to(REPO_ROOT)}::{func}")
+
+    assert not offenders, (
+        "these tests move the real mouse pointer without restoring the "
+        "saved position in a finally; the pointer ends the run wherever "
+        "they left it:\n  " + "\n  ".join(offenders))
 
 
 def test_the_probe_that_found_this_is_not_left_behind() -> None:

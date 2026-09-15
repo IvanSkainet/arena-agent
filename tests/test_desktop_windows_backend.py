@@ -175,12 +175,46 @@ def test_live_get_active_window_has_id_and_title():
 
 @_WIN_ONLY
 def test_live_cursor_move_and_read_roundtrip():
-    win_backend.mouse_move(500, 500)
-    x, y = win_backend.cursor_position()
-    # Some Windows configurations move the cursor to the nearest
-    # legal position, so we tolerate a small delta.
-    assert abs(x - 500) < 5
-    assert abs(y - 500) < 5
+    """The real SetCursorPos/GetCursorPos round trip, without stealing the mouse.
+
+    This used to jump the pointer to an absolute (500, 500) and leave it
+    there, so anyone running the suite on a desktop had their mouse
+    teleport mid-run (#378). CI never noticed: the Windows jobs have no
+    interactive session, so moving the cursor affects nothing visible.
+
+    Two changes keep the coverage and drop the nuisance. The target is
+    derived from where the pointer already is, so the move is a few
+    pixels rather than a jump across the screen; and the original
+    position is restored in a `finally`, so a failed assertion does not
+    leave the mouse parked somewhere the user did not put it.
+    """
+    origin = win_backend.cursor_position()
+    # Offset well beyond the tolerance below. At +4px a completely
+    # broken `mouse_move` that did nothing would still land inside the
+    # 5px window and pass -- the assertion would be a tautology (review).
+    #
+    # Toward the middle of the virtual screen, not blindly +40: near the
+    # right or bottom edge that target is off-screen, Windows clamps the
+    # cursor to the last legal pixel, and the test fails for a reason
+    # that has nothing to do with the backend (review).
+    left, top, width, height = win_backend.virtual_screen_rect()
+    centre = (left + width // 2, top + height // 2)
+    step = 40
+    target = (
+        origin[0] + (step if origin[0] < centre[0] else -step),
+        origin[1] + (step if origin[1] < centre[1] else -step),
+    )
+    try:
+        win_backend.mouse_move(*target)
+        x, y = win_backend.cursor_position()
+        assert (x, y) != origin, (
+            "mouse_move did not move the pointer at all")
+        # Some Windows configurations move the cursor to the nearest
+        # legal position, so we tolerate a small delta.
+        assert abs(x - target[0]) < 5
+        assert abs(y - target[1]) < 5
+    finally:
+        win_backend.mouse_move(*origin)
 
 
 @_WIN_ONLY
