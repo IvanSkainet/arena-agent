@@ -75,12 +75,16 @@ async def _overlapping_rotations_agree(tmp_path: Path) -> None:
         on_disk = (tmp_path / "token.txt").read_text(encoding="utf-8").strip()
 
     # 500 is never acceptable here and is the strongest signal that the
-    # rotations were not serialised: unlocked, the concurrent writers
-    # clobber each other's temp file and the handler reports the write
-    # failure. Measured on the unlocked code, ten runs in ten produced at
-    # least one 500, while the divergence below showed up in three -- so
-    # folding 500 into "not 200" would have swapped a deterministic guard
-    # for a probabilistic one.
+    # rotations were not serialised. Each writer stages into its own
+    # `mkstemp` file, so the collision is not over the temporary name: it
+    # is over the target. Writer B's `os.replace` lands between A's
+    # replace and A's post-replace identity check, A finds an inode that
+    # is not the one it installed, and `write_owner_token` correctly
+    # reports `TokenFileVanishedError` -- "removed or replaced by another
+    # process immediately after it was written". Measured on the unlocked
+    # code, ten runs in ten produced at least one 500, while the
+    # divergence below showed up in three, so folding 500 into "not 200"
+    # would have swapped a deterministic guard for a probabilistic one.
     assert 500 not in statuses, (
         f"a rotation failed to write; concurrent writers collided: {statuses}")
     assert set(statuses) <= {200, 401}, statuses
