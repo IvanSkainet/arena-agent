@@ -216,19 +216,24 @@ def _restores_in_teardown(manager: ast.AST) -> bool:
     return any(_is_signal_signal(call) for call in _teardown_calls(manager))
 
 
+def _finally_blocks(manager: ast.AST) -> Iterator[ast.stmt]:
+    """Every statement in a `finally:` under `manager`."""
+    for node in ast.walk(manager):
+        if isinstance(node, ast.Try):
+            yield from node.finalbody
+
+
 def _teardown_calls(manager: ast.AST) -> Iterator[ast.Call]:
     """Every call inside a `finally:` block under `manager`.
 
-    A generator so the caller is one flat `any(...)`: three nested loops
-    read as Deep Nested Complexity even though each level is trivial.
+    Split across two flat generators rather than one nested loop:
+    CodeScene reads three levels as Deep Nested Complexity even when
+    each level is a single statement.
     """
-    for node in ast.walk(manager):
-        if not isinstance(node, ast.Try):
-            continue
-        for stmt in node.finalbody:
-            for child in ast.walk(stmt):
-                if isinstance(child, ast.Call):
-                    yield child
+    for stmt in _finally_blocks(manager):
+        for child in ast.walk(stmt):
+            if isinstance(child, ast.Call):
+                yield child
 
 
 def _is_signal_signal(call: ast.Call) -> bool:
