@@ -7,7 +7,6 @@ import sys
 from typing import Any
 
 from arena.mcp.tool_utils import text_content
-from arena.system.notification import send_notification
 
 
 def handle_misc_tool(name: str, args: dict[str, Any], *, ctx, run_local) -> dict[str, Any] | None:
@@ -15,7 +14,18 @@ def handle_misc_tool(name: str, args: dict[str, Any], *, ctx, run_local) -> dict
         title = args.get("title", "Arena Bridge")
         msg = args.get("message", "")
         sound = args.get("sound", True)
-        res = send_notification(title, msg)
+        # Through the context, not the module-level import (#376). The
+        # context already carries `send_notification_sync` -- the wiring
+        # passes it and `McpToolContext` declares it -- but this branch
+        # called the imported function directly, so substituting the
+        # notifier had no effect here. `from ... import send_notification`
+        # binds by value at import time, so patching
+        # `arena.system.notification` afterwards does not reach this
+        # module either (the same binding trap as #348). The visible
+        # consequence: the dispatch contract test, which calls every
+        # declared tool with `{}`, fired a real desktop toast on the
+        # developer's machine on every run.
+        res = ctx.send_notification_sync(title, msg)
         if sound:
             ctx.play_beep_sync("success", 800, 300)
         return text_content(json.dumps(res, ensure_ascii=False))
