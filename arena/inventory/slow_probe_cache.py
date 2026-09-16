@@ -203,14 +203,24 @@ def reset_for_tests(timeout: float = 5.0) -> None:
     is exactly how `test_the_result_arrives_once_the_scan_finishes`
     failed on macOS with the *previous* test's value.
     """
+    _await_quiet_refreshes(timeout)
+    with _refresh_lock:
+        _refreshing.clear()
+    _delete_stored_results()
+
+
+def _await_quiet_refreshes(timeout: float) -> None:
+    """Wait for in-flight refreshes, up to `timeout`."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         with _refresh_lock:
             if not _refreshing:
-                break
+                return
         time.sleep(0.01)
-    with _refresh_lock:
-        _refreshing.clear()
+
+
+def _delete_stored_results() -> None:
+    """Remove every cached file, ignoring ones already gone."""
     for name in _FILENAMES:
         try:
             _cache_path(name).unlink()
