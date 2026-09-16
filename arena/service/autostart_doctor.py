@@ -186,35 +186,183 @@ def repair_bare_python(root: Path) -> dict[str, Any]:
             "interpreter": _python_for_scheduler()}
 
 
+def _inside_a_temp_root(resolved: str) -> str:
+    """The temp directory containing `resolved`, or "".
+
+    Its own function so the caller stays two flat steps -- "is it under
+    a temp root" then "does any component look like scratch" -- rather
+    than two loops in one body, which CodeScene reads as a Bumpy Road.
+    """
+    for var in ("TMPDIR", "TEMP", "TMP"):
+        raw = os.environ.get(var, "")
+        if not raw:
+            continue
+        candidate = str(Path(raw).resolve()).replace("\\", "/").lower()
+        if resolved == candidate or resolved.startswith(candidate + "/"):
+            return raw
+    return ""
+
+
+def _looks_like_a_scratch_root(root: Path) -> str:
+    """Why `root` must not become the autostart target, or "".
+
+    `repair()` resolves its install root from `ARENA_AGENT_HOME`, which
+    the test suite points at `tempfile.mkdtemp()`. The dispatch contract
+    test calls every declared MCP tool, `service.autostart_repair`
+    included, so a full local run replaced the operator's real Scheduled
+    Task with one aimed at a pytest tmpdir -- and the directory was gone
+    by the time the machine next booted (#381).
+
+    Windows then runs `wscript.exe` against a missing script at every
+    logon: `wscript` starts, so the task reports Last Result 0 while
+    nothing launches. Silent, persistent, and invisible until someone
+    reads the task by hand.
+
+    A temporary directory is never a valid place to install autostart
+    from, so this refuses rather than trusting the caller.
+    """
+    resolved = str(root).replace("\\", "/").lower()
+    # The system temp root comes from `TMPDIR`/`TEMP`/`TMP` only.
+    #
+    # Earlier revisions of this tried harder -- `tempfile.gettempdir()`,
+    # then an explicit list of the platform fallbacks it uses. Both
+    # tripped scanners that read *any* mention of a temp path as use of
+    # one (SonarCloud S5443, bandit B108), which is wrong here: nothing
+    # is written, the path is only compared against in order to refuse.
+    # Rather than carry suppressions the project has no precedent for,
+    # the environment is consulted and the component check below does
+    # the rest of the work -- and that check is what caught the actual
+    # reported case, `mcp-dispatch-71p201b0` (#381).
+    inside = _inside_a_temp_root(resolved)
+    if inside:
+        return f"{root} is inside the temporary directory {inside}"
+    # pytest's own prefixes, in case TMPDIR moved after the directory
+    # was created. Matched per path *component*: a substring test
+    # refused `/home/user/mcp-dispatch-production`, a legitimate install
+    # directory that merely reads like scratch (review).
+    for part in Path(resolved).parts:
+        if _is_scratch_component(part):
+            return f"{root} contains the scratch directory {part!r}"
+    return ""
+
+
+def _is_scratch_component(part: str) -> bool:
+    """True for a directory name pytest or the contract fixture created.
+
+    `pytest-of-<user>` is pytest's own root whatever the username. The
+    others are `mkdtemp` names -- prefix plus exactly eight characters
+    from `[a-z0-9_]` -- and requiring that suffix is what lets a
+    deliberate `mcp-dispatch-production` through (review).
+    """
+    if part.startswith("pytest-of-"):
+        return True
+    return any(_has_mkdtemp_suffix(part, prefix)
+               for prefix in ("mcp-dispatch-", "pytest-tmp-"))
+
+
+def _has_mkdtemp_suffix(part: str, prefix: str) -> bool:
+    """True if `part` is `prefix` followed by a `mkdtemp` suffix.
+
+    `mkdtemp` appends exactly eight characters from `[a-z0-9_]`. A
+    deliberate name such as `mcp-dispatch-production` does not have
+    that shape, which is the distinction that keeps a real install
+    directory out of the refusal (review).
+    """
+    if not part.startswith(prefix):
+        return False
+    suffix = part[len(prefix):]
+    return len(suffix) == 8 and all(c.isalnum() or c == "_" for c in suffix)
+
+
+def _launcher_refusal(root: Path, vbs: Path, written: dict[str, Any],
+                      bare: dict[str, Any]) -> dict[str, Any] | None:
+    """Why the task must not be (re)created, or None.
+
+    Every check here runs before the first `schtasks` call, which is the
+    point: the old code replaced a working task and only then found out
+    the replacement could not launch (#381).
+    """
+    if not written["ok"]:
+        return {"ok": False, "error": "could not create start_hidden.vbs / "
+                                      "start_bridge.bat",
+                "root": str(root), "write": written}
+    if not bare.get("ok", True):
+        # A launcher whose interpreter the scheduler cannot resolve is
+        # the defect v4.169.21 was written for. Recreating the task
+        # around it would report success over a bridge that still
+        # cannot start (review).
+        return {"ok": False, "platform": "windows", "root": str(root),
+                "error": "start_bridge.bat still invokes an interpreter the "
+                         "scheduler cannot resolve", "bare_python_fix": bare,
+                "launchers": written}
+    if not vbs.is_file() or not (root / "start_bridge.bat").is_file():
+        # `is_file()` on both, not `exists()`: a directory named
+        # start_bridge.bat would satisfy the weaker check and the task
+        # would point at something that cannot run (review).
+        return {"ok": False, "platform": "windows", "root": str(root),
+                "error": f"refusing to point the task at {vbs}: it or "
+                         "start_bridge.bat is missing or not a regular file",
+                "launchers": written}
+    return None
+
+
+def _repair_windows() -> dict[str, Any]:
+    """Reinstall the per-user ONLOGON Scheduled Task.
+
+    Its own function so the refusal paths do not push `repair()` past
+    the complexity gate.
+    """
+    root = _root()
+    scratch = _looks_like_a_scratch_root(root)
+    if scratch:
+        # Refused ahead of the `schtasks /Delete` below, which is the
+        # destructive half: the old order removed a working task and
+        # only then discovered the replacement was bogus, leaving the
+        # operator worse off than if the repair had never run (#381).
+        return {"ok": False, "platform": "windows", "root": str(root),
+                "error": f"refusing to install autostart from {scratch}; set "
+                         "ARENA_AGENT_HOME to the real install directory "
+                         "and retry"}
+    vbs = root / "start_hidden.vbs"
+    # v4.169.21: write them rather than refusing. "Rerun install.bat"
+    # is not an instruction a remote agent -- or an operator whose
+    # bridge is already down -- can act on.
+    written = write_windows_launchers(root)
+    # An existing launcher is not overwritten above, so a bare `python`
+    # written by an older version survives untouched -- and that is the
+    # exact defect that kept the PC down.
+    bare = repair_bare_python(root)
+    refusal = _launcher_refusal(root, vbs, written, bare)
+    if refusal is not None:
+        return refusal
+    # No `schtasks /Delete` first: `/Create /F` replaces an existing
+    # task atomically, while delete-then-create leaves a window where a
+    # failed create means no autostart at all (review) -- and that
+    # delete was the destructive step this whole change is about.
+    tr = f'wscript.exe "{vbs}"'
+    cmd = ["schtasks", "/Create", "/TN", TASK, "/TR", tr, "/SC", "ONLOGON", "/RL", "HIGHEST", "/F"]
+    res = _run(cmd, timeout=20)
+    fallback = None
+    if not res.get("ok"):
+        fallback = _run(["schtasks", "/Create", "/TN", TASK, "/TR", tr, "/SC", "ONLOGON", "/F"], timeout=20)
+    # Reported rather than discarded (review). It does not gate `ok` --
+    # the task is installed either way, and a first-run failure is not
+    # the same as autostart being broken -- but silently dropping it
+    # left the caller unable to tell "installed and started" from
+    # "installed, would not start", which is the distinction an
+    # operator whose bridge is down actually needs.
+    started = _run(["schtasks", "/Run", "/TN", TASK], timeout=10)
+    return {"ok": bool(res.get("ok") or (fallback and fallback.get("ok"))),
+            "platform": "windows", "launchers": written,
+            "bare_python_fix": bare, "primary": res,
+            "fallback": fallback, "started": started,
+            "status": _windows_status()}
+
+
 def repair() -> dict[str, Any]:
     sysname = platform.system().lower()
     if sysname == "windows":
-        root = _root()
-        vbs = root / "start_hidden.vbs"
-        # v4.169.21: write them rather than refusing. "Rerun install.bat"
-        # is not an instruction a remote agent -- or an operator whose
-        # bridge is already down -- can act on.
-        written = write_windows_launchers(root)
-        # An existing launcher is not overwritten above, so a bare
-        # `python` written by an older version survives untouched --
-        # and that is the exact defect that kept the PC down.
-        bare = repair_bare_python(root)
-        if not written["ok"]:
-            return {"ok": False, "error": "could not create start_hidden.vbs / "
-                                          "start_bridge.bat",
-                    "root": str(root), "write": written}
-        _run(["schtasks", "/Delete", "/TN", TASK, "/F"], timeout=10)
-        tr = f'wscript.exe "{vbs}"'
-        cmd = ["schtasks", "/Create", "/TN", TASK, "/TR", tr, "/SC", "ONLOGON", "/RL", "HIGHEST", "/F"]
-        res = _run(cmd, timeout=20)
-        fallback = None
-        if not res.get("ok"):
-            fallback = _run(["schtasks", "/Create", "/TN", TASK, "/TR", tr, "/SC", "ONLOGON", "/F"], timeout=20)
-        _run(["schtasks", "/Run", "/TN", TASK], timeout=10)
-        return {"ok": bool(res.get("ok") or (fallback and fallback.get("ok"))),
-                "platform": "windows", "launchers": written,
-                "bare_python_fix": bare, "primary": res,
-                "fallback": fallback, "status": _windows_status()}
+        return _repair_windows()
     if sysname == "linux":
         res = _run(["systemctl", "--user", "enable", "--now", "arena-bridge.service"], timeout=20)
         return {"ok": bool(res.get("ok")), "platform": "linux", "result": res, "status": _linux_status()}
