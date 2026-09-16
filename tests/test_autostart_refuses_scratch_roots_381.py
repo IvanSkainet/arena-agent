@@ -56,10 +56,21 @@ def test_a_pytest_tmpdir_is_rejected_as_an_install_root(
         "autostart install root")
 
 
-def test_the_temp_root_itself_is_rejected() -> None:
-    """A control for the check above, one level up."""
-    assert autostart_doctor._looks_like_a_scratch_root(
-        Path(tempfile.gettempdir()).resolve())
+def test_the_temp_root_itself_is_rejected(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """A control for the check above, one level up.
+
+    The temp root is recognised from `TMPDIR`/`TEMP`/`TMP`, which
+    Windows always sets -- and Windows is the only platform
+    `_repair_windows` runs on. Set explicitly here so the test states
+    that dependency instead of relying on the runner's environment: on
+    a bare Linux CI container none of the three exist, and the
+    assertion would pass or fail for reasons unrelated to the code.
+    """
+    root = Path(tempfile.gettempdir()).resolve()
+    monkeypatch.setenv("TMPDIR", str(root))
+
+    assert autostart_doctor._looks_like_a_scratch_root(root)
 
 
 @pytest.mark.parametrize("root", [

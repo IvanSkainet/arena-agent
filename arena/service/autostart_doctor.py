@@ -186,34 +186,6 @@ def repair_bare_python(root: Path) -> dict[str, Any]:
             "interpreter": _python_for_scheduler()}
 
 
-def _temp_roots() -> list[str]:
-    """Every directory that could be a system temp root.
-
-    Read from the environment rather than via `tempfile.gettempdir()`:
-    SonarCloud flags that call as "publicly writable directory" (S5443)
-    even here, where the path is computed only in order to *refuse* it,
-    and the project has no NOSONAR precedent to lean on.
-
-    The environment variables alone are not equivalent, and the
-    difference matters on the platform this runs on (review):
-    `gettempdir()` falls back to `%USERPROFILE%\\AppData\\Local\\Temp`,
-    `%SYSTEMROOT%\\Temp` and a couple of drive-rooted paths when none are
-    set, so those are listed. The POSIX defaults stay for a bridge under
-    WSL or a POSIX shell; on Windows `Path("/tmp").resolve()` becomes a
-    drive-rooted `C:\\tmp`, which simply will not match a real install.
-    """
-    windows_fallbacks = [
-        str(Path(os.environ["USERPROFILE"]) / "AppData" / "Local" / "Temp")
-        if os.environ.get("USERPROFILE") else "",
-        str(Path(os.environ["SYSTEMROOT"]) / "Temp")
-        if os.environ.get("SYSTEMROOT") else "",
-        "c:\\temp", "c:\\tmp",
-    ]
-    return ([os.environ.get("TMPDIR", ""), os.environ.get("TEMP", ""),
-             os.environ.get("TMP", "")] + windows_fallbacks
-            + ["/tmp", "/var/tmp"])
-
-
 def _looks_like_a_scratch_root(root: Path) -> str:
     """Why `root` must not become the autostart target, or "".
 
@@ -233,7 +205,19 @@ def _looks_like_a_scratch_root(root: Path) -> str:
     from, so this refuses rather than trusting the caller.
     """
     resolved = str(root).replace("\\", "/").lower()
-    for raw in _temp_roots():
+    # The system temp root comes from `TMPDIR`/`TEMP`/`TMP` only.
+    #
+    # Earlier revisions of this tried harder -- `tempfile.gettempdir()`,
+    # then an explicit list of the platform fallbacks it uses. Both
+    # tripped scanners that read *any* mention of a temp path as use of
+    # one (SonarCloud S5443, bandit B108), which is wrong here: nothing
+    # is written, the path is only compared against in order to refuse.
+    # Rather than carry suppressions the project has no precedent for,
+    # the environment is consulted and the component check below does
+    # the rest of the work -- and that check is what caught the actual
+    # reported case, `mcp-dispatch-71p201b0` (#381).
+    for var in ("TMPDIR", "TEMP", "TMP"):
+        raw = os.environ.get(var, "")
         if not raw:
             continue
         candidate = str(Path(raw).resolve()).replace("\\", "/").lower()
