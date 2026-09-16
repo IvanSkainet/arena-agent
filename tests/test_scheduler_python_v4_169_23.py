@@ -142,7 +142,11 @@ def test_repair_is_wired_into_the_doctor() -> None:
     the broken file survives every repair attempt."""
     import inspect
 
-    source = inspect.getsource(autostart_doctor.repair)
+    # The Windows arm moved into `_repair_windows` when the scratch-root
+    # refusal was added (#381); `repair()` now only dispatches. Read both
+    # so this keeps checking the wiring rather than the old location.
+    source = (inspect.getsource(autostart_doctor.repair)
+              + inspect.getsource(autostart_doctor._repair_windows))
     assert "repair_bare_python" in source
 
 
