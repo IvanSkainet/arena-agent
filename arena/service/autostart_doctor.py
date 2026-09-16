@@ -186,6 +186,23 @@ def repair_bare_python(root: Path) -> dict[str, Any]:
             "interpreter": _python_for_scheduler()}
 
 
+def _inside_a_temp_root(resolved: str) -> str:
+    """The temp directory containing `resolved`, or "".
+
+    Its own function so the caller stays two flat steps -- "is it under
+    a temp root" then "does any component look like scratch" -- rather
+    than two loops in one body, which CodeScene reads as a Bumpy Road.
+    """
+    for var in ("TMPDIR", "TEMP", "TMP"):
+        raw = os.environ.get(var, "")
+        if not raw:
+            continue
+        candidate = str(Path(raw).resolve()).replace("\\", "/").lower()
+        if resolved == candidate or resolved.startswith(candidate + "/"):
+            return raw
+    return ""
+
+
 def _looks_like_a_scratch_root(root: Path) -> str:
     """Why `root` must not become the autostart target, or "".
 
@@ -216,13 +233,9 @@ def _looks_like_a_scratch_root(root: Path) -> str:
     # the environment is consulted and the component check below does
     # the rest of the work -- and that check is what caught the actual
     # reported case, `mcp-dispatch-71p201b0` (#381).
-    for var in ("TMPDIR", "TEMP", "TMP"):
-        raw = os.environ.get(var, "")
-        if not raw:
-            continue
-        candidate = str(Path(raw).resolve()).replace("\\", "/").lower()
-        if resolved == candidate or resolved.startswith(candidate + "/"):
-            return f"{root} is inside the temporary directory {raw}"
+    inside = _inside_a_temp_root(resolved)
+    if inside:
+        return f"{root} is inside the temporary directory {inside}"
     # pytest's own prefixes, in case TMPDIR moved after the directory
     # was created. Matched per path *component*: a substring test
     # refused `/home/user/mcp-dispatch-production`, a legitimate install
