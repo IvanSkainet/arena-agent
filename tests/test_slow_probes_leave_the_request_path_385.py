@@ -260,7 +260,11 @@ def test_a_stale_entry_is_served_while_it_refreshes(monkeypatch) -> None:
         "should keep being served while the refresh runs")
     assert result["venvs"] == [{"path": "/stored"}], (
         "the stale read should serve the stored result, not an empty one")
-    assert scanned.wait(timeout=10), (
+    # 30s, not 10: thread start-up on a loaded Windows runner is slow
+    # enough that this failed there twice while the implementation was
+    # correct. The property is "a refresh is kicked off", not "within
+    # ten seconds".
+    assert scanned.wait(timeout=30), (
         "a stale read must also kick off a refresh")
 
 
