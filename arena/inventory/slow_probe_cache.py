@@ -48,8 +48,33 @@ def _cache_dir() -> Path:
     return base / ".inventory-cache"
 
 
+# The only names this module ever caches. `_cache_path` indexes this
+# map rather than interpolating its argument: the value is internal, not
+# user input, but a path built by formatting a string is a path traversal
+# to any scanner reading the code -- and they are right that nothing
+# here guarantees it (SonarCloud S6549, BLOCKER).
+_FILENAMES = {
+    "python_venvs": "python_venvs.json",
+    "git_repos": "git_repos.json",
+}
+
+
+def register_for_tests(name: str) -> None:
+    """Add an isolated cache name, so tests do not share in-flight state.
+
+    `_refreshing` is keyed by name and process-wide. Two tests both
+    using "python_venvs" gate each other: the second sees the first's
+    refresh in flight and skips its own, then asserts on a result that
+    never came. Each test registers its own name instead.
+    """
+    if not name.replace("_", "").replace("-", "").isalnum():
+        raise ValueError(f"unsafe cache name: {name!r}")
+    _FILENAMES.setdefault(name, f"{name}.json")
+    _EMPTY.setdefault(name, {"available": False, "venvs": []})
+
+
 def _cache_path(name: str) -> Path:
-    return _cache_dir() / f"{name}.json"
+    return _cache_dir() / _FILENAMES[name]
 
 
 def _read(name: str) -> tuple[dict[str, Any] | None, float]:
@@ -69,9 +94,17 @@ def _write(name: str, result: dict[str, Any]) -> None:
     path = _cache_path(name)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"at": time.time(), "result": result}),
-                       encoding="utf-8")
+        # Unique staging name. `path.with_suffix(".tmp")` gave every
+        # writer the same one, so two concurrent refreshes clobbered
+        # each other's partial file and `os.replace` could publish a
+        # truncated one -- which a reader then discards, reporting
+        # `pending` even though a scan had just completed. Seen once in
+        # six parallel test runs.
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent),
+                                        prefix=path.name + ".", suffix=".tmp")
+        tmp = Path(tmp_name)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"at": time.time(), "result": result}, fh)
         os.replace(tmp, path)
     except OSError:
         # A cache that cannot be written is a slow cache, not a broken
@@ -157,11 +190,24 @@ def cached_git_repos() -> dict[str, Any]:
     return _cached("git_repos", get_git_repos)
 
 
-def reset_for_tests() -> None:
-    """Drop stored state so a test starts from a known position."""
+def reset_for_tests(timeout: float = 5.0) -> None:
+    """Drop stored state so a test starts from a known position.
+
+    Waits for any refresh still in flight before clearing. Without
+    that, a scan started by the previous test finishes mid-next-test
+    and writes its result into the file the new one is reading -- which
+    is exactly how `test_the_result_arrives_once_the_scan_finishes`
+    failed on macOS with the *previous* test's value.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with _refresh_lock:
+            if not _refreshing:
+                break
+        time.sleep(0.01)
     with _refresh_lock:
         _refreshing.clear()
-    for name in _EMPTY:
+    for name in _FILENAMES:
         try:
             _cache_path(name).unlink()
         except OSError:

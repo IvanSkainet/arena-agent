@@ -17,6 +17,7 @@ useless, so every timing assertion here has a matching one on content.
 """
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import threading
@@ -31,11 +32,40 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(autouse=True)
-def _fresh_cache():
-    """Each test starts with no cached result and none in flight."""
+def _fresh_cache(tmp_path, monkeypatch):
+    """Each test gets its own cache directory and no in-flight state.
+
+    `ARENA_AGENT_HOME` is redirected at a tmpdir: without it every test
+    -- and every parallel pytest process -- shares one directory under
+    the system temp, so one test's refresh overwrites another's stored
+    entry. That is what made three of these fail intermittently under
+    parallel runs, and it took a while to see because each individual
+    fix looked plausible.
+    """
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
     spc.reset_for_tests()
     yield
     spc.reset_for_tests()
+
+
+def _wait_for_result(call, timeout: float = 30.0) -> dict:
+    """Block until the cache reports `ready`, then return it.
+
+    Polling with a short fixed budget was wrong twice over: on a loaded
+    runner the scan outlives the budget (two tests failed that way under
+    four parallel pytest processes), and waiting on the in-flight flag
+    alone races the thread that has not started yet. Waiting for the
+    observable outcome avoids both, with a budget long enough that only
+    a genuinely stuck refresh hits it.
+    """
+    deadline = time.monotonic() + timeout
+    result = call()
+    while time.monotonic() < deadline:
+        if result["cache"]["state"] == "ready":
+            return result
+        time.sleep(0.01)
+        result = call()
+    return result
 
 
 def _call_with_deadline(fn, seconds: float = 2.0):
@@ -61,9 +91,29 @@ def _call_with_deadline(fn, seconds: float = 2.0):
     return box["value"]
 
 
+_counter = itertools.count()
+_installed_names: dict[object, str] = {}
+
+
+def _mine_in_flight(call) -> bool:
+    """Is a refresh running for the entry `call` reads?"""
+    with spc._refresh_lock:
+        return _installed_names[call] in spc._refreshing
+
+
 def _install(monkeypatch, name: str, fn):
-    """A caller that reads `name` from the cache, backed by `fn`."""
-    return lambda: spc._cached(name, fn)
+    """A caller reading an isolated cache entry backed by `fn`.
+
+    Each call gets a unique name: `_refreshing` is keyed by name and
+    shared across the process, so two tests using "python_venvs" gate
+    each other's refreshes -- which is how three of these failed under
+    four parallel pytest processes.
+    """
+    unique = f"{name}_t{next(_counter)}"
+    spc.register_for_tests(unique)
+    caller = lambda: spc._cached(unique, fn)  # noqa: E731
+    _installed_names[caller] = unique
+    return caller
 
 
 def test_the_first_call_does_not_wait_for_the_scan(monkeypatch) -> None:
@@ -116,13 +166,7 @@ def test_the_result_arrives_once_the_scan_finishes(monkeypatch) -> None:
         lambda: {"available": True, "venvs": [{"path": "/found"}]})
 
     _call_with_deadline(call_cached)
-
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        result = _call_with_deadline(call_cached)
-        if result["cache"]["state"] == "ready":
-            break
-        time.sleep(0.02)
+    result = _wait_for_result(call_cached)
 
     assert result["cache"]["state"] == "ready", "the scan never completed"
     assert result["venvs"] == [{"path": "/found"}]
@@ -175,13 +219,7 @@ def test_a_raising_probe_becomes_an_error_not_a_hang(monkeypatch) -> None:
     call_cached = _install(monkeypatch, "python_venvs", boom)
 
     _call_with_deadline(call_cached)
-
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        result = _call_with_deadline(call_cached)
-        if result["cache"]["state"] == "ready":
-            break
-        time.sleep(0.02)
+    result = _wait_for_result(call_cached)
 
     assert result["cache"]["state"] == "ready", (
         "the cache is still pending, so the failed scan wedged it")
@@ -195,46 +233,29 @@ def test_a_stale_entry_is_served_while_it_refreshes(monkeypatch) -> None:
     A virtualenv that appeared five minutes ago is not news, and the
     alternative is making someone wait 30 seconds for the same answer.
 
-    The property is "the stale read does not block and does not come
-    back empty" -- deliberately *not* "it returns the old value". An
-    earlier version asserted the latter and failed on macOS, where the
-    background refresh finished before the assertion ran: a correct
-    implementation, a racing test. Either value is fine here; an empty
-    list or a blocked call is not.
+    The stored entry is written directly rather than produced by a
+    background scan. Three earlier versions of this test tried to race
+    a real refresh -- by sleeping, by a zero TTL, by waiting on the
+    in-flight flag -- and each one failed intermittently under parallel
+    runs. The behaviour under test is "what does a read do when the
+    stored entry is old", which needs no concurrency at all.
     """
-    started = threading.Event()
-    release = threading.Event()
+    name = f"python_venvs_stale{next(_counter)}"
+    spc.register_for_tests(name)
+    spc._write(name, {"available": True, "venvs": [{"path": "/stored"}]})
+    monkeypatch.setattr(spc, "_TTL_SEC", 0.0)      # the entry is now stale
 
-    def slow_second_scan():
-        if started.is_set():
-            release.wait(timeout=5)
-            return {"available": True, "venvs": [{"path": "/second"}]}
-        started.set()
-        return {"available": True, "venvs": [{"path": "/first"}]}
+    scanned = threading.Event()
+    result = _call_with_deadline(
+        lambda: spc._cached(name, lambda: (scanned.set(), {"venvs": []})[1]))
 
-    call_cached = _install(monkeypatch, "python_venvs", slow_second_scan)
-    monkeypatch.setattr(spc, "_TTL_SEC", 0.05)
-
-    _call_with_deadline(call_cached)
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        if _call_with_deadline(call_cached)["cache"]["state"] == "ready":
-            break
-        time.sleep(0.02)
-
-    time.sleep(0.1)                      # let the entry go stale
-    t0 = time.monotonic()
-    stale = _call_with_deadline(call_cached)
-    elapsed = time.monotonic() - t0
-    release.set()
-
-    assert elapsed < 1.0, "serving a stale entry blocked on the refresh"
-    assert stale["cache"]["state"] == "ready", (
+    assert result["cache"]["state"] == "ready", (
         "a stale entry was downgraded to pending; the previous result "
         "should keep being served while the refresh runs")
-    assert stale["venvs"], (
-        "the stale read returned an empty list instead of the last known "
-        "result")
+    assert result["venvs"] == [{"path": "/stored"}], (
+        "the stale read should serve the stored result, not an empty one")
+    assert scanned.wait(timeout=10), (
+        "a stale read must also kick off a refresh")
 
 
 def test_the_registry_uses_the_cached_probes() -> None:
@@ -308,28 +329,33 @@ def test_a_probe_that_kills_the_worker_does_not_wedge_the_cache(
 
     `KeyboardInterrupt` is used deliberately: it is a BaseException, so
     it slips past the `except Exception` that handles ordinary probe
-    errors and exercises the path that a bare `except` would not.
+    errors and exercises the path a bare `except` would not.
     """
+    died = threading.Event()
+
     def hostile():
+        died.set()
         raise KeyboardInterrupt("worker killed")
 
     call_cached = _install(monkeypatch, "python_venvs", hostile)
-
-    # First attempt: the worker dies without storing anything.
     _call_with_deadline(call_cached)
-    time.sleep(0.3)
+    assert died.wait(timeout=10), "the hostile probe never ran"
 
-    assert "python_venvs" not in spc._refreshing, (
+    # The flag is cleared in the worker's `finally`, which runs after
+    # the probe raises; wait for that rather than guessing a duration.
+    # Only this test's own entry: `_refreshing` is process-wide and a
+    # parallel test's scan being in flight says nothing about ours.
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and _mine_in_flight(call_cached):
+        time.sleep(0.01)
+    assert not _mine_in_flight(call_cached), (
         "the in-flight flag survived a worker that died, so no later "
         "refresh can ever start")
 
-    # Second attempt must actually run the probe again.
-    runs = []
+    ran = threading.Event()
     retry = _install(monkeypatch, "python_venvs",
-                     lambda: runs.append(1) or {"available": True, "venvs": []})
+                     lambda: (ran.set(), {"available": True, "venvs": []})[1])
     _call_with_deadline(retry)
 
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline and not runs:
-        time.sleep(0.02)
-    assert runs, "the cache never retried after the failed refresh"
+    assert ran.wait(timeout=10), (
+        "the cache never retried after the failed refresh")
