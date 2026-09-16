@@ -220,10 +220,64 @@ def _looks_like_a_scratch_root(root: Path) -> str:
         if resolved == candidate or resolved.startswith(candidate + "/"):
             return f"{root} is inside the temporary directory {raw}"
     # pytest's own prefixes, in case TMPDIR moved after the directory
-    # was created.
-    if any(m in resolved for m in ("/pytest-of-", "/mcp-dispatch-", "/pytest-tmp-")):
-        return f"{root} looks like a pytest temporary directory"
+    # was created. Matched per path *component*: a substring test
+    # refused `/home/user/mcp-dispatch-production`, a legitimate install
+    # directory that merely reads like scratch (review).
+    for part in Path(resolved).parts:
+        if _is_scratch_component(part):
+            return f"{root} contains the scratch directory {part!r}"
     return ""
+
+
+def _is_scratch_component(part: str) -> bool:
+    """True for a directory name pytest or the contract fixture created.
+
+    `pytest-of-<user>` is pytest's own root whatever the username. The
+    others are `mkdtemp` names -- prefix plus exactly eight characters
+    from `[a-z0-9_]` -- and requiring that suffix is what lets a
+    deliberate `mcp-dispatch-production` through (review).
+    """
+    if part.startswith("pytest-of-"):
+        return True
+    for prefix in ("mcp-dispatch-", "pytest-tmp-"):
+        if not part.startswith(prefix):
+            continue
+        suffix = part[len(prefix):]
+        if len(suffix) == 8 and all(c.isalnum() or c == "_" for c in suffix):
+            return True
+    return False
+
+
+def _launcher_refusal(root: Path, vbs: Path, written: dict[str, Any],
+                      bare: dict[str, Any]) -> dict[str, Any] | None:
+    """Why the task must not be (re)created, or None.
+
+    Every check here runs before the first `schtasks` call, which is the
+    point: the old code replaced a working task and only then found out
+    the replacement could not launch (#381).
+    """
+    if not written["ok"]:
+        return {"ok": False, "error": "could not create start_hidden.vbs / "
+                                      "start_bridge.bat",
+                "root": str(root), "write": written}
+    if not bare.get("ok", True):
+        # A launcher whose interpreter the scheduler cannot resolve is
+        # the defect v4.169.21 was written for. Recreating the task
+        # around it would report success over a bridge that still
+        # cannot start (review).
+        return {"ok": False, "platform": "windows", "root": str(root),
+                "error": "start_bridge.bat still invokes an interpreter the "
+                         "scheduler cannot resolve", "bare_python_fix": bare,
+                "launchers": written}
+    if not vbs.is_file() or not (root / "start_bridge.bat").is_file():
+        # `is_file()` on both, not `exists()`: a directory named
+        # start_bridge.bat would satisfy the weaker check and the task
+        # would point at something that cannot run (review).
+        return {"ok": False, "platform": "windows", "root": str(root),
+                "error": f"refusing to point the task at {vbs}: it or "
+                         "start_bridge.bat is missing or not a regular file",
+                "launchers": written}
+    return None
 
 
 def _repair_windows() -> dict[str, Any]:
@@ -252,18 +306,13 @@ def _repair_windows() -> dict[str, Any]:
     # written by an older version survives untouched -- and that is the
     # exact defect that kept the PC down.
     bare = repair_bare_python(root)
-    if not written["ok"]:
-        return {"ok": False, "error": "could not create start_hidden.vbs / "
-                                      "start_bridge.bat",
-                "root": str(root), "write": written}
-    if not vbs.is_file():
-        # Belt and braces on what the task will point at, and still
-        # ahead of the delete: a task aimed at a missing script reports
-        # Last Result 0 at every logon and launches nothing.
-        return {"ok": False, "platform": "windows", "root": str(root),
-                "error": f"refusing to point the task at {vbs}, which does "
-                         "not exist", "launchers": written}
-    _run(["schtasks", "/Delete", "/TN", TASK, "/F"], timeout=10)
+    refusal = _launcher_refusal(root, vbs, written, bare)
+    if refusal is not None:
+        return refusal
+    # No `schtasks /Delete` first: `/Create /F` replaces an existing
+    # task atomically, while delete-then-create leaves a window where a
+    # failed create means no autostart at all (review) -- and that
+    # delete was the destructive step this whole change is about.
     tr = f'wscript.exe "{vbs}"'
     cmd = ["schtasks", "/Create", "/TN", TASK, "/TR", tr, "/SC", "ONLOGON", "/RL", "HIGHEST", "/F"]
     res = _run(cmd, timeout=20)

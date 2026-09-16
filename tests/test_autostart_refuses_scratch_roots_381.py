@@ -36,9 +36,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DOCTOR = REPO_ROOT / "arena" / "service" / "autostart_doctor.py"
 
 
-def test_a_pytest_tmpdir_is_rejected_as_an_install_root() -> None:
-    """The exact directory shape that broke the reporting machine."""
-    scratch = Path(tempfile.mkdtemp(prefix="mcp-dispatch-")).resolve()
+def test_a_pytest_tmpdir_is_rejected_as_an_install_root(
+        tmp_path: Path) -> None:
+    """The exact directory shape that broke the reporting machine.
+
+    Built under `tmp_path` rather than with a bare `mkdtemp`, which
+    leaked a directory into the host temp area on every run (review) --
+    the same litter that made `%TEMP%` on the reporting machine hold
+    221 of them.
+    """
+    scratch = (tmp_path / "mcp-dispatch-71p201b0")
+    scratch.mkdir()
+    scratch = scratch.resolve()
 
     reason = autostart_doctor._looks_like_a_scratch_root(scratch)
 
@@ -56,6 +65,10 @@ def test_the_temp_root_itself_is_rejected() -> None:
 @pytest.mark.parametrize("root", [
     Path("/opt/arena-bridge"),
     Path.home() / "arena-bridge",
+    # Reads like scratch, is not: the first version matched the prefix
+    # as a bare substring and refused this (review). `mkdtemp` appends
+    # eight random characters; a deliberate name does not.
+    Path("/home/user/mcp-dispatch-production"),
 ])
 def test_a_real_install_path_is_not_rejected(root: Path) -> None:
     """The guard must not refuse ordinary installs.
@@ -67,7 +80,7 @@ def test_a_real_install_path_is_not_rejected(root: Path) -> None:
 
 
 def test_repair_refuses_before_deleting_the_existing_task(
-        monkeypatch: pytest.MonkeyPatch) -> None:
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Order matters more than the refusal itself.
 
     The old code ran `schtasks /Delete /TN ... /F` and only then found
@@ -75,7 +88,8 @@ def test_repair_refuses_before_deleting_the_existing_task(
     and installs a broken one is worse than no repair, so the refusal
     has to come first.
     """
-    scratch = tempfile.mkdtemp(prefix="mcp-dispatch-")
+    scratch = tmp_path / "mcp-dispatch-71p201b0"
+    scratch.mkdir()
     ran: list[list[str]] = []
 
     monkeypatch.setattr(autostart_doctor.platform, "system", lambda: "Windows")
@@ -89,11 +103,11 @@ def test_repair_refuses_before_deleting_the_existing_task(
     assert result["ok"] is False, result
     assert "refusing" in result["error"], result
     assert ran == [], (
-        f"repair ran {ran} before refusing; the first of those deletes the "
-        "operator's working Scheduled Task")
+        f"repair ran {ran} before refusing; any scheduler call here "
+        "replaces the operator's working task")
 
 
-def test_the_delete_is_not_the_first_scheduler_call_in_the_source() -> None:
+def test_no_scheduler_call_precedes_the_refusals() -> None:
     """Structural backstop for the ordering above.
 
     The behavioural test drives the Windows branch with `platform.system`
@@ -109,21 +123,22 @@ def test_the_delete_is_not_the_first_scheduler_call_in_the_source() -> None:
     func = next(
         (n for n in ast.walk(tree)
          if isinstance(n, ast.FunctionDef)
-         and _first_line_mentioning(n, "/Delete") is not None), None)
+         and _first_line_calling(n, "_looks_like_a_scratch_root") is not None),
+        None)
     assert func is not None, (
-        "no function runs schtasks /Delete any more -- if the repair moved, "
-        "point this check at its new home rather than deleting it")
+        "no function calls the scratch-root guard any more -- if the repair "
+        "moved, point this check at its new home rather than deleting it")
 
     guard_line = _first_line_calling(func, "_looks_like_a_scratch_root")
-    delete_line = _first_line_mentioning(func, "/Delete")
+    schtasks_line = _first_line_mentioning(func, "schtasks")
 
     assert guard_line is not None, (
-        "repair() no longer checks whether the root is a scratch directory")
-    assert delete_line is not None, "no schtasks /Delete found in repair()"
-    assert guard_line < delete_line, (
-        f"the scratch-root guard is at line {guard_line} but schtasks "
-        f"/Delete runs at line {delete_line}; the task is destroyed before "
-        "the target is validated")
+        "nothing checks whether the root is a scratch directory")
+    assert schtasks_line is not None, "no schtasks call found"
+    assert guard_line < schtasks_line, (
+        f"the scratch-root guard is at line {guard_line} but the first "
+        f"scheduler call runs at line {schtasks_line}; the operator's task "
+        "is replaced before the target is validated")
 
 
 def _first_line_calling(func: ast.AST, name: str) -> int | None:
@@ -147,7 +162,7 @@ def _first_line_mentioning(func: ast.AST, needle: str) -> int | None:
 
 
 def test_repair_refuses_when_the_launcher_is_missing(
-        monkeypatch: pytest.MonkeyPatch) -> None:
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The second refusal, and it was untested until a mutation said so.
 
     Removing the `vbs.is_file()` check left every other test passing --
@@ -156,15 +171,15 @@ def test_repair_refuses_when_the_launcher_is_missing(
     the reporting machine was found in: `wscript` starts, Last Result is
     0, nothing launches.
     """
-    # Deliberately *not* `tmp_path`: that lives under the temp root and
-    # trips the scratch guard first, so the check under test would never
-    # be reached -- the assertion would pass for the wrong reason.
-    home = Path.home() / ".arena-381-launcher-probe"
+    # `tmp_path` lives under the temp root and would trip the scratch
+    # guard first, so that guard is stubbed out: this test is about the
+    # *launcher* check, and a fixed path under $HOME risked reusing a
+    # directory a previous run had populated (review).
     ran: list[list[str]] = []
     monkeypatch.setattr(autostart_doctor.platform, "system", lambda: "Windows")
     monkeypatch.setattr(
         autostart_doctor, "_looks_like_a_scratch_root", lambda root: "")
-    monkeypatch.setenv("ARENA_AGENT_HOME", str(home))
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
     monkeypatch.setattr(
         autostart_doctor, "_run",
         lambda cmd, timeout=10: ran.append(list(cmd)) or {"ok": True})
@@ -178,7 +193,7 @@ def test_repair_refuses_when_the_launcher_is_missing(
     result = autostart_doctor.repair()
 
     assert result["ok"] is False, result
-    assert "does not exist" in result["error"], result
+    assert "missing or not a regular file" in result["error"], result
     assert ran == [], (
-        f"repair ran {ran} before noticing the launcher was missing; the "
-        "first of those deletes the operator's working Scheduled Task")
+        f"repair ran {ran} before noticing the launcher was missing; any "
+        "scheduler call here replaces the operator's working task")
