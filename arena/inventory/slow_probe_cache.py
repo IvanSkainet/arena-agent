@@ -91,26 +91,30 @@ def _read(name: str) -> tuple[dict[str, Any] | None, float]:
 
 def _write(name: str, result: dict[str, Any]) -> None:
     """Store `result` atomically, so a reader never sees half a file."""
-    path = _cache_path(name)
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Unique staging name. `path.with_suffix(".tmp")` gave every
-        # writer the same one, so two concurrent refreshes clobbered
-        # each other's partial file and `os.replace` could publish a
-        # truncated one -- which a reader then discards, reporting
-        # `pending` even though a scan had just completed. Seen once in
-        # six parallel test runs.
-        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent),
-                                        prefix=path.name + ".", suffix=".tmp")
-        tmp = Path(tmp_name)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump({"at": time.time(), "result": result}, fh)
-        os.replace(tmp, path)
+        _write_atomically(_cache_path(name), result)
     except OSError:
         # A cache that cannot be written is a slow cache, not a broken
         # bridge: the probe still ran and the caller still gets its
         # answer this time round.
         pass
+
+
+def _write_atomically(path: Path, result: dict[str, Any]) -> None:
+    """Stage to a unique temp file, then rename it into place.
+
+    `path.with_suffix(".tmp")` gave every writer the same staging name,
+    so two concurrent refreshes clobbered each other's partial file and
+    `os.replace` could publish a truncated one -- which a reader then
+    discards, reporting `pending` even though a scan had just finished.
+    Seen once in six parallel test runs.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent),
+                                    prefix=path.name + ".", suffix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump({"at": time.time(), "result": result}, fh)
+    os.replace(tmp_name, path)
 
 
 _refreshing: set[str] = set()
