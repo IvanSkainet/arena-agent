@@ -251,21 +251,14 @@ def test_a_stale_entry_is_served_while_it_refreshes(monkeypatch) -> None:
     spc._write(name, {"available": True, "venvs": [{"path": "/stored"}]})
     monkeypatch.setattr(spc, "_TTL_SEC", 0.0)      # the entry is now stale
 
-    scanned = threading.Event()
     result = _call_with_deadline(
-        lambda: spc._cached(name, lambda: (scanned.set(), {"venvs": []})[1]))
+        lambda: spc._cached(name, lambda: {"venvs": []}))
 
     assert result["cache"]["state"] == "ready", (
         "a stale entry was downgraded to pending; the previous result "
         "should keep being served while the refresh runs")
     assert result["venvs"] == [{"path": "/stored"}], (
         "the stale read should serve the stored result, not an empty one")
-    # 30s, not 10: thread start-up on a loaded Windows runner is slow
-    # enough that this failed there twice while the implementation was
-    # correct. The property is "a refresh is kicked off", not "within
-    # ten seconds".
-    assert scanned.wait(timeout=30), (
-        "a stale read must also kick off a refresh")
 
 
 def test_the_registry_uses_the_cached_probes() -> None:
@@ -472,3 +465,37 @@ def test_a_failed_write_leaves_no_staging_file() -> None:
 
     leftovers = list(spc._cache_path(name).parent.glob("*.tmp"))
     assert leftovers == [], f"staging files left behind: {leftovers}"
+
+
+def test_a_stale_read_asks_for_a_refresh() -> None:
+    """The other half of the stale behaviour, tested on its own.
+
+    Folding this into the test above was a mistake: it asserted that a
+    background scan had *started*, which depends on the claim file
+    being free -- and a claim left by an earlier scan silently prevents
+    it. Two Windows jobs failed that way while the stale read itself
+    was perfectly correct.
+
+    The intent is checkable without a thread: a stale entry must reach
+    `_start_refresh`, and whether that call then defers to another
+    process is a separate question, covered by the claim tests.
+    """
+    name = f"python_venvs_ask{next(_counter)}"
+    spc.register_for_tests(name)
+    spc._write(name, {"available": True, "venvs": [{"path": "/stored"}]})
+
+    asked = []
+    original = spc._start_refresh
+    spc._start_refresh = lambda n, c: asked.append(n)
+    try:
+        spc._TTL_SEC, previous_ttl = 0.0, spc._TTL_SEC
+        try:
+            spc._cached(name, lambda: {"venvs": []})
+        finally:
+            spc._TTL_SEC = previous_ttl
+    finally:
+        spc._start_refresh = original
+
+    assert asked == [name], (
+        "a stale read did not ask for a refresh, so the entry would never "
+        "be updated")
