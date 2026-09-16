@@ -249,7 +249,9 @@ def test_a_stale_entry_is_served_while_it_refreshes(monkeypatch) -> None:
     name = f"python_venvs_stale{next(_counter)}"
     spc.register_for_tests(name)
     spc._write(name, {"available": True, "venvs": [{"path": "/stored"}]})
-    monkeypatch.setattr(spc, "_TTL_SEC", 0.0)      # the entry is now stale
+    # Negative, not zero: a file written microseconds ago can read back
+    # with age exactly 0.0 where the clock is coarse (Windows).
+    monkeypatch.setattr(spc, "_TTL_SEC", -1.0)     # the entry is now stale
 
     result = _call_with_deadline(
         lambda: spc._cached(name, lambda: {"venvs": []}))
@@ -484,16 +486,19 @@ def test_a_stale_read_asks_for_a_refresh() -> None:
     spc.register_for_tests(name)
     spc._write(name, {"available": True, "venvs": [{"path": "/stored"}]})
 
+    # A negative TTL, not zero: `time.time()` has coarse resolution on
+    # Windows, so a file written microseconds ago can read back with an
+    # age of exactly 0.0 and `age > 0.0` is then false. The test failed
+    # there for that reason while the staleness logic was correct.
     asked = []
     original = spc._start_refresh
     spc._start_refresh = lambda n, c: asked.append(n)
+    previous_ttl = spc._TTL_SEC
+    spc._TTL_SEC = -1.0
     try:
-        spc._TTL_SEC, previous_ttl = 0.0, spc._TTL_SEC
-        try:
-            spc._cached(name, lambda: {"venvs": []})
-        finally:
-            spc._TTL_SEC = previous_ttl
+        spc._cached(name, lambda: {"venvs": []})
     finally:
+        spc._TTL_SEC = previous_ttl
         spc._start_refresh = original
 
     assert asked == [name], (
