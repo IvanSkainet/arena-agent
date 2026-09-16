@@ -23,7 +23,9 @@ schema.
 """
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -35,6 +37,13 @@ from typing import Any, Callable
 # stale-but-instant answer beats a fresh one nobody waited for.
 _TTL_SEC = 1800.0
 
+_LOG = logging.getLogger(__name__)
+
+# Owner-only: the cached scans list every virtualenv and git checkout
+# under $HOME, which is a map of the user's work (review).
+_DIR_MODE = 0o700
+_FILE_MODE = 0o600
+
 _EMPTY: dict[str, dict[str, Any]] = {
     "python_venvs": {"available": False, "venvs": []},
     "git_repos": {"available": False, "repos": []},
@@ -42,9 +51,15 @@ _EMPTY: dict[str, dict[str, Any]] = {
 
 
 def _cache_dir() -> Path:
-    """Where the cached scans live, following the agent home."""
+    """Where the cached scans live, following the agent home.
+
+    Falls back to the user's home rather than the shared temp
+    directory: the payload maps every virtualenv and checkout under
+    $HOME, and `/tmp/.inventory-cache` would both mix installations and
+    expose that to other local users (review).
+    """
     home = os.environ.get("ARENA_AGENT_HOME")
-    base = Path(home).expanduser() if home else Path(tempfile.gettempdir())
+    base = Path(home).expanduser() if home else Path.home() / ".arena"
     return base / ".inventory-cache"
 
 
@@ -93,11 +108,13 @@ def _write(name: str, result: dict[str, Any]) -> None:
     """Store `result` atomically, so a reader never sees half a file."""
     try:
         _write_atomically(_cache_path(name), result)
-    except OSError:
+    except OSError as exc:
         # A cache that cannot be written is a slow cache, not a broken
         # bridge: the probe still ran and the caller still gets its
-        # answer this time round.
-        pass
+        # answer this time round. Logged rather than swallowed, because
+        # a permanently unwritable cache means every request re-runs a
+        # 30-second scan and nothing says why (review).
+        _LOG.warning("inventory cache write failed for %s: %s", name, exc)
 
 
 def _write_atomically(path: Path, result: dict[str, Any]) -> None:
@@ -109,12 +126,21 @@ def _write_atomically(path: Path, result: dict[str, Any]) -> None:
     discards, reporting `pending` even though a scan had just finished.
     Seen once in six parallel test runs.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=_DIR_MODE)
     fd, tmp_name = tempfile.mkstemp(dir=str(path.parent),
                                     prefix=path.name + ".", suffix=".tmp")
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        json.dump({"at": time.time(), "result": result}, fh)
-    os.replace(tmp_name, path)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"at": time.time(), "result": result}, fh)
+        os.chmod(tmp_name, _FILE_MODE)
+        os.replace(tmp_name, path)
+    except BaseException:
+        # Otherwise a failing write leaves its unique staging file
+        # behind, and repeated background failures litter the cache
+        # directory (review).
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_name)
+        raise
 
 
 _refreshing: set[str] = set()
@@ -138,8 +164,59 @@ def _refresh(name: str, collector: Callable[[], dict]) -> None:
         # In a `finally` so an unexpected failure cannot wedge the cache
         # into "refreshing" forever, which would stop every later
         # refresh from starting (review).
+        _release(name)
         with _refresh_lock:
             _refreshing.discard(name)
+
+
+# How long a claim file is trusted before it is treated as abandoned.
+# Longer than any real scan (the worst measured is ~32s) and shorter
+# than the TTL, so a process killed mid-scan cannot wedge refreshes for
+# the rest of the day.
+_CLAIM_STALE_SEC = 300.0
+
+
+def _claim(name: str) -> bool:
+    """Take the cross-process right to refresh `name`.
+
+    `_refreshing` only covers one interpreter, and `/v1/hardware` runs
+    `scripts/inventory.py` as a *fresh subprocess* per request -- so
+    three concurrent requests ran the same 30-second scan three times
+    (measured, review). An exclusive-create file is the claim, since
+    every process can see it.
+
+    A stale claim is reclaimed: a process killed mid-scan would
+    otherwise block every future refresh, which is worse than
+    occasionally scanning twice.
+    """
+    claim = _cache_path(name).with_suffix(".claim")
+    try:
+        claim.parent.mkdir(parents=True, exist_ok=True, mode=_DIR_MODE)
+        fd = os.open(str(claim), os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                     _FILE_MODE)
+        os.close(fd)
+        return True
+    except FileExistsError:
+        try:
+            if time.time() - claim.stat().st_mtime > _CLAIM_STALE_SEC:
+                claim.unlink(missing_ok=True)
+                _LOG.warning("reclaimed a stale inventory scan lock for %s",
+                             name)
+        except OSError:
+            pass
+        return False
+    except OSError as exc:
+        # No claim file means no cross-process guard, but refusing to
+        # scan at all would be worse: fall back to scanning.
+        _LOG.warning("could not claim the inventory scan for %s: %s",
+                     name, exc)
+        return True
+
+
+def _release(name: str) -> None:
+    """Drop the cross-process claim, if this process holds one."""
+    with contextlib.suppress(OSError):
+        _cache_path(name).with_suffix(".claim").unlink(missing_ok=True)
 
 
 def _start_refresh(name: str, collector: Callable[[], dict]) -> None:
@@ -148,6 +225,12 @@ def _start_refresh(name: str, collector: Callable[[], dict]) -> None:
         if name in _refreshing:
             return
         _refreshing.add(name)
+    if not _claim(name):
+        # Another process is already scanning; its result lands in the
+        # shared file and this one will read it.
+        with _refresh_lock:
+            _refreshing.discard(name)
+        return
     try:
         # Not a daemon. `scripts/inventory.py` is a short-lived CLI --
         # `/v1/hardware` runs it as a subprocess -- and a daemon thread
@@ -210,19 +293,33 @@ def reset_for_tests(timeout: float = 5.0) -> None:
 
 
 def _await_quiet_refreshes(timeout: float) -> None:
-    """Wait for in-flight refreshes, up to `timeout`."""
+    """Wait for in-flight refreshes, or fail.
+
+    Returning quietly on timeout let `reset_for_tests` clear the files
+    while a scan was still running, so a late write reintroduced the
+    cross-test race this is meant to prevent (review).
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         with _refresh_lock:
             if not _refreshing:
                 return
         time.sleep(0.01)
+    raise AssertionError(
+        f"refreshes still in flight after {timeout}s: {sorted(_refreshing)}")
 
 
 def _delete_stored_results() -> None:
     """Remove every cached file, ignoring ones already gone."""
     for name in _FILENAMES:
+        _release(name)
         try:
             _cache_path(name).unlink()
-        except OSError:
+        except FileNotFoundError:
             pass
+        except OSError as exc:
+            # Anything else means the next test may read stale state,
+            # which is the failure this helper exists to prevent
+            # (review) -- so it is surfaced, not hidden.
+            raise AssertionError(
+                f"could not clear the cached {name}: {exc}") from exc

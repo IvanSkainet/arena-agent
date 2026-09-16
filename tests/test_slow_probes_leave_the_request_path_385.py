@@ -119,10 +119,15 @@ def _install(monkeypatch, name: str, fn):
 def test_the_first_call_does_not_wait_for_the_scan(monkeypatch) -> None:
     """The defect itself: a 30-second crawl inside an HTTP request."""
     started = threading.Event()
+    finish = threading.Event()
 
     def slow_probe():
         started.set()
-        time.sleep(5)
+        # Released at the end of the test rather than a fixed sleep: a
+        # scan still running when the fixture tears down trips its
+        # "refreshes still in flight" guard, which is the guard doing
+        # its job.
+        finish.wait(timeout=30)
         return {"available": True, "venvs": [{"path": "/x"}]}
 
     call_cached = _install(monkeypatch, "python_venvs", slow_probe)
@@ -152,7 +157,8 @@ def test_the_first_call_does_not_wait_for_the_scan(monkeypatch) -> None:
     result = box["result"]
     assert result["cache"] == {"state": "pending"}
     assert result["venvs"] == [], "pending must not invent data"
-    assert started.wait(timeout=5), "the background scan never started"
+    assert started.wait(timeout=10), "the background scan never started"
+    finish.set()
 
 
 def test_the_result_arrives_once_the_scan_finishes(monkeypatch) -> None:
@@ -359,3 +365,106 @@ def test_a_probe_that_kills_the_worker_does_not_wedge_the_cache(
 
     assert ran.wait(timeout=10), (
         "the cache never retried after the failed refresh")
+
+
+def test_concurrent_processes_run_the_probe_once(tmp_path) -> None:
+    """Single-flight has to hold across processes, not just threads.
+
+    `_refreshing` is per-interpreter, and `/v1/hardware` spawns a fresh
+    `scripts/inventory.py` for every request -- so three overlapping
+    requests each ran the same 30-second scan (measured: 3 executions
+    from 3 processes). A claim file is what the other processes can
+    see.
+    """
+    import subprocess
+    import sys
+
+    env = dict(os.environ, ARENA_AGENT_HOME=str(tmp_path))
+    code = (
+        "import sys, time, os, pathlib\n"
+        "sys.path.insert(0, %r)\n"
+        "from arena.inventory import slow_probe_cache as spc\n"
+        "mark = pathlib.Path(%r) / ('ran-%%d' %% os.getpid())\n"
+        "def probe():\n"
+        "    mark.write_text('x')\n"
+        "    time.sleep(2)\n"
+        "    return {'available': True, 'venvs': []}\n"
+        "spc._cached('python_venvs', probe)\n"
+    ) % (str(REPO_ROOT), str(tmp_path))
+
+    procs = [subprocess.Popen([sys.executable, "-c", code], env=env)
+             for _ in range(3)]
+    for proc in procs:
+        proc.wait(timeout=90)
+
+    ran = list(tmp_path.glob("ran-*"))
+    assert len(ran) == 1, (
+        f"{len(ran)} processes ran the scan; the claim file is not holding "
+        "single-flight across processes")
+
+
+def test_an_abandoned_claim_does_not_block_refreshes_forever(
+        monkeypatch, tmp_path) -> None:
+    """A process killed mid-scan must not wedge the cache permanently.
+
+    The control for the test above: a claim that is never released
+    would make single-flight into never-flight, which is worse than
+    scanning twice.
+    """
+    name = f"python_venvs_claim{next(_counter)}"
+    spc.register_for_tests(name)
+
+    claim = spc._cache_path(name).with_suffix(".claim")
+    claim.parent.mkdir(parents=True, exist_ok=True)
+    claim.write_text("")
+    old = time.time() - (spc._CLAIM_STALE_SEC + 60)
+    os.utime(claim, (old, old))
+
+    assert not spc._claim(name), "a fresh claim should be refused once held"
+    # The refusal above reclaims it, so the next attempt succeeds.
+    assert spc._claim(name), (
+        "a stale claim was never reclaimed; one killed process would block "
+        "every future refresh")
+
+
+def test_the_cache_directory_is_not_world_readable(tmp_path) -> None:
+    """The payload maps every venv and checkout under $HOME.
+
+    That is a description of the user's work, and the default umask
+    would leave it readable by other local users (review).
+    """
+    if os.name != "posix":
+        pytest.skip("POSIX permission bits")
+
+    name = f"python_venvs_perm{next(_counter)}"
+    spc.register_for_tests(name)
+    spc._write(name, {"available": True, "venvs": [{"path": "/x"}]})
+
+    path = spc._cache_path(name)
+    assert path.stat().st_mode & 0o077 == 0, (
+        f"{path} is readable by other users: {oct(path.stat().st_mode)}")
+    assert path.parent.stat().st_mode & 0o077 == 0, (
+        f"{path.parent} is readable by other users")
+
+
+def test_a_failed_write_leaves_no_staging_file() -> None:
+    """Repeated background failures must not litter the cache directory.
+
+    The failure is provoked with an unserialisable payload rather than
+    by patching `os.replace`: patching a module's `os` is a global
+    patch, which the repository ratchets against, and it would reach
+    every other user of that module for the duration of the test.
+    """
+    name = f"python_venvs_litter{next(_counter)}"
+    spc.register_for_tests(name)
+    spc._cache_path(name).parent.mkdir(parents=True, exist_ok=True)
+
+    class Unserialisable:
+        pass
+
+    with pytest.raises(TypeError):
+        spc._write_atomically(spc._cache_path(name),
+                              {"venvs": Unserialisable()})
+
+    leftovers = list(spc._cache_path(name).parent.glob("*.tmp"))
+    assert leftovers == [], f"staging files left behind: {leftovers}"
