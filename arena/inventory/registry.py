@@ -586,6 +586,24 @@ def _fmt_env(d: dict) -> list[str]:
 # JS Cards mapping (via _hwRender* naming convention).
 # ---------------------------------------------------------------------
 
+def _cached(name: str):
+    """The background-cached collector for a probe that crawls $HOME.
+
+    `python_venvs` and `git_repos` walk the home directory to depth 5 --
+    31.6s and 15.7s on the reporting machine, most of a collection
+    (#385). They are served from `slow_probe_cache` so the request never
+    waits for a scan.
+
+    Resolved here rather than imported inside `build_registry`: that
+    function is already at CodeScene's size threshold, and two more
+    import lines tipped it over.
+    """
+    from arena.inventory import slow_probe_cache
+
+    return {"python_venvs": slow_probe_cache.cached_python_venvs,
+            "git_repos": slow_probe_cache.cached_git_repos}[name]
+
+
 def build_registry() -> list[Section]:
     """Lazy import so this module has no import cycle with report.py."""
     from arena.inventory.probe_agent_ctx import (
@@ -640,10 +658,6 @@ def build_registry() -> list[Section]:
         get_runtimes,
         get_services,
     )
-    from arena.inventory.slow_probe_cache import (
-        cached_git_repos,
-        cached_python_venvs,
-    )
 
     S = Section
     return [
@@ -683,9 +697,8 @@ def build_registry() -> list[Section]:
         S("firewall_status",  "Firewall",           "agent",    get_firewall_status,_fmt_firewall),
         S("dns_resolvers",    "DNS resolvers",      "agent",    get_dns_resolvers,  _fmt_dns),
         S("env_secret_names", "Env secret names",   "agent",    get_env_secret_names, _fmt_env_secrets),
-        # Background-cached, not inline: both crawl $HOME (#385).
-        S("python_venvs",     "Python venvs",       "agent",    cached_python_venvs, _fmt_python_venvs),
-        S("git_repos",        "Git repos",          "agent",    cached_git_repos,    _fmt_git_repos),
+        S("python_venvs",     "Python venvs",       "agent",    _cached("python_venvs"), _fmt_python_venvs),
+        S("git_repos",        "Git repos",          "agent",    _cached("git_repos"),    _fmt_git_repos),
         S("crontab_entries",  "Crontab",            "agent",    get_crontab_entries,_fmt_crontab),
         # v4.34.0: recent-activity signal for agents planning work.
         S("recent_activity",  "Recent activity",    "agent",    get_recent_activity,_fmt_recent_activity),
