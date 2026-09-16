@@ -3,6 +3,7 @@ truth for what probes exist; text formatting also lives there.
 """
 from __future__ import annotations
 
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -25,17 +26,40 @@ SECTIONS = [(s.name, s.collector) for s in REGISTRY]
 # fresh interpreter start per probe on Windows.
 _MAX_WORKERS = 8
 
+# One collection at a time, process-wide.
+#
+# Cancelling the request does not reach into the pool: `asyncio.wait_for`
+# abandons the executor task, the worker threads carry on, and `with
+# pool:` blocks on shutdown until they finish. Measured -- 0.3s after a
+# request gave up, all four probes were still running (review). Without
+# this lock a dashboard refreshing every 15s would stack abandoned
+# collections until the machine ran out of patience.
+#
+# A lock rather than a cancellation mechanism because the probes are
+# opaque: most are blocking subprocess or WMI calls with no interruption
+# point, so there is nothing to cancel them *with*. Serialising whole
+# collections is the honest version of what is achievable here; the
+# per-probe timeouts that would actually bound them belong with the
+# collectors, not here (#385).
+_collect_lock = threading.Lock()
+
 
 def _run_probe(section) -> tuple[str, Any]:
     """Run one probe, turning any exception into an error payload.
 
     Same contract as before: a probe that raises must not take the run
     down with it, and the caller sees `{"error": ...}` in its slot.
+
+    The type is kept alongside the message (review): `str(e)` alone
+    turns `FileNotFoundError("x")` and `PermissionError("x")` into the
+    same string, and those want different responses from whoever reads
+    the payload.
     """
     try:
         return section.name, section.collector()
     except Exception as e:  # noqa: BLE001 -- probes must never crash the run
-        return section.name, {"error": str(e)}
+        return section.name, {"error": f"{type(e).__name__}: {e}",
+                              "error_type": type(e).__name__}
 
 
 def collect(only_section: Optional[str] = None) -> dict:
@@ -57,9 +81,10 @@ def collect(only_section: Optional[str] = None) -> dict:
             result[name] = payload
         return result
 
-    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
-        for name, payload in pool.map(_run_probe, wanted):
-            result[name] = payload
+    with _collect_lock:
+        with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
+            for name, payload in pool.map(_run_probe, wanted):
+                result[name] = payload
     return result
 
 
