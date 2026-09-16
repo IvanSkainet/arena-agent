@@ -345,11 +345,18 @@ def _repair_windows() -> dict[str, Any]:
     fallback = None
     if not res.get("ok"):
         fallback = _run(["schtasks", "/Create", "/TN", TASK, "/TR", tr, "/SC", "ONLOGON", "/F"], timeout=20)
-    _run(["schtasks", "/Run", "/TN", TASK], timeout=10)
+    # Reported rather than discarded (review). It does not gate `ok` --
+    # the task is installed either way, and a first-run failure is not
+    # the same as autostart being broken -- but silently dropping it
+    # left the caller unable to tell "installed and started" from
+    # "installed, would not start", which is the distinction an
+    # operator whose bridge is down actually needs.
+    started = _run(["schtasks", "/Run", "/TN", TASK], timeout=10)
     return {"ok": bool(res.get("ok") or (fallback and fallback.get("ok"))),
             "platform": "windows", "launchers": written,
             "bare_python_fix": bare, "primary": res,
-            "fallback": fallback, "status": _windows_status()}
+            "fallback": fallback, "started": started,
+            "status": _windows_status()}
 
 
 def repair() -> dict[str, Any]:
