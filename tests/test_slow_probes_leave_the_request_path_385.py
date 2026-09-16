@@ -191,29 +191,47 @@ def test_a_stale_entry_is_served_while_it_refreshes(monkeypatch) -> None:
 
     A virtualenv that appeared five minutes ago is not news, and the
     alternative is making someone wait 30 seconds for the same answer.
+
+    The property is "the stale read does not block and does not come
+    back empty" -- deliberately *not* "it returns the old value". An
+    earlier version asserted the latter and failed on macOS, where the
+    background refresh finished before the assertion ran: a correct
+    implementation, a racing test. Either value is fine here; an empty
+    list or a blocked call is not.
     """
-    values = iter([
-        {"available": True, "venvs": [{"path": "/first"}]},
-        {"available": True, "venvs": [{"path": "/second"}]},
-    ])
-    _install(monkeypatch, "python_venvs", lambda: next(values))
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_second_scan():
+        if started.is_set():
+            release.wait(timeout=5)
+            return {"available": True, "venvs": [{"path": "/second"}]}
+        started.set()
+        return {"available": True, "venvs": [{"path": "/first"}]}
+
+    _install(monkeypatch, "python_venvs", slow_second_scan)
     monkeypatch.setattr(spc, "_TTL_SEC", 0.05)
 
-    spc.cached_python_venvs()
+    _call_with_deadline(spc.cached_python_venvs)
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
-        if spc.cached_python_venvs()["cache"]["state"] == "ready":
+        if _call_with_deadline(spc.cached_python_venvs)["cache"]["state"] == "ready":
             break
         time.sleep(0.02)
 
     time.sleep(0.1)                      # let the entry go stale
     t0 = time.monotonic()
-    stale = spc.cached_python_venvs()
+    stale = _call_with_deadline(spc.cached_python_venvs)
     elapsed = time.monotonic() - t0
+    release.set()
 
     assert elapsed < 1.0, "serving a stale entry blocked on the refresh"
-    assert stale["venvs"] == [{"path": "/first"}], (
-        "the stale read should return the previous result, not an empty one")
+    assert stale["cache"]["state"] == "ready", (
+        "a stale entry was downgraded to pending; the previous result "
+        "should keep being served while the refresh runs")
+    assert stale["venvs"], (
+        "the stale read returned an empty list instead of the last known "
+        "result")
 
 
 def test_the_registry_uses_the_cached_probes() -> None:
