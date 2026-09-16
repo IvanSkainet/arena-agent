@@ -256,13 +256,22 @@ def _is_scratch_component(part: str) -> bool:
     """
     if part.startswith("pytest-of-"):
         return True
-    for prefix in ("mcp-dispatch-", "pytest-tmp-"):
-        if not part.startswith(prefix):
-            continue
-        suffix = part[len(prefix):]
-        if len(suffix) == 8 and all(c.isalnum() or c == "_" for c in suffix):
-            return True
-    return False
+    return any(_has_mkdtemp_suffix(part, prefix)
+               for prefix in ("mcp-dispatch-", "pytest-tmp-"))
+
+
+def _has_mkdtemp_suffix(part: str, prefix: str) -> bool:
+    """True if `part` is `prefix` followed by a `mkdtemp` suffix.
+
+    `mkdtemp` appends exactly eight characters from `[a-z0-9_]`. A
+    deliberate name such as `mcp-dispatch-production` does not have
+    that shape, which is the distinction that keeps a real install
+    directory out of the refusal (review).
+    """
+    if not part.startswith(prefix):
+        return False
+    suffix = part[len(prefix):]
+    return len(suffix) == 8 and all(c.isalnum() or c == "_" for c in suffix)
 
 
 def _launcher_refusal(root: Path, vbs: Path, written: dict[str, Any],
