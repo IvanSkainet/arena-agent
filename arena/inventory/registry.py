@@ -683,11 +683,7 @@ def build_registry() -> list[Section]:
         S("firewall_status",  "Firewall",           "agent",    get_firewall_status,_fmt_firewall),
         S("dns_resolvers",    "DNS resolvers",      "agent",    get_dns_resolvers,  _fmt_dns),
         S("env_secret_names", "Env secret names",   "agent",    get_env_secret_names, _fmt_env_secrets),
-        # Served from a background cache, not collected inline: both
-        # walk $HOME to depth 5 and together cost 47s of a 47s
-        # collection on Windows (#385). The first request gets
-        # `cache: {state: pending}` and an empty list; the scan runs
-        # off the request path and later requests get the result.
+        # Background-cached, not inline: both crawl $HOME (#385).
         S("python_venvs",     "Python venvs",       "agent",    cached_python_venvs, _fmt_python_venvs),
         S("git_repos",        "Git repos",          "agent",    cached_git_repos,    _fmt_git_repos),
         S("crontab_entries",  "Crontab",            "agent",    get_crontab_entries,_fmt_crontab),
