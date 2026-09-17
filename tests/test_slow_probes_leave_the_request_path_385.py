@@ -159,6 +159,15 @@ def test_the_first_call_does_not_wait_for_the_scan(monkeypatch) -> None:
     assert result["venvs"] == [], "pending must not invent data"
     assert started.wait(timeout=10), "the background scan never started"
     finish.set()
+    # Wait for the worker to finish before leaving the test. Releasing
+    # the probe is not the same as the refresh being done: the worker
+    # still has to write the file and clear its flag, and `reset_for_tests`
+    # in the fixture would otherwise race that write (review).
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and _mine_in_flight(call_cached):
+        time.sleep(0.01)
+    assert not _mine_in_flight(call_cached), (
+        "the refresh worker was still running at the end of the test")
 
 
 def test_the_result_arrives_once_the_scan_finishes(monkeypatch) -> None:
@@ -391,10 +400,24 @@ def test_concurrent_processes_run_the_probe_once(tmp_path) -> None:
         "spc._cached('python_venvs', probe)\n"
     ) % (str(REPO_ROOT), str(tmp_path))
 
-    procs = [subprocess.Popen([sys.executable, "-c", code], env=env)
-             for _ in range(3)]
-    for proc in procs:
-        proc.wait(timeout=90)
+    procs: list[subprocess.Popen] = []
+    try:
+        for _ in range(3):
+            procs.append(subprocess.Popen([sys.executable, "-c", code],
+                                          env=env))
+        codes = [proc.wait(timeout=90) for proc in procs]
+    finally:
+        # Reaped in a finally so a spawn or wait failure cannot leak
+        # children into the rest of the suite (review).
+        for proc in procs:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+
+    assert codes == [0, 0, 0], (
+        f"child exit codes were {codes}; a process that crashed before "
+        "reaching the scan looks exactly like one the claim correctly "
+        "turned away (review)")
 
     ran = list(tmp_path.glob("ran-*"))
     assert len(ran) == 1, (

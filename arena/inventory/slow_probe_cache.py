@@ -202,8 +202,13 @@ def _claim(name: str) -> bool:
                 claim.unlink(missing_ok=True)
                 _LOG.warning("reclaimed a stale inventory scan lock for %s",
                              name)
-        except OSError:
-            pass
+        except OSError as exc:
+            # Not fatal -- the caller simply does not refresh this time
+            # -- but silence here means a claim nobody can stat or
+            # unlink blocks every future refresh with no explanation
+            # (review).
+            _LOG.warning("could not inspect the inventory scan lock for "
+                         "%s: %s", name, exc)
         return False
     except OSError as exc:
         # No claim file means no cross-process guard, but refusing to
@@ -246,6 +251,12 @@ def _start_refresh(name: str, collector: Callable[[], dict]) -> None:
         # that never started (review).
         with _refresh_lock:
             _refreshing.discard(name)
+        # And the claim file, which `_refresh`'s `finally` would have
+        # released had the worker ever reached it. Without this the
+        # cross-process guard stays held for the full stale window --
+        # five minutes in which no process will refresh, because every
+        # one of them sees a claim owned by nobody (review).
+        _release(name)
         raise
 
 
@@ -316,6 +327,7 @@ def _delete_stored_results() -> None:
         try:
             _cache_path(name).unlink()
         except FileNotFoundError:
+            # Already gone is the expected case, not a problem.
             pass
         except OSError as exc:
             # Anything else means the next test may read stale state,
