@@ -316,8 +316,14 @@ def _await_quiet_refreshes(timeout: float) -> None:
             if not _refreshing:
                 return
         time.sleep(0.01)
+    # Snapshot under the lock: building this message from the live set
+    # can read it mid-mutation, which either reports a misleading set or
+    # raises "Set changed size during iteration" *from the failure
+    # path* -- turning a clear diagnostic into a confusing one (review).
+    with _refresh_lock:
+        still = sorted(_refreshing)
     raise AssertionError(
-        f"refreshes still in flight after {timeout}s: {sorted(_refreshing)}")
+        f"refreshes still in flight after {timeout}s: {still}")
 
 
 def _delete_stored_results() -> None:
