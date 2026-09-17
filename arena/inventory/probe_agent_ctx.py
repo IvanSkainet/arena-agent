@@ -29,10 +29,48 @@ from arena.inventory.probe_common import (
     datetime,
     os,
     platform,
+    time,
     timezone,
 )
 
 # ------------------------------------------------------------------ python_venvs
+
+# Wall-clock ceiling for the two probes that walk $HOME.
+#
+# Both crawl to depth 5 looking for `pyvenv.cfg` / `.git`, and on the
+# reporting machine that cost 31.6s and 15.7s -- 54% of a 46-probe
+# collection that was itself brushing a 90s timeout (#385). The depth
+# limit bounds how *deep* they go, not how *long*: a wide home
+# directory with Defender in the stat path is unbounded in practice.
+#
+# A time budget bounds it directly. Partial results are the right
+# trade here: these probes exist so an agent can spot an existing venv
+# or an uncommitted repo, and fifteen of those found in two seconds is
+# more useful than all of them found in thirty. `truncated` says so
+# out loud rather than letting the caller assume the list is complete.
+_WALK_BUDGET_SEC = 2.0
+
+
+class _Budget:
+    """A deadline shared by one walk.
+
+    Deliberately not a global: two probes run concurrently in the same
+    process (#386), so a module-level deadline would have them expire
+    each other.
+    """
+
+    def __init__(self, seconds: float = _WALK_BUDGET_SEC) -> None:
+        self.seconds = seconds
+        self.deadline = time.monotonic() + seconds
+        self.expired = False
+
+    def spent(self) -> bool:
+        if self.expired:
+            return True
+        if time.monotonic() >= self.deadline:
+            self.expired = True
+        return self.expired
+
 
 def get_python_venvs(scan_root: str | None = None, limit: int = 15) -> dict:
     """Find virtualenvs under $HOME and report each one's Python version
@@ -49,6 +87,7 @@ def get_python_venvs(scan_root: str | None = None, limit: int = 15) -> dict:
     # ``Scripts\activate.bat`` (Windows) AND a ``pyvenv.cfg`` next to
     # them. We stop at depth 5 so we don't crawl node_modules for an hour.
     seen: set[str] = set()
+    budget = _Budget()
 
     def _is_venv(p: Path) -> bool:
         return (p / "pyvenv.cfg").is_file() and (
@@ -58,13 +97,15 @@ def get_python_venvs(scan_root: str | None = None, limit: int = 15) -> dict:
         )
 
     def _walk(root: Path, depth: int = 0) -> None:
-        if depth > 5 or len(info["venvs"]) >= limit:
+        if depth > 5 or len(info["venvs"]) >= limit or budget.spent():
             return
         try:
             entries = list(root.iterdir())
         except (PermissionError, OSError):
             return
         for e in entries:
+            if budget.spent():
+                return
             if not e.is_dir():
                 continue
             # Skip trash directories that never contain a venv.
@@ -90,6 +131,15 @@ def get_python_venvs(scan_root: str | None = None, limit: int = 15) -> dict:
     _walk(home)
     info["available"] = bool(info["venvs"])
     info["scanned_root"] = str(home)
+    if budget.spent():
+        # Stated, not implied: without this the caller cannot tell a
+        # home with two venvs from a scan that gave up after two.
+        info["truncated"] = True
+        # The budget actually applied, not the module default: a caller
+        # reading "2.0s" from a walk that was given 0.5s would be
+        # debugging the wrong number.
+        info["truncated_reason"] = (
+            f"scan stopped after {budget.seconds}s; results are partial")
     return info
 
 
@@ -142,15 +192,18 @@ def get_git_repos(scan_root: str | None = None, limit: int = 30) -> dict:
     # backing-store paths (/var/mnt/.../foo).
     seen_real: set[str] = set()
     found: list[Path] = []
+    budget = _Budget()
 
     def _walk(root: Path, depth: int = 0) -> None:
-        if depth > 5 or len(found) >= limit:
+        if depth > 5 or len(found) >= limit or budget.spent():
             return
         try:
             entries = list(root.iterdir())
         except (PermissionError, OSError):
             return
         for e in entries:
+            if budget.spent():
+                return
             if not e.is_dir():
                 continue
             if e.name in ("node_modules", ".cache", "__pycache__",

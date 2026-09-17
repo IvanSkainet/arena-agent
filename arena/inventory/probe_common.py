@@ -11,6 +11,7 @@ import shutil
 import socket  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import subprocess
 import sys  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import time  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from datetime import datetime, timezone
 from pathlib import Path  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from typing import Any, Optional
