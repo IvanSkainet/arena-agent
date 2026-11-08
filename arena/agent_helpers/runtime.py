@@ -43,8 +43,19 @@ def put_fact(key: str, value: str, tags: list[str] | None = None) -> None:
     rec = {"ts": now_iso(), "type": "fact",
            "key": key, "value": value,
            "tags": tags or []}
-    with FACTS.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(rec, ensure_ascii=False, sort_keys=True) + "\n")
+    # Preserve an unfinished tail but separate it from the new record. Without
+    # this newline, one interrupted writer causes the next successful `put`
+    # to be concatenated with invalid JSON and silently skipped by the importer.
+    with FACTS.open("a+b") as f:
+        f.seek(0, 2)
+        size = f.tell()
+        separator = b""
+        if size:
+            f.seek(-1, 2)
+            if f.read(1) != b"\n":
+                separator = b"\n"
+        encoded = (json.dumps(rec, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+        f.write(separator + encoded)
     try:
         FACTS.chmod(0o600)
     except OSError:

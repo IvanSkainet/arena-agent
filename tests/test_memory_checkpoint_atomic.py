@@ -92,3 +92,16 @@ def test_non_scalar_fields_do_not_block_following_record(tmp_path):
     init_memory_db(db_path=db, jsonl_path=source)
     assert _value(db, "good") == "yes"
     assert _value(db, "bad") is None
+
+
+def test_real_writer_after_torn_tail_preserves_new_fact(tmp_path, monkeypatch):
+    from arena.agent_helpers import runtime
+
+    db, source = tmp_path / "facts.db", tmp_path / "facts.jsonl"
+    init_memory_db(db_path=db, jsonl_path=source)
+    source.write_text('{"key":"partial", "value":', encoding="utf-8")
+    monkeypatch.setattr(runtime, "FACTS", source)
+    runtime.put_fact("next", "saved")
+    migrate_jsonl_facts(db_path=db, jsonl_path=source)
+    assert source.read_text(encoding="utf-8").startswith('{"key":"partial", "value":\n')
+    assert _value(db, "next") == "saved"
