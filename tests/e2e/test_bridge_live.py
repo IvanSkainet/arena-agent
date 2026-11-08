@@ -121,11 +121,17 @@ def bridge(tmp_path_factory):
         "serve", "--bind", "127.0.0.1", "--port", str(port),
         "--token", token, "--root", str(REPO_ROOT),
     ]
+    # State goes to the agent home, not the checkout (#B-019): point it at a
+    # temp dir so the token this test rotates is not the developer's own.
+    agent_home = tmp_path_factory.mktemp("agent-home")
+    env = {**os.environ, "ARENA_AGENT_HOME": str(agent_home)}
+    env.pop("ARENA_TOKEN_FILE", None)
     proc = subprocess.Popen(
-        argv, cwd=str(tmp_path_factory.mktemp("bridge-cwd")),
+        argv, cwd=str(tmp_path_factory.mktemp("bridge-cwd")), env=env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
     client = BridgeClient(port, token)
+    client.agent_home = agent_home
     deadline = time.monotonic() + STARTUP_TIMEOUT_S
     last_err: Exception | None = None
     while time.monotonic() < deadline:
@@ -375,7 +381,9 @@ def test_token_regeneration_rotates_the_live_bearer_and_writes_the_file(bridge):
     the new credential just like a real operator would after clicking
     "Restart Bridge".
     """
-    token_file = REPO_ROOT / "token.txt"
+    # The token lives in the agent home since 4.170.0+ (#B-029), not next to
+    # unified_bridge.py. The fixture pins ARENA_AGENT_HOME to a temp dir.
+    token_file = bridge.agent_home / "token.txt"
     previous = token_file.read_bytes() if token_file.exists() else None
     previous_mode = token_file.stat().st_mode & 0o777 if token_file.exists() else None
     old_token = bridge.token
