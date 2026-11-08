@@ -76,35 +76,51 @@ def test_token_path_follows_arena_token_file(monkeypatch, tmp_path):
 
 
 def _python_sources():
-    return [p for p in ARENA.rglob("*.py") if "__pycache__" not in p.parts]
+    """Package sources except the resolver itself — it is the one place allowed."""
+    return [
+        p for p in ARENA.rglob("*.py")
+        if "__pycache__" not in p.parts and p.name != "home.py"
+    ]
+
+
+STANDALONE_HOME = re.compile(r"Path\.home\(\)[\s/]*[,'\"]\s*arena-bridge")
+HOME_LITERAL = re.compile(r'Path\.home\(\)\s*/\s*"arena-bridge"')
+HOME_ENV = re.compile(r'environ\.get\("ARENA_AGENT_HOME')
+
+
+def _scan_file(path: Path, pattern: re.Pattern[str]) -> list[str]:
+    """Offending lines of one file, as ``file:line`` — no nesting, no early exits."""
+    return [
+        f"{path.relative_to(REPO_ROOT)}:{number}"
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if pattern.search(line) and not _is_exempt(line)
+    ]
+
+
+def _is_exempt(line: str) -> bool:
+    """The one deliberate exception: the historical token location.
+
+    Kept as a last-resort *read* fallback for installs that predate
+    ``arena.home``; ``token_path`` documents why.
+    """
+    return "token.txt" in line or "token_path_for" in line
+
+
+def _scan(paths: list[Path], pattern: re.Pattern[str]) -> list[str]:
+    hits: list[str] = []
+    for path in paths:
+        hits.extend(_scan_file(path, pattern))
+    return hits
 
 
 def test_no_module_rederives_the_home_directory():
     """A fourth copy of the resolver is how the first three drifted apart."""
-    offenders = []
-    pattern = re.compile(r'Path\.home\(\)\s*/\s*"arena-bridge"')
-    for path in _python_sources():
-        if path.name == "home.py":
-            continue
-        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            if not pattern.search(line):
-                continue
-            # The one deliberate exception: the historical token location, kept
-            # as a last-resort fallback for installs that predate this module.
-            if "token.txt" in line or "token_path_for" in line:
-                continue
-            offenders.append(f"{path.relative_to(REPO_ROOT)}:{lineno}")
+    offenders = _scan(_python_sources(), HOME_LITERAL)
     assert not offenders, "дома переопределены мимо arena/home.py: " + ", ".join(offenders)
 
 
 def test_no_module_reads_arena_agent_home_directly():
-    offenders = []
-    for path in _python_sources():
-        if path.name == "home.py":
-            continue
-        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            if 'environ.get("ARENA_AGENT_HOME' in line:
-                offenders.append(f"{path.relative_to(REPO_ROOT)}:{lineno}")
+    offenders = _scan(_python_sources(), HOME_ENV)
     assert not offenders, (
         "ARENA_AGENT_HOME читается в обход arena/home.py: " + ", ".join(offenders)
     )
@@ -269,16 +285,11 @@ def test_standalone_scripts_do_not_grow_new_home_copies():
     re-growth of the same drift, one helper script at a time, is exactly how the
     first four copies appeared.
     """
-    pattern = re.compile(r"Path\.home\(\)[\s/]*[,'\"]\s*arena-bridge")
-    offenders = []
-    for base in ("scripts", "bin"):
-        for path in (REPO_ROOT / base).rglob("*.py"):
-            if "__pycache__" in path.parts:
-                continue
-            rel = path.relative_to(REPO_ROOT).as_posix()
-            for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                if pattern.search(line) and rel not in STANDALONE_HOME_COPIES:
-                    offenders.append(f"{rel}:{lineno}")
+    bases = [REPO_ROOT / "scripts", REPO_ROOT / "bin"]
+    sources = [p for base in bases for p in sorted(base.rglob("*.py")) if "__pycache__" not in p.parts]
+    offenders = [
+        hit for hit in _scan(sources, STANDALONE_HOME) if hit.split(":")[0] not in STANDALONE_HOME_COPIES
+    ]
     assert not offenders, (
         "новые копии резолвера в standalone-скриптах: "
         + ", ".join(offenders)
