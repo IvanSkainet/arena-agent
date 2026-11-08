@@ -15,6 +15,7 @@ the file by hand was the only recovery -- undiscoverable from the log.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from arena.memory import schema
@@ -22,7 +23,7 @@ from arena.memory.schema import init_memory_db
 
 
 def _seed(db: Path) -> None:
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn, conn:
         conn.execute("CREATE TABLE marker (x TEXT)")
         conn.commit()
 
@@ -37,7 +38,7 @@ def _truncate(db: Path) -> bytes:
 
 def _assert_unreadable(db: Path) -> None:
     try:
-        with sqlite3.connect(db) as conn:
+        with closing(sqlite3.connect(db)) as conn, conn:
             conn.execute("SELECT 1 FROM sqlite_master").fetchall()
     except sqlite3.DatabaseError:
         return
@@ -55,9 +56,20 @@ def test_a_corrupt_database_does_not_raise_out_of_startup(tmp_path):
     # Authored as "must not raise" rather than "must not raise DatabaseError":
     # a fix that swapped the exception for a different one would still brick
     # startup, which is the thing being prevented.
-    init_memory_db(db_path=db, jsonl_path=tmp_path / "memory" / "facts.jsonl")
+    messages: list[str] = []
+    try:
+        init_memory_db(
+            db_path=db,
+            jsonl_path=tmp_path / "memory" / "facts.jsonl",
+            log_error=lambda fmt, *args: messages.append(fmt % args if args else fmt),
+        )
+    except sqlite3.DatabaseError as exc:
+        raise AssertionError(
+            f"SQLite {sqlite3.sqlite_version}, code={getattr(exc, 'sqlite_errorcode', None)}, "
+            f"name={getattr(exc, 'sqlite_errorname', None)}, recovery log={messages!r}"
+        ) from exc
 
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn, conn:
         tables = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()}
@@ -109,7 +121,7 @@ def test_a_healthy_database_is_left_completely_alone(tmp_path):
     db = tmp_path / "memory" / "facts.db"
     db.parent.mkdir(parents=True)
     init_memory_db(db_path=db, jsonl_path=tmp_path / "memory" / "facts.jsonl")
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn, conn:
         conn.execute(
             "INSERT OR REPLACE INTO memory_facts (profile, key, value, tags, timestamp)"
             " VALUES ('default', 'survivor', 'still here', '[]', '2026-11-07T00:00:00+00:00')"
@@ -119,7 +131,7 @@ def test_a_healthy_database_is_left_completely_alone(tmp_path):
     init_memory_db(db_path=db, jsonl_path=tmp_path / "memory" / "facts.jsonl")
 
     assert not list(db.parent.glob("facts.db.corrupt-*")), "healthy file was quarantined"
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn, conn:
         row = conn.execute("SELECT value FROM memory_facts WHERE key='survivor'").fetchone()
     assert row == ("still here",), "a healthy restart lost a fact"
 
@@ -129,7 +141,7 @@ def test_facts_survive_when_only_the_sidecars_are_stale(tmp_path):
     db = tmp_path / "memory" / "facts.db"
     db.parent.mkdir(parents=True)
     init_memory_db(db_path=db, jsonl_path=tmp_path / "memory" / "facts.jsonl")
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn, conn:
         conn.execute(
             "INSERT OR REPLACE INTO memory_facts (profile, key, value, tags, timestamp)"
             " VALUES ('default', 'kept', 'yes', '[]', '2026-11-07T00:00:00+00:00')"
@@ -140,7 +152,7 @@ def test_facts_survive_when_only_the_sidecars_are_stale(tmp_path):
 
     init_memory_db(db_path=db, jsonl_path=tmp_path / "memory" / "facts.jsonl")
 
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn, conn:
         row = conn.execute("SELECT value FROM memory_facts WHERE key='kept'").fetchone()
     assert row is not None and row[0] == "yes", "a stale sidecar cost us a fact"
 

@@ -34,14 +34,33 @@ def init_memory_db(*, db_path: Path, jsonl_path: Path, log_error: Callable[..., 
     except sqlite3.DatabaseError as exc:
         # Locking, I/O, full disk and unsupported features are not corruption.
         # Moving a healthy database on those errors would lose live state.
-        code = getattr(exc, "sqlite_errorcode", None)
-        if not isinstance(code, int) or (code & 0xff) not in (getattr(sqlite3, "SQLITE_CORRUPT", 11), getattr(sqlite3, "SQLITE_NOTADB", 26)):
+        if not _is_corruption_error(exc):
             raise
         quarantined = _quarantine_db(db_path, exc, log_error)
         if quarantined is None:
             raise
         _prepare_memory_db(db_path)
     migrate_jsonl_facts(db_path=db_path, jsonl_path=jsonl_path, log_error=log_error)
+
+
+def _is_corruption_error(exc: sqlite3.DatabaseError) -> bool:
+    """Fail closed except for SQLite's corruption codes or exact legacy messages.
+
+    Python 3.10 does not expose sqlite_errorcode on exceptions. In that case
+    accept only the two canonical SQLite messages and the plain DatabaseError
+    type, not OperationalError or loosely matched text. When a code is present,
+    it always takes precedence over the message.
+    """
+    code = getattr(exc, "sqlite_errorcode", None)
+    if isinstance(code, int):
+        return (code & 0xff) in (
+            getattr(sqlite3, "SQLITE_CORRUPT", 11),
+            getattr(sqlite3, "SQLITE_NOTADB", 26),
+        )
+    return type(exc) is sqlite3.DatabaseError and str(exc) in (
+        "database disk image is malformed",
+        "file is not a database",
+    )
 
 
 def _prepare_memory_db(db_path: Path) -> None:
