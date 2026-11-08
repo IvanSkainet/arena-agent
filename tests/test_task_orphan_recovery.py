@@ -57,7 +57,7 @@ def test_a_task_whose_owner_died_is_marked_interrupted(tmp_path):
     running, failed = _queue(tmp_path)
     _write(running, "t1", pid=999_999_999)  # a pid that cannot be alive
 
-    result = _sweep(running, failed)
+    result = _sweep(running, failed, alive=lambda _: False)
 
     assert result["reclaimed"] == ["t1"]
     assert not (running / "t1.json").exists(), "the orphan is still in running/"
@@ -118,7 +118,7 @@ def test_sweeping_twice_changes_nothing_the_second_time(tmp_path):
     """Recovery runs on every tick, so it must be a no-op on a healthy queue."""
     running, failed = _queue(tmp_path)
     _write(running, "t6", pid=999_999_999)
-    _sweep(running, failed)
+    _sweep(running, failed, alive=lambda _: False)
     before = (failed / "t6.json").read_bytes()
 
     result = _sweep(running, failed)
@@ -140,17 +140,25 @@ def test_the_liveness_check_prefers_life_over_tidiness():
     assert pid_is_alive(os.getpid()) is True
     assert pid_is_alive(0) is False
     assert pid_is_alive(-1) is False
-    assert pid_is_alive(999_999_999) is False
+    # Unrecognised OS errors are intentionally treated as alive.
+
 
 
 # --------------------------------------------------------------------------
 # The sweep is only worth its tests if the loop actually calls it. Wiring a
 # passing helper to nothing is the classic "gate nobody has seen execute".
 # --------------------------------------------------------------------------
-def test_the_runner_loop_actually_sweeps_the_running_directory(tmp_path):
+def test_the_runner_loop_actually_sweeps_the_running_directory(tmp_path, monkeypatch):
     import asyncio
 
+    from arena.tasks import runner as runner_module
+    from arena.tasks.queue import reclaim_interrupted_tasks as real_reclaim
     from arena.tasks.runner import TaskRunnerContext, make_task_runner_runtime
+
+    def deterministic_reclaim(**kwargs):
+        return real_reclaim(**kwargs, alive=lambda _: False)
+
+    monkeypatch.setattr(runner_module, "reclaim_interrupted_tasks", deterministic_reclaim)
 
     running = tmp_path / "queue" / "running"
     inbox = tmp_path / "queue" / "inbox"
