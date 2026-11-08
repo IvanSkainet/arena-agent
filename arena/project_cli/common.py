@@ -4,14 +4,15 @@ from __future__ import annotations
 import argparse  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import datetime as dt
 import json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
-import os
 import shutil  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import subprocess
 import sys
 import uuid  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
-from pathlib import Path
+from pathlib import Path  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
+from arena.home import agent_home
+
+ROOT = agent_home()
 PROJECTS = ROOT / "projects"
 CURRENT = PROJECTS / ".current"
 

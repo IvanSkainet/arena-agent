@@ -19,11 +19,11 @@ explicitly; on Windows it equals the pre-existing exec risk surface.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 from arena.autonomy.posture_identity import derive_preset_name
+from arena.home import agent_home
 
 AXES = ("sandbox", "network", "privilege", "filesystem", "runtime")
 SANDBOX_VALUES = ("off", "appcontainer", "systemd", "microvm")
@@ -63,8 +63,7 @@ _cache: dict[str, Any] | None = None
 
 
 def store_path() -> Path:
-    root = Path(os.environ.get("ARENA_AGENT_HOME",
-                               str(Path.home() / "arena-bridge"))).expanduser()
+    root = agent_home()
     return root / "autonomy" / "posture.json"
 
 

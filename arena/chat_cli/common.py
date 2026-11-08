@@ -14,8 +14,10 @@ import time  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from pathlib import Path
 from typing import Any
 
+from arena.home import agent_home
+
 os.umask(0o077)
-HOME = Path(os.environ.get("ARENA_AGENT_HOME", Path.home() / "arena-bridge"))
+HOME = agent_home()
 SESS_DIR = HOME / "memory" / "sessions"
 CURRENT = SESS_DIR / "current"
 AGENTCTL = HOME / "bin" / "agentctl"

@@ -6,7 +6,7 @@ def agents_md_command(args):
     """CLI: project_git.py agents [init|show] — управление AGENTS.md в текущем проекте."""
     import os as _os
     import pathlib as _pl
-    state = _pl.Path.home() / "arena-bridge" / "current_project"
+    state = _pl.agent_home() / "current_project"
     cur = None
     if state.exists():
         cur = state.read_text().strip()
@@ -15,7 +15,7 @@ def agents_md_command(args):
         cur = _os.environ.get("ARENA_CURRENT_PROJECT", "")
     if not cur:
         # последний из projects/
-        proj_root = _pl.Path.home() / "arena-bridge" / "projects"
+        proj_root = _pl.agent_home() / "projects"
         if proj_root.exists():
             dirs = sorted([d for d in proj_root.iterdir() if d.is_dir()],
                           key=lambda p: p.stat().st_mtime, reverse=True)
@@ -26,11 +26,11 @@ def agents_md_command(args):
         return 1
     proj_dir = _pl.Path(cur)
     if not proj_dir.is_absolute():
-        proj_dir = _pl.Path.home() / "arena-bridge" / "projects" / proj_dir
+        proj_dir = _pl.agent_home() / "projects" / proj_dir
     sub = args[0] if args else "show"
     target = proj_dir / "AGENTS.md"
     if sub == "init":
-        tmpl = _pl.Path.home() / "arena-bridge" / "docs" / "AGENTS.md.template"
+        tmpl = _pl.agent_home() / "docs" / "AGENTS.md.template"
         if not tmpl.exists():
             print("template missing:", tmpl)
             return 1

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from arena.home import agent_home
 from arena.mcp.tool_utils import text_content
 from arena.observability.audit_enhanced import (
     classify_action,
@@ -23,8 +24,8 @@ AUDIT_TOOL_NAMES = (
 
 def _audit_path_from_ctx(ctx) -> Path:
     """Resolve the audit.jsonl path from the bridge context."""
-    import os
-    home = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge")))
+    import os  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+    home = agent_home()
     return home / "audit.jsonl"
 
 

@@ -4,14 +4,14 @@ from __future__ import annotations
 import argparse  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import datetime as dt
 import json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
-import os
 import re
 import subprocess
 import textwrap  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import uuid  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
-from pathlib import Path
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
+from arena.home import agent_home
+
+ROOT = agent_home()
 MISSIONS = ROOT / "missions"
 TEMPLATES = ROOT / "missions/templates"
 REPORTS = ROOT / "reports"
@@ -21,11 +21,9 @@ def _fire_mission_hook(event, target, args=None, exit_code=0):
     """Запустить хуки события через hooks_runner. Тихо игнорирует если его нет."""
     try:
         import json as _j
-        import os as _os
-        import pathlib as _pl
         import subprocess as _sp
         import sys as _sys
-        root = _pl.Path(_os.environ.get("ARENA_AGENT_HOME", str(_pl.Path.home() / "arena-bridge")))
+        root = agent_home()
         runner = root / "bin" / "hooks_runner.py"
         if not runner.exists():
             return
@@ -40,11 +38,10 @@ def _fire_mission_hook(event, target, args=None, exit_code=0):
 def _start_recording(mission_id):
     """Опциональная запись экрана через ffmpeg+sd-exec. ENV: ARENA_REC=1."""
     import os as _os
-    import pathlib as _pl
     import subprocess as _sp
     if _os.environ.get("ARENA_REC") != "1":
         return None
-    root = _pl.Path(_os.environ.get("ARENA_AGENT_HOME", str(_pl.Path.home() / "arena-bridge")))
+    root = agent_home()
     rec_dir = root / "reports" / "recordings"
     rec_dir.mkdir(parents=True, exist_ok=True)
     out = rec_dir / f"mission-{mission_id}.mp4"

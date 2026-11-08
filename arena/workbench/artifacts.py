@@ -3,17 +3,17 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import shutil
 import time
 from pathlib import Path
 from typing import Any
 
+from arena.home import agent_home
 from arena.jsonshape import loads_object
 
 
 def home() -> Path:
-    return Path(os.environ.get("ARENA_AGENT_HOME") or (Path.home() / "arena-bridge")).expanduser()
+    return agent_home()
 
 
 def runs_root() -> Path:

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from arena.home import agent_home
 from arena.util import _subprocess_kwargs
 
 TASK = "ArenaUnifiedBridge"
@@ -22,7 +23,9 @@ def _run(cmd: list[str], timeout: int = 15) -> dict[str, Any]:
 
 
 def _root() -> Path:
-    return Path(os.environ.get("ARENA_AGENT_HOME") or Path(__file__).resolve().parents[2]).resolve()
+    # Not the code directory: an install that wrote webhooks on autostart
+    # would otherwise recreate state inside site-packages (#B-006).
+    return agent_home().resolve()
 
 
 def _python_for_scheduler() -> str:

@@ -68,9 +68,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from arena.home import agent_home
+
 
 def resolve_home_path(
     target: str, *, root: Path, home: Path,
+    extra_roots: tuple[Path, ...] | None = None,
 ) -> tuple[Path, None, int] | tuple[None, str, int]:
     """Resolve a caller-supplied path inside the home jail.
 
@@ -101,16 +104,28 @@ def resolve_home_path(
         return None, f"path is not a usable path ({type(exc).__name__})", 400
     if not target_path.is_absolute():
         target_path = root / target_path
+    # The jail is the workspace root (``serve --root``), the agent's own state
+    # directory, and ``home`` as the caller passed it. An agent that cannot read
+    # the queue it just wrote, or the workspace it was pointed at, is not being
+    # kept safe -- it is being kept blind (#B-030). ``extra_roots`` widens it
+    # further for callers that need to.
+    allowed = (
+        home,
+        root,
+        *((agent_home(),) if extra_roots is None else extra_roots),
+    )
     try:
-        target_path.resolve().relative_to(home.resolve())
-    except ValueError:
-        return None, "path outside home directory", 403
+        resolved = target_path.resolve()
+        inside = any(resolved == one.resolve() or one.resolve() in resolved.parents
+                     for one in allowed)
     except (OSError, RuntimeError) as exc:
         # `resolve()` is a syscall too: an over-long component is
         # `OSError: [Errno 36]` and a broken mount is an OSError as well,
         # neither of which the caller can read as "outside the home"
         # (cubic). Same refusal as the expansion above, same reason.
         return None, f"path is not a usable path ({type(exc).__name__})", 400
+    if not inside:
+        return None, "path outside home directory", 403
     return target_path, None, 200
 
 

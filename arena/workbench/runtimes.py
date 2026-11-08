@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 import platform
 import shutil
 import subprocess
@@ -10,6 +9,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from arena.home import agent_home
 from arena.workbench.runtime_fetch import (
     _extract_tar_safe,
     _extract_zip_safe,
@@ -25,7 +25,7 @@ _LUA_LATEST = "https://api.github.com/repos/dyne/luabinaries/releases/latest"
 
 
 def home() -> Path:
-    return Path(os.environ.get("ARENA_AGENT_HOME") or (Path.home() / "arena-bridge")).expanduser()
+    return agent_home()
 
 
 def tools_dir() -> Path:
