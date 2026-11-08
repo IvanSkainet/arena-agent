@@ -223,3 +223,92 @@ def test_the_runner_loop_actually_sweeps_the_running_directory(tmp_path, monkeyp
     )
     assert json.loads((failed / "orphan.json").read_text(encoding="utf-8"))["reason"] == "interrupted"
     assert any("Reclaimed" in line for line in logs), "the reclaim was silent"
+
+
+def test_completed_result_is_not_overwritten_or_reclassified(tmp_path):
+    running, failed = _queue(tmp_path)
+    done = running.parent / "done"
+    done.mkdir()
+    _write(running, "finished", pid=999_999_999)
+    result_path = done / "finished.json"
+    result_path.write_text('{"id":"finished","state":"done","exit_code":0}', encoding="utf-8")
+
+    result = reclaim_interrupted_tasks(
+        running=running, failed=failed, done=done, now_fn=lambda: NOW, alive=lambda _: False,
+    )
+    assert result["reclaimed"] == []
+    assert result_path.read_text(encoding="utf-8") == '{"id":"finished","state":"done","exit_code":0}'
+    assert not (failed / "finished.json").exists()
+
+
+def test_existing_failed_result_is_never_overwritten(tmp_path):
+    running, failed = _queue(tmp_path)
+    failed.mkdir()
+    _write(running, "finished", pid=999_999_999)
+    result_path = failed / "finished.json"
+    result_path.write_text('{"important":"original"}', encoding="utf-8")
+
+    _sweep(running, failed, alive=lambda _: False)
+    assert result_path.read_text(encoding="utf-8") == '{"important":"original"}'
+
+
+def test_reclaim_storage_error_is_reported_and_source_remains(tmp_path, monkeypatch):
+    from arena.tasks import queue
+    running, failed = _queue(tmp_path)
+    _write(running, "orphan", pid=999_999_999)
+
+    def deny(*args, **kwargs):
+        raise PermissionError("link unavailable")
+
+    monkeypatch.setattr(queue.os, "link", deny)
+    result = _sweep(running, failed, alive=lambda _: False)
+    assert result["ok"] is False
+    assert any("link unavailable" in error for error in result["errors"])
+    assert (running / "orphan.json").exists()
+    assert not (failed / "orphan.json").exists()
+
+
+def _race_sweeper(running, failed, barrier, results):
+    from arena.tasks import queue
+
+    original_link = queue.os.link
+
+    def synchronized_link(*args, **kwargs):
+        barrier.wait(timeout=15)
+        return original_link(*args, **kwargs)
+
+    queue.os.link = synchronized_link
+    try:
+        result = queue.reclaim_interrupted_tasks(
+            running=Path(running), failed=Path(failed), now_fn=lambda: NOW, alive=lambda _: False,
+        )
+        results.put(result)
+    except Exception as exc:
+        results.put({"exception": repr(exc)})
+
+
+def test_two_processes_cannot_overwrite_the_same_recovery_result(tmp_path):
+    import multiprocessing
+
+    running, failed = _queue(tmp_path)
+    _write(running, "racing", pid=999_999_999)
+    context = multiprocessing.get_context("spawn")
+    barrier, results = context.Barrier(2), context.Queue()
+    processes = [context.Process(target=_race_sweeper, args=(str(running), str(failed), barrier, results))
+                 for _ in range(2)]
+    for process in processes:
+        process.start()
+    try:
+        for process in processes:
+            process.join(25)
+            assert process.exitcode == 0
+        outputs = [results.get(timeout=5) for _ in processes]
+    finally:
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+                process.join()
+    assert all(result.get("ok") for result in outputs), outputs
+    assert sorted(len(result["reclaimed"]) for result in outputs) == [0, 1]
+    assert not (running / "racing.json").exists()
+    assert json.loads((failed / "racing.json").read_text(encoding="utf-8"))["reason"] == "interrupted"

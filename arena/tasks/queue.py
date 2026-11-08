@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
 import uuid
 from datetime import datetime
@@ -158,6 +159,7 @@ def reclaim_interrupted_tasks(
     running: Path,
     failed: Path,
     now_fn: Callable[[], str],
+    done: Path | None = None,
     alive: Callable[[int], bool] = pid_is_alive,
     grace_seconds: int = 60,
 ) -> dict[str, Any]:
@@ -184,9 +186,11 @@ def reclaim_interrupted_tasks(
     during a live claim or write and cannot safely be declared interrupted.
     """
     reclaimed: list[str] = []
+    errors: list[str] = []
+    done = done if done is not None else running.parent / "done"
     if not running.exists():
         return {"ok": True, "reclaimed": reclaimed}
-    failed.mkdir(parents=True, exist_ok=True)
+    failed.mkdir(parents=True, exist_ok=True, mode=0o700)
     now_epoch = time.time()
     for path in sorted(running.glob("*.json")):
         task: dict[str, Any] = {}
@@ -213,12 +217,39 @@ def reclaim_interrupted_tasks(
         task["finished_at"] = now_fn()
         target = failed / path.name
         try:
-            target.write_text(json.dumps(task, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            # If a previous owner wrote its final result before crashing,
+            # do not replace it with an "interrupted" outcome.
+            if (done / path.name).exists():
+                continue
+            if not _publish_failed_task(target, task):
+                continue  # an existing failed result or another sweeper won
             path.unlink()
-        except OSError:
+        except OSError as exc:
+            errors.append(f"{path.name}: {exc}")
             continue
         reclaimed.append(task["id"])
-    return {"ok": True, "reclaimed": reclaimed}
+    result: dict[str, Any] = {"ok": not errors, "reclaimed": reclaimed}
+    if errors:
+        result["errors"] = errors
+    return result
+
+
+def _publish_failed_task(target: Path, task: dict[str, Any]) -> bool:
+    """Publish a complete private record atomically, without overwriting one."""
+    fd, temp_name = tempfile.mkstemp(prefix=".reclaim-", dir=target.parent)
+    temporary = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps(task, ensure_ascii=False, indent=2) + "\n")
+        try:
+            # A link into the same directory publishes only if the target does
+            # not exist; a second sweeper cannot truncate the winner's result.
+            os.link(temporary, target)
+        except FileExistsError:
+            return False
+        return True
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _past_its_deadline(task: dict[str, Any], now_epoch: float, grace_seconds: int) -> bool:

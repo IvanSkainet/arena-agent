@@ -141,11 +141,13 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
         """Never let recovery of old records stop new work from running."""
         try:
             result = reclaim_interrupted_tasks(
-                running=ctx_.running, failed=ctx_.failed, now_fn=ctx_.utc_now
+                running=ctx_.running, failed=ctx_.failed, done=ctx_.done, now_fn=ctx_.utc_now
             )
         except Exception as e:  # pragma: no cover - defensive, would hide new work
             ctx_.log_error("[TaskRunner] Reclaim (%s) failed: %s", when, e)
             return
+        for error in result.get("errors", []):
+            ctx_.log_error("[TaskRunner] Reclaim (%s): %s", when, error)
         if result.get("reclaimed"):
             ctx_.log_info(
                 "[TaskRunner] Reclaimed %d interrupted task(s) %s: %s",
