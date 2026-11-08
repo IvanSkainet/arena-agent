@@ -15,7 +15,7 @@ Reproduced on a live bridge (2026-11-07 durability round):
     agent_helpers.py put k2 v2  ok   -> a second facts.jsonl appears
     restart                          -> API sees only k1. k2 never arrives.
 
-The importer now keeps a byte offset next to the file and reads only what is
+The importer keeps a transactional SQLite checkpoint and reads only what is
 new, so the legacy file and the live writer share one destination.
 """
 from __future__ import annotations
@@ -88,13 +88,15 @@ def test_nothing_is_read_twice(tmp_path):
     db, jsonl = _home(tmp_path)
     _append(jsonl, ("k1", "v1"))
     _restart(db, jsonl)
-    first_offset = (jsonl.parent / "facts.jsonl.offset").read_text(encoding="utf-8")
+    # An API edit after import must not be overwritten by replay on restart.
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE memory_facts SET value='api edit' WHERE key='k1'")
 
     _restart(db, jsonl)
     _restart(db, jsonl)
 
-    assert (jsonl.parent / "facts.jsonl.offset").read_text(encoding="utf-8") == first_offset
-    assert _keys(db) == {"k1": "v1"}
+    assert _keys(db) == {"k1": "api edit"}
+
 
 
 def test_a_torn_last_line_is_picked_up_on_the_next_start(tmp_path):

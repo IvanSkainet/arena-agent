@@ -1,8 +1,11 @@
 """SQLite schema and migration helpers for memory facts."""
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Callable
 
@@ -109,76 +112,73 @@ def _rebuild_memory_fts(conn: sqlite3.Connection) -> None:
 
 
 def migrate_jsonl_facts(*, db_path: Path, jsonl_path: Path, log_error: Callable[..., None] | None = None) -> None:
-    """Import facts appended to ``facts.jsonl`` since the last import.
+    """Import complete JSONL records with a transactional checkpoint.
 
-    The JSONL file is a *live* writer's target, not only a legacy format:
-    ``scripts/agent_helpers.py put`` still appends to it. The first version of
-    this function read the file once and then renamed it to
-    ``facts.jsonl.migrated``, which made the migration permanent -- every fact
-    that script wrote afterwards was invisible to ``GET /v1/memory`` forever,
-    while the script kept answering ``ok``.
-
-    So the import is incremental instead of one-shot: a byte offset is kept next
-    to the file, only complete lines past that offset are read, and the offset
-    advances by exactly what was consumed. A trailing partial line (a writer
-    killed mid-append) stays unread until it is finished, and a file that shrank
-    -- rotated or truncated by the operator -- resets the offset to zero.
+    The offset and digest live in SQLite alongside the facts. A write lock is
+    acquired *before* inspecting either the checkpoint or source, so two
+    bridge processes cannot replay stale data or commit a stale checkpoint.
+    The hash detects in-place truncation or replacement even when the new
+    file is the same size or larger. An incomplete final line stays pending.
     """
     if not jsonl_path.exists():
         return
-    offset_path = jsonl_path.with_name(jsonl_path.name + ".offset")
-    start = _read_offset(offset_path)
     try:
-        size = jsonl_path.stat().st_size
-    except OSError:
-        return
-    if start > size:  # the file was rotated or truncated under us
-        start = 0
-    if start == size:
-        return
-    payload, consumed = _read_complete_lines(jsonl_path, start)
-    if not payload:
-        return
-    with sqlite3.connect(db_path) as conn:
-        try:
-            for line in payload.split("\n"):
+        with closing(sqlite3.connect(db_path, timeout=30)) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS memory_jsonl_checkpoint "
+                "(source TEXT PRIMARY KEY, offset INTEGER NOT NULL, prefix_hash TEXT NOT NULL)"
+            )
+            source = str(jsonl_path.resolve())
+            row = conn.execute(
+                "SELECT offset, prefix_hash FROM memory_jsonl_checkpoint WHERE source = ?", (source,)
+            ).fetchone()
+            start, digest = (int(row[0]), str(row[1])) if row else (0, "")
+            snapshot = _stable_jsonl_read(jsonl_path, start, digest)
+            if snapshot is None:
+                conn.rollback()
+                return  # source changed during the read; retry on the next start
+            payload, offset, prefix_hash = snapshot
+            for line in payload.decode("utf-8", "replace").split("\n"):
                 _import_jsonl_line(conn, line)
+            conn.execute(
+                "INSERT INTO memory_jsonl_checkpoint(source, offset, prefix_hash) VALUES (?, ?, ?) "
+                "ON CONFLICT(source) DO UPDATE SET offset=excluded.offset, prefix_hash=excluded.prefix_hash",
+                (source, offset, prefix_hash),
+            )
             conn.commit()
-        except Exception as exc:  # noqa: BLE001 - a bad writer must not stop startup
-            if log_error:
-                log_error("[Memory] Failed to migrate facts: %s", exc)
-            return
-    _write_offset(offset_path, start + consumed, log_error)
-
-
-def _read_offset(offset_path: Path) -> int:
-    try:
-        return max(0, int(offset_path.read_text(encoding="utf-8").strip() or "0"))
-    except (OSError, ValueError):
-        return 0
-
-
-def _write_offset(offset_path: Path, value: int, log_error: Callable[..., None] | None) -> None:
-    try:
-        offset_path.write_text(str(value), encoding="utf-8")
-    except OSError as exc:
+    except (OSError, sqlite3.Error, ValueError, TypeError) as exc:
         if log_error:
-            log_error("[Memory] Could not record the facts.jsonl offset (%s); "
-                      "the same lines will be re-imported next start", exc)
+            log_error("[Memory] Failed to migrate facts: %s", exc)
 
 
-def _read_complete_lines(jsonl_path: Path, start: int) -> tuple[str, int]:
-    """Bytes from ``start`` up to and including the last newline, plus its length."""
-    try:
-        with open(jsonl_path, "rb") as handle:
-            handle.seek(start)
-            chunk = handle.read()
-    except OSError:
-        return "", 0
-    cut = chunk.rfind(b"\n") + 1
-    if cut <= 0:
-        return "", 0
-    return chunk[:cut].decode("utf-8", "replace"), cut
+def _stable_jsonl_read(jsonl_path: Path, start: int, expected_hash: str) -> tuple[bytes, int, str] | None:
+    """Read complete records from a consistent snapshot, validating its prefix."""
+    with jsonl_path.open("rb") as handle:
+        before = os.fstat(handle.fileno())
+        hasher = hashlib.sha256()
+        remaining = start if 0 <= start <= before.st_size else 0
+        while remaining:
+            chunk = handle.read(min(remaining, 1024 * 1024))
+            if not chunk:
+                return None
+            hasher.update(chunk)
+            remaining -= len(chunk)
+        if start > before.st_size or start < 0 or (start and hasher.hexdigest() != expected_hash):
+            start = 0
+            handle.seek(0)
+            hasher = hashlib.sha256()
+        data = handle.read()
+        after = os.fstat(handle.fileno())
+        current = jsonl_path.stat()
+        def signature(st):
+            return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns
+        if signature(before) != signature(after) or signature(after) != signature(current):
+            return None
+    cut = data.rfind(b"\n") + 1
+    payload = data[:cut]
+    hasher.update(payload)
+    return payload, start + cut, hasher.hexdigest()
 
 
 def _import_jsonl_line(conn: sqlite3.Connection, line: str) -> None:
@@ -191,6 +191,9 @@ def _import_jsonl_line(conn: sqlite3.Connection, line: str) -> None:
         return  # a torn line is skipped, never fatal: the rest of the file is good
     if not isinstance(item, dict):
         return  # valid JSON scalars and arrays are not fact records
+    if any(not isinstance(item.get(field), (str, int, float, type(None)))
+           for field in ("key", "value", "timestamp", "ts")):
+        return  # JSON arrays/objects are not valid SQLite scalar bindings
     conn.execute(
         """
         INSERT INTO memory_facts (profile, key, value, tags, timestamp)
