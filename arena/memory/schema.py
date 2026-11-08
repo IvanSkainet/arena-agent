@@ -31,6 +31,11 @@ def init_memory_db(*, db_path: Path, jsonl_path: Path, log_error: Callable[..., 
     try:
         _prepare_memory_db(db_path)
     except sqlite3.DatabaseError as exc:
+        # Locking, I/O, full disk and unsupported features are not corruption.
+        # Moving a healthy database on those errors would lose live state.
+        code = getattr(exc, "sqlite_errorcode", None)
+        if not isinstance(code, int) or (code & 0xff) not in (getattr(sqlite3, "SQLITE_CORRUPT", 11), getattr(sqlite3, "SQLITE_NOTADB", 26)):
+            raise
         quarantined = _quarantine_db(db_path, exc, log_error)
         if quarantined is None:
             raise
@@ -67,16 +72,16 @@ def _quarantine_db(
                 db_path, exc, move_error,
             )
         return None
-    for suffix in ("-wal", "-shm"):  # stale sidecars of a corrupt file mislead SQLite
+    for suffix in ("-wal", "-shm"):
+        # A WAL can contain committed data absent from the database file.
+        # Preserve both sidecars next to the quarantined file; never unlink.
         sidecar = db_path.with_name(db_path.name + suffix)
-        try:
-            sidecar.unlink(missing_ok=True)
-        except OSError:
-            pass
+        if sidecar.exists():
+            os.replace(sidecar, target.with_name(target.name + suffix))
     if log_error:
         log_error(
             "[Memory] Database at %s was unreadable (%s); it was moved to %s and a fresh one "
-            "was created. Facts recorded before this point are in the moved file",
+            "will be created; the moved database and sidecars may contain previous facts",
             db_path, exc, target,
         )
     return target
