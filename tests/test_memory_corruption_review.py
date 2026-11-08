@@ -96,3 +96,41 @@ def test_legacy_corruption_error_can_recover_but_other_errors_cannot(tmp_path, m
     schema.init_memory_db(db_path=db, jsonl_path=tmp_path / "facts.jsonl")
     assert calls == 2
     assert list(tmp_path.glob("facts.db.corrupt-*"))[0].read_bytes() == b"not sqlite"
+
+
+def test_sidecar_move_failure_blocks_restart_and_preserves_bytes(tmp_path, monkeypatch):
+    db = tmp_path / "facts.db"
+    wal = tmp_path / "facts.db-wal"
+    db.write_bytes(b"broken db bytes")
+    wal.write_bytes(b"important wal bytes")
+    real_replace = schema.os.replace
+
+    def fail_wal(src, dst):
+        if src == wal:
+            raise PermissionError("sidecar busy")
+        return real_replace(src, dst)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(schema.os, "replace", fail_wal)
+        with pytest.raises(PermissionError, match="sidecar busy"):
+            schema._quarantine_db(db, sqlite3.DatabaseError("corrupt"), None)
+    marker = schema._recovery_marker(db)
+    assert marker.exists()
+    with pytest.raises(RuntimeError, match="recovery is incomplete"):
+        schema.init_memory_db(db_path=db, jsonl_path=tmp_path / "facts.jsonl")
+    assert wal.read_bytes() == b"important wal bytes"
+    assert not db.exists()
+    assert list(tmp_path.glob("facts.db.corrupt-*"))[0].read_bytes() == b"broken db bytes"
+
+
+def test_failed_database_move_removes_marker_without_losing_source(tmp_path, monkeypatch):
+    db = tmp_path / "facts.db"
+    db.write_bytes(b"broken")
+
+    def fail_move(src, dst):
+        raise PermissionError("locked")
+
+    monkeypatch.setattr(schema.os, "replace", fail_move)
+    assert schema._quarantine_db(db, sqlite3.DatabaseError("corrupt"), None) is None
+    assert db.read_bytes() == b"broken"
+    assert not schema._recovery_marker(db).exists()

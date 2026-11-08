@@ -29,6 +29,12 @@ def init_memory_db(*, db_path: Path, jsonl_path: Path, log_error: Callable[..., 
     to degrade to.
     """
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    marker = _recovery_marker(db_path)
+    if marker.exists():
+        raise RuntimeError(
+            f"Memory recovery is incomplete ({marker}); inspect the quarantined database "
+            "and sidecars before removing the marker"
+        )
     try:
         _prepare_memory_db(db_path)
     except sqlite3.DatabaseError as exc:
@@ -72,22 +78,40 @@ def _prepare_memory_db(db_path: Path) -> None:
         _rebuild_memory_fts(conn)
 
 
+def _recovery_marker(db_path: Path) -> Path:
+    return db_path.with_name(db_path.name + ".recovery-incomplete")
+
+
 def _quarantine_db(
     db_path: Path,
     exc: sqlite3.DatabaseError,
     log_error: Callable[..., None] | None,
 ) -> Path | None:
-    """Move an unreadable database aside; return its new name, or None if impossible.
+    """Move an unreadable database and its sidecars aside, retaining failures.
 
-    The name keeps the millisecond timestamp: a bridge that crashes twice in a
-    row must not overwrite the first quarantine with the second, because the
-    first one is the one worth looking at.
+    The marker survives a crash or a partial move. Subsequent startup must not
+    open or create the database while a sidecar remains at its original name.
     """
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     target = db_path.with_name(f"{db_path.name}.corrupt-{stamp}")
+    marker = _recovery_marker(db_path)
+    try:
+        fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except OSError as marker_error:
+        if log_error:
+            log_error("[Memory] Cannot reserve recovery marker %s: %s", marker, marker_error)
+        return None
+    # Record the intended destination before moving any data. If interrupted,
+    # keep the marker even if writing or syncing it fails.
+    with os.fdopen(fd, "w", encoding="utf-8") as marker_file:
+        marker_file.write(f"source: {db_path}\nquarantine: {target}\n")
+        marker_file.flush()
+        os.fsync(marker_file.fileno())
     try:
         os.replace(db_path, target)
     except OSError as move_error:
+        # The source was not moved; no sidecars have been touched.
+        marker.unlink()
         if log_error:
             log_error(
                 "[Memory] Database at %s is unreadable (%s) and could not be moved aside (%s); "
@@ -95,12 +119,20 @@ def _quarantine_db(
                 db_path, exc, move_error,
             )
         return None
-    for suffix in ("-wal", "-shm"):
-        # A WAL can contain committed data absent from the database file.
-        # Preserve both sidecars next to the quarantined file; never unlink.
-        sidecar = db_path.with_name(db_path.name + suffix)
-        if sidecar.exists():
-            os.replace(sidecar, target.with_name(target.name + suffix))
+    try:
+        for suffix in ("-wal", "-shm"):
+            sidecar = db_path.with_name(db_path.name + suffix)
+            if sidecar.exists():
+                os.replace(sidecar, target.with_name(target.name + suffix))
+    except OSError as move_error:
+        if log_error:
+            log_error(
+                "[Memory] Quarantine incomplete for %s: %s. Marker %s blocks restart; "
+                "inspect %s and the original sidecars before clearing it",
+                db_path, move_error, marker, target,
+            )
+        raise
+    marker.unlink()
     if log_error:
         log_error(
             "[Memory] Database at %s was unreadable (%s); it was moved to %s and a fresh one "
