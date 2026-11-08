@@ -109,45 +109,100 @@ def _rebuild_memory_fts(conn: sqlite3.Connection) -> None:
 
 
 def migrate_jsonl_facts(*, db_path: Path, jsonl_path: Path, log_error: Callable[..., None] | None = None) -> None:
+    """Import facts appended to ``facts.jsonl`` since the last import.
+
+    The JSONL file is a *live* writer's target, not only a legacy format:
+    ``scripts/agent_helpers.py put`` still appends to it. The first version of
+    this function read the file once and then renamed it to
+    ``facts.jsonl.migrated``, which made the migration permanent -- every fact
+    that script wrote afterwards was invisible to ``GET /v1/memory`` forever,
+    while the script kept answering ``ok``.
+
+    So the import is incremental instead of one-shot: a byte offset is kept next
+    to the file, only complete lines past that offset are read, and the offset
+    advances by exactly what was consumed. A trailing partial line (a writer
+    killed mid-append) stays unread until it is finished, and a file that shrank
+    -- rotated or truncated by the operator -- resets the offset to zero.
+    """
     if not jsonl_path.exists():
         return
-    migrated_path = jsonl_path.with_suffix(".jsonl.migrated")
-    if migrated_path.exists():
+    offset_path = jsonl_path.with_name(jsonl_path.name + ".offset")
+    start = _read_offset(offset_path)
+    try:
+        size = jsonl_path.stat().st_size
+    except OSError:
+        return
+    if start > size:  # the file was rotated or truncated under us
+        start = 0
+    if start == size:
+        return
+    payload, consumed = _read_complete_lines(jsonl_path, start)
+    if not payload:
         return
     with sqlite3.connect(db_path) as conn:
         try:
-            with open(jsonl_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        item = json.loads(line)
-                        profile = normalize_memory_profile(item.get("profile"))
-                        conn.execute(
-                            """
-                            INSERT INTO memory_facts (profile, key, value, tags, timestamp)
-                            VALUES (?, ?, ?, ?, ?)
-                            ON CONFLICT(profile, key) DO UPDATE SET
-                                value=excluded.value,
-                                tags=excluded.tags,
-                                timestamp=excluded.timestamp
-                            """,
-                            (
-                                profile,
-                                item.get("key", ""),
-                                item.get("value", ""),
-                                json.dumps(item.get("tags", [])),
-                                item.get("timestamp", ""),
-                            ),
-                        )
-                    except json.JSONDecodeError:
-                        pass
+            for line in payload.splitlines():
+                _import_jsonl_line(conn, line)
             conn.commit()
-        except Exception as e:
+        except Exception as exc:  # noqa: BLE001 - a bad writer must not stop startup
             if log_error:
-                log_error("[Memory] Failed to migrate facts: %s", e)
+                log_error("[Memory] Failed to migrate facts: %s", exc)
+            return
+    _write_offset(offset_path, start + consumed, log_error)
+
+
+def _read_offset(offset_path: Path) -> int:
     try:
-        jsonl_path.rename(migrated_path)
+        return max(0, int(offset_path.read_text(encoding="utf-8").strip() or "0"))
+    except (OSError, ValueError):
+        return 0
+
+
+def _write_offset(offset_path: Path, value: int, log_error: Callable[..., None] | None) -> None:
+    try:
+        offset_path.write_text(str(value), encoding="utf-8")
+    except OSError as exc:
+        if log_error:
+            log_error("[Memory] Could not record the facts.jsonl offset (%s); "
+                      "the same lines will be re-imported next start", exc)
+
+
+def _read_complete_lines(jsonl_path: Path, start: int) -> tuple[str, int]:
+    """Bytes from ``start`` up to and including the last newline, plus its length."""
+    try:
+        with open(jsonl_path, "rb") as handle:
+            handle.seek(start)
+            chunk = handle.read()
     except OSError:
-        pass
+        return "", 0
+    cut = chunk.rfind(b"\n") + 1
+    if cut <= 0:
+        return "", 0
+    return chunk[:cut].decode("utf-8", "replace"), cut
+
+
+def _import_jsonl_line(conn: sqlite3.Connection, line: str) -> None:
+    line = line.strip()
+    if not line:
+        return
+    try:
+        item = json.loads(line)
+    except json.JSONDecodeError:
+        return  # a torn line is skipped, never fatal: the rest of the file is good
+    conn.execute(
+        """
+        INSERT INTO memory_facts (profile, key, value, tags, timestamp)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(profile, key) DO UPDATE SET
+            value=excluded.value,
+            tags=excluded.tags,
+            timestamp=excluded.timestamp
+        """,
+        (
+            normalize_memory_profile(item.get("profile")),
+            item.get("key", ""),
+            item.get("value", ""),
+            json.dumps(item.get("tags", [])),
+            item.get("timestamp", ""),
+        ),
+    )
