@@ -40,8 +40,6 @@ def _get_db_path(ctx) -> Path | None:
         cfg = ctx.app_config()
         if "memory_db" in cfg:
             return Path(cfg["memory_db"])
-        if "root" in cfg:
-            return Path(cfg["root"]) / "arena-bridge" / "memory" / "facts.db"
     except Exception:
         pass
     return agent_home() / "memory" / "facts.db"

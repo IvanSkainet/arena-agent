@@ -9,13 +9,13 @@ import subprocess
 import textwrap  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import uuid  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 
-from arena.home import agent_home
+from arena.home import agent_home, code_root
 
 ROOT = agent_home()
 MISSIONS = ROOT / "missions"
 TEMPLATES = ROOT / "missions/templates"
 REPORTS = ROOT / "reports"
-AGENT = ROOT / "bin/agentctl"
+AGENT = code_root() / "bin/agentctl"
 
 def _fire_mission_hook(event, target, args=None, exit_code=0):
     """Запустить хуки события через hooks_runner. Тихо игнорирует если его нет."""
@@ -23,8 +23,7 @@ def _fire_mission_hook(event, target, args=None, exit_code=0):
         import json as _j
         import subprocess as _sp
         import sys as _sys
-        root = agent_home()
-        runner = root / "bin" / "hooks_runner.py"
+        runner = code_root() / "bin" / "hooks_runner.py"
         if not runner.exists():
             return
         _sp.run([_sys.executable, str(runner), "run", event,  # nosemgrep: dangerous-subprocess-use-tainted-env-args -- command string built from a hard-coded literal or from operator-side CLI input (see bandit B602/B603 nosec on the same line)
@@ -46,7 +45,7 @@ def _start_recording(mission_id):
     rec_dir.mkdir(parents=True, exist_ok=True)
     out = rec_dir / f"mission-{mission_id}.mp4"
     # ffmpeg через sd-exec — выходим из bridge cgroup, имеем DISPLAY
-    sd = root / "bin" / "sd-exec"
+    sd = code_root() / "bin" / "sd-exec"
     cmd = [str(sd), "--", "ffmpeg", "-y", "-loglevel", "error",
            "-f", "x11grab", "-framerate", "10", "-i",
            _os.environ.get("DISPLAY", ":0"),

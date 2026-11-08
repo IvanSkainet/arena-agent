@@ -11,7 +11,7 @@ import sys
 import time  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from pathlib import Path
 
-from arena.home import agent_home
+from arena.home import agent_home, code_root
 
 ROOT = agent_home()
 SK = ROOT / "skills"
@@ -26,9 +26,9 @@ def _fire_hook(event: str, target: str, args=None, exit_code: int = 0) -> None:
     try:
         import json as _j
         import subprocess as _sp
-        runner = ROOT / "bin" / "hooks_runner.py"
+        runner = code_root() / "bin" / "hooks_runner.py"
         if not runner.exists():
-            runner = ROOT / "scripts" / "hooks_runner.py"
+            runner = code_root() / "scripts" / "hooks_runner.py"
         if not runner.exists():
             return
         _sp.run([sys.executable, str(runner), "run", event,  # nosemgrep: dangerous-subprocess-use-tainted-env-args -- command string built from a hard-coded literal or from operator-side CLI input (see bandit B602/B603 nosec on the same line)

@@ -11,11 +11,11 @@ import sys
 import time  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from pathlib import Path
 
-from arena.home import agent_home
+from arena.home import agent_home, code_root
 
 ROOT = agent_home()
-AGENTCTL = ROOT / "bin" / "agentctl"
-_VENV_CANDIDATES = [ROOT / ".venv" / "bin" / "python", ROOT / ".venv" / "Scripts" / "python.exe"]
+AGENTCTL = code_root() / "bin" / "agentctl"
+_VENV_CANDIDATES = [code_root() / ".venv" / "bin" / "python", code_root() / ".venv" / "Scripts" / "python.exe"]
 PY = next((c for c in _VENV_CANDIDATES if c.exists()), None)
 if PY is None:
     for cmd in [sys.executable, "python3", "python"]:

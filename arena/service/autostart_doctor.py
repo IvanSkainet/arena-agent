@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from arena.home import agent_home
+from arena.home import agent_home, code_root
 from arena.util import _subprocess_kwargs
 
 TASK = "ArenaUnifiedBridge"
@@ -84,7 +84,7 @@ def write_windows_launchers(root: Path, *, port: int = 8765,
                 f'cd /d "{root}"',
                 f"set ARENA_AGENT_HOME={root}",
                 f"set ARENA_TOKEN_FILE={token_file}",
-                f'{python} -u unified_bridge.py serve --profile {profile} '
+                f'{python} -u "{code_root() / "unified_bridge.py"}" serve --profile {profile} '
                 f"--port {port}",
             ]) + "\r\n").encode("utf-8"))
         created.append(bat.name)

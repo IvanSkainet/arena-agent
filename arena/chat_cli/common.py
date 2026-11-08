@@ -14,13 +14,13 @@ import time  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from pathlib import Path
 from typing import Any
 
-from arena.home import agent_home
+from arena.home import agent_home, code_root
 
 os.umask(0o077)
 HOME = agent_home()
 SESS_DIR = HOME / "memory" / "sessions"
 CURRENT = SESS_DIR / "current"
-AGENTCTL = HOME / "bin" / "agentctl"
+AGENTCTL = code_root() / "bin" / "agentctl"
 DESTRUCTIVE = re.compile(
     r"(\brm\s+-rf?\b|\bmkfs\b|\bdd\s+if=|\bshutdown\b|\breboot\b|:\(\)\{|"
     r"\bchmod\s+-R\s+777\b|curl\s+[^|]*\|\s*(sh|bash)\b|wget\s+[^|]*\|\s*(sh|bash)\b|"
