@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from arena.files.sandbox import resolve_home_path
+from arena.files.sandbox import validate_watch_target
 
 
 @dataclass(frozen=True)
@@ -40,15 +40,20 @@ def _matches(path: Path, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(path.name, pat) for pat in patterns)
 
 
-def _snapshot(path: Path, recursive: bool, patterns: list[str], max_files: int) -> tuple[dict[str, tuple[int, int]], bool]:
+def _snapshot(path: Path, recursive: bool, patterns: list[str], max_files: int, *,
+              root: Path, home: Path) -> tuple[dict[str, tuple[int, int]], bool]:
     files: dict[str, tuple[int, int]] = {}
     truncated = False
+    if _resolve_target(str(path), root=root, home=home) is None:
+        return files, False
     if path.is_file():
         st = path.stat()
         files[str(path)] = (st.st_mtime_ns, st.st_size)
         return files, False
     iterator = path.rglob("*") if recursive else path.glob("*")
     for entry in iterator:
+        if _resolve_target(str(entry), root=root, home=home) is None:
+            continue
         if not entry.is_file() or not _matches(entry, patterns):
             continue
         st = entry.stat()
@@ -62,7 +67,7 @@ def _snapshot(path: Path, recursive: bool, patterns: list[str], max_files: int) 
 
 def _resolve_target(target: str, *, root: Path, home: Path) -> Path | None:
     """Use the same jail as the HTTP handler; never raise on an invalid path."""
-    resolved, _error, _status = resolve_home_path(target, root=root, home=home)
+    resolved, _error, _status = validate_watch_target(target, root=root, home=home)
     return resolved
 
 
@@ -105,10 +110,14 @@ def make_file_watch_runtime(ctx: FileWatchRuntimeContext) -> FileWatchRuntime:
         if not resolved.exists():
             return {"ok": False, "error": "path not found", "status": 404}
         clean_patterns = [str(p).strip() for p in (patterns or []) if str(p).strip()][:20]
-        snapshot, truncated = _snapshot(resolved, bool(recursive), clean_patterns, ctx.max_files_per_watch)
+        snapshot, truncated = _snapshot(
+            resolved, bool(recursive), clean_patterns, ctx.max_files_per_watch,
+            root=root_path, home=ctx.home,
+        )
         wid = uuid.uuid4().hex[:10]
         meta = {
             "path": str(resolved),
+            "root": str(root_path),
             "recursive": bool(recursive),
             "patterns": clean_patterns,
             "label": str(label or "").strip(),
@@ -147,7 +156,10 @@ def make_file_watch_runtime(ctx: FileWatchRuntimeContext) -> FileWatchRuntime:
             for wid, meta in current:
                 path = Path(meta["path"])
                 try:
-                    snapshot, truncated = _snapshot(path, meta["recursive"], list(meta["patterns"]), ctx.max_files_per_watch)
+                    snapshot, truncated = _snapshot(
+                        path, meta["recursive"], list(meta["patterns"]), ctx.max_files_per_watch,
+                        root=Path(meta["root"]), home=ctx.home,
+                    )
                 except FileNotFoundError:
                     snapshot, truncated = {}, False
                 previous = meta.get("snapshot", {})

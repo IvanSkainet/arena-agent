@@ -124,3 +124,49 @@ def test_the_two_jails_agree_on_what_is_inside(tmp_path):
         result = _add(runtime, str(candidate), workspace)
         runtime_says_inside = result.get("error") != "path outside home directory"
         assert runtime_says_inside is jail_says_inside, (candidate, error, result)
+
+
+def test_watcher_rejects_secret_target_and_skips_secret_entries(tmp_path, monkeypatch):
+    import os
+    if os.name == "nt":
+        pytest.skip("symlink creation may require Windows privileges")
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(home))
+    (home / ".ssh").mkdir()
+    (home / ".ssh" / "hidden").write_text("secret")
+    (home / "token.txt").write_text("secret")
+    (home / "visible.txt").write_text("ok")
+    (home / "alias.txt").symlink_to(home / "token.txt")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("external")
+    (home / "outside-alias.txt").symlink_to(outside)
+    runtime = _runtime(home=home, root=home)
+    assert _add(runtime, str(home / "token.txt"), home)["status"] == 403
+    result = runtime.add_sync(path=str(home), root=home, recursive=True, patterns=[], label="", created_at="now")
+    assert result["ok"]
+    snapshot = runtime.state["watchers"][result["id"]]["snapshot"]
+    assert set(snapshot) == {str(home / "visible.txt")}
+
+
+def test_snapshot_rechecks_watch_root_after_symlink_is_retargeted(tmp_path, monkeypatch):
+    from arena.filewatch.runtime import _snapshot
+
+    home, outside = tmp_path / "home", tmp_path / "outside"
+    inside = home / "inside"
+    inside.mkdir(parents=True)
+    outside.mkdir()
+    (inside / "safe.txt").write_text("safe")
+    (outside / "private.txt").write_text("private")
+    alias = home / "watch"
+    try:
+        alias.symlink_to(inside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink unavailable: {exc}")
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(home))
+    first, _ = _snapshot(alias, True, [], 50, root=home, home=home)
+    assert str(alias / "safe.txt") in first
+    alias.unlink()
+    alias.symlink_to(outside, target_is_directory=True)
+    second, _ = _snapshot(alias, True, [], 50, root=home, home=home)
+    assert second == {}

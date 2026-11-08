@@ -269,16 +269,17 @@ def _contains_part_seq(parts: tuple[str, ...], want: tuple[str, ...]) -> bool:
 def _execution_on_write_error(target_path: Path, home: Path, *,
                               action: str) -> tuple[str, int] | None:
     """Refuse writes that would run code later. ``None`` when the path is clear."""
-    if target_path.name in EXECUTION_ON_WRITE_BASENAMES:
+    blocked_names = {name.casefold() for name in EXECUTION_ON_WRITE_BASENAMES}
+    if any(name.casefold() in blocked_names for name in (target_path.name, target_path.resolve().name)):
         return (f"{action} {target_path.name} is not allowed: it is executed "
                 "on shell startup, so writing it would be code execution"), 403
     try:
         rel = target_path.resolve().relative_to(home.resolve())
     except (ValueError, OSError):
         return None  # outside home: the caller's own root check owns that
-    parts = rel.parts
+    parts = tuple(part.casefold() for part in rel.parts)
     for prefix in sorted(EXECUTION_ON_WRITE_DIR_PREFIXES):
-        want = tuple(prefix.split("/"))
+        want = tuple(prefix.casefold().split("/"))
         if _contains_part_seq(parts, want):
             return (f"{action} files under {prefix}/ is not allowed: "
                     "they are executed or auto-started"), 403
@@ -312,11 +313,11 @@ def _path_hits_sensitive_prefix(target_path: Path, home: Path) -> str | None:
         # Path escaped home; the caller already returned 403 for
         # that case, this is belt+suspenders.
         return None
-    parts = rel.parts
+    parts = tuple(part.casefold() for part in rel.parts)
     if not parts:
         return None
     for prefix in SENSITIVE_DIR_PREFIXES:
-        segs = prefix.split("/")
+        segs = prefix.casefold().split("/")
         # Single-segment prefix: match anywhere in the path.
         if len(segs) == 1:
             if segs[0] in parts:
@@ -341,7 +342,8 @@ def _sensitivity_error(target_path: Path, home: Path, *,
     message ("reading", "editing", "creating") so the same
     helper stays generic across every fs verb.
     """
-    if target_path.name in SENSITIVE_FILE_BASENAMES:
+    blocked_names = {name.casefold() for name in SENSITIVE_FILE_BASENAMES}
+    if any(name.casefold() in blocked_names for name in (target_path.name, target_path.resolve().name)):
         return f"{action} {target_path.name} is not allowed", 403
     hit = _path_hits_sensitive_prefix(target_path, home)
     if hit is not None:
@@ -357,6 +359,21 @@ def _policy_base(target_path: Path) -> Path:
     lets a wider jail silently bypass the existing sensitive/write policies.
     """
     return Path(target_path.resolve().anchor)
+
+
+def validate_watch_target(target: str, *, root: Path, home: Path) -> tuple[Path | None, str | None, int]:
+    """Apply the same containment and sensitivity policy to watch metadata."""
+    path, error, status = resolve_home_path(target, root=root, home=home)
+    if error:
+        return None, error, status
+    assert path is not None
+    try:
+        sensitivity = _sensitivity_error(path, _policy_base(path), action="watching")
+    except (OSError, RuntimeError):
+        return None, "watch path is not usable", 400
+    if sensitivity is not None:
+        return None, sensitivity[0], sensitivity[1]
+    return path, None, 200
 
 
 def validate_upload_target(target: str, *, root: Path, home: Path, bridge_py: Path) -> tuple[Path | None, str | None, int]:
