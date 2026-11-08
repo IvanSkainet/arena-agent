@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from arena.files.sandbox import resolve_home_path
+
 
 @dataclass(frozen=True)
 class FileWatchRuntimeContext:
@@ -58,13 +60,11 @@ def _snapshot(path: Path, recursive: bool, patterns: list[str], max_files: int) 
 
 
 
-def _resolve_target(target: str, *, root: Path, home: Path) -> Path:
-    p = Path(target).expanduser()
-    if not p.is_absolute():
-        p = root / p
-    resolved = p.resolve()
-    resolved.relative_to(home.resolve())
+def _resolve_target(target: str, *, root: Path, home: Path) -> Path | None:
+    """Use the same jail as the HTTP handler; never raise on an invalid path."""
+    resolved, _error, _status = resolve_home_path(target, root=root, home=home)
     return resolved
+
 
 
 
@@ -100,6 +100,8 @@ def make_file_watch_runtime(ctx: FileWatchRuntimeContext) -> FileWatchRuntime:
     ) -> dict[str, Any]:
         root_path = Path(root or ctx.default_root)
         resolved = _resolve_target(path, root=root_path, home=ctx.home)
+        if resolved is None:
+            return {"ok": False, "error": "path outside home directory", "status": 403}
         if not resolved.exists():
             return {"ok": False, "error": "path not found", "status": 404}
         clean_patterns = [str(p).strip() for p in (patterns or []) if str(p).strip()][:20]

@@ -9,9 +9,9 @@ Two independent layers of defence:
 
 1. **Home-scope check.** ``resolve_home_path`` resolves the
    requested path through ``expanduser`` + ``resolve`` (which
-   follows symlinks) and rejects anything that lands outside
-   ``$HOME``. Blocks classic path traversal (``../../../etc/passwd``)
-   and symlink-escape (``~/malicious-link -> /etc/shadow``).
+   follows symlinks) and rejects anything outside the caller’s home,
+   the workspace root and the agent state directory. Blocks classic path
+   traversal and symlinks that escape all allowed trees.
 2. **Sensitive-file blocklist.** Even inside the user's home,
    certain files must never be readable / writable via the
    HTTP surface:
@@ -71,6 +71,51 @@ from pathlib import Path
 from arena.home import agent_home
 
 
+def jail_roots(home: Path, root: Path, extra_roots: tuple[Path, ...] | None = None) -> tuple[Path, ...]:
+    """The trees a request may name: the caller's home, the workspace root, and
+    the agent's own state directory (#B-030).
+
+    An agent that cannot read the queue it just wrote, or the workspace it was
+    pointed at, is not being kept safe -- it is being kept blind. ``extra_roots``
+    replaces the state directory for callers that need a different third tree.
+    """
+    third = (agent_home(),) if extra_roots is None else extra_roots
+    return (home, root, *third)
+
+
+def inside_any(resolved: Path, allowed: tuple[Path, ...]) -> bool:
+    """Is `resolved` one of `allowed` or below one of them?
+
+    `Path.relative_to` answers this with `ValueError`, which mixes "outside" in
+    with every other reason a comparison can fail; a membership test says
+    "outside" and nothing else.
+    """
+    return any(resolved == one.resolve() or one.resolve() in resolved.parents for one in allowed)
+
+
+def _validate_target(target: str, root: Path) -> tuple[Path, None] | tuple[None, str]:
+    """The caller's string as a path, or why it is not one.
+
+    Every refusal here is the caller's to correct: a missing or traversing
+    path, an embedded NUL (`resolve()` answers it with `ValueError`, which the
+    boundary check would read as "outside the home" -- a 403 about a question
+    nobody asked, the same call `usable_cwd` makes since #270), and a name that
+    cannot be expanded (`~Qm` names a user with no home and `expanduser`
+    answers that with `RuntimeError` -- a 500 out of a fixable request, #290).
+    """
+    if not target:
+        return None, "missing path"
+    if ".." in Path(target).parts:
+        return None, "path traversal not allowed"
+    if "\x00" in target:
+        return None, "path is not a usable path (embedded NUL)"
+    try:
+        target_path = Path(target).expanduser()
+    except (RuntimeError, OSError, ValueError) as exc:
+        return None, f"path is not a usable path ({type(exc).__name__})"
+    return (target_path if target_path.is_absolute() else root / target_path), None
+
+
 def resolve_home_path(
     target: str, *, root: Path, home: Path,
     extra_roots: tuple[Path, ...] | None = None,
@@ -83,41 +128,13 @@ def resolve_home_path(
     looser form made every following ``target_path.<attr>`` read as an
     attribute access on None -- 16 of the 71 bad-argument-type findings.
     """
-    if not target:
-        return None, "missing path", 400
-    if ".." in Path(target).parts:
-        return None, "path traversal not allowed", 400
-    if "\x00" in target:
-        # `resolve()` answers a NUL with `ValueError`, which the boundary
-        # check below reads as "outside the home" -- a 403 about a question
-        # nobody asked. A string with a NUL in it is not a path at all, the
-        # same call `usable_cwd` makes since #270 (cubic).
-        return None, "path is not a usable path (embedded NUL)", 400
-    try:
-        target_path = Path(target).expanduser()
-    except (RuntimeError, OSError, ValueError) as exc:
-        # `~Qm` names a user who has no home, and `expanduser` answers that
-        # with `RuntimeError` rather than a string -- a 500 out of a request
-        # the caller could fix (#290, found by the #258 fuzzing gate). Same
-        # shape as the `cwd` guard in #270: the filesystem's refusals arrive
-        # as exceptions, and every one of them is the caller's to correct.
-        return None, f"path is not a usable path ({type(exc).__name__})", 400
-    if not target_path.is_absolute():
-        target_path = root / target_path
-    # The jail is the workspace root (``serve --root``), the agent's own state
-    # directory, and ``home`` as the caller passed it. An agent that cannot read
-    # the queue it just wrote, or the workspace it was pointed at, is not being
-    # kept safe -- it is being kept blind (#B-030). ``extra_roots`` widens it
-    # further for callers that need to.
-    allowed = (
-        home,
-        root,
-        *((agent_home(),) if extra_roots is None else extra_roots),
-    )
+    target_path, problem = _validate_target(target, root)
+    if problem is not None:
+        return None, problem, 400
+    assert target_path is not None  # the guard above already proved this
     try:
         resolved = target_path.resolve()
-        inside = any(resolved == one.resolve() or one.resolve() in resolved.parents
-                     for one in allowed)
+        inside = inside_any(resolved, jail_roots(home, root, extra_roots))
     except (OSError, RuntimeError) as exc:
         # `resolve()` is a syscall too: an over-long component is
         # `OSError: [Errno 36]` and a broken mount is an OSError as well,
