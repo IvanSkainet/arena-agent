@@ -1,8 +1,11 @@
 """SQLite schema and migration helpers for memory facts."""
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Callable
 
@@ -109,45 +112,109 @@ def _rebuild_memory_fts(conn: sqlite3.Connection) -> None:
 
 
 def migrate_jsonl_facts(*, db_path: Path, jsonl_path: Path, log_error: Callable[..., None] | None = None) -> None:
+    """Import complete JSONL records with a transactional checkpoint.
+
+    The offset and digest live in SQLite alongside the facts. A write lock is
+    acquired *before* inspecting either the checkpoint or source, so two
+    bridge processes cannot replay stale data or commit a stale checkpoint.
+    The hash detects in-place truncation or replacement even when the new
+    file is the same size or larger. An incomplete final line stays pending.
+    """
     if not jsonl_path.exists():
         return
-    migrated_path = jsonl_path.with_suffix(".jsonl.migrated")
-    if migrated_path.exists():
-        return
-    with sqlite3.connect(db_path) as conn:
-        try:
-            with open(jsonl_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        item = json.loads(line)
-                        profile = normalize_memory_profile(item.get("profile"))
-                        conn.execute(
-                            """
-                            INSERT INTO memory_facts (profile, key, value, tags, timestamp)
-                            VALUES (?, ?, ?, ?, ?)
-                            ON CONFLICT(profile, key) DO UPDATE SET
-                                value=excluded.value,
-                                tags=excluded.tags,
-                                timestamp=excluded.timestamp
-                            """,
-                            (
-                                profile,
-                                item.get("key", ""),
-                                item.get("value", ""),
-                                json.dumps(item.get("tags", [])),
-                                item.get("timestamp", ""),
-                            ),
-                        )
-                    except json.JSONDecodeError:
-                        pass
-            conn.commit()
-        except Exception as e:
-            if log_error:
-                log_error("[Memory] Failed to migrate facts: %s", e)
     try:
-        jsonl_path.rename(migrated_path)
-    except OSError:
-        pass
+        with closing(sqlite3.connect(db_path, timeout=30)) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS memory_jsonl_checkpoint "
+                "(source TEXT PRIMARY KEY, offset INTEGER NOT NULL, prefix_hash TEXT NOT NULL)"
+            )
+            source = str(jsonl_path.resolve())
+            row = conn.execute(
+                "SELECT offset, prefix_hash FROM memory_jsonl_checkpoint WHERE source = ?", (source,)
+            ).fetchone()
+            start, digest = (int(row[0]), str(row[1])) if row else (0, "")
+            snapshot = _stable_jsonl_read(jsonl_path, start, digest)
+            if snapshot is None:
+                conn.rollback()
+                return  # source changed during the read; retry on the next start
+            payload, offset, prefix_hash = snapshot
+            for raw_line in payload.split(b"\n"):
+                try:
+                    _import_jsonl_line(conn, raw_line.decode("utf-8"))
+                except (UnicodeError, OverflowError, RecursionError, ValueError):
+                    # Invalid UTF-8, deeply nested JSON, or values SQLite cannot
+                    # bind must not prevent later records from being imported.
+                    # The source is retained; SQLite errors still roll back the
+                    # entire transaction rather than being mistaken for bad data.
+                    continue
+            conn.execute(
+                "INSERT INTO memory_jsonl_checkpoint(source, offset, prefix_hash) VALUES (?, ?, ?) "
+                "ON CONFLICT(source) DO UPDATE SET offset=excluded.offset, prefix_hash=excluded.prefix_hash",
+                (source, offset, prefix_hash),
+            )
+            conn.commit()
+    except (OSError, sqlite3.Error, ValueError, TypeError) as exc:
+        if log_error:
+            log_error("[Memory] Failed to migrate facts: %s", exc)
+
+
+def _stable_jsonl_read(jsonl_path: Path, start: int, expected_hash: str) -> tuple[bytes, int, str] | None:
+    """Read complete records from a consistent snapshot, validating its prefix."""
+    with jsonl_path.open("rb") as handle:
+        before = os.fstat(handle.fileno())
+        hasher = hashlib.sha256()
+        remaining = start if 0 <= start <= before.st_size else 0
+        while remaining:
+            chunk = handle.read(min(remaining, 1024 * 1024))
+            if not chunk:
+                return None
+            hasher.update(chunk)
+            remaining -= len(chunk)
+        if start > before.st_size or start < 0 or (start and hasher.hexdigest() != expected_hash):
+            start = 0
+            handle.seek(0)
+            hasher = hashlib.sha256()
+        data = handle.read()
+        after = os.fstat(handle.fileno())
+        current = jsonl_path.stat()
+        def signature(st):
+            return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns
+        if signature(before) != signature(after) or signature(after) != signature(current):
+            return None
+    cut = data.rfind(b"\n") + 1
+    payload = data[:cut]
+    hasher.update(payload)
+    return payload, start + cut, hasher.hexdigest()
+
+
+def _import_jsonl_line(conn: sqlite3.Connection, line: str) -> None:
+    line = line.strip()
+    if not line:
+        return
+    try:
+        item = json.loads(line)
+    except json.JSONDecodeError:
+        return  # a torn line is skipped, never fatal: the rest of the file is good
+    if not isinstance(item, dict):
+        return  # valid JSON scalars and arrays are not fact records
+    if any(not isinstance(item.get(field), (str, int, float, type(None)))
+           for field in ("key", "value", "timestamp", "ts")):
+        return  # JSON arrays/objects are not valid SQLite scalar bindings
+    conn.execute(
+        """
+        INSERT INTO memory_facts (profile, key, value, tags, timestamp)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(profile, key) DO UPDATE SET
+            value=excluded.value,
+            tags=excluded.tags,
+            timestamp=excluded.timestamp
+        """,
+        (
+            normalize_memory_profile(item.get("profile")),
+            item.get("key", ""),
+            item.get("value", ""),
+            json.dumps(item.get("tags", [])),
+            item.get("timestamp", item.get("ts", "")),
+        ),
+    )
