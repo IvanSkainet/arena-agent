@@ -349,6 +349,16 @@ def _sensitivity_error(target_path: Path, home: Path, *,
     return None
 
 
+def _policy_base(target_path: Path) -> Path:
+    """Check every resolved component, including the allowed root itself.
+
+    A jail can have multiple disjoint roots, and one can itself be named
+    `.ssh` or be nested under `.config/gh`. Looking only below one root
+    lets a wider jail silently bypass the existing sensitive/write policies.
+    """
+    return Path(target_path.resolve().anchor)
+
+
 def validate_upload_target(target: str, *, root: Path, home: Path, bridge_py: Path) -> tuple[Path | None, str | None, int]:
     target_path, err, status = resolve_home_path(target, root=root, home=home)
     if err:
@@ -362,10 +372,10 @@ def validate_upload_target(target: str, *, root: Path, home: Path, bridge_py: Pa
     # view/edit. Previously an authed caller could upload a
     # replacement ``token.txt`` or ``.ssh/authorized_keys``,
     # which would be a straight escalation path.
-    sens = _sensitivity_error(target_path, home, action="uploading")
+    sens = _sensitivity_error(target_path, _policy_base(target_path), action="uploading")
     if sens is not None:
         return None, sens[0], sens[1]
-    execw = _execution_on_write_error(target_path, home, action="uploading")
+    execw = _execution_on_write_error(target_path, _policy_base(target_path), action="uploading")
     if execw is not None:
         return None, execw[0], execw[1]
     shape = _writable_shape_error(target_path, action="upload")
@@ -440,7 +450,7 @@ def validate_download_target(target: str, *, root: Path, home: Path) -> tuple[Pa
     # channel (e.g. know from a 403 that ``~/.aws/credentials``
     # exists on this box). Same discipline that view/edit already
     # follow.
-    sens = _sensitivity_error(target_path, home, action="downloading")
+    sens = _sensitivity_error(target_path, _policy_base(target_path), action="downloading")
     if sens is not None:
         return None, sens[0], sens[1]
     if not target_path.exists() or not target_path.is_file():
@@ -454,10 +464,10 @@ def validate_edit_target(target: str, *, root: Path, home: Path, bridge_py: Path
     if err:
         return None, err, status
     assert target_path is not None  # the guard above already proved this
-    sens = _sensitivity_error(target_path, home, action="editing")
+    sens = _sensitivity_error(target_path, _policy_base(target_path), action="editing")
     if sens is not None:
         return None, sens[0], sens[1]
-    execw = _execution_on_write_error(target_path, home, action="editing")
+    execw = _execution_on_write_error(target_path, _policy_base(target_path), action="editing")
     if execw is not None:
         return None, execw[0], execw[1]
     if target_path.resolve() == bridge_py.resolve():
@@ -473,7 +483,7 @@ def validate_view_target(target: str, *, root: Path, home: Path) -> tuple[Path |
     if err:
         return None, err, status
     assert target_path is not None  # the guard above already proved this
-    sens = _sensitivity_error(target_path, home, action="viewing")
+    sens = _sensitivity_error(target_path, _policy_base(target_path), action="viewing")
     if sens is not None:
         return None, sens[0], sens[1]
     if not target_path.exists() or not target_path.is_file():
@@ -489,10 +499,10 @@ def validate_create_target(target: str, *, root: Path, home: Path, bridge_py: Pa
             return None, "create path must be inside user home", status
         return None, err, status
     assert target_path is not None  # the guard above already proved this
-    sens = _sensitivity_error(target_path, home, action="creating")
+    sens = _sensitivity_error(target_path, _policy_base(target_path), action="creating")
     if sens is not None:
         return None, sens[0], sens[1]
-    execw = _execution_on_write_error(target_path, home, action="creating")
+    execw = _execution_on_write_error(target_path, _policy_base(target_path), action="creating")
     if execw is not None:
         return None, execw[0], execw[1]
     if target_path.resolve() == bridge_py.resolve():
