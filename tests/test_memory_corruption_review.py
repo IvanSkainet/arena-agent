@@ -36,3 +36,29 @@ def test_quarantine_preserves_wal_and_shm_bytes(tmp_path):
     assert target.with_name(target.name + "-shm").read_bytes() == b"shm contents"
     assert not (tmp_path / "facts.db-wal").exists()
     assert not (tmp_path / "facts.db-shm").exists()
+
+
+def test_connection_is_closed_before_quarantine_on_schema_failure(tmp_path, monkeypatch):
+    db = tmp_path / "facts.db"
+    db.write_bytes(b"not sqlite")
+    real_connect = sqlite3.connect
+    closed = []
+
+    class TrackedConnection(sqlite3.Connection):
+        def close(self):
+            closed.append(True)
+            return super().close()
+
+    def tracked_connect(*args, **kwargs):
+        return real_connect(*args, factory=TrackedConnection, **kwargs)
+
+    real_quarantine = schema._quarantine_db
+
+    def check_quarantine(*args, **kwargs):
+        assert closed, "the failed connection must be closed before moving the file"
+        return real_quarantine(*args, **kwargs)
+
+    monkeypatch.setattr(schema.sqlite3, "connect", tracked_connect)
+    monkeypatch.setattr(schema, "_quarantine_db", check_quarantine)
+    schema.init_memory_db(db_path=db, jsonl_path=tmp_path / "facts.jsonl")
+    assert closed

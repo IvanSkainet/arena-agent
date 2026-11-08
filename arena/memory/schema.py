@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -44,7 +45,10 @@ def init_memory_db(*, db_path: Path, jsonl_path: Path, log_error: Callable[..., 
 
 
 def _prepare_memory_db(db_path: Path) -> None:
-    with sqlite3.connect(db_path) as conn:
+    # sqlite3's context manager commits/rolls back but does not close the
+    # connection. A Windows rename cannot quarantine the file while that
+    # connection remains held by the exception traceback.
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         _ensure_memory_schema(conn)
         _rebuild_memory_fts(conn)
 
