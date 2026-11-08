@@ -141,7 +141,7 @@ def migrate_jsonl_facts(*, db_path: Path, jsonl_path: Path, log_error: Callable[
         return
     with sqlite3.connect(db_path) as conn:
         try:
-            for line in payload.splitlines():
+            for line in payload.split("\n"):
                 _import_jsonl_line(conn, line)
             conn.commit()
         except Exception as exc:  # noqa: BLE001 - a bad writer must not stop startup
@@ -189,6 +189,8 @@ def _import_jsonl_line(conn: sqlite3.Connection, line: str) -> None:
         item = json.loads(line)
     except json.JSONDecodeError:
         return  # a torn line is skipped, never fatal: the rest of the file is good
+    if not isinstance(item, dict):
+        return  # valid JSON scalars and arrays are not fact records
     conn.execute(
         """
         INSERT INTO memory_facts (profile, key, value, tags, timestamp)
@@ -203,6 +205,6 @@ def _import_jsonl_line(conn: sqlite3.Connection, line: str) -> None:
             item.get("key", ""),
             item.get("value", ""),
             json.dumps(item.get("tags", [])),
-            item.get("timestamp", ""),
+            item.get("timestamp", item.get("ts", "")),
         ),
     )
