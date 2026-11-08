@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
+from arena.home import agent_home
+
+ROOT = agent_home()
 MCP_DIR = ROOT / "mcp"
 CONFIG = MCP_DIR / "mcp.json"
 REGISTRY = MCP_DIR / "registry.json"

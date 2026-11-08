@@ -34,6 +34,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from arena.home import agent_home
 from arena.jsonshape import loads_object
 
 # Commands the client is allowed to spawn. Mirrors the marketplace `test`
@@ -296,8 +297,7 @@ class McpClientManager:
 
     def __init__(self, config_path: Path | str | None = None):
         if config_path is None:
-            root = Path(os.environ.get("ARENA_AGENT_HOME",
-                                       str(Path.home() / "arena-bridge"))).expanduser()
+            root = agent_home()
             config_path = root / "mcp" / "mcp.json"
         self.config_path = Path(config_path)
         self._clients: dict[str, McpStdioClient] = {}

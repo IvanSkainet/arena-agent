@@ -6,6 +6,8 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 
+from arena.home import agent_home
+
 
 def load_config_file(
     *,
@@ -15,10 +17,9 @@ def load_config_file(
 ) -> dict:
     """Load optional bridge.yml or bridge.json configuration file."""
     search_paths: list[Path] = []
-    env_home = os.environ.get("ARENA_AGENT_HOME")
-    if env_home:
-        search_paths.append(Path(env_home) / "bridge.yml")
-    search_paths.append(Path.home() / "arena-bridge" / "bridge.yml")
+    # agent_home() already folds ARENA_AGENT_HOME and the ~/arena-bridge default
+    # into one answer, so there is no second candidate to add here any more.
+    search_paths.append(agent_home() / "bridge.yml")
     search_paths.append(Path("bridge.yml"))
 
     for path in search_paths:

@@ -9,9 +9,9 @@ Two independent layers of defence:
 
 1. **Home-scope check.** ``resolve_home_path`` resolves the
    requested path through ``expanduser`` + ``resolve`` (which
-   follows symlinks) and rejects anything that lands outside
-   ``$HOME``. Blocks classic path traversal (``../../../etc/passwd``)
-   and symlink-escape (``~/malicious-link -> /etc/shadow``).
+   follows symlinks) and rejects anything outside the caller’s home,
+   the workspace root and the agent state directory. Blocks classic path
+   traversal and symlinks that escape all allowed trees.
 2. **Sensitive-file blocklist.** Even inside the user's home,
    certain files must never be readable / writable via the
    HTTP surface:
@@ -68,9 +68,57 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from arena.home import agent_home
+
+
+def jail_roots(home: Path, root: Path, extra_roots: tuple[Path, ...] | None = None) -> tuple[Path, ...]:
+    """The trees a request may name: the caller's home, the workspace root, and
+    the agent's own state directory (#B-030).
+
+    An agent that cannot read the queue it just wrote, or the workspace it was
+    pointed at, is not being kept safe -- it is being kept blind. ``extra_roots``
+    replaces the state directory for callers that need a different third tree.
+    """
+    third = (agent_home(),) if extra_roots is None else extra_roots
+    return (home, root, *third)
+
+
+def inside_any(resolved: Path, allowed: tuple[Path, ...]) -> bool:
+    """Is `resolved` one of `allowed` or below one of them?
+
+    `Path.relative_to` answers this with `ValueError`, which mixes "outside" in
+    with every other reason a comparison can fail; a membership test says
+    "outside" and nothing else.
+    """
+    return any(resolved == one.resolve() or one.resolve() in resolved.parents for one in allowed)
+
+
+def _validate_target(target: str, root: Path) -> tuple[Path, None] | tuple[None, str]:
+    """The caller's string as a path, or why it is not one.
+
+    Every refusal here is the caller's to correct: a missing or traversing
+    path, an embedded NUL (`resolve()` answers it with `ValueError`, which the
+    boundary check would read as "outside the home" -- a 403 about a question
+    nobody asked, the same call `usable_cwd` makes since #270), and a name that
+    cannot be expanded (`~Qm` names a user with no home and `expanduser`
+    answers that with `RuntimeError` -- a 500 out of a fixable request, #290).
+    """
+    if not target:
+        return None, "missing path"
+    if ".." in Path(target).parts:
+        return None, "path traversal not allowed"
+    if "\x00" in target:
+        return None, "path is not a usable path (embedded NUL)"
+    try:
+        target_path = Path(target).expanduser()
+    except (RuntimeError, OSError, ValueError) as exc:
+        return None, f"path is not a usable path ({type(exc).__name__})"
+    return (target_path if target_path.is_absolute() else root / target_path), None
+
 
 def resolve_home_path(
     target: str, *, root: Path, home: Path,
+    extra_roots: tuple[Path, ...] | None = None,
 ) -> tuple[Path, None, int] | tuple[None, str, int]:
     """Resolve a caller-supplied path inside the home jail.
 
@@ -80,37 +128,21 @@ def resolve_home_path(
     looser form made every following ``target_path.<attr>`` read as an
     attribute access on None -- 16 of the 71 bad-argument-type findings.
     """
-    if not target:
-        return None, "missing path", 400
-    if ".." in Path(target).parts:
-        return None, "path traversal not allowed", 400
-    if "\x00" in target:
-        # `resolve()` answers a NUL with `ValueError`, which the boundary
-        # check below reads as "outside the home" -- a 403 about a question
-        # nobody asked. A string with a NUL in it is not a path at all, the
-        # same call `usable_cwd` makes since #270 (cubic).
-        return None, "path is not a usable path (embedded NUL)", 400
+    target_path, problem = _validate_target(target, root)
+    if problem is not None:
+        return None, problem, 400
+    assert target_path is not None  # the guard above already proved this
     try:
-        target_path = Path(target).expanduser()
-    except (RuntimeError, OSError, ValueError) as exc:
-        # `~Qm` names a user who has no home, and `expanduser` answers that
-        # with `RuntimeError` rather than a string -- a 500 out of a request
-        # the caller could fix (#290, found by the #258 fuzzing gate). Same
-        # shape as the `cwd` guard in #270: the filesystem's refusals arrive
-        # as exceptions, and every one of them is the caller's to correct.
-        return None, f"path is not a usable path ({type(exc).__name__})", 400
-    if not target_path.is_absolute():
-        target_path = root / target_path
-    try:
-        target_path.resolve().relative_to(home.resolve())
-    except ValueError:
-        return None, "path outside home directory", 403
+        resolved = target_path.resolve()
+        inside = inside_any(resolved, jail_roots(home, root, extra_roots))
     except (OSError, RuntimeError) as exc:
         # `resolve()` is a syscall too: an over-long component is
         # `OSError: [Errno 36]` and a broken mount is an OSError as well,
         # neither of which the caller can read as "outside the home"
         # (cubic). Same refusal as the expansion above, same reason.
         return None, f"path is not a usable path ({type(exc).__name__})", 400
+    if not inside:
+        return None, "path outside home directory", 403
     return target_path, None, 200
 
 
@@ -237,16 +269,17 @@ def _contains_part_seq(parts: tuple[str, ...], want: tuple[str, ...]) -> bool:
 def _execution_on_write_error(target_path: Path, home: Path, *,
                               action: str) -> tuple[str, int] | None:
     """Refuse writes that would run code later. ``None`` when the path is clear."""
-    if target_path.name in EXECUTION_ON_WRITE_BASENAMES:
+    blocked_names = {name.casefold() for name in EXECUTION_ON_WRITE_BASENAMES}
+    if any(name.casefold() in blocked_names for name in (target_path.name, target_path.resolve().name)):
         return (f"{action} {target_path.name} is not allowed: it is executed "
                 "on shell startup, so writing it would be code execution"), 403
     try:
         rel = target_path.resolve().relative_to(home.resolve())
     except (ValueError, OSError):
         return None  # outside home: the caller's own root check owns that
-    parts = rel.parts
+    parts = tuple(part.casefold() for part in rel.parts)
     for prefix in sorted(EXECUTION_ON_WRITE_DIR_PREFIXES):
-        want = tuple(prefix.split("/"))
+        want = tuple(prefix.casefold().split("/"))
         if _contains_part_seq(parts, want):
             return (f"{action} files under {prefix}/ is not allowed: "
                     "they are executed or auto-started"), 403
@@ -280,11 +313,11 @@ def _path_hits_sensitive_prefix(target_path: Path, home: Path) -> str | None:
         # Path escaped home; the caller already returned 403 for
         # that case, this is belt+suspenders.
         return None
-    parts = rel.parts
+    parts = tuple(part.casefold() for part in rel.parts)
     if not parts:
         return None
     for prefix in SENSITIVE_DIR_PREFIXES:
-        segs = prefix.split("/")
+        segs = prefix.casefold().split("/")
         # Single-segment prefix: match anywhere in the path.
         if len(segs) == 1:
             if segs[0] in parts:
@@ -309,12 +342,38 @@ def _sensitivity_error(target_path: Path, home: Path, *,
     message ("reading", "editing", "creating") so the same
     helper stays generic across every fs verb.
     """
-    if target_path.name in SENSITIVE_FILE_BASENAMES:
+    blocked_names = {name.casefold() for name in SENSITIVE_FILE_BASENAMES}
+    if any(name.casefold() in blocked_names for name in (target_path.name, target_path.resolve().name)):
         return f"{action} {target_path.name} is not allowed", 403
     hit = _path_hits_sensitive_prefix(target_path, home)
     if hit is not None:
         return f"{action} files under {hit}/ is not allowed", 403
     return None
+
+
+def _policy_base(target_path: Path) -> Path:
+    """Check every resolved component, including the allowed root itself.
+
+    A jail can have multiple disjoint roots, and one can itself be named
+    `.ssh` or be nested under `.config/gh`. Looking only below one root
+    lets a wider jail silently bypass the existing sensitive/write policies.
+    """
+    return Path(target_path.resolve().anchor)
+
+
+def validate_watch_target(target: str, *, root: Path, home: Path) -> tuple[Path | None, str | None, int]:
+    """Apply the same containment and sensitivity policy to watch metadata."""
+    path, error, status = resolve_home_path(target, root=root, home=home)
+    if error:
+        return None, error, status
+    assert path is not None
+    try:
+        sensitivity = _sensitivity_error(path, _policy_base(path), action="watching")
+    except (OSError, RuntimeError):
+        return None, "watch path is not usable", 400
+    if sensitivity is not None:
+        return None, sensitivity[0], sensitivity[1]
+    return path, None, 200
 
 
 def validate_upload_target(target: str, *, root: Path, home: Path, bridge_py: Path) -> tuple[Path | None, str | None, int]:
@@ -330,10 +389,10 @@ def validate_upload_target(target: str, *, root: Path, home: Path, bridge_py: Pa
     # view/edit. Previously an authed caller could upload a
     # replacement ``token.txt`` or ``.ssh/authorized_keys``,
     # which would be a straight escalation path.
-    sens = _sensitivity_error(target_path, home, action="uploading")
+    sens = _sensitivity_error(target_path, _policy_base(target_path), action="uploading")
     if sens is not None:
         return None, sens[0], sens[1]
-    execw = _execution_on_write_error(target_path, home, action="uploading")
+    execw = _execution_on_write_error(target_path, _policy_base(target_path), action="uploading")
     if execw is not None:
         return None, execw[0], execw[1]
     shape = _writable_shape_error(target_path, action="upload")
@@ -408,7 +467,7 @@ def validate_download_target(target: str, *, root: Path, home: Path) -> tuple[Pa
     # channel (e.g. know from a 403 that ``~/.aws/credentials``
     # exists on this box). Same discipline that view/edit already
     # follow.
-    sens = _sensitivity_error(target_path, home, action="downloading")
+    sens = _sensitivity_error(target_path, _policy_base(target_path), action="downloading")
     if sens is not None:
         return None, sens[0], sens[1]
     if not target_path.exists() or not target_path.is_file():
@@ -422,10 +481,10 @@ def validate_edit_target(target: str, *, root: Path, home: Path, bridge_py: Path
     if err:
         return None, err, status
     assert target_path is not None  # the guard above already proved this
-    sens = _sensitivity_error(target_path, home, action="editing")
+    sens = _sensitivity_error(target_path, _policy_base(target_path), action="editing")
     if sens is not None:
         return None, sens[0], sens[1]
-    execw = _execution_on_write_error(target_path, home, action="editing")
+    execw = _execution_on_write_error(target_path, _policy_base(target_path), action="editing")
     if execw is not None:
         return None, execw[0], execw[1]
     if target_path.resolve() == bridge_py.resolve():
@@ -441,7 +500,7 @@ def validate_view_target(target: str, *, root: Path, home: Path) -> tuple[Path |
     if err:
         return None, err, status
     assert target_path is not None  # the guard above already proved this
-    sens = _sensitivity_error(target_path, home, action="viewing")
+    sens = _sensitivity_error(target_path, _policy_base(target_path), action="viewing")
     if sens is not None:
         return None, sens[0], sens[1]
     if not target_path.exists() or not target_path.is_file():
@@ -457,10 +516,10 @@ def validate_create_target(target: str, *, root: Path, home: Path, bridge_py: Pa
             return None, "create path must be inside user home", status
         return None, err, status
     assert target_path is not None  # the guard above already proved this
-    sens = _sensitivity_error(target_path, home, action="creating")
+    sens = _sensitivity_error(target_path, _policy_base(target_path), action="creating")
     if sens is not None:
         return None, sens[0], sens[1]
-    execw = _execution_on_write_error(target_path, home, action="creating")
+    execw = _execution_on_write_error(target_path, _policy_base(target_path), action="creating")
     if execw is not None:
         return None, execw[0], execw[1]
     if target_path.resolve() == bridge_py.resolve():

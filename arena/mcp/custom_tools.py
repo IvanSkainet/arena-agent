@@ -27,11 +27,12 @@ from __future__ import annotations
 
 import contextvars
 import json
-import os
+import os  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import re
 from pathlib import Path
 from typing import Any
 
+from arena.home import agent_home
 from arena.mcp.tool_utils import text_content
 
 PREFIX = "custom."
@@ -62,8 +63,7 @@ _cache: dict[str, Any] | None = None
 # ---------------------------------------------------------------------------
 
 def store_path() -> Path:
-    root = Path(os.environ.get("ARENA_AGENT_HOME",
-                               str(Path.home() / "arena-bridge"))).expanduser()
+    root = agent_home()
     return root / "mcp" / "custom_tools.json"
 
 

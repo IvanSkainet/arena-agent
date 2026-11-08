@@ -43,6 +43,11 @@ def current_profile() -> str:
     return value if isinstance(value, str) and value else DEFAULT_PROFILE
 
 
+def current_config() -> dict[str, Any] | None:
+    """The published config, or None before startup / in CLIs and tests."""
+    return _CONFIG
+
+
 def reset_for_tests() -> None:
     """Forget the published config. Tests only."""
     global _CONFIG

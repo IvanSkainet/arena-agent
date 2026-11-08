@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from arena.home import agent_home
 from arena.mcp.tool_utils import text_content
 from arena.memory.profiles import (
     DEFAULT_MEMORY_PROFILE,
@@ -39,11 +40,9 @@ def _get_db_path(ctx) -> Path | None:
         cfg = ctx.app_config()
         if "memory_db" in cfg:
             return Path(cfg["memory_db"])
-        if "root" in cfg:
-            return Path(cfg["root"]) / "arena-bridge" / "memory" / "facts.db"
     except Exception:
         pass
-    return Path.home() / "arena-bridge" / "memory" / "facts.db"
+    return agent_home() / "memory" / "facts.db"
 
 
 def _db_has_profile_column(conn: sqlite3.Connection) -> bool:

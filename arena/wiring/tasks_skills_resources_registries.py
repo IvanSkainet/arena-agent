@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from collections.abc import MutableMapping
-from pathlib import Path
 from typing import Any
 
+from arena import home as arena_home
 from arena.app_keys import APP_CFG
 from arena.wiring.env import RuntimeEnv
 from arena.wiring.extension_bridge_wiring import build_extension_bridge_registry
@@ -22,7 +22,7 @@ def build_tasks_skills_resources_registries(g: MutableMapping[str, Any]) -> dict
         running=env.RUNNING,
         done=env.DONE,
         failed=env.FAILED,
-        default_cwd=str(Path.home()),
+        default_cwd=str(arena_home.sandbox_home()),
         now=env.utc_now,
     )
     task_queue_runtime = env.make_task_queue_runtime(task_queue_runtime_ctx)
@@ -182,7 +182,7 @@ def build_tasks_skills_resources_registries(g: MutableMapping[str, Any]) -> dict
         record_request=env._record_request,
         cors_json_response=env._cors_json_response,
         app_cfg_key=APP_CFG,
-        home=Path.home(),
+        home=arena_home.sandbox_home(),
         list_sync=env._file_watch_list_sync,
         add_sync=env._file_watch_add_sync,
         remove_sync=env._file_watch_remove_sync,

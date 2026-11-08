@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 from typing import Any, MutableMapping
 
+from arena import home as arena_home
 from arena.system.notification import send_notification
 
 
@@ -42,7 +42,7 @@ def build_system_helpers(g: MutableMapping[str, Any]) -> dict[str, Any]:
         missions_dir=g["MISSIONS_DIR"],
         facts_count_fn=lambda: len(g["_load_facts"]()),
         internet_check_fn=helpers["_check_internet_sync"],
-        home_dir=Path.home(),
+        home_dir=arena_home.sandbox_home(),
     )
     helpers.update({
         "_hwinfo_sync": g["make_hwinfo_sync"](

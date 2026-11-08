@@ -11,11 +11,17 @@ from typing import Any
 
 from arena.agentctl_cli.tls import build_ssl_context
 from arena.constants import VERSION  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+from arena.home import agent_home, code_root, token_path as token_path_for
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
+ROOT = agent_home()
 BRIDGE_URL = os.environ.get("ARENA_BRIDGE_URL", "http://127.0.0.1:8765")
-BIN = ROOT / "bin"
-SCRIPTS = ROOT / "scripts"
+# The scripts the CLI runs ship with the code, not with the state. They used
+# to be looked for under ROOT, which is why `agentctl mcp` answered with an
+# interpreter traceback about ~/arena-bridge/bin/mcp_marketplace.py whenever
+# the bridge lived anywhere else (#B-029).
+CODE_ROOT = code_root()
+BIN = CODE_ROOT / "bin"
+SCRIPTS = CODE_ROOT / "scripts"
 
 
 def _load_token() -> str:
@@ -57,9 +63,10 @@ def _load_token() -> str:
     env_tok = os.environ.get("ARENA_BRIDGE_TOKEN", "").strip()
     if env_tok:
         return env_tok
-    # 3. Disk fallback, standard locations.
-    for token_path in (ROOT / "token.txt",
-                       Path.home() / "arena-bridge" / "token.txt"):
+    # 3. Disk fallback, standard locations. The second entry is the
+    # historical install location, kept on purpose: an operator whose
+    # ARENA_AGENT_HOME points elsewhere still has a working token there.
+    for token_path in (token_path_for(), Path.home() / "arena-bridge" / "token.txt"):
         if token_path.exists():
             tok = _read_first_line(token_path)
             if tok:

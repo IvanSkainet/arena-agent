@@ -101,7 +101,7 @@ def write_audit_event(
     lock: threading.Lock = audit_lock,
 ) -> dict[str, Any]:
     """Sanitize, timestamp, append and rotate an audit event; return written event."""
-    app_dir.mkdir(parents=True, exist_ok=True)
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
     written = {"ts": utc_now_fn(), **sanitize_audit_event(event)}
     line = json.dumps(written, ensure_ascii=False, sort_keys=True) + "\n"
     with lock:
@@ -111,19 +111,19 @@ def write_audit_event(
         try:
             if audit_path.exists() and audit_path.stat().st_size > 50 * 1024 * 1024:
                 for i in range(5, 0, -1):
-                    old = app_dir / f"audit.jsonl.{i}"
+                    old = audit_path.parent / f"{audit_path.name}.{i}"
                     if old.exists():
                         if i == 5:
                             old.unlink()
                         else:
-                            new_name = app_dir / f"audit.jsonl.{i + 1}"
+                            new_name = audit_path.parent / f"{audit_path.name}.{i + 1}"
                             old.rename(new_name)
                             # v4.44.0: re-apply 0o600 after every
                             # rename because some filesystems reset
                             # the mode across the rename (ACL-proof
                             # discipline, same as v4.40.0 URL cache).
                             restrict(new_name, 0o600, what="a rotated audit log")
-                rotated = app_dir / "audit.jsonl.1"
+                rotated = audit_path.parent / f"{audit_path.name}.1"
                 audit_path.rename(rotated)
                 restrict(rotated, 0o600, what="the rotated audit log")
         except Exception:

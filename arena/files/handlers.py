@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote
 
 from aiohttp import web
 
@@ -32,6 +32,28 @@ class FileHandlers:
     fs_edit: Callable[..., Any]
     fs_edit_apply: Callable[..., Any]
     fs_edit_rollback: Callable[..., Any]
+
+
+def content_disposition(name: str) -> str:
+    """A `Content-Disposition` for a file whose name came from the filesystem.
+
+    The name is not ours: a file called `gE\u00d7\x06` is a legal filename on POSIX
+    filesystems, and putting it into a header verbatim makes
+    aiohttp refuse at serialisation time -- `ValueError: Forbidden control
+    character detected in headers` -- *after* the response has begun, so the
+    client gets a dead connection and no status at all. The fuzzing gate found
+    it on `GET /v1/download` once the jail started accepting a workspace root
+    (a file under `$HOME` could always do it; the jail never made it likely).
+
+    Two names, as RFC 6266 §4.3 asks: an ASCII fallback for clients that only
+    read `filename`, and `filename*` with the real name percent-encoded, which
+    cannot inject anything because everything outside the unreserved set --
+    CR and LF above all -- is escaped.
+    """
+    fallback = "".join(
+        ch if 32 <= ord(ch) < 127 and ch not in '"\\;' else "_" for ch in name
+    ) or "download"
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(name, safe='')}"
 
 
 def _json_error(ctx: FileHandlerContext, message: str, status: int) -> web.Response:
@@ -108,8 +130,7 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
             return web.FileResponse(
                 target_path,
                 headers={
-                    "Content-Disposition":
-                        f'attachment; filename="{target_path.name}"',
+                    "Content-Disposition": content_disposition(target_path.name),
                     "Access-Control-Allow-Origin": "*",
                 },
             )
