@@ -4,8 +4,8 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import tempfile
 from contextlib import closing
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -45,6 +45,10 @@ def init_memory_db(*, db_path: Path, jsonl_path: Path, log_error: Callable[..., 
         quarantined = _quarantine_db(db_path, exc, log_error)
         if quarantined is None:
             raise
+        # SQLite otherwise creates the replacement using the process umask,
+        # which can make sensitive facts world-readable on POSIX systems.
+        fd = os.open(db_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(fd)
         _prepare_memory_db(db_path)
     migrate_jsonl_facts(db_path=db_path, jsonl_path=jsonl_path, log_error=log_error)
 
@@ -92,8 +96,6 @@ def _quarantine_db(
     The marker survives a crash or a partial move. Subsequent startup must not
     open or create the database while a sidecar remains at its original name.
     """
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    target = db_path.with_name(f"{db_path.name}.corrupt-{stamp}")
     marker = _recovery_marker(db_path)
     try:
         fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -101,6 +103,15 @@ def _quarantine_db(
         if log_error:
             log_error("[Memory] Cannot reserve recovery marker %s: %s", marker, marker_error)
         return None
+    # Atomically reserve a private directory so neither the main file nor a
+    # sidecar can overwrite a previous quarantine, even on a name collision.
+    try:
+        quarantine_dir = Path(tempfile.mkdtemp(prefix=f"{db_path.name}.corrupt-", dir=db_path.parent))
+    except OSError:
+        os.close(fd)
+        marker.unlink()
+        raise
+    target = quarantine_dir / db_path.name
     # Record the intended destination before moving any data. If interrupted,
     # keep the marker even if writing or syncing it fails.
     with os.fdopen(fd, "w", encoding="utf-8") as marker_file:
@@ -111,6 +122,7 @@ def _quarantine_db(
         os.replace(db_path, target)
     except OSError as move_error:
         # The source was not moved; no sidecars have been touched.
+        quarantine_dir.rmdir()
         marker.unlink()
         if log_error:
             log_error(

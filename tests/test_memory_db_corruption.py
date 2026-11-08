@@ -87,7 +87,7 @@ def test_the_corrupt_file_is_moved_aside_not_deleted(tmp_path):
 
     quarantined = sorted(db.parent.glob("facts.db.corrupt-*"))
     assert len(quarantined) == 1, f"expected one quarantine file, got {quarantined}"
-    assert quarantined[0].read_bytes() == broken, "the quarantined file is not the broken one"
+    assert (quarantined[0] / db.name).read_bytes() == broken, "the quarantined file is not the broken one"
 
 
 def test_the_operator_is_told_what_happened_and_where(tmp_path):

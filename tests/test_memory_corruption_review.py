@@ -95,7 +95,7 @@ def test_legacy_corruption_error_can_recover_but_other_errors_cannot(tmp_path, m
     monkeypatch.setattr(schema, "_prepare_memory_db", legacy_prepare)
     schema.init_memory_db(db_path=db, jsonl_path=tmp_path / "facts.jsonl")
     assert calls == 2
-    assert list(tmp_path.glob("facts.db.corrupt-*"))[0].read_bytes() == b"not sqlite"
+    assert (list(tmp_path.glob("facts.db.corrupt-*"))[0] / db.name).read_bytes() == b"not sqlite"
 
 
 def test_sidecar_move_failure_blocks_restart_and_preserves_bytes(tmp_path, monkeypatch):
@@ -120,7 +120,7 @@ def test_sidecar_move_failure_blocks_restart_and_preserves_bytes(tmp_path, monke
         schema.init_memory_db(db_path=db, jsonl_path=tmp_path / "facts.jsonl")
     assert wal.read_bytes() == b"important wal bytes"
     assert not db.exists()
-    assert list(tmp_path.glob("facts.db.corrupt-*"))[0].read_bytes() == b"broken db bytes"
+    assert (list(tmp_path.glob("facts.db.corrupt-*"))[0] / db.name).read_bytes() == b"broken db bytes"
 
 
 def test_failed_database_move_removes_marker_without_losing_source(tmp_path, monkeypatch):
@@ -134,3 +134,37 @@ def test_failed_database_move_removes_marker_without_losing_source(tmp_path, mon
     assert schema._quarantine_db(db, sqlite3.DatabaseError("corrupt"), None) is None
     assert db.read_bytes() == b"broken"
     assert not schema._recovery_marker(db).exists()
+
+
+@pytest.mark.skipif(__import__('os').name == 'nt', reason='POSIX mode bits do not model Windows ACLs')
+def test_replacement_and_quarantine_directory_are_private_with_open_umask(tmp_path):
+    import os
+    import stat
+
+    db = tmp_path / "facts.db"
+    db.write_bytes(b"not sqlite")
+    db.chmod(0o644)
+    old_umask = os.umask(0)
+    try:
+        schema.init_memory_db(db_path=db, jsonl_path=tmp_path / "facts.jsonl")
+    finally:
+        os.umask(old_umask)
+    directory = list(tmp_path.glob("facts.db.corrupt-*"))[0]
+    assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+    assert stat.S_IMODE(db.stat().st_mode) == 0o600
+    assert (directory / db.name).read_bytes() == b"not sqlite"
+
+
+def test_quarantine_collision_never_overwrites_prior_files(tmp_path, monkeypatch):
+    db = tmp_path / "facts.db"
+    db.write_bytes(b"new damaged database")
+    prior = tmp_path / "facts.db.corrupt-collision"
+    prior.mkdir()
+    (prior / db.name).write_bytes(b"first saved database")
+    monkeypatch.setattr(schema.tempfile, "_get_candidate_names", lambda: iter(["collision", "fresh"]))
+
+    target = schema._quarantine_db(db, sqlite3.DatabaseError("corrupt"), None)
+
+    assert target == tmp_path / "facts.db.corrupt-fresh" / db.name
+    assert target.read_bytes() == b"new damaged database"
+    assert (prior / db.name).read_bytes() == b"first saved database"
