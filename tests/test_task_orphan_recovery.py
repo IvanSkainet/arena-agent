@@ -260,7 +260,7 @@ def test_reclaim_storage_error_is_reported_and_source_remains(tmp_path, monkeypa
     def deny(*args, **kwargs):
         raise PermissionError("link unavailable")
 
-    monkeypatch.setattr(queue.os, "link", deny)
+    monkeypatch.setattr(queue, "_link", deny)
     result = _sweep(running, failed, alive=lambda _: False)
     assert result["ok"] is False
     assert any("link unavailable" in error for error in result["errors"])
@@ -271,13 +271,13 @@ def test_reclaim_storage_error_is_reported_and_source_remains(tmp_path, monkeypa
 def _race_sweeper(running, failed, barrier, results):
     from arena.tasks import queue
 
-    original_link = queue.os.link
+    original_link = queue._link
 
     def synchronized_link(*args, **kwargs):
         barrier.wait(timeout=15)
         return original_link(*args, **kwargs)
 
-    queue.os.link = synchronized_link
+    queue._link = synchronized_link
     try:
         result = queue.reclaim_interrupted_tasks(
             running=Path(running), failed=Path(failed), now_fn=lambda: NOW, alive=lambda _: False,

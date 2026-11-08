@@ -14,6 +14,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+# Narrow seam for deterministic concurrency and failure tests.
+_link = os.link
+
 
 def list_tasks(
     *,
@@ -244,7 +247,7 @@ def _publish_failed_task(target: Path, task: dict[str, Any]) -> bool:
         try:
             # A link into the same directory publishes only if the target does
             # not exist; a second sweeper cannot truncate the winner's result.
-            os.link(temporary, target)
+            _link(temporary, target)
         except FileExistsError:
             return False
         return True
