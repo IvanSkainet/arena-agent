@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -10,11 +12,74 @@ from arena.memory.profiles import DEFAULT_MEMORY_PROFILE, normalize_memory_profi
 
 
 def init_memory_db(*, db_path: Path, jsonl_path: Path, log_error: Callable[..., None] | None = None) -> None:
+    """Open (and, if needed, create) the facts database.
+
+    A malformed file used to be terminal: this runs while the application is
+    being assembled, so `sqlite3.DatabaseError` propagated out of `serve` and
+    the whole bridge -- 536 routes, health, the dashboard -- refused to start,
+    with a bare traceback that named neither the file nor a way out. Every
+    other state file degrades instead: a truncated `mission.json` or a corrupt
+    `queue/done/*.json` is skipped and the bridge starts.
+
+    So corruption is handled the way the rest of the state layer handles it:
+    the bytes are moved aside (never deleted -- they may be the only copy of
+    the operator's facts) and a fresh database is created. If even that fails,
+    the original error is raised, because at that point there is nothing left
+    to degrade to.
+    """
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        _prepare_memory_db(db_path)
+    except sqlite3.DatabaseError as exc:
+        quarantined = _quarantine_db(db_path, exc, log_error)
+        if quarantined is None:
+            raise
+        _prepare_memory_db(db_path)
+    migrate_jsonl_facts(db_path=db_path, jsonl_path=jsonl_path, log_error=log_error)
+
+
+def _prepare_memory_db(db_path: Path) -> None:
     with sqlite3.connect(db_path) as conn:
         _ensure_memory_schema(conn)
         _rebuild_memory_fts(conn)
-    migrate_jsonl_facts(db_path=db_path, jsonl_path=jsonl_path, log_error=log_error)
+
+
+def _quarantine_db(
+    db_path: Path,
+    exc: sqlite3.DatabaseError,
+    log_error: Callable[..., None] | None,
+) -> Path | None:
+    """Move an unreadable database aside; return its new name, or None if impossible.
+
+    The name keeps the millisecond timestamp: a bridge that crashes twice in a
+    row must not overwrite the first quarantine with the second, because the
+    first one is the one worth looking at.
+    """
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    target = db_path.with_name(f"{db_path.name}.corrupt-{stamp}")
+    try:
+        os.replace(db_path, target)
+    except OSError as move_error:
+        if log_error:
+            log_error(
+                "[Memory] Database at %s is unreadable (%s) and could not be moved aside (%s); "
+                "the bridge cannot start until it is repaired or removed by hand",
+                db_path, exc, move_error,
+            )
+        return None
+    for suffix in ("-wal", "-shm"):  # stale sidecars of a corrupt file mislead SQLite
+        sidecar = db_path.with_name(db_path.name + suffix)
+        try:
+            sidecar.unlink(missing_ok=True)
+        except OSError:
+            pass
+    if log_error:
+        log_error(
+            "[Memory] Database at %s was unreadable (%s); it was moved to %s and a fresh one "
+            "was created. Facts recorded before this point are in the moved file",
+            db_path, exc, target,
+        )
+    return target
 
 
 def _ensure_memory_schema(conn: sqlite3.Connection) -> None:
