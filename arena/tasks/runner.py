@@ -51,6 +51,26 @@ def move_atomic(src: Path, dst: Path) -> None:
             pass
 
 
+
+def _reclaim_quietly(ctx_: TaskRunnerContext, when: str) -> None:
+    """Never let recovery of old records stop new work from running."""
+    try:
+        result = reclaim_interrupted_tasks(
+            running=ctx_.running, failed=ctx_.failed, done=ctx_.done, now_fn=ctx_.utc_now
+        )
+    except Exception as e:  # pragma: no cover - defensive, would hide new work
+        ctx_.log_error("[TaskRunner] Reclaim (%s) failed: %s", when, e)
+        return
+    for error in result.get("errors", []):
+        ctx_.log_error("[TaskRunner] Reclaim (%s): %s", when, error)
+    if result.get("reclaimed"):
+        ctx_.log_info(
+            "[TaskRunner] Reclaimed %d interrupted task(s) %s: %s",
+            len(result["reclaimed"]), when, ", ".join(result["reclaimed"][:5]),
+        )
+
+
+
 def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
     def task_ensure_dirs() -> None:
         for p in [ctx.inbox, ctx.running, ctx.done, ctx.failed]:
@@ -136,23 +156,6 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
 
         ctx.log_info("[TaskRunner] %s: %s exit=%s dur=%ss", tid, state, exit_code, duration)
         return True
-
-    def _reclaim_quietly(ctx_: TaskRunnerContext, when: str) -> None:
-        """Never let recovery of old records stop new work from running."""
-        try:
-            result = reclaim_interrupted_tasks(
-                running=ctx_.running, failed=ctx_.failed, done=ctx_.done, now_fn=ctx_.utc_now
-            )
-        except Exception as e:  # pragma: no cover - defensive, would hide new work
-            ctx_.log_error("[TaskRunner] Reclaim (%s) failed: %s", when, e)
-            return
-        for error in result.get("errors", []):
-            ctx_.log_error("[TaskRunner] Reclaim (%s): %s", when, error)
-        if result.get("reclaimed"):
-            ctx_.log_info(
-                "[TaskRunner] Reclaimed %d interrupted task(s) %s: %s",
-                len(result["reclaimed"]), when, ", ".join(result["reclaimed"][:5]),
-            )
 
     async def task_runner_loop(app: web.Application):
         """Background task: watches INBOX for new tasks every 5 seconds."""

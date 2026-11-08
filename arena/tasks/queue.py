@@ -196,45 +196,50 @@ def reclaim_interrupted_tasks(
     failed.mkdir(parents=True, exist_ok=True, mode=0o700)
     now_epoch = time.time()
     for path in sorted(running.glob("*.json")):
-        task: dict[str, Any] = {}
         try:
-            task = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, ValueError):
-            # A claimant may be writing this file right now. Never reclaim an
-            # unreadable record without evidence that its owner is dead.
-            continue
-        if not isinstance(task, dict):
-            continue
-        pid = task.get("pid")
-        if pid is None:
-            if not _past_its_deadline(task, now_epoch, grace_seconds):
-                continue
-        elif isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
-            continue
-        elif alive(pid):
-            continue
-        task["reason"] = "interrupted"
-        task["state"] = "failed"
-        if not isinstance(task.get("id"), str) or not task["id"]:
-            task["id"] = path.stem
-        task["finished_at"] = now_fn()
-        target = failed / path.name
-        try:
-            # If a previous owner wrote its final result before crashing,
-            # do not replace it with an "interrupted" outcome.
-            if (done / path.name).exists():
-                continue
-            if not _publish_failed_task(target, task):
-                continue  # an existing failed result or another sweeper won
-            path.unlink()
+            task_id = _reclaim_one(path, failed, done, now_fn, alive, now_epoch, grace_seconds)
         except OSError as exc:
             errors.append(f"{path.name}: {exc}")
             continue
-        reclaimed.append(task["id"])
+        if task_id is not None:
+            reclaimed.append(task_id)
     result: dict[str, Any] = {"ok": not errors, "reclaimed": reclaimed}
     if errors:
         result["errors"] = errors
     return result
+
+
+def _load_reclaim_candidate(path: Path, alive: Callable[[int], bool],
+                            now_epoch: float, grace_seconds: int) -> dict[str, Any] | None:
+    try:
+        task = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        # A claimant may still be writing; ambiguous records stay in place.
+        return None
+    if not isinstance(task, dict):
+        return None
+    pid = task.get("pid")
+    if pid is None:
+        return task if _past_its_deadline(task, now_epoch, grace_seconds) else None
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+        return None
+    return None if alive(pid) else task
+
+
+def _reclaim_one(path: Path, failed: Path, done: Path, now_fn: Callable[[], str],
+                 alive: Callable[[int], bool], now_epoch: float, grace_seconds: int) -> str | None:
+    task = _load_reclaim_candidate(path, alive, now_epoch, grace_seconds)
+    if task is None or (done / path.name).exists():
+        return None
+    task["reason"] = "interrupted"
+    task["state"] = "failed"
+    if not isinstance(task.get("id"), str) or not task["id"]:
+        task["id"] = path.stem
+    task["finished_at"] = now_fn()
+    if not _publish_failed_task(failed / path.name, task):
+        return None  # an existing failed result or another sweeper won
+    path.unlink()
+    return task["id"]
 
 
 def _publish_failed_task(target: Path, task: dict[str, Any]) -> bool:
