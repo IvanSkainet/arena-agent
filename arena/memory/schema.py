@@ -139,8 +139,15 @@ def migrate_jsonl_facts(*, db_path: Path, jsonl_path: Path, log_error: Callable[
                 conn.rollback()
                 return  # source changed during the read; retry on the next start
             payload, offset, prefix_hash = snapshot
-            for line in payload.decode("utf-8", "replace").split("\n"):
-                _import_jsonl_line(conn, line)
+            for raw_line in payload.split(b"\n"):
+                try:
+                    _import_jsonl_line(conn, raw_line.decode("utf-8"))
+                except (UnicodeError, OverflowError, RecursionError, ValueError):
+                    # Invalid UTF-8, deeply nested JSON, or values SQLite cannot
+                    # bind must not prevent later records from being imported.
+                    # The source is retained; SQLite errors still roll back the
+                    # entire transaction rather than being mistaken for bad data.
+                    continue
             conn.execute(
                 "INSERT INTO memory_jsonl_checkpoint(source, offset, prefix_hash) VALUES (?, ?, ?) "
                 "ON CONFLICT(source) DO UPDATE SET offset=excluded.offset, prefix_hash=excluded.prefix_hash",

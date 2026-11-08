@@ -105,3 +105,25 @@ def test_real_writer_after_torn_tail_preserves_new_fact(tmp_path, monkeypatch):
     migrate_jsonl_facts(db_path=db, jsonl_path=source)
     assert source.read_text(encoding="utf-8").startswith('{"key":"partial", "value":\n')
     assert _value(db, "next") == "saved"
+
+
+def test_unbindable_numbers_and_unicode_do_not_strand_later_records(tmp_path):
+    db, source = tmp_path / "facts.db", tmp_path / "facts.jsonl"
+    source.write_bytes(
+        b'{"key":"huge","value":9223372036854775808}\n'
+        b'{"key":"surrogate","value":"\\ud800"}\n'
+        b'{"key":"bad_utf8","value":"\xff"}\n'
+        + _fact("good", "yes").encode()
+    )
+    init_memory_db(db_path=db, jsonl_path=source)
+    assert _value(db, "good") == "yes"
+    assert _value(db, "huge") is None
+    assert _value(db, "surrogate") is None
+    assert _value(db, "bad_utf8") is None
+
+
+def test_deeply_nested_json_does_not_strand_later_records(tmp_path):
+    db, source = tmp_path / "facts.db", tmp_path / "facts.jsonl"
+    source.write_text('[' * 1100 + '0' + ']' * 1100 + '\n' + _fact("good", "yes"), encoding="utf-8")
+    init_memory_db(db_path=db, jsonl_path=source)
+    assert _value(db, "good") == "yes"
