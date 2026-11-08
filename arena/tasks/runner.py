@@ -13,6 +13,8 @@ from typing import Any
 
 from aiohttp import web
 
+from arena.tasks.queue import reclaim_interrupted_tasks
+
 
 @dataclass(frozen=True)
 class TaskRunnerContext:
@@ -71,6 +73,9 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
 
         task["started_at"] = ctx.utc_now()
         task["state"] = "running"
+        # Who claimed it, so a later start can tell "still running elsewhere"
+        # from "left behind by a process that no longer exists" (#B-032).
+        task["pid"] = os.getpid()
         rp.write_text(json.dumps(task, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
         cwd = Path(task.get("cwd") or str(Path.home())).expanduser()
@@ -132,13 +137,30 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
         ctx.log_info("[TaskRunner] %s: %s exit=%s dur=%ss", tid, state, exit_code, duration)
         return True
 
+    def _reclaim_quietly(ctx_: TaskRunnerContext, when: str) -> None:
+        """Never let recovery of old records stop new work from running."""
+        try:
+            result = reclaim_interrupted_tasks(
+                running=ctx_.running, failed=ctx_.failed, now_fn=ctx_.utc_now
+            )
+        except Exception as e:  # pragma: no cover - defensive, would hide new work
+            ctx_.log_error("[TaskRunner] Reclaim (%s) failed: %s", when, e)
+            return
+        if result.get("reclaimed"):
+            ctx_.log_info(
+                "[TaskRunner] Reclaimed %d interrupted task(s) %s: %s",
+                len(result["reclaimed"]), when, ", ".join(result["reclaimed"][:5]),
+            )
+
     async def task_runner_loop(app: web.Application):
         """Background task: watches INBOX for new tasks every 5 seconds."""
         task_ensure_dirs()
         ctx.log_info("[TaskRunner] Watching %s", ctx.inbox)
+        _reclaim_quietly(ctx, "at startup")
         while True:
             try:
                 task_ensure_dirs()
+                _reclaim_quietly(ctx, "on tick")
                 for p in sorted(ctx.inbox.glob("*.json"))[:3]:
                     await task_run_one(p)
             except Exception as e:
