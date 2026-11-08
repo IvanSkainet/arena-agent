@@ -102,16 +102,41 @@ def test_a_pid_less_record_is_reclaimed_once_its_own_timeout_has_passed(tmp_path
     assert json.loads((failed / "t4.json").read_text(encoding="utf-8"))["reason"] == "interrupted"
 
 
-def test_an_unreadable_record_is_retired_rather_than_left_to_rot(tmp_path):
-    """A truncated task file cannot be listed, run, or cleaned -- only moved aside."""
+def test_unreadable_record_is_left_alone_during_possible_concurrent_write(tmp_path):
     running, failed = _queue(tmp_path)
-    (running / "t5.json").write_text('{"id": "t5", "cmd": "sl', encoding="utf-8")
+    path = running / "t5.json"
+    path.write_text('{"id": "t5", "cmd": "sl', encoding="utf-8")
 
     result = _sweep(running, failed)
 
-    assert result["reclaimed"] == ["t5"]
-    moved = json.loads((failed / "t5.json").read_text(encoding="utf-8"))
-    assert moved["reason"] == "unreadable"
+    assert result["reclaimed"] == []
+    assert path.exists()
+    assert not (failed / "t5.json").exists()
+
+
+def test_missing_started_at_does_not_steal_a_claim_in_progress(tmp_path):
+    running, failed = _queue(tmp_path)
+    path = running / "claim.json"
+    path.write_text(json.dumps({"id": "claim", "state": "inbox"}), encoding="utf-8")
+
+    assert _sweep(running, failed)["reclaimed"] == []
+    assert path.exists()
+    assert not (failed / path.name).exists()
+
+
+def test_claim_window_and_malformed_records_do_not_block_other_recovery(tmp_path):
+    running, failed = _queue(tmp_path)
+    (running / "a.json").write_text(json.dumps({"id": "a", "state": "inbox"}), encoding="utf-8")
+    (running / "b.json").write_text("[]", encoding="utf-8")
+    _write(running, "c", pid=None, timeout={"bad": 1})
+    _write(running, "d", pid=False)
+    _write(running, "e", pid=999999999, id=None)
+
+    result = _sweep(running, failed, alive=lambda _: False)
+
+    assert result["reclaimed"] == ["e"]
+    assert all((running / f"{name}.json").exists() for name in "abcd")
+    assert json.loads((failed / "e.json").read_text(encoding="utf-8"))["id"] == "e"
 
 
 def test_sweeping_twice_changes_nothing_the_second_time(tmp_path):

@@ -178,6 +178,10 @@ def reclaim_interrupted_tasks(
     * no pid     -> a record from an older version; reclaim only once it is
       older than its own timeout plus ``grace_seconds``, so a slow task from a
       previous release is not stolen mid-run.
+
+    Unreadable or malformed records, and records with unusable ownership or
+    timing metadata, are left in place for inspection: they may be observed
+    during a live claim or write and cannot safely be declared interrupted.
     """
     reclaimed: list[str] = []
     if not running.exists():
@@ -188,17 +192,24 @@ def reclaim_interrupted_tasks(
         task: dict[str, Any] = {}
         try:
             task = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            task = {"id": path.stem, "reason": "unreadable"}
-        else:
-            pid = task.get("pid")
-            if isinstance(pid, int) and alive(pid):
+        except (OSError, UnicodeError, ValueError):
+            # A claimant may be writing this file right now. Never reclaim an
+            # unreadable record without evidence that its owner is dead.
+            continue
+        if not isinstance(task, dict):
+            continue
+        pid = task.get("pid")
+        if pid is None:
+            if not _past_its_deadline(task, now_epoch, grace_seconds):
                 continue
-            if not isinstance(pid, int) and not _past_its_deadline(task, now_epoch, grace_seconds):
-                continue
-            task["reason"] = "interrupted"
+        elif isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+            continue
+        elif alive(pid):
+            continue
+        task["reason"] = "interrupted"
         task["state"] = "failed"
-        task.setdefault("id", path.stem)
+        if not isinstance(task.get("id"), str) or not task["id"]:
+            task["id"] = path.stem
         task["finished_at"] = now_fn()
         target = failed / path.name
         try:
@@ -214,7 +225,13 @@ def _past_its_deadline(task: dict[str, Any], now_epoch: float, grace_seconds: in
     """True when a pid-less record is old enough that nobody can be running it."""
     try:
         started = datetime.fromisoformat(str(task.get("started_at", ""))).timestamp()
-    except (TypeError, ValueError):
-        return True  # no usable timestamp: nothing to wait for
-    budget = int(task.get("timeout") or 3600) + grace_seconds
-    return now_epoch - started > budget
+    except (TypeError, ValueError, OverflowError, OSError):
+        # Missing metadata can be the window between claim and metadata write.
+        return False
+    try:
+        timeout = int(task.get("timeout") or 3600)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if timeout <= 0:
+        return False
+    return now_epoch - started > timeout + grace_seconds
