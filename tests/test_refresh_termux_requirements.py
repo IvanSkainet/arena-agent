@@ -4,6 +4,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "refresh_termux_requirements.py"
 spec = importlib.util.spec_from_file_location("refresh_termux_requirements", SCRIPT)
@@ -24,20 +26,29 @@ def _detail(version: str, requires_python: str, digest: str) -> dict[str, object
                       "digests": {"sha256": digest}}]}
 
 
-def test_selects_latest_release_compatible_with_python_floor(monkeypatch) -> None:
+@pytest.mark.parametrize(("candidate", "requires_python", "digest"), [
+    ("7.2.1", ">=3.11", "a"),
+    ("7.3.0", ">=3.10,<3.14", "d"),
+    ("7.3.1", ">=>3.10", "b"),
+])
+def test_skips_candidate_not_supporting_the_full_matrix(
+    monkeypatch, candidate: str, requires_python: str, digest: str,
+) -> None:
     project = {"releases": {
-        "7.2.1": [_file("7.2.1")],
+        candidate: [_file(candidate)],
         "7.1.0": [_file("7.1.0")],
     }}
     details = {
-        "https://pypi.org/pypi/multidict/7.2.1/json": _detail("7.2.1", ">=3.11", "a" * 64),
-        "https://pypi.org/pypi/multidict/7.1.0/json": _detail("7.1.0", ">=3.10", "b" * 64),
+        f"https://pypi.org/pypi/multidict/{candidate}/json": _detail(
+            candidate, requires_python, digest * 64),
+        "https://pypi.org/pypi/multidict/7.1.0/json": _detail(
+            "7.1.0", ">=3.10", "c" * 64),
     }
     monkeypatch.setattr(refresh, "_fetch",
-                        lambda url: project if url.endswith("/json") and url.endswith("/multidict/json")
+                        lambda url: project if url.endswith("/multidict/json")
                         else details[url])
 
-    assert refresh.collect("multidict") == ("7.1.0", ["b" * 64])
+    assert refresh.collect("multidict") == ("7.1.0", ["c" * 64])
 
 
 def test_skips_yanked_newer_release(monkeypatch) -> None:
@@ -52,41 +63,6 @@ def test_skips_yanked_newer_release(monkeypatch) -> None:
 
     assert refresh.collect("multidict") == ("7.1.0", ["c" * 64])
 
-
-def test_skips_release_that_excludes_a_newer_supported_python(monkeypatch) -> None:
-    project = {"releases": {
-        "7.3.0": [_file("7.3.0")],
-        "7.1.0": [_file("7.1.0")],
-    }}
-    details = {
-        "https://pypi.org/pypi/multidict/7.3.0/json": _detail(
-            "7.3.0", ">=3.10,<3.14", "d" * 64),
-        "https://pypi.org/pypi/multidict/7.1.0/json": _detail(
-            "7.1.0", ">=3.10", "e" * 64),
-    }
-    monkeypatch.setattr(refresh, "_fetch",
-                        lambda url: project if url.endswith("/multidict/json")
-                        else details[url])
-
-    assert refresh.collect("multidict") == ("7.1.0", ["e" * 64])
-
-
-def test_malformed_requires_python_skips_candidate(monkeypatch) -> None:
-    project = {"releases": {
-        "7.3.1": [_file("7.3.1")],
-        "7.1.0": [_file("7.1.0")],
-    }}
-    details = {
-        "https://pypi.org/pypi/multidict/7.3.1/json": _detail(
-            "7.3.1", ">=>3.10", "b" * 64),
-        "https://pypi.org/pypi/multidict/7.1.0/json": _detail(
-            "7.1.0", ">=3.10", "c" * 64),
-    }
-    monkeypatch.setattr(refresh, "_fetch",
-                        lambda url: project if url.endswith("/multidict/json")
-                        else details[url])
-
-    assert refresh.collect("multidict") == ("7.1.0", ["c" * 64])
 
 
 def test_yanked_artifacts_are_never_included_in_hashes(monkeypatch) -> None:

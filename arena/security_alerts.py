@@ -240,69 +240,81 @@ def collect() -> tuple[list[dict[str, Any]], list[str]]:
     return findings, notes
 
 
+def _note_is_read_failure(note: str, strict: bool) -> bool:
+    """PR scope is metadata; missing credentials fail only in strict mode."""
+    if note.startswith("code scanning scoped to "):
+        return False
+    return strict if "no GITHUB_TOKEN" in note else True
+
+
 def _feed_read_failed(notes: list[str], strict: bool) -> bool:
     """Distinguish informational PR scope from unreadable feeds."""
-    for note in notes:
-        if note.startswith("code scanning scoped to "):
-            continue
-        if "no GITHUB_TOKEN" in note:
-            if strict:
-                return True
-            continue
-        return True
-    return False
+    return any(_note_is_read_failure(note, strict) for note in notes)
+
+
+def _note_kind(note: str) -> str:
+    """Classify scope, local credential skips, and actual feed errors."""
+    if note.startswith("code scanning scoped to "):
+        return "INFO"
+    if "no GITHUB_TOKEN" in note:
+        return "SKIPPED"
+    return "ERROR"
 
 
 def _print_notes(notes: list[str]) -> None:
     """Keep read-scope information distinct from missing/unreadable feeds."""
     for note in notes:
-        if note.startswith("code scanning scoped to "):
-            kind = "INFO"
-        elif "no GITHUB_TOKEN" in note:
-            kind = "SKIPPED"
-        else:
-            kind = "ERROR"
-        print(f"security alerts: {kind} -- {note}")
+        print(f"security alerts: {_note_kind(note)} -- {note}")
 
 
-def main(argv: list[str]) -> int:
+def _parse_args(argv: list[str]) -> tuple[str | None, bool]:
     threshold = None
-    require_readable_feeds = "--require-readable-feeds" in argv
     for i, arg in enumerate(argv):
         if arg == "--max-severity" and i + 1 < len(argv):
             threshold = argv[i + 1]
         elif arg.startswith("--max-severity="):
             threshold = arg.split("=", 1)[1]
+    return threshold, "--require-readable-feeds" in argv
 
+
+def _print_findings(findings: list[dict[str, Any]]) -> None:
+    by_feed: dict[str, int] = {}
+    for finding in findings:
+        by_feed[finding["feed"]] = by_feed.get(finding["feed"], 0) + 1
+    summary = ", ".join(f"{count} {feed}" for feed, count in sorted(by_feed.items()))
+    print(f"security alerts: {len(findings)} open ({summary})")
+    ordered = sorted(findings, key=lambda item: -_rank(item["severity"]))
+    for finding in ordered:
+        print(f"  #{finding['number']} [{finding['severity']}] "
+              f"{finding['id']}  {finding['where']}")
+
+
+def _threshold_exit(findings: list[dict[str, Any]], threshold: str | None) -> int:
+    if not threshold:
+        return 0
+    over = [item for item in findings
+            if _rank(item["severity"]) >= _rank(threshold)]
+    if not over:
+        print(f"  none at or above '{threshold}'.")
+        return 0
+    print()
+    print(f"  {len(over)} at or above '{threshold}' -- these block the build.")
+    return 1
+
+
+def main(argv: list[str]) -> int:
+    threshold, strict = _parse_args(argv)
     findings, notes = collect()
-
     _print_notes(notes)
-    if _feed_read_failed(notes, require_readable_feeds):
-        # Partial visibility must never be mistaken for a clean result. Strict
-        # mode requires readable feeds; local no-token skips stay informational.
+    if _feed_read_failed(notes, strict):
+        # Partial visibility must never be mistaken for a clean result.
         print("security alerts: ERROR -- one or more feeds could not be read")
         return 2
     if any("no GITHUB_TOKEN" in note for note in notes) and not findings:
         # Local invocation without a token: explicit skip, not a clean claim.
         return 0
-
     if not findings:
         print("security alerts: OK (no open alerts in any feed)")
         return 0
-
-    by_feed: dict[str, int] = {}
-    for f in findings:
-        by_feed[f["feed"]] = by_feed.get(f["feed"], 0) + 1
-    summary = ", ".join(f"{v} {k}" for k, v in sorted(by_feed.items()))
-    print(f"security alerts: {len(findings)} open ({summary})")
-    for f in sorted(findings, key=lambda x: -_rank(x["severity"])):
-        print(f"  #{f['number']} [{f['severity']}] {f['id']}  {f['where']}")
-
-    if threshold:
-        over = [f for f in findings if _rank(f["severity"]) >= _rank(threshold)]
-        if over:
-            print()
-            print(f"  {len(over)} at or above '{threshold}' -- these block the build.")
-            return 1
-        print(f"  none at or above '{threshold}'.")
-    return 0
+    _print_findings(findings)
+    return _threshold_exit(findings, threshold)
