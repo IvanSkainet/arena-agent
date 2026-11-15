@@ -41,10 +41,10 @@ import urllib.error
 import urllib.request
 
 try:
-    from packaging.specifiers import SpecifierSet
+    from packaging.specifiers import InvalidSpecifier, SpecifierSet
     from packaging.version import InvalidVersion, Version
 except ImportError:  # Termux ships pip, which vendors the same PEP 440 parser.
-    from pip._vendor.packaging.specifiers import SpecifierSet
+    from pip._vendor.packaging.specifiers import InvalidSpecifier, SpecifierSet
     from pip._vendor.packaging.version import InvalidVersion, Version
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -84,9 +84,10 @@ TRANSITIVE = (
 )
 
 TIMEOUT_S = 60
-# The bridge declares Python >=3.10. Generated Android pins must work on
-# that floor as well as on the currently shipped Termux Python.
-MIN_PYTHON = "3.10"
+# Keep this list in step with the supported-Python matrix in ci.yml. A lock
+# accepted by the floor but rejected by a newer supported Termux Python is
+# still an unusable lock.
+SUPPORTED_PYTHON_VERSIONS = ("3.10", "3.11", "3.12", "3.13", "3.14")
 
 
 def _fetch(url: str) -> dict:
@@ -105,16 +106,8 @@ def _relevant(filename: str, packagetype: str) -> bool:
             or "py3-none-any" in lowered)
 
 
-def collect(package: str) -> tuple[str, list[str]]:
-    """Return hashes for the newest non-yanked release supporting Python 3.10+.
-
-    The Termux installer may encounter an older interpreter than the latest
-    one in the package repository. A pin that is newest on PyPI but requires
-    Python 3.11 would make the generated file unusable on the project's
-    supported 3.10 floor.
-    """
-    project = _fetch(f"https://pypi.org/pypi/{package}/json")
-    releases = project.get("releases", {})
+def _candidate_versions(releases: dict) -> list[str]:
+    """Newest stable releases with at least one non-yanked file."""
     candidates: list[tuple[Version, str]] = []
     for version, files in releases.items():
         if not files or all(item.get("yanked", False) for item in files):
@@ -123,26 +116,49 @@ def collect(package: str) -> tuple[str, list[str]]:
             parsed = Version(version)
         except InvalidVersion:
             continue
-        if parsed.is_prerelease:
-            continue
-        candidates.append((parsed, version))
+        if not parsed.is_prerelease:
+            candidates.append((parsed, version))
+    return [version for _, version in sorted(candidates, reverse=True)]
 
-    for _, version in sorted(candidates, reverse=True):
+
+def _supports_python(requires_python: str) -> bool:
+    """Whether metadata accepts every Python version in the supported matrix."""
+    if not requires_python:
+        return True
+    try:
+        specifier = SpecifierSet(requires_python)
+    except InvalidSpecifier:
+        return False
+    return all(specifier.contains(version)
+               for version in SUPPORTED_PYTHON_VERSIONS)
+
+
+def _usable_hashes(detail: dict) -> list[str]:
+    """Hashes for relevant, non-yanked artifacts only."""
+    return sorted({
+        entry["digests"]["sha256"]
+        for entry in detail.get("urls", [])
+        if not entry.get("yanked", False)
+        and _relevant(entry["filename"], entry["packagetype"])
+    })
+
+
+def collect(package: str) -> tuple[str, list[str]]:
+    """Return the newest stable usable release and its artifact hashes."""
+    project = _fetch(f"https://pypi.org/pypi/{package}/json")
+    for version in _candidate_versions(project.get("releases", {})):
         detail = _fetch(f"https://pypi.org/pypi/{package}/{version}/json")
         requires_python = detail.get("info", {}).get("requires_python") or ""
-        if requires_python and not SpecifierSet(requires_python).contains(MIN_PYTHON):
+        if not _supports_python(requires_python):
             continue
-        digests = {
-            entry["digests"]["sha256"]
-            for entry in detail.get("urls", [])
-            if _relevant(entry["filename"], entry["packagetype"])
-        }
+        digests = _usable_hashes(detail)
         if digests:
-            return version, sorted(digests)
+            return version, digests
 
+    supported = ", ".join(SUPPORTED_PYTHON_VERSIONS)
     raise RuntimeError(
         f"{package}: no non-yanked release with usable artifacts supports "
-        f"Python {MIN_PYTHON}+"
+        f"Python versions {supported}"
     )
 
 

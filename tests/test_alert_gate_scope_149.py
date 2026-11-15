@@ -168,6 +168,21 @@ def test_the_ref_actually_reaches_the_query(gate, clean_env, monkeypatch):
     assert any("scoped to" in n for n in notes), notes
 
 
+def test_strict_mode_accepts_readable_feeds_with_scope_note(
+    gate, clean_env, monkeypatch, capsys
+):
+    """A PR scope note reports where the feed was read, not a read failure."""
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_REF", "refs/pull/149/merge")
+    clean_env.setenv("GITHUB_TOKEN", "test-token")
+    monkeypatch.setattr(gate, "_get", lambda _path: ([], ""))
+
+    assert gate.main(["--require-readable-feeds"]) == 0
+    output = capsys.readouterr().out
+    assert "INFO -- code scanning scoped to refs/pull/149/head" in output
+    assert "OK (no open alerts in any feed)" in output
+
+
 def test_the_repository_wide_query_carries_no_ref(gate, clean_env, monkeypatch):
     clean_env.setenv("GITHUB_EVENT_NAME", "push")
 
@@ -291,7 +306,8 @@ def test_unreadable_feed_fails_closed_even_with_only_low_findings(
 
     assert gate.main(["--max-severity", "medium"]) == 2
     output = capsys.readouterr().out
-    assert "SKIPPED -- dependabot: HTTP 403" in output
+    assert "ERROR -- dependabot: HTTP 403" in output
+    assert "SKIPPED -- dependabot: HTTP 403" not in output
     assert "ERROR -- one or more feeds could not be read" in output
 
 
@@ -308,18 +324,16 @@ def test_unreadable_feeds_fail_closed_when_no_findings_return(
     assert "ERROR -- one or more feeds could not be read" in capsys.readouterr().out
 
 
-def test_ci_mode_fails_when_no_token_is_available(
-    gate, clean_env, monkeypatch, capsys
-):
+def test_ci_mode_fails_when_no_token_is_available(gate, clean_env, capsys):
     """CI must not report success if the required feed credential is absent."""
     clean_env.delenv("GITHUB_TOKEN", raising=False)
     clean_env.delenv("GH_TOKEN", raising=False)
-    monkeypatch.setattr(
-        gate, "collect", lambda: ([], ["dependabot: no GITHUB_TOKEN"]),
-    )
-
+    # Exercise the real collect -> _get credential path. With no credential,
+    # each feed returns an explicit unavailable result without making a request.
     assert gate.main(["--max-severity", "medium", "--require-readable-feeds"]) == 2
-    assert "ERROR -- one or more feeds could not be read" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "SKIPPED -- code scanning: no GITHUB_TOKEN" in output
+    assert "ERROR -- one or more feeds could not be read" in output
 
 
 def test_local_no_token_skip_remains_informational(

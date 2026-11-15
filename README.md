@@ -27,8 +27,8 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 
 | Metric | Value |
 | --- | --- |
-| Runtime code | **116,239** lines across 824 files |
-| Test code | **121,307** lines across 611 files |
+| Runtime code | **116,277** lines across 824 files |
+| Test code | **121,429** lines across 611 files |
 | Test-to-code ratio | **1.04×** |
 | CI workflows | **16** |
 | Quality gates (ratchets) | **20** |
@@ -558,13 +558,16 @@ Filesystem:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `PATCH` | `/v1/fs/edit` | Preview or apply a text edit |
+| `PATCH` | `/v1/fs/edit` | Preview a text edit |
 | `POST` | `/v1/fs/edit/apply` | Apply a previewed edit |
 | `POST` | `/v1/fs/edit/rollback` | Roll back an applied edit |
 | `POST` | `/v1/fs/view` | Read a file through the filesystem sandbox |
 | `POST` | `/v1/fs/create` | Create a file through the filesystem sandbox |
 | `POST` | `/v1/upload` | Upload a file |
 | `GET` | `/v1/download` | Download a file |
+
+For safe edits, preview with `/v1/fs/edit`, apply with `/v1/fs/edit/apply`,
+and use `/v1/fs/edit/rollback` if you need to undo the applied change.
 
 Extension bridge:
 

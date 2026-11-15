@@ -167,6 +167,22 @@ def _documented_paths() -> dict[str, list[str]]:
     return found
 
 
+def _filesystem_paths(text: str) -> set[str]:
+    """Filesystem route claims in one README, normalized like registry paths."""
+    return {
+        _placeholders_normalised(path)
+        for path in _DOC_PATH.findall(text)
+        if path.startswith("/v1/fs/")
+    }
+
+
+def _filesystem_parity_errors(
+    documented: set[str], registered: set[str],
+) -> tuple[set[str], set[str]]:
+    """Return omitted registry routes and invented documentation routes."""
+    return registered - documented, documented - registered
+
+
 def test_the_wiki_glob_is_not_dead_weight() -> None:
     """`.cubic/wiki` is absent today, and that has to stay visible.
 
@@ -233,3 +249,27 @@ def test_documented_endpoints_are_real() -> None:
         + "\nEither the route was removed and the docs are stale, or the "
         "text was generated rather than checked."
     )
+
+
+def test_readme_filesystem_routes_match_the_registry() -> None:
+    """The public filesystem table must neither invent nor omit a route."""
+    registered = {path for path in _registered_paths() if path.startswith("/v1/fs/")}
+    for name in ("README.md", "README.ru.md"):
+        text = (REPO_ROOT / name).read_text(encoding="utf-8")
+        documented = _filesystem_paths(text)
+        omitted, invented = _filesystem_parity_errors(documented, registered)
+        assert not omitted and not invented, (
+            f"{name} filesystem routes differ from the registry; "
+            f"omitted={sorted(omitted)}, invented={sorted(invented)}"
+        )
+
+
+def test_filesystem_parity_gate_detects_both_omissions_and_inventions() -> None:
+    """Bilateral sabotage: both missing and made-up routes must be caught."""
+    expected = {"/v1/fs/view", "/v1/fs/edit"}
+    assert _filesystem_parity_errors(expected, expected) == (set(), set())
+    assert _filesystem_parity_errors({"/v1/fs/view"}, expected) == (
+        {"/v1/fs/edit"}, set())
+    assert _filesystem_parity_errors(
+        {"/v1/fs/view", "/v1/fs/imaginary"}, expected) == (
+        {"/v1/fs/edit"}, {"/v1/fs/imaginary"})

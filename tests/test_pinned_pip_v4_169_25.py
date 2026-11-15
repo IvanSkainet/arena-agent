@@ -336,7 +336,7 @@ def test_alert_check_never_reports_clean_when_it_could_not_look() -> None:
                    str(REPO_ROOT / "scripts" / "security_alerts_check.py")],
                   capture_output=True, text=True, timeout=120,
                   env={**_os.environ, **env})
-    assert "SKIPPED" in proc.stdout, proc.stdout
+    assert "ERROR -- one or more feeds could not be read" in proc.stdout, proc.stdout
     assert "OK (no open alerts" not in proc.stdout, (
         "an unauthorised read was reported as a clean repository"
     )

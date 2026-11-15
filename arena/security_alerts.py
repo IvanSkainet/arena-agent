@@ -240,6 +240,31 @@ def collect() -> tuple[list[dict[str, Any]], list[str]]:
     return findings, notes
 
 
+def _feed_read_failed(notes: list[str], strict: bool) -> bool:
+    """Distinguish informational PR scope from unreadable feeds."""
+    for note in notes:
+        if note.startswith("code scanning scoped to "):
+            continue
+        if "no GITHUB_TOKEN" in note:
+            if strict:
+                return True
+            continue
+        return True
+    return False
+
+
+def _print_notes(notes: list[str]) -> None:
+    """Keep read-scope information distinct from missing/unreadable feeds."""
+    for note in notes:
+        if note.startswith("code scanning scoped to "):
+            kind = "INFO"
+        elif "no GITHUB_TOKEN" in note:
+            kind = "SKIPPED"
+        else:
+            kind = "ERROR"
+        print(f"security alerts: {kind} -- {note}")
+
+
 def main(argv: list[str]) -> int:
     threshold = None
     require_readable_feeds = "--require-readable-feeds" in argv
@@ -251,16 +276,13 @@ def main(argv: list[str]) -> int:
 
     findings, notes = collect()
 
-    for note in notes:
-        print(f"security alerts: SKIPPED -- {note}")
-    unreadable = [note for note in notes if "no GITHUB_TOKEN" not in note]
-    if unreadable or (require_readable_feeds and notes):
-        # Partial visibility must never be mistaken for a clean result. CI
-        # also requires a token to be present, unlike an informational local
-        # invocation where no token is a normal explicit skip.
+    _print_notes(notes)
+    if _feed_read_failed(notes, require_readable_feeds):
+        # Partial visibility must never be mistaken for a clean result. Strict
+        # mode requires readable feeds; local no-token skips stay informational.
         print("security alerts: ERROR -- one or more feeds could not be read")
         return 2
-    if notes and not findings:
+    if any("no GITHUB_TOKEN" in note for note in notes) and not findings:
         # Local invocation without a token: explicit skip, not a clean claim.
         return 0
 

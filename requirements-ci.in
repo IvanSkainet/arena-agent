@@ -24,6 +24,9 @@ websockets==16.1.1
 requests==2.34.2
 idna==3.19
 beautifulsoup4==4.15.0
+# The Termux requirements generator uses PEP 440 parsing; keep it available
+# directly rather than relying on an unrelated tool's transitive dependency.
+packaging==26.2
 pytest==9.1.1
 pytest-cov==7.1.0
 # Workflow contract tests parse GitHub Actions YAML; this must be direct so

@@ -384,6 +384,9 @@ jobs:
     timeout-minutes: 5
     name: Version sync (4 sources in lockstep)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: read
     steps:
       # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
       # records network egress / file integrity / processes to the

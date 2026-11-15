@@ -12,7 +12,7 @@ permissions: {}
 jobs:
   boe-contract:
     name: Pinned Book of Eternity compatibility
-    uses: ./.github/workflows/boe-contract.yml
+    uses: ./.github/workflows/boe-contract.yml # zizmor: ignore[self-repository] the reusable contract must run from this exact candidate tree
     permissions:
       contents: read
 

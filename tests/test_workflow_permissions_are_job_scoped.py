@@ -130,6 +130,16 @@ def test_stale_action_can_replace_its_state_cache_only_in_its_job() -> None:
         "pull-requests": "write",
         "actions": "write",
     }
+    other_action_writers = [
+        name for name, job in doc["jobs"].items()
+        if name != "stale"
+        and isinstance(job.get("permissions"), dict)
+        and str(job["permissions"].get("actions", "")).lower() == "write"
+    ]
+    assert not other_action_writers, (
+        "actions: write escaped the stale job: "
+        f"{other_action_writers}"
+    )
 
 
 def test_every_workflow_pins_a_permissions_baseline() -> None:
