@@ -27,9 +27,9 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 
 | Metric | Value |
 | --- | --- |
-| Runtime code | **115,818** lines across 824 files |
-| Test code | **119,689** lines across 605 files |
-| Test-to-code ratio | **1.03×** |
+| Runtime code | **116,239** lines across 824 files |
+| Test code | **121,307** lines across 611 files |
+| Test-to-code ratio | **1.04×** |
 | CI workflows | **16** |
 | Quality gates (ratchets) | **20** |
 
@@ -470,8 +470,10 @@ the full threat model, environment-variable reference, and audit history).
 
 **Filesystem access.**
 
-- Every `/v1/fs/*` verb (view / edit / create / upload / **download**) routes
-  through the same sandbox validator. Sensitive files are blocked by both
+- Filesystem routes use the sandbox validators. The API paths are not all
+  under `/v1/fs/*`: upload is `POST /v1/upload` and download is
+  `GET /v1/download`; view, create and edit routes use the `/v1/fs/` prefix.
+  Sensitive files are blocked by both
   basename (`token.txt`, `.env`, `id_rsa`, `.git-credentials`, `.pypirc`,
   `.npmrc`, `.bash_history`, shell history in general) and directory prefix
   (`.ssh/`, `.aws/`, `.gnupg/`, `.docker/`, `.kube/`, `.config/gh/`, browser
@@ -552,6 +554,18 @@ Runtime tools:
 | `GET` | `/v1/desktop/screenshot` | Desktop screenshot where supported |
 | `GET` | `/v1/skills` | List discovered skill packages |
 
+Filesystem:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `PATCH` | `/v1/fs/edit` | Preview or apply a text edit |
+| `POST` | `/v1/fs/edit/apply` | Apply a previewed edit |
+| `POST` | `/v1/fs/edit/rollback` | Roll back an applied edit |
+| `POST` | `/v1/fs/view` | Read a file through the filesystem sandbox |
+| `POST` | `/v1/fs/create` | Create a file through the filesystem sandbox |
+| `POST` | `/v1/upload` | Upload a file |
+| `GET` | `/v1/download` | Download a file |
+
 Extension bridge:
 
 | Method | Path | Purpose |
@@ -623,7 +637,7 @@ Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [REL
 
 | Document | What's inside |
 | --- | --- |
-| [SECURITY.md](SECURITY.md) | **Threat model, environment-variable reference (14 knobs), recommended production preset, CI security-scan pipeline, audit history v4.40.0 → v4.46.0. Read this before exposing the bridge to any network.** |
+| [SECURITY.md](SECURITY.md) | **Threat model, environment-variable reference, recommended production preset, CI security-scan pipeline, audit history v4.40.0 → v4.46.0. Read this before exposing the bridge to any network.** |
 | [CHANGELOG.md](CHANGELOG.md) · [ru](CHANGELOG.ru.md) | Release history |
 | [RELEASE.md](RELEASE.md) | Release packaging and publishing checklist |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, tests, workflow, `make security-scan` gate |

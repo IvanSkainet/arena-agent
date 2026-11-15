@@ -440,7 +440,7 @@ jobs:
       - name: Open security alerts (fails at medium and above)
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python scripts/security_alerts_check.py --max-severity medium
+        run: python scripts/security_alerts_check.py --max-severity medium --require-readable-feeds
 
       # v4.169.29: the check above asks for state=open, and pressing
       # Dismiss is exactly the act of removing an alert from that query.

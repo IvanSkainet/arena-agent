@@ -115,6 +115,23 @@ def test_no_write_scopes_at_workflow_level(path: pathlib.Path) -> None:
     )
 
 
+def test_stale_action_can_replace_its_state_cache_only_in_its_job() -> None:
+    """v11 deletes its old `_state` cache before persisting processed IDs.
+
+    Without the job-scoped Actions write permission, the daily workflow gets
+    HTTP 403 on cache deletion and replays the old processed-ID set forever.
+    Keep the permission confined to this one scheduled/manual job.
+    """
+    doc = _load(WORKFLOWS / "stale.yml")
+
+    assert doc.get("permissions") == {}, "write permissions must not be inherited by future jobs"
+    assert doc["jobs"]["stale"]["permissions"] == {
+        "issues": "write",
+        "pull-requests": "write",
+        "actions": "write",
+    }
+
+
 def test_every_workflow_pins_a_permissions_baseline() -> None:
     """No workflow may fall back to the repository-wide default token.
 

@@ -401,7 +401,7 @@ file hashes and base64 payloads throughout the log. The process knows the value,
 so it registers it: `register_literal_secret()` records an exact string that is
 substituted before the pattern battery runs. Registration happens where the
 token first becomes known (`arena/cli.py`, at `resolve_token`) and is kept in
-step on rotation (`/v1/admin/token/regenerate` registers the new value before
+step on rotation (`/v1/token/regenerate` registers the new value before
 retiring the old one, so there is no window in which the fresh token is
 unprotected — and the old literal is kept when the new value cannot be
 registered, so a rotation never ends with neither protected).
@@ -435,7 +435,7 @@ gitleaks duly rejected the first revision of this very change.
 **Rotate after an exposure.** Redaction applies at write time. Audit files
 written before v4.170.0 retain any token that ever appeared in a command, so an
 operator who ran `exec` with the bearer on the command line should rotate it
-(`POST /v1/admin/token/regenerate`) and treat the historical audit as
+(`POST /v1/token/regenerate`) and treat the historical audit as
 compromised. Rotation takes effect on the next request; no restart is required.
 
 ### Recommended production preset

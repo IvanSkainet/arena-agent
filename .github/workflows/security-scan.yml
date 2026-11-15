@@ -257,7 +257,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python3 scripts/security_alerts_check.py --max-severity medium
+          python3 scripts/security_alerts_check.py --max-severity medium --require-readable-feeds
           python3 scripts/dismissed_alerts_gate.py
 
   osv-scanner:

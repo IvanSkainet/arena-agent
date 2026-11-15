@@ -463,8 +463,10 @@ audit history — в [`SECURITY.md`](SECURITY.md)).
 
 **Доступ к файловой системе.**
 
-- Каждый `/v1/fs/*` verb (view / edit / create / upload / **download**) идёт
-  через тот же sandbox validator. Sensitive-файлы блокируются и по basename
+- Файловые маршруты используют проверки sandbox. Не все они начинаются с
+  `/v1/fs/*`: загрузка выполняется через `POST /v1/upload`, скачивание —
+  через `GET /v1/download`; маршруты просмотра, создания и редактирования
+  используют префикс `/v1/fs/`. Чувствительные файлы блокируются и по basename
   (`token.txt`, `.env`, `id_rsa`, `.git-credentials`, `.pypirc`, `.npmrc`,
   `.bash_history`, shell history вообще), и по directory prefix (`.ssh/`,
   `.aws/`, `.gnupg/`, `.docker/`, `.kube/`, `.config/gh/`, browser profiles).
@@ -545,6 +547,18 @@ Runtime-инструменты:
 | `GET` | `/v1/desktop/screenshot` | Desktop screenshot, где поддерживается |
 | `GET` | `/v1/skills` | Список обнаруженных skill-пакетов |
 
+Файловая система:
+
+| Method | Path | Назначение |
+| --- | --- | --- |
+| `PATCH` | `/v1/fs/edit` | Просмотреть или применить текстовое изменение |
+| `POST` | `/v1/fs/edit/apply` | Применить подготовленное изменение |
+| `POST` | `/v1/fs/edit/rollback` | Отменить применённое изменение |
+| `POST` | `/v1/fs/view` | Прочитать файл через файловый sandbox |
+| `POST` | `/v1/fs/create` | Создать файл через файловый sandbox |
+| `POST` | `/v1/upload` | Загрузить файл |
+| `GET` | `/v1/download` | Скачать файл |
+
 Extension bridge:
 
 | Method | Path | Назначение |
@@ -616,7 +630,7 @@ Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [REL
 
 | Документ | Что внутри |
 | --- | --- |
-| [SECURITY.md](SECURITY.md) | **Threat model, env-var reference (14 knobs), recommended production preset, CI security-scan pipeline, audit history v4.40.0 → v4.46.0. Прочтите перед тем, как выставлять bridge в сеть.** |
+| [SECURITY.md](SECURITY.md) | **Threat model, env-var reference, recommended production preset, CI security-scan pipeline, audit history v4.40.0 → v4.46.0. Прочтите перед тем, как выставлять bridge в сеть.** |
 | [CHANGELOG.md](CHANGELOG.md) · [ru](CHANGELOG.ru.md) | История изменений |
 | [RELEASE.md](RELEASE.md) | Packaging / publishing checklist |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, тесты, workflow, `make security-scan` gate |

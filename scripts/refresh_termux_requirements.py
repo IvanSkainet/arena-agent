@@ -40,6 +40,13 @@ import sys
 import urllib.error
 import urllib.request
 
+try:
+    from packaging.specifiers import SpecifierSet
+    from packaging.version import InvalidVersion, Version
+except ImportError:  # Termux ships pip, which vendors the same PEP 440 parser.
+    from pip._vendor.packaging.specifiers import SpecifierSet
+    from pip._vendor.packaging.version import InvalidVersion, Version
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TARGET = ROOT / "scripts" / "requirements-termux.txt"
 OPTIONAL_TARGET = ROOT / "scripts" / "requirements-termux-optional.txt"
@@ -77,6 +84,9 @@ TRANSITIVE = (
 )
 
 TIMEOUT_S = 60
+# The bridge declares Python >=3.10. Generated Android pins must work on
+# that floor as well as on the currently shipped Termux Python.
+MIN_PYTHON = "3.10"
 
 
 def _fetch(url: str) -> dict:
@@ -96,18 +106,44 @@ def _relevant(filename: str, packagetype: str) -> bool:
 
 
 def collect(package: str) -> tuple[str, list[str]]:
-    """Return (version, sorted hashes) for the newest release."""
-    data = _fetch(f"https://pypi.org/pypi/{package}/json")
-    version = data["info"]["version"]
-    detail = _fetch(f"https://pypi.org/pypi/{package}/{version}/json")
-    digests = {
-        entry["digests"]["sha256"]
-        for entry in detail["urls"]
-        if _relevant(entry["filename"], entry["packagetype"])
-    }
-    if not digests:
-        raise RuntimeError(f"{package}=={version}: no usable artifact found")
-    return version, sorted(digests)
+    """Return hashes for the newest non-yanked release supporting Python 3.10+.
+
+    The Termux installer may encounter an older interpreter than the latest
+    one in the package repository. A pin that is newest on PyPI but requires
+    Python 3.11 would make the generated file unusable on the project's
+    supported 3.10 floor.
+    """
+    project = _fetch(f"https://pypi.org/pypi/{package}/json")
+    releases = project.get("releases", {})
+    candidates: list[tuple[Version, str]] = []
+    for version, files in releases.items():
+        if not files or all(item.get("yanked", False) for item in files):
+            continue
+        try:
+            parsed = Version(version)
+        except InvalidVersion:
+            continue
+        if parsed.is_prerelease:
+            continue
+        candidates.append((parsed, version))
+
+    for _, version in sorted(candidates, reverse=True):
+        detail = _fetch(f"https://pypi.org/pypi/{package}/{version}/json")
+        requires_python = detail.get("info", {}).get("requires_python") or ""
+        if requires_python and not SpecifierSet(requires_python).contains(MIN_PYTHON):
+            continue
+        digests = {
+            entry["digests"]["sha256"]
+            for entry in detail.get("urls", [])
+            if _relevant(entry["filename"], entry["packagetype"])
+        }
+        if digests:
+            return version, sorted(digests)
+
+    raise RuntimeError(
+        f"{package}: no non-yanked release with usable artifacts supports "
+        f"Python {MIN_PYTHON}+"
+    )
 
 
 OPTIONAL_HEADER = """# OPTIONAL, hash-verified extras for the on-device (Termux) install.

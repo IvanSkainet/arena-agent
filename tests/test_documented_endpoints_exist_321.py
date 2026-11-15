@@ -52,6 +52,8 @@ DOC_GLOBS = (
     ".cubic/wiki/**/*.md",
     "docs/**/*.md",
     "README.md",
+    "README.ru.md",
+    "SECURITY.md",
     "AGENTS.md",
 )
 

@@ -242,6 +242,7 @@ def collect() -> tuple[list[dict[str, Any]], list[str]]:
 
 def main(argv: list[str]) -> int:
     threshold = None
+    require_readable_feeds = "--require-readable-feeds" in argv
     for i, arg in enumerate(argv):
         if arg == "--max-severity" and i + 1 < len(argv):
             threshold = argv[i + 1]
@@ -252,8 +253,15 @@ def main(argv: list[str]) -> int:
 
     for note in notes:
         print(f"security alerts: SKIPPED -- {note}")
+    unreadable = [note for note in notes if "no GITHUB_TOKEN" not in note]
+    if unreadable or (require_readable_feeds and notes):
+        # Partial visibility must never be mistaken for a clean result. CI
+        # also requires a token to be present, unlike an informational local
+        # invocation where no token is a normal explicit skip.
+        print("security alerts: ERROR -- one or more feeds could not be read")
+        return 2
     if notes and not findings:
-        # Could not look. Say so; do not report a clean repository.
+        # Local invocation without a token: explicit skip, not a clean claim.
         return 0
 
     if not findings:

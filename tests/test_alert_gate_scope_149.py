@@ -274,6 +274,68 @@ def test_a_non_numeric_pr_number_is_refused(gate, clean_env, tmp_path, number):
     assert gate.code_scanning_ref() is None
 
 
+def test_unreadable_feed_fails_closed_even_with_only_low_findings(
+    gate, clean_env, monkeypatch, capsys
+):
+    """A partial feed response must not let below-threshold findings mask 403."""
+    clean_env.setenv("GITHUB_TOKEN", "test-token")
+    monkeypatch.setattr(
+        gate,
+        "collect",
+        lambda: (
+            [{"feed": "code-scanning", "number": 1, "severity": "note",
+              "id": "low-note", "where": "src/example.py:1"}],
+            ["dependabot: HTTP 403", "secret scanning: HTTP 403"],
+        ),
+    )
+
+    assert gate.main(["--max-severity", "medium"]) == 2
+    output = capsys.readouterr().out
+    assert "SKIPPED -- dependabot: HTTP 403" in output
+    assert "ERROR -- one or more feeds could not be read" in output
+
+
+def test_unreadable_feeds_fail_closed_when_no_findings_return(
+    gate, clean_env, monkeypatch, capsys
+):
+    """Zero findings from an unreadable feed is not evidence of zero alerts."""
+    clean_env.setenv("GITHUB_TOKEN", "test-token")
+    monkeypatch.setattr(
+        gate, "collect", lambda: ([], ["dependabot: HTTP 403"]),
+    )
+
+    assert gate.main(["--max-severity", "medium"]) == 2
+    assert "ERROR -- one or more feeds could not be read" in capsys.readouterr().out
+
+
+def test_ci_mode_fails_when_no_token_is_available(
+    gate, clean_env, monkeypatch, capsys
+):
+    """CI must not report success if the required feed credential is absent."""
+    clean_env.delenv("GITHUB_TOKEN", raising=False)
+    clean_env.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setattr(
+        gate, "collect", lambda: ([], ["dependabot: no GITHUB_TOKEN"]),
+    )
+
+    assert gate.main(["--max-severity", "medium", "--require-readable-feeds"]) == 2
+    assert "ERROR -- one or more feeds could not be read" in capsys.readouterr().out
+
+
+def test_local_no_token_skip_remains_informational(
+    gate, clean_env, monkeypatch, capsys
+):
+    """Without CI's strict flag, a local no-token run remains an explicit skip."""
+    clean_env.delenv("GITHUB_TOKEN", raising=False)
+    clean_env.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setattr(
+        gate, "collect", lambda: ([], ["dependabot: no GITHUB_TOKEN"]),
+    )
+
+    assert gate.main(["--max-severity", "medium"]) == 0
+    assert "SKIPPED" in capsys.readouterr().out
+
+
 # --- #190: the script must stay a wrapper, not grow the gate back --------
 
 def test_the_entrypoint_stays_a_thin_wrapper() -> None:
