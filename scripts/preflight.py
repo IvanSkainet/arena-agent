@@ -77,11 +77,7 @@ CHECKS: list[Check] = [
           why="GitHub retired Node 20; the warning only shows in the log of "
               "a job that actually ran, so dependency-review sat on a dead "
               "runtime unnoticed"),
-    Check("workflow lint", [
-              "actionlint", "-ignore",
-              'unknown permission scope "vulnerability-alerts"',
-              "-shellcheck", "shellcheck",
-          ],
+    Check("workflow lint", ["actionlint", "-shellcheck", "shellcheck"],
           needs="actionlint",
           why="CI runs actionlint WITH shellcheck; without it SC2012 slipped "
               "through and reddened a build (17cec54e)"),

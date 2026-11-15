@@ -95,11 +95,6 @@ jobs:
 
       - name: Run actionlint
         uses: rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
-        with:
-          # GitHub's GITHUB_TOKEN supports this read-only scope, but the
-          # pinned actionlint schema has not learned it yet. Ignore only that
-          # exact stale-schema diagnostic; all other permissions stay checked.
-          args: -ignore 'unknown permission scope "vulnerability-alerts"'
         # NOTE (v4.96.0): the rhysd/actionlint Docker action only accepts the
         # `entryPoint` and `args` inputs. A stray `with: ignore:` here produced
         # the runner warning "Unexpected input(s) 'ignore', valid inputs are
@@ -957,6 +952,7 @@ jobs:
             api.github.com:443
             objects.githubusercontent.com:443
             release-assets.githubusercontent.com:443
+            registry.npmjs.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

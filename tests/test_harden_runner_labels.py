@@ -56,6 +56,16 @@ def _allows_pypi(step) -> bool:
     return any(e.split(":")[0] == "pypi.org" for e in endpoints)
 
 
+def _installs_from_npm(job) -> bool:
+    runs = " ".join(str(s.get("run", "")) for s in job.get("steps") or [])
+    return "npm ci" in runs or "npm install" in runs
+
+
+def _allows_npm_registry(step) -> bool:
+    endpoints = str((step.get("with") or {}).get("allowed-endpoints", "")).split()
+    return any(e.split(":")[0] == "registry.npmjs.org" for e in endpoints)
+
+
 def test_workflows_exist():
     assert WORKFLOWS, "no workflow files found"
 
@@ -116,6 +126,18 @@ def test_pypi_allowed_wherever_pip_is_used():
         if _installs_from_pypi(job) and not _allows_pypi(step)
     ]
     assert not wrong, f"these jobs pip-install but cannot reach PyPI: {wrong}"
+
+
+def test_npm_registry_allowed_only_where_npm_is_used():
+    wrong = [
+        f"{wf}:{jid}"
+        for wf, jid, job, step in _blocking_jobs()
+        if _installs_from_npm(job) != _allows_npm_registry(step)
+    ]
+    assert not wrong, (
+        "npm registry egress must be granted exactly to npm-installing jobs: "
+        f"{wrong}"
+    )
 
 
 def test_pypi_not_granted_where_pip_is_unused():
