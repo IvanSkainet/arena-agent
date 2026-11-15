@@ -17,9 +17,13 @@ loopback is noise, and a gate that fails on noise gets bypassed within a
 week. With ``--max-severity`` it fails on anything at or above the given
 level, which is what CI uses.
 
-Needs a token with `security_events` scope. Without one it says so and
-exits 0 rather than pretending the repository is clean -- the empty
-result and the unauthorised result must never look the same.
+Code scanning and Dependabot use the job's read-only ``GITHUB_TOKEN``
+(``security-events: read`` and ``vulnerability-alerts: read``). GitHub
+does not let ``GITHUB_TOKEN`` read secret-scanning alerts, so that feed
+uses a separate ``SECRET_SCANNING_TOKEN`` with only the repository's
+Secret scanning alerts: read permission. Missing credentials are reported
+explicitly; strict CI mode fails rather than mistaking an unreadable feed
+for a clean one.
 
 Why this lives in ``arena/`` and not in the script that runs it
 ---------------------------------------------------------------
@@ -113,9 +117,13 @@ def _rank(level: str | None) -> int:
 
 def _get(path: str) -> tuple[list[dict[str, Any]] | None, str]:
     """Return (alerts, note). `None` means "could not look", not "clean"."""
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    secret_feed = path.startswith("/secret-scanning/")
+    token_name = "SECRET_SCANNING_TOKEN" if secret_feed else "GITHUB_TOKEN"
+    token = os.environ.get(token_name)
+    if not secret_feed:
+        token = token or os.environ.get("GH_TOKEN")
     if not token:
-        return None, "no GITHUB_TOKEN; cannot read security alerts"
+        return None, f"no {token_name}; cannot read security alerts"
     req = urllib.request.Request(
         f"https://api.github.com/repos/{REPO}{path}",
         headers={"Authorization": f"Bearer {token}",
@@ -231,11 +239,15 @@ def collect() -> tuple[list[dict[str, Any]], list[str]]:
     return findings, notes
 
 
+def _note_is_missing(note: str) -> bool:
+    return ("no GITHUB_TOKEN" in note or "no SECRET_SCANNING_TOKEN" in note)
+
+
 def _note_is_read_failure(note: str, strict: bool) -> bool:
     """PR scope is metadata; missing credentials fail only in strict mode."""
     if note.startswith("code scanning scoped to "):
         return False
-    return strict if "no GITHUB_TOKEN" in note else True
+    return strict if _note_is_missing(note) else True
 
 
 def _feed_read_failed(notes: list[str], strict: bool) -> bool:
@@ -247,7 +259,7 @@ def _note_kind(note: str) -> str:
     """Classify scope, local credential skips, and actual feed errors."""
     if note.startswith("code scanning scoped to "):
         return "INFO"
-    if "no GITHUB_TOKEN" in note:
+    if _note_is_missing(note):
         return "SKIPPED"
     return "ERROR"
 
@@ -310,7 +322,7 @@ def main(argv: list[str]) -> int:
         # Partial visibility must never be mistaken for a clean result.
         print("security alerts: ERROR -- one or more feeds could not be read")
         return 2
-    if any("no GITHUB_TOKEN" in note for note in notes) and not findings:
+    if any(_note_is_missing(note) for note in notes) and not findings:
         # Local invocation without a token: explicit skip, not a clean claim.
         return 0
     if not findings:

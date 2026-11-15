@@ -168,6 +168,57 @@ def test_the_ref_actually_reaches_the_query(gate, clean_env, monkeypatch):
     assert any("scoped to" in n for n in notes), notes
 
 
+def test_secret_scanning_uses_its_dedicated_read_token(gate, clean_env, monkeypatch):
+    """GITHUB_TOKEN cannot read secret-scanning alerts on GitHub."""
+    clean_env.setenv("GITHUB_TOKEN", "job-token")
+    clean_env.setenv("SECRET_SCANNING_TOKEN", "secret-feed-token")
+    seen = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return b"[]"
+
+    def fake_urlopen(request, timeout):
+        seen.append((request.get_header("Authorization"), timeout))
+        return Response()
+
+    monkeypatch.setattr(gate.urllib.request, "urlopen", fake_urlopen)
+    assert gate._get("/code-scanning/alerts?state=open") == ([], "")
+    assert gate._get("/secret-scanning/alerts?state=open") == ([], "")
+    assert seen == [("Bearer job-token", gate.TIMEOUT),
+                    ("Bearer secret-feed-token", gate.TIMEOUT)]
+
+
+def test_secret_scanning_does_not_fall_back_to_github_token(
+    gate, clean_env, monkeypatch
+):
+    clean_env.setenv("GITHUB_TOKEN", "job-token")
+    monkeypatch.delenv("SECRET_SCANNING_TOKEN", raising=False)
+    called = []
+    monkeypatch.setattr(gate.urllib.request, "urlopen", lambda *args, **kwargs: called.append(args))
+
+    alerts, note = gate._get("/secret-scanning/alerts?state=open")
+    assert alerts is None
+    assert note == "no SECRET_SCANNING_TOKEN; cannot read security alerts"
+    assert called == []
+
+
+def test_workflows_request_the_narrow_secret_scanning_credential():
+    """The secret feed is separate from the read-only built-in token."""
+    workflows = [ROOT / ".github/workflows/ci.yml",
+                 ROOT / ".github/workflows/security-scan.yml"]
+    for workflow in workflows:
+        source = workflow.read_text(encoding="utf-8")
+        assert "SECRET_SCANNING_TOKEN: ${{ secrets.SECRET_SCANNING_TOKEN }}" in source
+        assert "GITHUB_TOKEN: ${{ github.token }}" in source
+
+
 def test_strict_mode_accepts_readable_feeds_with_scope_note(
     gate, clean_env, monkeypatch, capsys
 ):

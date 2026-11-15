@@ -39,7 +39,9 @@ jobs:
   benchmarks:
     timeout-minutes: 20
     name: Run benchmarks (CPU simulation)
-    runs-on: ubuntu-latest
+    # CodSpeed v5.2.1's simulation runner does not support Ubuntu 26.04,
+    # now selected by ubuntu-latest; keep benchmark baselines stable on 24.04.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read  # checkout only
       # Token-less authentication to CodSpeed: the action exchanges this OIDC

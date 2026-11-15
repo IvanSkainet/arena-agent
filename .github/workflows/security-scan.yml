@@ -256,7 +256,10 @@ jobs:
 
       - name: Check GitHub security alerts feed
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          # GITHUB_TOKEN cannot read secret-scanning alerts; this repository
+          # secret must be a fine-grained token with that endpoint's read-only permission.
+          SECRET_SCANNING_TOKEN: ${{ secrets.SECRET_SCANNING_TOKEN }}
         run: |
           python3 scripts/security_alerts_check.py --max-severity medium --require-readable-feeds
           python3 scripts/dismissed_alerts_gate.py

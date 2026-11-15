@@ -444,6 +444,9 @@ jobs:
       - name: Open security alerts (fails at medium and above)
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # GITHUB_TOKEN cannot read secret-scanning alerts; this repository
+          # secret must be a fine-grained token with that endpoint's read-only permission.
+          SECRET_SCANNING_TOKEN: ${{ secrets.SECRET_SCANNING_TOKEN }}
         run: python scripts/security_alerts_check.py --max-severity medium --require-readable-feeds
 
       # v4.169.29: the check above asks for state=open, and pressing
