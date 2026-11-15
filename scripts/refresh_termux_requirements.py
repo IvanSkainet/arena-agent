@@ -191,17 +191,8 @@ OPTIONAL_HEADER = """# OPTIONAL, hash-verified extras for the on-device (Termux)
 """
 
 
-def render(rows: list[tuple[str, str, list[str]]], *, header: str | None = None) -> str:
-    today = _dt.date.today().isoformat()
-    if header is not None:
-        lines = [header.format(today=today)]
-        for package, version, digests in rows:
-            lines.append(f"\n{package}=={version} \\")
-            for index, digest in enumerate(digests):
-                suffix = " \\" if index < len(digests) - 1 else ""
-                lines.append(f"    --hash=sha256:{digest}{suffix}")
-        return "\n".join(lines) + "\n"
-    header = f'''# Pinned, hash-verified dependencies for the on-device (Termux) install.
+def _default_header() -> str:
+    return '''# Pinned, hash-verified dependencies for the on-device (Termux) install.
 #
 # GENERATED FILE -- do not edit by hand.
 #     python scripts/refresh_termux_requirements.py
@@ -222,6 +213,11 @@ def render(rows: list[tuple[str, str, list[str]]], *, header: str | None = None)
 #
 # Verified against PyPI on {today}.
 '''
+
+
+def _render_rows(
+    rows: list[tuple[str, str, list[str]]], header: str,
+) -> str:
     lines = [header]
     for package, version, digests in rows:
         lines.append(f"\n{package}=={version} \\")
@@ -231,53 +227,66 @@ def render(rows: list[tuple[str, str, list[str]]], *, header: str | None = None)
     return "\n".join(lines) + "\n"
 
 
+def render(rows: list[tuple[str, str, list[str]]], *, header: str | None = None) -> str:
+    today = _dt.date.today().isoformat()
+    template = _default_header() if header is None else header
+    return _render_rows(rows, template.format(today=today))
+
+
+def _collect_rows(
+    packages: tuple[str, ...], *, optional: bool = False,
+) -> list[tuple[str, str, list[str]]] | None:
+    rows: list[tuple[str, str, list[str]]] = []
+    for package in packages:
+        try:
+            version, digests = collect(package)
+        except (urllib.error.URLError, KeyError, RuntimeError) as exc:
+            label = "optional " if optional else ""
+            print(f"FAILED to resolve {label}{package}: {exc}", file=sys.stderr)
+            if not optional:
+                print("Nothing written -- a partially generated hash file is "
+                      "worse than none.", file=sys.stderr)
+            return None
+        rows.append((package, version, digests))
+        label = "[optional] " if optional else ""
+        print(f"  {label}{package}=={version}  ({len(digests)} artifacts)")
+    return rows
+
+
+def _pins(text: str) -> list[str]:
+    return [line.strip() for line in text.splitlines()
+            if line.strip().startswith("--hash=")
+            or ("==" in line and not line.lstrip().startswith("#"))]
+
+
+def _check_current(rendered: str) -> int:
+    if not TARGET.exists():
+        print(f"{TARGET} is missing", file=sys.stderr)
+        return 1
+    # Ignore the generated date; pins must be reproducible across days.
+    current = TARGET.read_text(encoding="utf-8")
+    if _pins(current) != _pins(rendered):
+        print("requirements-termux.txt is out of date; run "
+              "scripts/refresh_termux_requirements.py", file=sys.stderr)
+        return 1
+    print("requirements-termux.txt is current")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true",
                         help="fail if the committed file is out of date")
     args = parser.parse_args()
-
-    rows: list[tuple[str, str, list[str]]] = []
-    for package in (*DIRECT, *TRANSITIVE):
-        try:
-            version, digests = collect(package)
-        except (urllib.error.URLError, KeyError, RuntimeError) as exc:
-            print(f"FAILED to resolve {package}: {exc}", file=sys.stderr)
-            print("Nothing written -- a partially generated hash file is "
-                  "worse than none.", file=sys.stderr)
-            return 2
-        rows.append((package, version, digests))
-        print(f"  {package}=={version}  ({len(digests)} artifacts)")
-
+    rows = _collect_rows((*DIRECT, *TRANSITIVE))
+    if rows is None:
+        return 2
     rendered = render(rows)
-
     if args.check:
-        if not TARGET.exists():
-            print(f"{TARGET} is missing", file=sys.stderr)
-            return 1
-        # Compare the pins, not the date header: a refresh run on a
-        # different day must not fail CI on its own.
-        def pins(text: str) -> list[str]:
-            return [ln.strip() for ln in text.splitlines()
-                    if ln.strip().startswith(("--hash=", ))
-                    or ("==" in ln and not ln.lstrip().startswith("#"))]
-        if pins(TARGET.read_text(encoding="utf-8")) != pins(rendered):
-            print("requirements-termux.txt is out of date; run "
-                  "scripts/refresh_termux_requirements.py", file=sys.stderr)
-            return 1
-        print("requirements-termux.txt is current")
-        return 0
-
-    optional_rows: list[tuple[str, str, list[str]]] = []
-    for package in OPTIONAL:
-        try:
-            version, digests = collect(package)
-        except (urllib.error.URLError, KeyError, RuntimeError) as exc:
-            print(f"FAILED to resolve optional {package}: {exc}", file=sys.stderr)
-            return 2
-        optional_rows.append((package, version, digests))
-        print(f"  [optional] {package}=={version}  ({len(digests)} artifacts)")
-
+        return _check_current(rendered)
+    optional_rows = _collect_rows(OPTIONAL, optional=True)
+    if optional_rows is None:
+        return 2
     TARGET.write_text(rendered, encoding="utf-8")
     OPTIONAL_TARGET.write_text(
         render(optional_rows, header=OPTIONAL_HEADER), encoding="utf-8")

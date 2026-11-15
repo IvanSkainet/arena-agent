@@ -59,63 +59,45 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any
+from typing import Any, Callable
 
 REPO = os.environ.get("ARENA_RELEASE_REPO", "IvanSkainet/arena-agent")
 TIMEOUT = 30
 
 
+def _number_from_ref(ref: str) -> str:
+    if not ref.startswith("refs/pull/"):
+        return ""
+    parts = ref.split("/")
+    return parts[2] if len(parts) > 2 else ""
+
+
+def _number_from_payload(payload_path: str) -> str:
+    if not payload_path or not os.path.exists(payload_path):
+        return ""
+    try:
+        with open(payload_path, encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get("number") or "")
+
+
 def code_scanning_ref() -> str | None:
-    """The git ref whose code-scanning alerts this run should judge.
+    """The PR head ref, or None when the run is not safely scopeable.
 
-    Without this the query is repository-wide, and a finding on `master`
-    fails every open pull request -- including the one that fixes it.
-    That happened: two `py/command-line-injection` alerts landed on
-    `master`, and the branch that removed the `shell=True` behind them
-    could not merge, because the gate kept reporting the alerts still
-    sitting on the branch being merged into. A gate that cannot be
-    satisfied by fixing the code is not a gate, it is a deadlock.
-
-    On a pull request, judge the PR's own head. Everywhere else -- a
-    push to master, a release -- judge the whole repository, which is
-    the behaviour that catches a finding nobody has a PR for.
+    Repository-wide CodeQL findings would otherwise deadlock the PR that
+    fixes them. A malformed event falls back to repo-wide inspection rather
+    than constructing a ref that would look like an empty alert list.
     """
-    event = os.environ.get("GITHUB_EVENT_NAME", "")
-    if not event.startswith("pull_request"):
+    if not os.environ.get("GITHUB_EVENT_NAME", "").startswith("pull_request"):
         return None
-    number = ""
-    ref = os.environ.get("GITHUB_REF", "")
-    if ref.startswith("refs/pull/"):
-        # `startswith("refs/pull/")` already guarantees three segments,
-        # so `[2]` cannot raise -- review flagged an IndexError here and
-        # it is not reachable. Written defensively anyway because the
-        # prefix and the index are two facts that must agree, and only
-        # one of them is visible from the other.
-        parts = ref.split("/")
-        number = parts[2] if len(parts) > 2 else ""
+    number = _number_from_ref(os.environ.get("GITHUB_REF", ""))
     if not number:
-        path = os.environ.get("GITHUB_EVENT_PATH", "")
-        if path and os.path.exists(path):
-            try:
-                with open(path, encoding="utf-8") as fh:
-                    payload = json.load(fh)
-            except (OSError, ValueError):
-                payload = None
-            # Valid JSON of the wrong shape is not an error condition, it
-            # is a list or a string where a dict was expected. Reaching
-            # `.get` on one raises AttributeError and takes the whole gate
-            # down -- a security check must not be crashable by the
-            # contents of a file it merely consults.
-            if isinstance(payload, dict):
-                number = str(payload.get("number") or "")
-    if not number.isdigit():
-        # Better repo-wide than silently unfiltered-but-claiming-scoped.
-        # `isdigit` and not just truthiness: a ref segment can be any
-        # string, and a non-numeric one would build a ref that matches
-        # nothing, which reads as "no alerts" -- the failure this gate
-        # exists to prevent.
-        return None
-    return f"refs/pull/{number}/head"
+        number = _number_from_payload(os.environ.get("GITHUB_EVENT_PATH", ""))
+    return f"refs/pull/{number}/head" if number.isdigit() else None
 
 
 SEVERITY_ORDER = ["note", "low", "warning", "medium", "moderate",
@@ -193,50 +175,59 @@ def _scanning_rows(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
+def _code_row(alert: dict[str, Any]) -> dict[str, Any]:
+    rule = alert.get("rule", {})
+    location = (alert.get("most_recent_instance", {}) or {}).get("location", {})
+    return {
+        "feed": "code-scanning",
+        "number": alert.get("number"),
+        "severity": rule.get("security_severity_level") or rule.get("severity"),
+        "id": rule.get("id"),
+        "where": f"{location.get('path')}:{location.get('start_line')}",
+    }
+
+
+def _dependabot_row(alert: dict[str, Any]) -> dict[str, Any]:
+    advisory = alert.get("security_advisory", {})
+    package = (alert.get("dependency", {}) or {}).get("package", {})
+    return {
+        "feed": "dependabot",
+        "number": alert.get("number"),
+        "severity": advisory.get("severity"),
+        "id": advisory.get("summary", "")[:60],
+        "where": package.get("name"),
+    }
+
+
+def _read_feed(
+    path: str, label: str, row_builder: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+) -> tuple[list[dict[str, Any]], str]:
+    alerts, note = _get(path)
+    if alerts is None:
+        return [], f"{label}: {note}"
+    return row_builder(alerts), ""
+
+
 def collect() -> tuple[list[dict[str, Any]], list[str]]:
     findings: list[dict[str, Any]] = []
     notes: list[str] = []
-
     ref = code_scanning_ref()
-    query = "/code-scanning/alerts?state=open&per_page=100"
+    code_path = "/code-scanning/alerts?state=open&per_page=100"
     if ref:
-        query += f"&ref={urllib.parse.quote(ref, safe='/')}"
+        code_path += f"&ref={urllib.parse.quote(ref, safe='/')}"
         notes.append(f"code scanning scoped to {ref}")
-    alerts, note = _get(query)
-    if alerts is None:
-        notes.append(f"code scanning: {note}")
-    else:
-        for a in alerts:
-            rule = a.get("rule", {})
-            loc = (a.get("most_recent_instance", {}) or {}).get("location", {})
-            findings.append({
-                "feed": "code-scanning",
-                "number": a.get("number"),
-                "severity": rule.get("security_severity_level") or rule.get("severity"),
-                "id": rule.get("id"),
-                "where": f"{loc.get('path')}:{loc.get('start_line')}",
-            })
-
-    alerts, note = _get("/dependabot/alerts?state=open&per_page=100")
-    if alerts is None:
-        notes.append(f"dependabot: {note}")
-    else:
-        for a in alerts:
-            adv = a.get("security_advisory", {})
-            dep = (a.get("dependency", {}) or {}).get("package", {})
-            findings.append({
-                "feed": "dependabot",
-                "number": a.get("number"),
-                "severity": adv.get("severity"),
-                "id": adv.get("summary", "")[:60],
-                "where": dep.get("name"),
-            })
-
-    alerts, note = _get("/secret-scanning/alerts?state=open&per_page=100")
-    if alerts is None:
-        notes.append(f"secret scanning: {note}")
-    else:
-        findings.extend(_scanning_rows(alerts))
+    feeds = (
+        (code_path, "code scanning", lambda rows: [_code_row(row) for row in rows]),
+        ("/dependabot/alerts?state=open&per_page=100", "dependabot",
+         lambda rows: [_dependabot_row(row) for row in rows]),
+        ("/secret-scanning/alerts?state=open&per_page=100", "secret scanning",
+         _scanning_rows),
+    )
+    for path, label, row_builder in feeds:
+        rows, note = _read_feed(path, label, row_builder)
+        findings.extend(rows)
+        if note:
+            notes.append(note)
     return findings, notes
 
 
@@ -289,10 +280,19 @@ def _print_findings(findings: list[dict[str, Any]]) -> None:
               f"{finding['id']}  {finding['where']}")
 
 
-def _threshold_exit(findings: list[dict[str, Any]], threshold: str | None) -> int:
+def _threshold_exit(
+    findings: list[dict[str, Any]], threshold: str | None, *, scoped_pr: bool,
+) -> int:
     if not threshold:
         return 0
-    over = [item for item in findings
+    # Dependabot's repository endpoint reports the default-branch manifest,
+    # not the PR's proposed lock. Keep those findings visible, but do not let
+    # the base branch's pre-existing alerts deadlock a PR that is fixing them.
+    # Dependency Review/OSV scan the proposed diff; push-to-default-branch
+    # runs still enforce the threshold across all three feeds.
+    candidates = [item for item in findings
+                  if not scoped_pr or item["feed"] != "dependabot"]
+    over = [item for item in candidates
             if _rank(item["severity"]) >= _rank(threshold)]
     if not over:
         print(f"  none at or above '{threshold}'.")
@@ -317,4 +317,5 @@ def main(argv: list[str]) -> int:
         print("security alerts: OK (no open alerts in any feed)")
         return 0
     _print_findings(findings)
-    return _threshold_exit(findings, threshold)
+    scoped_pr = code_scanning_ref() is not None
+    return _threshold_exit(findings, threshold, scoped_pr=scoped_pr)

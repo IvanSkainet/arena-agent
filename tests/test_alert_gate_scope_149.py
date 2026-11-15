@@ -324,6 +324,28 @@ def test_unreadable_feeds_fail_closed_when_no_findings_return(
     assert "ERROR -- one or more feeds could not be read" in capsys.readouterr().out
 
 
+def test_repository_wide_dependabot_findings_do_not_deadlock_pr_fixes(
+    gate, clean_env, monkeypatch, capsys,
+):
+    """Dependabot reports the base manifest; PR checks the proposed diff."""
+    finding = {
+        "feed": "dependabot", "number": 7, "severity": "high",
+        "id": "fixed by this PR", "where": "requirements.txt",
+    }
+    monkeypatch.setattr(gate, "collect", lambda: ([finding], []))
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
+
+    assert gate.main(["--max-severity", "medium"]) == 0
+    pull_output = capsys.readouterr().out
+    assert "1 open (1 dependabot)" in pull_output
+    assert "none at or above 'medium'" in pull_output
+
+    clean_env.setenv("GITHUB_EVENT_NAME", "push")
+    assert gate.main(["--max-severity", "medium"]) == 1
+    assert "1 at or above 'medium'" in capsys.readouterr().out
+
+
 def test_ci_mode_fails_when_no_token_is_available(gate, clean_env, capsys):
     """CI must not report success if the required feed credential is absent."""
     clean_env.delenv("GITHUB_TOKEN", raising=False)
