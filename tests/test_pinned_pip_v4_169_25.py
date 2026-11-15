@@ -320,24 +320,27 @@ def test_the_urls_stay_http_because_that_is_what_works() -> None:
 
 # --- the alerts themselves: nothing was reading them ---------------------
 
-def test_alert_check_never_reports_clean_when_it_could_not_look() -> None:
+def test_alert_check_never_reports_clean_when_it_could_not_look(
+    monkeypatch, capsys,
+) -> None:
     """"No alerts" and "no permission" must not look the same.
 
-    This is the failure that let thirteen alerts sit open: a signal
-    nobody consumed. A checker that answers "clean" on a 401 would be
-    strictly worse than no checker, because it would look like coverage.
+    A fixed in-process feed response keeps this gate independent of GitHub
+    availability while still driving the real CLI decision path.
     """
-    import subprocess as sp
-    import sys as _sys
+    from arena import security_alerts
 
-    env = {"PATH": "/usr/bin:/bin", "GITHUB_TOKEN": "ghp_definitely_invalid"}
-    import os as _os
-    proc = sp.run([_sys.executable,
-                   str(REPO_ROOT / "scripts" / "security_alerts_check.py")],
-                  capture_output=True, text=True, timeout=120,
-                  env={**_os.environ, **env})
-    assert "ERROR -- one or more feeds could not be read" in proc.stdout, proc.stdout
-    assert "OK (no open alerts" not in proc.stdout, (
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    monkeypatch.setattr(
+        security_alerts, "_get", lambda _path: (None, "HTTP 401"),
+    )
+
+    assert security_alerts.main([]) == 2
+    output = capsys.readouterr().out
+    assert "ERROR -- code scanning: HTTP 401" in output
+    assert "ERROR -- one or more feeds could not be read" in output
+    assert "OK (no open alerts" not in output, (
         "an unauthorised read was reported as a clean repository"
     )
 

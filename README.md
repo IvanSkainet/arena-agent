@@ -27,8 +27,8 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 
 | Metric | Value |
 | --- | --- |
-| Runtime code | **116,289** lines across 824 files |
-| Test code | **121,405** lines across 611 files |
+| Runtime code | **116,298** lines across 824 files |
+| Test code | **121,464** lines across 611 files |
 | Test-to-code ratio | **1.04×** |
 | CI workflows | **16** |
 | Quality gates (ratchets) | **20** |
@@ -558,7 +558,7 @@ Filesystem:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `PATCH` | `/v1/fs/edit` | Preview a text edit |
+| `PATCH` | `/v1/fs/edit` | Apply a text edit by default; set `"preview": true` to request a preview |
 | `POST` | `/v1/fs/edit/apply` | Apply a previewed edit |
 | `POST` | `/v1/fs/edit/rollback` | Roll back an applied edit |
 | `POST` | `/v1/fs/view` | Read a file through the filesystem sandbox |
@@ -566,8 +566,10 @@ Filesystem:
 | `POST` | `/v1/upload` | Upload a file |
 | `GET` | `/v1/download` | Download a file |
 
-For safe edits, preview with `/v1/fs/edit`, apply with `/v1/fs/edit/apply`,
-and use `/v1/fs/edit/rollback` if you need to undo the applied change.
+For safe edits, call `/v1/fs/edit` with `"preview": true`, then apply the
+returned preview with `/v1/fs/edit/apply`; use `/v1/fs/edit/rollback` if you
+need to undo the applied change. Without `"preview": true`, the edit route
+applies the change directly.
 
 Extension bridge:
 

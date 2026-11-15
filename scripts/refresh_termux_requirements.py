@@ -97,13 +97,18 @@ def _fetch(url: str) -> dict:
 
 
 def _relevant(filename: str, packagetype: str) -> bool:
-    """Artifacts pip could plausibly pick on Termux/arm64."""
+    """Source, universal, and explicitly Android/arm64 artifacts only."""
     if packagetype == "sdist":
         return True
+    if packagetype != "bdist_wheel":
+        return False
     lowered = filename.lower()
-    return ("aarch64" in lowered
-            or lowered.endswith("-none-any.whl")
-            or "py3-none-any" in lowered)
+    if lowered.endswith("-none-any.whl") or "py3-none-any" in lowered:
+        return True
+    platform_tag = lowered.rsplit("-", 1)[-1]
+    is_android = "android_" in platform_tag
+    is_arm64 = "arm64_v8a" in platform_tag or "aarch64" in platform_tag
+    return is_android and is_arm64
 
 
 def _candidate_versions(releases: dict) -> list[str]:

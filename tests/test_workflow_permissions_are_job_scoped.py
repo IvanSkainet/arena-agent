@@ -115,6 +115,28 @@ def test_no_write_scopes_at_workflow_level(path: pathlib.Path) -> None:
     )
 
 
+def _grants_actions_write(permissions: object) -> bool:
+    """Understand both mapping and shorthand permissions syntax."""
+    if isinstance(permissions, str):
+        return permissions.lower() == "write-all"
+    if isinstance(permissions, dict):
+        return str(permissions.get("actions", "")).lower() == "write"
+    return False
+
+
+@pytest.mark.parametrize(("permissions", "expected"), [
+    ("write-all", True),
+    ("read-all", False),
+    ({"actions": "write"}, True),
+    ({"actions": "read"}, False),
+    ({"contents": "write"}, False),
+])
+def test_actions_write_detector_covers_scalar_and_mapping_forms(
+    permissions: object, expected: bool,
+) -> None:
+    assert _grants_actions_write(permissions) is expected
+
+
 def test_stale_action_can_replace_its_state_cache_only_in_its_job() -> None:
     """v11 deletes its old `_state` cache before persisting processed IDs.
 
@@ -132,14 +154,25 @@ def test_stale_action_can_replace_its_state_cache_only_in_its_job() -> None:
     }
     other_action_writers = [
         name for name, job in doc["jobs"].items()
-        if name != "stale"
-        and isinstance(job.get("permissions"), dict)
-        and str(job["permissions"].get("actions", "")).lower() == "write"
+        if name != "stale" and _grants_actions_write(job.get("permissions"))
     ]
     assert not other_action_writers, (
         "actions: write escaped the stale job: "
         f"{other_action_writers}"
     )
+
+
+def test_security_alert_jobs_can_read_code_and_dependabot_alerts() -> None:
+    """Both strict gates need their feed-specific read permissions."""
+    ci = _load(WORKFLOWS / "ci.yml")
+    security = _load(WORKFLOWS / "security-scan.yml")
+    expected = {
+        "contents": "read",
+        "security-events": "read",
+        "vulnerability-alerts": "read",
+    }
+    assert ci["jobs"]["version-sync"]["permissions"] == expected
+    assert security["jobs"]["security-alerts"]["permissions"] == expected
 
 
 def test_every_workflow_pins_a_permissions_baseline() -> None:
