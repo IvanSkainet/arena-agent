@@ -249,13 +249,20 @@ def test_workflows_scope_alert_tokens_and_permissions_to_the_gate_job():
         job = document["jobs"][job_name]
         step = next(step for step in job["steps"] if step.get("name") == step_name)
         env = step["env"]
-        assert env["SECRET_SCANNING_TOKEN"] == "${{ secrets.SECRET_SCANNING_TOKEN }}"
-        assert env["GITHUB_TOKEN"] == "${{ github.token }}"
-        assert env["ALERT_PR_AUTHOR"] == "${{ github.event.pull_request.user.login }}"
-        assert '"$ALERT_PR_AUTHOR" != "dependabot[bot]"' in step["run"]
-        assert job["permissions"]["security-events"] == "read"
-        assert job["permissions"]["vulnerability-alerts"] == "read"
-        assert job["permissions"]["pull-requests"] == "read"
+        expected_env = {
+            "SECRET_SCANNING_TOKEN": "${{ secrets.SECRET_SCANNING_TOKEN }}",
+            "GITHUB_TOKEN": "${{ github.token }}",
+            "ALERT_PR_AUTHOR": "${{ github.event.pull_request.user.login }}",
+        }
+        for name, value in expected_env.items():
+            if env.get(name) != value:
+                raise AssertionError(f"{workflow} sets unexpected {name}: {env.get(name)!r}")
+        if '"$ALERT_PR_AUTHOR" != "dependabot[bot]"' not in step["run"]:
+            raise AssertionError(f"{workflow} does not relax strict mode for Dependabot PRs")
+        permissions = job["permissions"]
+        for name in ("security-events", "vulnerability-alerts", "pull-requests"):
+            if permissions.get(name) != "read":
+                raise AssertionError(f"{workflow} grants unexpected {name} permission")
 
 
 def test_strict_mode_skips_missing_secret_feed_only_for_fork_pr(
