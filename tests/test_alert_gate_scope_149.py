@@ -497,18 +497,19 @@ def test_pr_ignores_only_dependabot_alerts_fixed_in_changed_manifest(
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
 
-    assert gate.main(["--max-severity", "medium"]) == 1
+    check = unittest.TestCase()
+    check.assertEqual(gate.main(["--max-severity", "medium"]), 1)
     pull_output = capsys.readouterr().out
-    assert "2 open (2 dependabot)" in pull_output
-    assert "1 at or above 'medium'" in pull_output
+    check.assertIn("2 open (2 dependabot)", pull_output)
+    check.assertIn("1 at or above 'medium'", pull_output)
 
     monkeypatch.setattr(gate, "collect", lambda: ([fixed], []))
-    assert gate.main(["--max-severity", "medium"]) == 0
-    assert "none at or above 'medium'" in capsys.readouterr().out
+    check.assertEqual(gate.main(["--max-severity", "medium"]), 0)
+    check.assertIn("none at or above 'medium'", capsys.readouterr().out)
 
     clean_env.setenv("GITHUB_EVENT_NAME", "push")
-    assert gate.main(["--max-severity", "medium"]) == 1
-    assert "1 at or above 'medium'" in capsys.readouterr().out
+    check.assertEqual(gate.main(["--max-severity", "medium"]), 1)
+    check.assertIn("1 at or above 'medium'", capsys.readouterr().out)
 
 
 def test_dependabot_pr_fix_requires_patched_version_in_same_manifest(
