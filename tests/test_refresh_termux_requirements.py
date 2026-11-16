@@ -57,7 +57,8 @@ def test_skips_candidate_without_supported_python_or_installable_artifact(
                         lambda url: project if url.endswith("/multidict/json")
                         else details[url])
 
-    assert refresh.collect("multidict") == ("7.1.0", ["c" * 64])  # nosec B101 -- pytest assertion
+    if refresh.collect("multidict") != ("7.1.0", ["c" * 64]):
+        raise AssertionError("the resolver did not fall back to the newest usable release")
 
 
 def test_skips_yanked_newer_release(monkeypatch) -> None:
@@ -70,8 +71,25 @@ def test_skips_yanked_newer_release(monkeypatch) -> None:
                         lambda url: project if url.endswith("/multidict/json")
                         else detail)
 
-    assert refresh.collect("multidict") == ("7.1.0", ["c" * 64])
+    if refresh.collect("multidict") != ("7.1.0", ["c" * 64]):
+        raise AssertionError("the resolver did not skip the yanked newer release")
 
+
+
+def test_refuses_to_write_when_no_release_is_supported_and_installable(monkeypatch) -> None:
+    project = {"releases": {
+        "7.2.1": [_file("7.2.1", yanked=True)],
+        "7.1.0": [_file("7.1.0")],
+    }}
+    detail = _detail("7.1.0", ">=3.15", "c" * 64)
+    monkeypatch.setattr(
+        refresh,
+        "_fetch",
+        lambda url: project if url.endswith("/multidict/json") else detail,
+    )
+
+    with pytest.raises(RuntimeError, match="no non-yanked release with usable artifacts"):
+        refresh.collect("multidict")
 
 
 def test_relevant_wheels_are_termux_installable_not_glibc_only() -> None:

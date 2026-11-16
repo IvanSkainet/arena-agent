@@ -64,7 +64,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Callable
+from typing import Any, Callable, TypeGuard, cast
 
 REPO = os.environ.get("ARENA_RELEASE_REPO", "IvanSkainet/arena-agent")
 TIMEOUT = 30
@@ -283,20 +283,38 @@ def _added_pip_versions(
     return added
 
 
+def _nonempty_text(value: object) -> TypeGuard[str]:
+    return isinstance(value, str) and bool(value)
+
+
+def _dependabot_fix_identity(
+    row: dict[str, Any],
+) -> tuple[str, str, str] | None:
+    if row.get("ecosystem") != "pip":
+        return None
+    fields = (
+        row.get("manifest_path"),
+        row.get("where"),
+        row.get("first_patched_version"),
+    )
+    if not all(map(_nonempty_text, fields)):
+        return None
+    return cast(tuple[str, str, str], fields)
+
+
+def _has_patched_version(candidates: list[str], minimum: str) -> bool:
+    return any(_at_least(version, minimum) for version in candidates)
+
+
 def _row_is_fixed_by_pr(
     row: dict[str, Any], added: dict[tuple[str, str], list[str]],
 ) -> bool:
-    if row.get("ecosystem") != "pip":
+    identity = _dependabot_fix_identity(row)
+    if identity is None:
         return False
-    manifest = row.get("manifest_path")
-    package = row.get("where")
-    minimum = row.get("first_patched_version")
-    if (not isinstance(manifest, str) or not manifest
-            or not isinstance(package, str) or not package
-            or not isinstance(minimum, str) or not minimum):
-        return False
-    candidates = added.get((manifest, _normalise_package(package)), [])
-    return any(_at_least(version, minimum) for version in candidates)
+    manifest, package, minimum = identity
+    key = (manifest, _normalise_package(package))
+    return _has_patched_version(added.get(key, []), minimum)
 
 
 def _fixed_dependabot_alerts_by_pr(

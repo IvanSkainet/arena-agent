@@ -27,8 +27,8 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 
 | Metric | Value |
 | --- | --- |
-| Runtime code | **116,450** lines across 824 files |
-| Test code | **121,711** lines across 611 files |
+| Runtime code | **116,473** lines across 824 files |
+| Test code | **121,752** lines across 611 files |
 | Test-to-code ratio | **1.05×** |
 | CI workflows | **16** |
 | Quality gates (ratchets) | **20** |
@@ -713,7 +713,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `ship` | `ship.status` / `ship.preflight` / `ship.smoke` — Whole-ship maps, readiness checks, Linux flight check, and real-machine smoke proof |
 | `tool_foundry` | `tool_foundry.validate` / `tool_foundry.publish` — Validate a Workbench project manifest/tests and publish it as a callable custom tool |
 
-All calls go through `POST /v1/mcp/call` with JSON body `{"name": "<tool>", "arguments": {...}}`.
+All calls go through the MCP endpoint `POST /mcp` with JSON body `{"name": "<tool>", "arguments": {...}}`.
 
 ---
 

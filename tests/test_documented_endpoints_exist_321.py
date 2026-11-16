@@ -65,6 +65,7 @@ DOC_GLOBS = (
 DOC_EXCLUDE = (
     "docs/audits/",
     "docs/STRATEGIC_POSITION_AND_CANONICAL_ROADMAP",
+    "docs/CHAT_BRIDGE_EXTENSION_PLAN.md",  # proposed routes, not current API claims
 )
 
 # `add_get("/v1/status", ...)` and the `('GET', '/v1/status', ...)` rows in
@@ -85,7 +86,8 @@ _ROW = re.compile(r"""\(\s*['"][A-Z/]+['"]\s*,\s*['"](/[^'"]+)['"]""")
 # documented route ending in `{path:.*}` did not match at all, so an invented
 # one would have been skipped rather than caught.
 _DOC_PATH = re.compile(
-    r"`(/v1(?:/(?:[A-Za-z0-9_-]+|\{[^}`]+\}))*)`")
+    r"`(?:(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+)?"
+    r"(/v1(?:/(?:[A-Za-z0-9_-]+|\{[^}`]+\}))*)`")
 
 # CDP handlers are registered once per prefix through an f-string:
 #   _register_cdp_prefix(app, h, "/v1/browser/cdp")
@@ -251,6 +253,13 @@ def test_documented_endpoints_are_real() -> None:
     )
 
 
+def test_method_prefixed_documented_paths_are_detected() -> None:
+    """HTTP verbs must not hide a route from documentation validation."""
+    found = _DOC_PATH.findall("Rotation: (`POST /v1/token/regenerate`)")
+    if found != ["/v1/token/regenerate"]:
+        raise AssertionError(f"method-prefixed route was not extracted: {found}")
+
+
 def test_readme_filesystem_routes_match_the_registry() -> None:
     """The public filesystem table must neither invent nor omit a route."""
     registered = {path for path in _registered_paths() if path.startswith("/v1/fs/")}
@@ -258,18 +267,25 @@ def test_readme_filesystem_routes_match_the_registry() -> None:
         text = (REPO_ROOT / name).read_text(encoding="utf-8")
         documented = _filesystem_paths(text)
         omitted, invented = _filesystem_parity_errors(documented, registered)
-        assert not omitted and not invented, (  # nosec B101 -- pytest assertion
-            f"{name} filesystem routes differ from the registry; "
-            f"omitted={sorted(omitted)}, invented={sorted(invented)}"
-        )
+        if omitted or invented:
+            raise AssertionError(
+                f"{name} filesystem routes differ from the registry; "
+                f"omitted={sorted(omitted)}, invented={sorted(invented)}"
+            )
 
 
 def test_filesystem_parity_gate_detects_both_omissions_and_inventions() -> None:
     """Bilateral sabotage: both missing and made-up routes must be caught."""
     expected = {"/v1/fs/view", "/v1/fs/edit"}
-    assert _filesystem_parity_errors(expected, expected) == (set(), set())  # nosec B101 -- pytest assertion
-    assert _filesystem_parity_errors({"/v1/fs/view"}, expected) == (  # nosec B101 -- pytest assertion
-        {"/v1/fs/edit"}, set())
-    assert _filesystem_parity_errors(  # nosec B101 -- pytest assertion
-        {"/v1/fs/view", "/v1/fs/imaginary"}, expected) == (
-        {"/v1/fs/edit"}, {"/v1/fs/imaginary"})
+    cases = (
+        (expected, (set(), set())),
+        ({"/v1/fs/view"}, ({"/v1/fs/edit"}, set())),
+        ({"/v1/fs/view", "/v1/fs/imaginary"},
+         ({"/v1/fs/edit"}, {"/v1/fs/imaginary"})),
+    )
+    for documented, expected_errors in cases:
+        actual_errors = _filesystem_parity_errors(documented, expected)
+        if actual_errors != expected_errors:
+            raise AssertionError(
+                f"parity check returned {actual_errors}, expected {expected_errors}"
+            )

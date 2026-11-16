@@ -138,8 +138,7 @@ def test_actions_write_detector_covers_scalar_and_mapping_forms(
 
 
 def test_stale_action_can_replace_its_state_cache_only_in_its_job() -> None:
-    """
-    v11 deletes its old `_state` cache before persisting processed IDs.
+    """v11 deletes its old `_state` cache before persisting processed IDs.
 
     Without the job-scoped Actions write permission, the daily workflow gets
     HTTP 403 on cache deletion and replays the old processed-ID set forever.

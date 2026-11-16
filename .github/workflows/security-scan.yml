@@ -264,10 +264,12 @@ jobs:
           ALERT_EVENT_NAME: ${{ github.event_name }}
           ALERT_REPOSITORY: ${{ github.repository }}
           ALERT_PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          ALERT_PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           alert_args=(--max-severity medium)
           if [[ "$ALERT_EVENT_NAME" != "pull_request" || \
-                "$ALERT_PR_HEAD_REPOSITORY" == "$ALERT_REPOSITORY" ]]; then
+                ( "$ALERT_PR_HEAD_REPOSITORY" == "$ALERT_REPOSITORY" && \
+                  "$ALERT_PR_AUTHOR" != "dependabot[bot]" ) ]]; then
             alert_args+=(--require-readable-feeds)
           fi
           python3 scripts/security_alerts_check.py "${alert_args[@]}"

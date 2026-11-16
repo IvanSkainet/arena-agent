@@ -39,7 +39,12 @@ import pathlib
 import sys
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from packaging.version import Version as _VersionType
+else:
+    _VersionType = Any
 
 try:
     from packaging import specifiers as _specifiers, version as _version
@@ -120,12 +125,12 @@ def _relevant(filename: str, packagetype: str) -> bool:
 
 def _candidate_versions(releases: dict) -> list[str]:
     """Newest stable releases with at least one non-yanked file."""
-    candidates: list[tuple[Version, str]] = []
+    candidates: list[tuple[_VersionType, str]] = []
     for version, files in releases.items():
         if not files or all(item.get("yanked", False) for item in files):
             continue
         try:
-            parsed = Version(version)
+            parsed: _VersionType = Version(version)
         except InvalidVersion:
             continue
         if not parsed.is_prerelease:

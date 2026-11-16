@@ -193,8 +193,9 @@ def test_secret_scanning_uses_its_dedicated_read_token(gate, clean_env, monkeypa
         return Response()
 
     monkeypatch.setattr(gate.urllib.request, "urlopen", fake_urlopen)
-    assert gate._get("/code-scanning/alerts?state=open") == ([], "")
-    assert gate._get("/secret-scanning/alerts?state=open") == ([], "")
+    for path in ("/code-scanning/alerts?state=open", "/secret-scanning/alerts?state=open"):
+        if gate._get(path) != ([], ""):
+            raise AssertionError(f"empty alert response was not preserved for {path}")
     assert seen == [("Bearer job-token", gate.TIMEOUT),
                     ("Bearer secret-feed-token", gate.TIMEOUT)]
 
@@ -243,6 +244,8 @@ def test_workflows_scope_alert_tokens_and_permissions_to_the_gate_job():
         env = step["env"]
         assert env["SECRET_SCANNING_TOKEN"] == "${{ secrets.SECRET_SCANNING_TOKEN }}"
         assert env["GITHUB_TOKEN"] == "${{ github.token }}"
+        assert env["ALERT_PR_AUTHOR"] == "${{ github.event.pull_request.user.login }}"
+        assert '"$ALERT_PR_AUTHOR" != "dependabot[bot]"' in step["run"]
         assert job["permissions"]["security-events"] == "read"
         assert job["permissions"]["vulnerability-alerts"] == "read"
         assert job["permissions"]["pull-requests"] == "read"
@@ -453,8 +456,10 @@ def test_unreadable_feeds_fail_closed_when_no_findings_return(
         gate, "collect", lambda: ([], ["dependabot: HTTP 403"]),
     )
 
-    assert gate.main(["--max-severity", "medium"]) == 2
-    assert "ERROR -- one or more feeds could not be read" in capsys.readouterr().out  # nosec B101 -- pytest assertion
+    if gate.main(["--max-severity", "medium"]) != 2:
+        raise AssertionError("an unreadable alert feed must fail the gate")
+    if "ERROR -- one or more feeds could not be read" not in capsys.readouterr().out:
+        raise AssertionError("the unreadable-feed summary was not printed")
 
 
 def test_pr_ignores_only_dependabot_alerts_fixed_in_changed_manifest(
@@ -549,10 +554,13 @@ def test_ci_mode_fails_when_no_token_is_available(gate, clean_env, capsys):
     clean_env.delenv("SECRET_SCANNING_TOKEN", raising=False)
     # Exercise the real collect -> _get credential path. With no credential,
     # each feed returns an explicit unavailable result without making a request.
-    assert gate.main(["--max-severity", "medium", "--require-readable-feeds"]) == 2
+    if gate.main(["--max-severity", "medium", "--require-readable-feeds"]) != 2:
+        raise AssertionError("CI mode must fail when no alert feed is readable")
     output = capsys.readouterr().out
-    assert "SKIPPED -- code scanning: no GITHUB_TOKEN" in output
-    assert "ERROR -- one or more feeds could not be read" in output
+    if "SKIPPED -- code scanning: no GITHUB_TOKEN" not in output:
+        raise AssertionError("the missing code-scanning credential was not reported")
+    if "ERROR -- one or more feeds could not be read" not in output:
+        raise AssertionError("the unreadable-feed summary was not printed")
 
 
 def test_local_no_token_skip_remains_informational(
