@@ -26,6 +26,7 @@ import json
 import os
 import pathlib
 import tempfile
+import unittest
 
 import pytest
 import yaml
@@ -249,20 +250,20 @@ def test_workflows_scope_alert_tokens_and_permissions_to_the_gate_job():
         job = document["jobs"][job_name]
         step = next(step for step in job["steps"] if step.get("name") == step_name)
         env = step["env"]
-        expected_env = {
-            "SECRET_SCANNING_TOKEN": "${{ secrets.SECRET_SCANNING_TOKEN }}",
-            "GITHUB_TOKEN": "${{ github.token }}",
-            "ALERT_PR_AUTHOR": "${{ github.event.pull_request.user.login }}",
-        }
-        for name, value in expected_env.items():
-            if env.get(name) != value:
-                raise AssertionError(f"{workflow} sets unexpected {name}: {env.get(name)!r}")
-        if '"$ALERT_PR_AUTHOR" != "dependabot[bot]"' not in step["run"]:
-            raise AssertionError(f"{workflow} does not relax strict mode for Dependabot PRs")
+        check = unittest.TestCase()
+        check.assertEqual(
+            env["SECRET_SCANNING_TOKEN"], "${{ secrets.SECRET_SCANNING_TOKEN }}",  # nosec B105 -- workflow placeholder, not a credential
+            f"{workflow} should use the dedicated secret-scanning token",
+        )
+        check.assertEqual(env["GITHUB_TOKEN"], "${{ github.token }}")  # nosec B105 -- workflow placeholder, not a credential
+        check.assertEqual(
+            env["ALERT_PR_AUTHOR"], "${{ github.event.pull_request.user.login }}",
+        )
+        check.assertIn('"$ALERT_PR_AUTHOR" != "dependabot[bot]"', step["run"])
         permissions = job["permissions"]
-        for name in ("security-events", "vulnerability-alerts", "pull-requests"):
-            if permissions.get(name) != "read":
-                raise AssertionError(f"{workflow} grants unexpected {name} permission")
+        check.assertEqual(permissions["security-events"], "read")
+        check.assertEqual(permissions["vulnerability-alerts"], "read")
+        check.assertEqual(permissions["pull-requests"], "read")
 
 
 def test_strict_mode_skips_missing_secret_feed_only_for_fork_pr(
@@ -287,10 +288,11 @@ def test_strict_mode_skips_missing_secret_feed_only_for_fork_pr(
         ]),
     )
 
-    assert gate.main(["--max-severity", "medium", "--require-readable-feeds"]) == 0
+    check = unittest.TestCase()
+    check.assertEqual(gate.main(["--max-severity", "medium", "--require-readable-feeds"]), 0)
     out = capsys.readouterr().out
-    assert "SKIPPED -- secret scanning: no SECRET_SCANNING_TOKEN" in out
-    assert "ERROR -- one or more feeds could not be read" not in out
+    check.assertIn("SKIPPED -- secret scanning: no SECRET_SCANNING_TOKEN", out)
+    check.assertNotIn("ERROR -- one or more feeds could not be read", out)
 
 
 def test_strict_mode_still_requires_secret_feed_for_same_repo_pr(
