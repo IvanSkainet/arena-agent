@@ -1,45 +1,46 @@
 #!/usr/bin/env python3
-"""Regenerate the hash-pinned requirements file for the Termux install.
+"""Regenerate the hash-pinned requirements file for the Termux install."""
+#
+# Scorecard alerts #317/#318/#319 flagged `scripts/install_termux.sh` for
+# running bare `pip install aiohttp` / `pip install psutil`. Unpinned is
+# bad anywhere; it is worse here, because the package lands on the
+# operator's *phone* and the bridge that imports it runs with shell
+# access on a device that roams between untrusted networks.
+#
+# The fix is `pip install --require-hashes -r scripts/requirements-termux.txt`,
+# which needs every artifact -- including transitive dependencies --
+# listed with its digest. Maintaining that by hand rots immediately, so
+# this script rebuilds it from PyPI.
+#
+# Two deliberate choices:
+#
+# * **Hashes for several artifacts per package.** Termux on arm64 usually
+#   builds `aiohttp` from the sdist because no manylinux wheel matches its
+#   Bionic libc, but pip will happily take a wheel when the ABI *does*
+#   match. A hash set that omits the artifact pip actually chooses makes
+#   the install fail rather than silently skip the check -- so both the
+#   sdist and Android/arm64 / pure-Python wheels are recorded.
+#
+# * **Refuses to write a file it could not verify.** If any package or
+#   version cannot be resolved, nothing is written. A half-generated
+#   requirements file that happens to satisfy pip is exactly the kind of
+#   quiet failure this whole exercise is against.
+#
+# Usage:
+#     python -m pip install packaging  # generator prerequisite, not a runtime dependency
+#     python scripts/refresh_termux_requirements.py            # rewrite
+#     python scripts/refresh_termux_requirements.py --check    # CI mode
 
-Scorecard alerts #317/#318/#319 flagged `scripts/install_termux.sh` for
-running bare `pip install aiohttp` / `pip install psutil`. Unpinned is
-bad anywhere; it is worse here, because the package lands on the
-operator's *phone* and the bridge that imports it runs with shell
-access on a device that roams between untrusted networks.
-
-The fix is `pip install --require-hashes -r scripts/requirements-termux.txt`,
-which needs every artifact -- including transitive dependencies --
-listed with its digest. Maintaining that by hand rots immediately, so
-this script rebuilds it from PyPI.
-
-Two deliberate choices:
-
-* **Hashes for several artifacts per package.** Termux on arm64 usually
-  builds `aiohttp` from the sdist because no manylinux wheel matches its
-  Bionic libc, but pip will happily take a wheel when the ABI *does*
-  match. A hash set that omits the artifact pip actually chooses makes
-  the install fail rather than silently skip the check -- so both the
-  sdist and Android/arm64 / pure-Python wheels are recorded.
-
-* **Refuses to write a file it could not verify.** If any package or
-  version cannot be resolved, nothing is written. A half-generated
-  requirements file that happens to satisfy pip is exactly the kind of
-  quiet failure this whole exercise is against.
-
-Usage:
-    python -m pip install packaging  # generator prerequisite, not a runtime dependency
-    python scripts/refresh_termux_requirements.py            # rewrite
-    python scripts/refresh_termux_requirements.py --check    # CI mode
-"""
 from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import http.client
 import json
 import pathlib
 import sys
 import urllib.error
-import urllib.request
+import urllib.parse
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -97,10 +98,20 @@ SUPPORTED_PYTHON_VERSIONS = ("3.10", "3.11", "3.12", "3.13", "3.14")
 
 
 def _fetch(url: str) -> dict:
-    request = urllib.request.Request(url, headers={"Accept": "application/json"})
-    # nosemgrep: dynamic-urllib-use-detected -- callers build only fixed HTTPS pypi.org JSON endpoints; no user-provided URL
-    with urllib.request.urlopen(request, timeout=TIMEOUT_S) as response:  # nosec B310 -- fixed pypi.org JSON API endpoint
+    """Fetch JSON from the fixed PyPI host, never an arbitrary URL scheme."""
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme != "https" or parsed.netloc != "pypi.org":
+        raise ValueError("only the HTTPS PyPI JSON API is supported")
+    # nosemgrep: httpsconnection-detected -- supported Python >=3.10 verifies certificates/hostnames by default; fixed PyPI host
+    connection = http.client.HTTPSConnection("pypi.org", timeout=TIMEOUT_S)
+    try:
+        connection.request("GET", parsed.path, headers={"Accept": "application/json"})
+        response = connection.getresponse()
+        if response.status != 200:
+            raise urllib.error.URLError(f"PyPI returned HTTP {response.status}")
         return json.load(response)
+    finally:
+        connection.close()
 
 
 def _relevant(filename: str, packagetype: str) -> bool:
@@ -118,17 +129,23 @@ def _relevant(filename: str, packagetype: str) -> bool:
     return is_android and is_arm64
 
 
+def _stable_version(value: str) -> Version | None:
+    """Parse stable versions without accepting malformed release names."""
+    try:
+        parsed = Version(value)
+    except InvalidVersion:
+        return None
+    return None if parsed.is_prerelease or parsed.is_devrelease else parsed
+
+
 def _candidate_versions(releases: dict) -> list[str]:
     """Newest stable releases with at least one non-yanked file."""
     candidates: list[tuple[Version, str]] = []
     for version, files in releases.items():
-        if not files or all(item.get("yanked", False) for item in files):
+        if not any(not item.get("yanked", False) for item in files):
             continue
-        try:
-            parsed: Version = Version(version)
-        except InvalidVersion:
-            continue
-        if parsed.pre is None and parsed.dev is None:
+        parsed = _stable_version(version)
+        if parsed is not None:
             candidates.append((parsed, version))
     return [version for _, version in sorted(candidates, reverse=True)]
 
@@ -248,7 +265,7 @@ def _collect_rows(
     for package in packages:
         try:
             version, digests = collect(package)
-        except (urllib.error.URLError, KeyError, RuntimeError) as exc:
+        except (urllib.error.URLError, http.client.HTTPException, OSError, KeyError, RuntimeError) as exc:
             label = "optional " if optional else ""
             print(f"FAILED to resolve {label}{package}: {exc}", file=sys.stderr)
             if not optional:

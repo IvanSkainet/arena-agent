@@ -138,12 +138,9 @@ def test_actions_write_detector_covers_scalar_and_mapping_forms(
 
 
 def test_stale_action_can_replace_its_state_cache_only_in_its_job() -> None:
-    """v11 deletes its old `_state` cache before persisting processed IDs.
-
-    Without the job-scoped Actions write permission, the daily workflow gets
-    HTTP 403 on cache deletion and replays the old processed-ID set forever.
-    Keep the permission confined to this one scheduled/manual job.
-    """
+    """Confine stale v11's state-cache replacement permission to its job."""
+    # Without Actions write, cache deletion returns HTTP 403 and the old
+    # processed-ID set may be replayed. Future jobs must not inherit it.
     doc = _load(WORKFLOWS / "stale.yml")
 
     assert doc.get("permissions") == {}, "write permissions must not be inherited by future jobs"  # nosec B101 -- pytest assertion

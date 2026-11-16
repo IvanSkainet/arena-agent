@@ -40,6 +40,7 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+from unittest import TestCase
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -296,6 +297,7 @@ def test_filesystem_parity_gate_detects_both_omissions_and_inventions() -> None:
 def test_readme_mcp_examples_dispatch_a_tool(monkeypatch) -> None:
     from arena.mcp import standalone_rpc
 
+    check = TestCase()
     calls = []
     monkeypatch.setattr(standalone_rpc, "call_tool",
                         lambda name, arguments: calls.append((name, arguments)) or {"ok": True})
@@ -303,10 +305,10 @@ def test_readme_mcp_examples_dispatch_a_tool(monkeypatch) -> None:
         text = (REPO_ROOT / name).read_text(encoding="utf-8")
         example = next(line for line in text.splitlines() if "`POST /mcp`" in line)
         bodies = re.findall(r"`(\{[^`]+\})`", example)
-        assert len(bodies) == 1, (name, example)
+        check.assertEqual(len(bodies), 1, (name, example))
         message = json.loads(bodies[0])
         before = len(calls)
         result = standalone_rpc.handle_rpc(message)
-        assert len(calls) == before + 1, (name, result)
-        assert calls[-1] == ("<tool>", {})
-        assert result == {"jsonrpc": "2.0", "id": 1, "result": {"ok": True}}
+        check.assertEqual(len(calls), before + 1, (name, result))
+        check.assertEqual(calls[-1], ("<tool>", {}))
+        check.assertEqual(result, {"jsonrpc": "2.0", "id": 1, "result": {"ok": True}})

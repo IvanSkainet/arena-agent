@@ -268,7 +268,12 @@ def _at_least(candidate: str, minimum: str) -> bool:
 def _added_pip_versions(
     files: list[dict[str, Any]],
 ) -> dict[tuple[str, str], list[str]]:
-    requirement = re.compile(r"^\+\s*([A-Za-z0-9_.-]+)\s*==\s*([^\\\s;]+)")
+    # Accept exact pins and numeric lower bounds, including quoted PEP 621
+    # dependency entries. Non-numeric/pre-release/wildcard bounds fail closed.
+    requirement = re.compile(
+        r"^\+\s*[\"']?([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?\s*"
+        r"(?:==|>=|~=)\s*(\d+(?:\.\d+)*)(?=[\s,;\"'\\]|$)"
+    )
     added: dict[tuple[str, str], list[str]] = {}
     for changed in files:
         manifest = changed.get("filename")
@@ -308,24 +313,27 @@ def _has_patched_version(candidates: list[str], minimum: str) -> bool:
 
 def _row_is_fixed_by_pr(
     row: dict[str, Any], added: dict[tuple[str, str], list[str]],
+    removed: set[str] | None = None,
 ) -> bool:
     identity = _dependabot_fix_identity(row)
     if identity is None:
         return False
     manifest, package, minimum = identity
     key = (manifest, _normalise_package(package))
-    return _has_patched_version(added.get(key, []), minimum)
+    return manifest in (removed or set()) or _has_patched_version(added.get(key, []), minimum)
 
 
 def _fixed_dependabot_alerts_by_pr(
     rows: list[dict[str, Any]],
 ) -> tuple[set[str], str]:
     """
-    Find findings fixed by a changed pip lock entry.
+    Find findings fixed by a changed pip manifest or removed manifest.
 
     Dependabot reports the base repository. Suppress only when this PR
-    updates that same manifest to a numeric pin at or above the first
-    patched release; ambiguous or unrelated findings remain blocking.
+    updates that same manifest to a numeric pin/lower bound at or above
+    the first patched release, or deletes the whole manifest. Removing
+    just a dependency line is ambiguous (includes/duplicates), so it stays
+    blocking; ambiguous or unrelated findings remain blocking.
     """
     number = _pull_request_number()
     if not number or not rows:
@@ -334,8 +342,10 @@ def _fixed_dependabot_alerts_by_pr(
     if files is None:
         return set(), f"dependabot PR comparison unavailable: {note}"
     added = _added_pip_versions(files)
+    removed = {item["filename"] for item in files
+               if item.get("status") == "removed" and isinstance(item.get("filename"), str)}
     fixed = {str(row.get("number")) for row in rows
-             if _row_is_fixed_by_pr(row, added)}
+             if _row_is_fixed_by_pr(row, added, removed)}
     summary = f"dependabot PR fixes checked: {len(fixed)} alert(s) match patched lock entries"
     return fixed, summary
 

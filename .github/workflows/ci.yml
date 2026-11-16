@@ -763,11 +763,9 @@ jobs:
 
       - name: Install wheel into clean path and import from neutral cwd
         run: |
-          wheel=$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)
-          test -n "$wheel"
-          digest=$(sha256sum "$wheel" | cut -d' ' -f1)
-          printf '%s --hash=sha256:%s\n' "$wheel" "$digest" > "$RUNNER_TEMP/wheel-requirements.txt"
-          python -m pip install --no-deps --only-binary=:all: --require-hashes -r "$RUNNER_TEMP/wheel-requirements.txt"
+          # This job tests its locally built wheel, not an externally downloaded
+          # artifact. A self-computed digest would not authenticate its origin.
+          python -m pip install --no-deps --only-binary=:all: dist/*.whl
           cd "$RUNNER_TEMP"
           python -c "import arena, unified_bridge; from arena.constants import VERSION; import arena.admin.auto_update; print('wheel import OK', VERSION)"
 

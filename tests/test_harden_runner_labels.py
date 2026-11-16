@@ -10,6 +10,7 @@ rather than left to review.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -58,7 +59,7 @@ def _allows_pypi(step) -> bool:
 
 def _installs_from_npm(job) -> bool:
     runs = " ".join(str(s.get("run", "")) for s in job.get("steps") or [])
-    return "npm ci" in runs or "npm install" in runs
+    return bool(re.search(r"(?<![\w.-])(?:npm\s+(?:ci|install|i|update|exec)\b|npx\b)", runs))
 
 
 def _allows_npm_registry(step) -> bool:
@@ -170,3 +171,15 @@ def test_allowed_endpoints_are_all_host_port_pairs():
         "allowlist entries that are not host:port (a comment folded into the "
         f"YAML block scalar?): {bad}"
     )
+
+
+@pytest.mark.parametrize("command", [
+    "npm ci", "npm install", "npm i", "npm update", "npm exec oxlint", "npx oxlint",
+])
+def test_npm_network_command_detection(command: str) -> None:
+    assert _installs_from_npm({"steps": [{"run": command}]})
+
+
+@pytest.mark.parametrize("command", ["npm --version", "npm run test", "echo pnpm install"])
+def test_npm_non_install_commands_do_not_require_registry(command: str) -> None:
+    assert not _installs_from_npm({"steps": [{"run": command}]})

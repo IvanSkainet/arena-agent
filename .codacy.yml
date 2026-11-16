@@ -1,4 +1,7 @@
-# This is a PEP 508 lockfile, not Python source. Its pinned hashes are still
-# validated by the repository's lock ratchet and security dependency scans.
+---
+# GuardDog's generated pip requirements contain pins and hashes, not Python
+# source: Codacy's Python parser reported syntax errors for these entries.
+# pip --require-hashes validates the downloaded artifacts during installation;
+# the lock ratchet checks hash presence and security scanners check advisories.
 exclude_paths:
   - "ci/guarddog/requirements.txt"

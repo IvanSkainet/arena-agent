@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest import TestCase
 
 import pytest
 
 from arena import termux_requirements as refresh
+
+_CHECK = TestCase()
 
 
 def _file(version: str, *, yanked: bool = False) -> dict[str, Any]:
@@ -133,7 +136,7 @@ def test_rejects_incompatible_artifact_even_when_release_metadata_allows_it(
     details = {"7.2.0": newer, "7.1.0": older}
     monkeypatch.setattr(refresh, "_fetch", lambda url: project if url.endswith("/multidict/json")
                         else details[url.split("/")[-2]])
-    assert refresh.collect("multidict") == ("7.1.0", ["b" * 64])
+    _CHECK.assertEqual(refresh.collect("multidict"), ("7.1.0", ["b" * 64]))
 
 
 def test_hashes_keep_compatible_artifacts_and_exclude_incompatible_ones() -> None:
@@ -141,4 +144,47 @@ def test_hashes_keep_compatible_artifacts_and_exclude_incompatible_ones() -> Non
     incompatible = dict(detail["urls"][0], requires_python=">=3.11",
                         digests={"sha256": "b" * 64})
     detail["urls"].append(incompatible)
-    assert refresh._usable_hashes(detail) == ["a" * 64]
+    _CHECK.assertEqual(refresh._usable_hashes(detail), ["a" * 64])
+
+
+@pytest.mark.parametrize("version", ["bad-version", "7.3.0rc1", "7.3.0.dev1"])
+def test_unstable_or_invalid_release_names_are_excluded(version: str) -> None:
+    releases = {version: [_file(version)], "7.2.0": [_file("7.2.0")]}
+    _CHECK.assertEqual(refresh._candidate_versions(releases), ["7.2.0"])
+
+
+def test_candidate_order_is_numeric_and_skips_empty_releases() -> None:
+    releases = {"7.9.0": [_file("7.9.0")], "7.10.0": [_file("7.10.0")], "8.0": []}
+    _CHECK.assertEqual(refresh._candidate_versions(releases), ["7.10.0", "7.9.0"])
+
+
+@pytest.mark.parametrize("url", ["file:///etc/passwd", "http://pypi.org/pypi/a/json",
+                                 "https://pypi.org.attacker.test/a", "https://user@pypi.org/a"])
+def test_fetch_refuses_non_pypi_origins_before_connecting(monkeypatch, url: str) -> None:
+    def unexpected_connection(*args, **kwargs):
+        raise AssertionError("invalid origin reached the network")
+    monkeypatch.setattr(refresh.http.client, "HTTPSConnection", unexpected_connection)
+    with pytest.raises(ValueError, match="only the HTTPS PyPI"):
+        refresh._fetch(url)
+
+
+def test_fetch_uses_fixed_https_host_and_closes_connection(monkeypatch) -> None:
+    import io
+
+    calls = []
+    class Connection:
+        def __init__(self, host, timeout):
+            calls.append((host, timeout))
+        def request(self, method, path, headers):
+            calls.append((method, path, headers))
+        def getresponse(self):
+            response = io.BytesIO(b'{"releases": {}}')
+            response.status = 200
+            return response
+        def close(self):
+            calls.append("closed")
+    monkeypatch.setattr(refresh.http.client, "HTTPSConnection", Connection)
+    _CHECK.assertEqual(refresh._fetch("https://pypi.org/pypi/aiohttp/json"), {"releases": {}})
+    _CHECK.assertEqual(calls, [("pypi.org", refresh.TIMEOUT_S),
+                              ("GET", "/pypi/aiohttp/json", {"Accept": "application/json"}),
+                              "closed"])

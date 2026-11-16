@@ -720,3 +720,39 @@ def test_the_gate_module_does_not_shadow_arena_security() -> None:
         MODULE.is_file(),
         f"the gate module is missing at {MODULE}",
     )
+
+
+@pytest.mark.parametrize("declaration", [
+    "+aiohttp==3.14.5", "+aiohttp>=3.14.4,<4", '+  "aiohttp>=3.14.4",',
+    "+aiohttp~=3.14.4", '+  "aiohttp[speedups]>=3.14.4",',
+])
+def test_patched_numeric_lower_bounds_are_recognized(gate, declaration: str) -> None:
+    row = {"ecosystem": "pip", "manifest_path": "pyproject.toml", "where": "aiohttp",
+           "first_patched_version": "3.14.4"}
+    added = gate._added_pip_versions([{"filename": "pyproject.toml", "patch": declaration}])
+    assert gate._row_is_fixed_by_pr(row, added)
+
+
+@pytest.mark.parametrize("declaration", [
+    "+aiohttp>=3.14.3", "+aiohttp==3.14.4.*", "+aiohttp>=3.14.4rc1",
+    "+aiohttp<=3.14.4", "+aiohttp!=3.14.4", "+aiohttp>3.14.3",
+])
+def test_ambiguous_or_vulnerable_bounds_do_not_suppress_alert(gate, declaration: str) -> None:
+    row = {"ecosystem": "pip", "manifest_path": "requirements.txt", "where": "aiohttp",
+           "first_patched_version": "3.14.4"}
+    added = gate._added_pip_versions([{"filename": "requirements.txt", "patch": declaration}])
+    assert not gate._row_is_fixed_by_pr(row, added)
+
+
+def test_removed_manifest_fixes_only_its_own_alert(gate, clean_env, monkeypatch) -> None:
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
+    monkeypatch.setattr(gate, "_get", lambda path: ([{
+        "filename": "requirements.txt", "status": "removed",
+    }], ""))
+    rows = [{"number": 1, "ecosystem": "pip", "manifest_path": "requirements.txt",
+             "where": "aiohttp", "first_patched_version": "3.14.4"},
+            {"number": 2, "ecosystem": "pip", "manifest_path": "other.txt",
+             "where": "aiohttp", "first_patched_version": "3.14.4"}]
+    fixed, _ = gate._fixed_dependabot_alerts_by_pr(rows)
+    assert fixed == {"1"}
