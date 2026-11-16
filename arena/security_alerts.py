@@ -60,6 +60,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -76,17 +77,44 @@ def _number_from_ref(ref: str) -> str:
     return parts[2] if len(parts) > 2 else ""
 
 
-def _number_from_payload(payload_path: str) -> str:
-    if not payload_path or not os.path.exists(payload_path):
-        return ""
+def _event_payload(payload_path: str | None = None) -> dict[str, Any] | None:
+    path = payload_path or os.environ.get("GITHUB_EVENT_PATH", "")
+    if not path or not os.path.exists(path):
+        return None
     try:
-        with open(payload_path, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             payload = json.load(fh)
     except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _number_from_payload(payload_path: str) -> str:
+    payload = _event_payload(payload_path)
+    return str(payload.get("number") or "") if payload else ""
+
+
+def _pull_request_number() -> str:
+    if not os.environ.get("GITHUB_EVENT_NAME", "").startswith("pull_request"):
         return ""
-    if not isinstance(payload, dict):
-        return ""
-    return str(payload.get("number") or "")
+    number = _number_from_ref(os.environ.get("GITHUB_REF", ""))
+    if not number:
+        number = _number_from_payload(os.environ.get("GITHUB_EVENT_PATH", ""))
+    return number if number.isdigit() else ""
+
+
+def _is_fork_pull_request() -> bool:
+    if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
+        return False
+    payload = _event_payload() or {}
+    pull_request = payload.get("pull_request")
+    if not isinstance(pull_request, dict):
+        return False
+    head = pull_request.get("head") or {}
+    base = pull_request.get("base") or {}
+    head_repo = (head.get("repo") or {}).get("full_name")
+    base_repo = (base.get("repo") or {}).get("full_name")
+    return bool(head_repo and base_repo and head_repo != base_repo)
 
 
 def code_scanning_ref() -> str | None:
@@ -141,7 +169,9 @@ def _get(path: str) -> tuple[list[dict[str, Any]] | None, str]:
         return (data, "") if isinstance(data, list) else (None, "unexpected payload")
     except urllib.error.HTTPError as exc:
         if exc.code in (403, 404):
-            return None, f"HTTP {exc.code} (token lacks security_events scope?)"
+            permission = ("secret_scanning_alerts" if secret_feed else
+                         "security_events or vulnerability_alerts")
+            return None, f"HTTP {exc.code} (token may lack {permission}: read)"
         return None, f"HTTP {exc.code}"
     except (urllib.error.URLError, OSError, ValueError) as exc:
         return None, f"unreachable: {exc}"
@@ -197,14 +227,87 @@ def _code_row(alert: dict[str, Any]) -> dict[str, Any]:
 
 def _dependabot_row(alert: dict[str, Any]) -> dict[str, Any]:
     advisory = alert.get("security_advisory", {})
-    package = (alert.get("dependency", {}) or {}).get("package", {})
+    vulnerability = alert.get("security_vulnerability", {})
+    dependency = alert.get("dependency", {}) or {}
+    package = dependency.get("package", {}) or {}
+    patched = vulnerability.get("first_patched_version") or {}
     return {
         "feed": "dependabot",
         "number": alert.get("number"),
         "severity": advisory.get("severity"),
         "id": advisory.get("summary", "")[:60],
         "where": package.get("name"),
+        "ecosystem": package.get("ecosystem"),
+        "manifest_path": dependency.get("manifest_path"),
+        "first_patched_version": patched.get("identifier"),
+        "fixed_by_pr": False,
     }
+
+
+def _normalise_package(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _version_tuple(value: str) -> tuple[int, ...] | None:
+    if not re.fullmatch(r"\d+(?:\.\d+)*", value):
+        return None
+    return tuple(int(part) for part in value.split("."))
+
+
+def _at_least(candidate: str, minimum: str) -> bool:
+    candidate_parts = _version_tuple(candidate)
+    minimum_parts = _version_tuple(minimum)
+    if candidate_parts is None or minimum_parts is None:
+        return False
+    length = max(len(candidate_parts), len(minimum_parts))
+    return candidate_parts + (0,) * (length - len(candidate_parts)) >= (
+        minimum_parts + (0,) * (length - len(minimum_parts)))
+
+
+def _fixed_dependabot_alerts_by_pr(
+    rows: list[dict[str, Any]],
+) -> tuple[set[str], str]:
+    """Find only Dependabot findings fixed by a changed pip lock entry.
+
+    GitHub's Dependabot alerts endpoint describes the base repository, not
+    the proposed PR. Suppress an existing alert only when this PR changes
+    that exact manifest and adds a numeric pinned version at or above the
+    advisory's first patched release. Anything ambiguous remains blocking.
+    """
+    number = _pull_request_number()
+    if not number or not rows:
+        return set(), ""
+    files, note = _get(f"/pulls/{number}/files?per_page=100")
+    if files is None:
+        return set(), f"dependabot PR comparison unavailable: {note}"
+    added: dict[tuple[str, str], list[str]] = {}
+    requirement = re.compile(
+        r"^\+\s*([A-Za-z0-9_.-]+)\s*==\s*([^\\\s;]+)")
+    for changed in files:
+        manifest = changed.get("filename")
+        patch = changed.get("patch", "")
+        if not isinstance(manifest, str) or not isinstance(patch, str):
+            continue
+        for line in patch.splitlines():
+            match = requirement.match(line)
+            if match:
+                key = (manifest, _normalise_package(match.group(1)))
+                added.setdefault(key, []).append(match.group(2))
+    fixed: set[str] = set()
+    for row in rows:
+        if row.get("ecosystem") != "pip":
+            continue
+        manifest = row.get("manifest_path")
+        package = row.get("where")
+        minimum = row.get("first_patched_version")
+        if (not isinstance(manifest, str) or not manifest
+                or not isinstance(package, str) or not package
+                or not isinstance(minimum, str) or not minimum):
+            continue
+        candidates = added.get((manifest, _normalise_package(package)), [])
+        if any(_at_least(version, minimum) for version in candidates):
+            fixed.add(str(row.get("number")))
+    return fixed, f"dependabot PR fixes checked: {len(fixed)} alert(s) match patched lock entries"
 
 
 def _read_feed(
@@ -233,6 +336,12 @@ def collect() -> tuple[list[dict[str, Any]], list[str]]:
     )
     for path, label, row_builder in feeds:
         rows, note = _read_feed(path, label, row_builder)
+        if label == "dependabot" and not note:
+            fixed, comparison_note = _fixed_dependabot_alerts_by_pr(rows)
+            for row in rows:
+                row["fixed_by_pr"] = str(row.get("number")) in fixed
+            if comparison_note:
+                notes.append(comparison_note)
         findings.extend(rows)
         if note:
             notes.append(note)
@@ -244,8 +353,12 @@ def _note_is_missing(note: str) -> bool:
 
 
 def _note_is_read_failure(note: str, strict: bool) -> bool:
-    """PR scope is metadata; missing credentials fail only in strict mode."""
-    if note.startswith("code scanning scoped to "):
+    """PR scope is metadata; missing fork secrets are an explicit skip."""
+    if note.startswith(("code scanning scoped to ",
+                        "dependabot PR fixes checked: ",
+                        "dependabot PR comparison unavailable: ")):
+        return False
+    if "no SECRET_SCANNING_TOKEN" in note and _is_fork_pull_request():
         return False
     return strict if _note_is_missing(note) else True
 
@@ -257,7 +370,9 @@ def _feed_read_failed(notes: list[str], strict: bool) -> bool:
 
 def _note_kind(note: str) -> str:
     """Classify scope, local credential skips, and actual feed errors."""
-    if note.startswith("code scanning scoped to "):
+    if note.startswith(("code scanning scoped to ",
+                        "dependabot PR fixes checked: ",
+                        "dependabot PR comparison unavailable: ")):
         return "INFO"
     if _note_is_missing(note):
         return "SKIPPED"
@@ -298,12 +413,12 @@ def _threshold_exit(
     if not threshold:
         return 0
     # Dependabot's repository endpoint reports the default-branch manifest,
-    # not the PR's proposed lock. Keep those findings visible, but do not let
-    # the base branch's pre-existing alerts deadlock a PR that is fixing them.
-    # Dependency Review/OSV scan the proposed diff; push-to-default-branch
-    # runs still enforce the threshold across all three feeds.
+    # not the PR's proposed lock. Ignore only an alert whose exact manifest
+    # and package this PR updates to the first patched version; unrelated or
+    # ambiguous findings continue to block. Push runs always check every feed.
     candidates = [item for item in findings
-                  if not scoped_pr or item["feed"] != "dependabot"]
+                  if not (scoped_pr and item["feed"] == "dependabot"
+                          and item.get("fixed_by_pr"))]
     over = [item for item in candidates
             if _rank(item["severity"]) >= _rank(threshold)]
     if not over:

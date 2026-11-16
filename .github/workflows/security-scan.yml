@@ -230,6 +230,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: read
       security-events: read
       vulnerability-alerts: read
     steps:
@@ -260,8 +261,16 @@ jobs:
           # GITHUB_TOKEN cannot read secret-scanning alerts; this repository
           # secret must be a fine-grained token with that endpoint's read-only permission.
           SECRET_SCANNING_TOKEN: ${{ secrets.SECRET_SCANNING_TOKEN }}
+          ALERT_EVENT_NAME: ${{ github.event_name }}
+          ALERT_REPOSITORY: ${{ github.repository }}
+          ALERT_PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
-          python3 scripts/security_alerts_check.py --max-severity medium --require-readable-feeds
+          alert_args=(--max-severity medium)
+          if [[ "$ALERT_EVENT_NAME" != "pull_request" || \
+                "$ALERT_PR_HEAD_REPOSITORY" == "$ALERT_REPOSITORY" ]]; then
+            alert_args+=(--require-readable-feeds)
+          fi
+          python3 scripts/security_alerts_check.py "${alert_args[@]}"
           python3 scripts/dismissed_alerts_gate.py
 
   osv-scanner:

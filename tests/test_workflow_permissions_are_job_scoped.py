@@ -168,6 +168,7 @@ def test_security_alert_jobs_can_read_code_and_dependabot_alerts() -> None:
     security = _load(WORKFLOWS / "security-scan.yml")
     expected = {
         "contents": "read",
+        "pull-requests": "read",
         "security-events": "read",
         "vulnerability-alerts": "read",
     }

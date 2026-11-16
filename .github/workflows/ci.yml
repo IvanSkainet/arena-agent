@@ -386,6 +386,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: read
       security-events: read
       vulnerability-alerts: read
     steps:
@@ -447,7 +448,16 @@ jobs:
           # GITHUB_TOKEN cannot read secret-scanning alerts; this repository
           # secret must be a fine-grained token with that endpoint's read-only permission.
           SECRET_SCANNING_TOKEN: ${{ secrets.SECRET_SCANNING_TOKEN }}
-        run: python scripts/security_alerts_check.py --max-severity medium --require-readable-feeds
+          ALERT_EVENT_NAME: ${{ github.event_name }}
+          ALERT_REPOSITORY: ${{ github.repository }}
+          ALERT_PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          alert_args=(--max-severity medium)
+          if [[ "$ALERT_EVENT_NAME" != "pull_request" || \
+                "$ALERT_PR_HEAD_REPOSITORY" == "$ALERT_REPOSITORY" ]]; then
+            alert_args+=(--require-readable-feeds)
+          fi
+          python scripts/security_alerts_check.py "${alert_args[@]}"
 
       # v4.169.29: the check above asks for state=open, and pressing
       # Dismiss is exactly the act of removing an alert from that query.
@@ -751,7 +761,7 @@ jobs:
 
       - name: Install wheel into clean path and import from neutral cwd
         run: |
-          python -m pip install --no-deps dist/*.whl
+          python -m pip install --no-deps --only-binary=:all: dist/*.whl
           cd "$RUNNER_TEMP"
           python -c "import arena, unified_bridge; from arena.constants import VERSION; import arena.admin.auto_update; print('wheel import OK', VERSION)"
 

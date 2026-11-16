@@ -26,6 +26,7 @@ import pathlib
 import tempfile
 
 import pytest
+import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "security_alerts_check.py"
@@ -52,7 +53,8 @@ def gate():
 
 @pytest.fixture
 def clean_env(monkeypatch):
-    for key in ("GITHUB_EVENT_NAME", "GITHUB_REF", "GITHUB_EVENT_PATH"):
+    for key in ("GITHUB_EVENT_NAME", "GITHUB_REF", "GITHUB_EVENT_PATH",
+                "GITHUB_TOKEN", "GH_TOKEN", "SECRET_SCANNING_TOKEN"):
         monkeypatch.delenv(key, raising=False)
     return monkeypatch
 
@@ -195,6 +197,21 @@ def test_secret_scanning_uses_its_dedicated_read_token(gate, clean_env, monkeypa
                     ("Bearer secret-feed-token", gate.TIMEOUT)]
 
 
+def test_secret_scanning_permission_error_names_its_own_scope(
+    gate, clean_env, monkeypatch,
+):
+    clean_env.setenv("SECRET_SCANNING_TOKEN", "secret-feed-token")
+    error = gate.urllib.error.HTTPError("https://api.github.com", 403,
+                                       "forbidden", {}, None)
+    def raise_forbidden(*_args, **_kwargs):
+        raise error
+    monkeypatch.setattr(gate.urllib.request, "urlopen", raise_forbidden)
+
+    alerts, note = gate._get("/secret-scanning/alerts?state=open")
+    assert alerts is None
+    assert "secret_scanning_alerts: read" in note
+
+
 def test_secret_scanning_does_not_fall_back_to_github_token(
     gate, clean_env, monkeypatch
 ):
@@ -209,14 +226,78 @@ def test_secret_scanning_does_not_fall_back_to_github_token(
     assert called == []
 
 
-def test_workflows_request_the_narrow_secret_scanning_credential():
-    """The secret feed is separate from the read-only built-in token."""
-    workflows = [ROOT / ".github/workflows/ci.yml",
-                 ROOT / ".github/workflows/security-scan.yml"]
-    for workflow in workflows:
-        source = workflow.read_text(encoding="utf-8")
-        assert "SECRET_SCANNING_TOKEN: ${{ secrets.SECRET_SCANNING_TOKEN }}" in source
-        assert "GITHUB_TOKEN: ${{ github.token }}" in source
+def test_workflows_scope_alert_tokens_and_permissions_to_the_gate_job():
+    """The alert-check job uses least privilege, not unrelated env entries."""
+    targets = (
+        (ROOT / ".github/workflows/ci.yml", "version-sync",
+         "Open security alerts (fails at medium and above)"),
+        (ROOT / ".github/workflows/security-scan.yml", "security-alerts",
+         "Check GitHub security alerts feed"),
+    )
+    for workflow, job_name, step_name in targets:
+        document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+        job = document["jobs"][job_name]
+        step = next(step for step in job["steps"] if step.get("name") == step_name)
+        env = step["env"]
+        assert env["SECRET_SCANNING_TOKEN"] == "${{ secrets.SECRET_SCANNING_TOKEN }}"
+        assert env["GITHUB_TOKEN"] == "${{ github.token }}"
+        assert job["permissions"]["security-events"] == "read"
+        assert job["permissions"]["vulnerability-alerts"] == "read"
+        assert job["permissions"]["pull-requests"] == "read"
+
+
+def test_strict_mode_skips_missing_secret_feed_only_for_fork_pr(
+    gate, clean_env, monkeypatch, tmp_path, capsys,
+):
+    payload = tmp_path / "event.json"
+    payload.write_text(json.dumps({
+        "number": 475,
+        "pull_request": {
+            "head": {"repo": {"full_name": "contributor/arena-agent"}},
+            "base": {"repo": {"full_name": "IvanSkainet/arena-agent"}},
+        },
+    }), encoding="utf-8")
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_EVENT_PATH", str(payload))
+    clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
+    clean_env.setenv("GITHUB_TOKEN", "job-token")
+    clean_env.delenv("SECRET_SCANNING_TOKEN", raising=False)
+    monkeypatch.setattr(
+        gate, "collect", lambda: ([], [
+            "code scanning scoped to refs/pull/475/head",
+            "secret scanning: no SECRET_SCANNING_TOKEN; cannot read security alerts",
+        ]),
+    )
+
+    assert gate.main(["--max-severity", "medium", "--require-readable-feeds"]) == 0
+    out = capsys.readouterr().out
+    assert "SKIPPED -- secret scanning: no SECRET_SCANNING_TOKEN" in out
+    assert "ERROR -- one or more feeds could not be read" not in out
+
+
+def test_strict_mode_still_requires_secret_feed_for_same_repo_pr(
+    gate, clean_env, monkeypatch, tmp_path, capsys,
+):
+    payload = tmp_path / "event.json"
+    payload.write_text(json.dumps({
+        "number": 475,
+        "pull_request": {
+            "head": {"repo": {"full_name": "IvanSkainet/arena-agent"}},
+            "base": {"repo": {"full_name": "IvanSkainet/arena-agent"}},
+        },
+    }), encoding="utf-8")
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_EVENT_PATH", str(payload))
+    clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
+    clean_env.setenv("GITHUB_TOKEN", "job-token")
+    monkeypatch.setattr(
+        gate, "collect", lambda: ([], [
+            "secret scanning: no SECRET_SCANNING_TOKEN; cannot read security alerts",
+        ]),
+    )
+
+    assert gate.main(["--require-readable-feeds"]) == 2
+    assert "one or more feeds could not be read" in capsys.readouterr().out
 
 
 def test_strict_mode_accepts_readable_feeds_with_scope_note(
@@ -375,26 +456,89 @@ def test_unreadable_feeds_fail_closed_when_no_findings_return(
     assert "ERROR -- one or more feeds could not be read" in capsys.readouterr().out
 
 
-def test_repository_wide_dependabot_findings_do_not_deadlock_pr_fixes(
+def test_pr_ignores_only_dependabot_alerts_fixed_in_changed_manifest(
     gate, clean_env, monkeypatch, capsys,
 ):
-    """Dependabot reports the base manifest; PR checks the proposed diff."""
-    finding = {
+    """Unrelated default-branch alerts remain blockers on a PR."""
+    fixed = {
         "feed": "dependabot", "number": 7, "severity": "high",
-        "id": "fixed by this PR", "where": "requirements.txt",
+        "id": "fixed by this PR", "where": "aiohttp", "fixed_by_pr": True,
     }
-    monkeypatch.setattr(gate, "collect", lambda: ([finding], []))
+    unrelated = {
+        "feed": "dependabot", "number": 8, "severity": "high",
+        "id": "not changed by this PR", "where": "certifi", "fixed_by_pr": False,
+    }
+    monkeypatch.setattr(gate, "collect", lambda: ([fixed, unrelated], []))
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
 
-    assert gate.main(["--max-severity", "medium"]) == 0
+    assert gate.main(["--max-severity", "medium"]) == 1
     pull_output = capsys.readouterr().out
-    assert "1 open (1 dependabot)" in pull_output
-    assert "none at or above 'medium'" in pull_output
+    assert "2 open (2 dependabot)" in pull_output
+    assert "1 at or above 'medium'" in pull_output
+
+    monkeypatch.setattr(gate, "collect", lambda: ([fixed], []))
+    assert gate.main(["--max-severity", "medium"]) == 0
+    assert "none at or above 'medium'" in capsys.readouterr().out
 
     clean_env.setenv("GITHUB_EVENT_NAME", "push")
     assert gate.main(["--max-severity", "medium"]) == 1
     assert "1 at or above 'medium'" in capsys.readouterr().out
+
+
+def test_dependabot_pr_fix_requires_patched_version_in_same_manifest(
+    gate, clean_env, monkeypatch,
+):
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
+    alert = {
+        "number": 7,
+        "security_advisory": {"severity": "high", "summary": "test advisory"},
+        "security_vulnerability": {
+            "first_patched_version": {"identifier": "3.14.4"},
+        },
+        "dependency": {
+            "manifest_path": "scripts/requirements-termux.txt",
+            "package": {"ecosystem": "pip", "name": "aiohttp"},
+        },
+    }
+    def fake_get(path):
+        if path.startswith("/pulls/475/files"):
+            return [{
+                "filename": "scripts/requirements-termux.txt",
+                "patch": "\n".join((
+                    "@@ -1 +1 @@", "-aiohttp==3.14.3", "+aiohttp==3.14.5",
+                )),
+            }], ""
+        if path.startswith("/dependabot/alerts"):
+            return [alert], ""
+        return [], ""
+    monkeypatch.setattr(gate, "_get", fake_get)
+
+    findings, notes = gate.collect()
+    dependabot = next(row for row in findings if row["feed"] == "dependabot")
+    assert dependabot["fixed_by_pr"] is True
+    assert any("1 alert(s) match patched lock entries" in note for note in notes)
+
+
+def test_dependabot_alert_is_not_suppressed_by_other_file_or_old_version(
+    gate, clean_env, monkeypatch,
+):
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
+    row = {
+        "number": 7, "ecosystem": "pip", "manifest_path": "requirements.lock",
+        "where": "aiohttp", "first_patched_version": "3.14.4",
+    }
+    monkeypatch.setattr(gate, "_pull_request_number", lambda: "475")
+    monkeypatch.setattr(gate, "_get", lambda _path: ([{
+        "filename": "other.lock", "patch": "+aiohttp==3.14.5",
+    }, {
+        "filename": "requirements.lock", "patch": "+aiohttp==3.14.3",
+    }], ""))
+
+    fixed, _ = gate._fixed_dependabot_alerts_by_pr([row])
+    assert fixed == set()
 
 
 def test_ci_mode_fails_when_no_token_is_available(gate, clean_env, capsys):
