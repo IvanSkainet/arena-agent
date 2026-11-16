@@ -316,8 +316,9 @@ def test_strict_mode_still_requires_secret_feed_for_same_repo_pr(
         ]),
     )
 
-    assert gate.main(["--require-readable-feeds"]) == 2  # nosec B101 -- pytest assertion
-    assert "one or more feeds could not be read" in capsys.readouterr().out
+    check = unittest.TestCase()
+    check.assertEqual(gate.main(["--require-readable-feeds"]), 2)
+    check.assertIn("one or more feeds could not be read", capsys.readouterr().out)
 
 
 def test_strict_mode_accepts_readable_feeds_with_scope_note(
@@ -329,10 +330,11 @@ def test_strict_mode_accepts_readable_feeds_with_scope_note(
     clean_env.setenv("GITHUB_TOKEN", "test-token")
     monkeypatch.setattr(gate, "_get", lambda _path: ([], ""))
 
-    assert gate.main(["--require-readable-feeds"]) == 0  # nosec B101 -- pytest assertion
+    check = unittest.TestCase()
+    check.assertEqual(gate.main(["--require-readable-feeds"]), 0)
     output = capsys.readouterr().out
-    assert "INFO -- code scanning scoped to refs/pull/149/head" in output
-    assert "OK (no open alerts in any feed)" in output
+    check.assertIn("INFO -- code scanning scoped to refs/pull/149/head", output)
+    check.assertIn("OK (no open alerts in any feed)", output)
 
 
 def test_the_repository_wide_query_carries_no_ref(gate, clean_env, monkeypatch):
@@ -456,11 +458,12 @@ def test_unreadable_feed_fails_closed_even_with_only_low_findings(
         ),
     )
 
-    assert gate.main(["--max-severity", "medium"]) == 2  # nosec B101 -- pytest assertion
+    check = unittest.TestCase()
+    check.assertEqual(gate.main(["--max-severity", "medium"]), 2)
     output = capsys.readouterr().out
-    assert "ERROR -- dependabot: HTTP 403" in output
-    assert "SKIPPED -- dependabot: HTTP 403" not in output
-    assert "ERROR -- one or more feeds could not be read" in output  # nosec B101 -- pytest assertion
+    check.assertIn("ERROR -- dependabot: HTTP 403", output)
+    check.assertNotIn("SKIPPED -- dependabot: HTTP 403", output)
+    check.assertIn("ERROR -- one or more feeds could not be read", output)
 
 
 def test_unreadable_feeds_fail_closed_when_no_findings_return(
