@@ -133,7 +133,7 @@ def _candidate_versions(releases: dict) -> list[str]:
             parsed: _VersionType = Version(version)
         except InvalidVersion:
             continue
-        if not parsed.is_prerelease:
+        if parsed.pre is None and parsed.dev is None:
             candidates.append((parsed, version))
     return [version for _, version in sorted(candidates, reverse=True)]
 

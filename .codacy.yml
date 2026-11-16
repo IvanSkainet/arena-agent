@@ -1,0 +1,4 @@
+# This is a PEP 508 lockfile, not Python source. Its pinned hashes are still
+# validated by the repository's lock ratchet and security dependency scans.
+exclude_paths:
+  - "ci/guarddog/requirements.txt"

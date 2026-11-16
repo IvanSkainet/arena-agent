@@ -27,6 +27,16 @@ def _detail(version: str, requires_python: str, digest: str) -> dict[str, Any]:
                       "digests": {"sha256": digest}}]}
 
 
+def test_candidate_order_excludes_prereleases() -> None:
+    releases = {
+        "7.3.0rc1": [_file("7.3.0rc1")],
+        "7.2.0": [_file("7.2.0")],
+    }
+    candidates = refresh._candidate_versions(releases)
+    if candidates != ["7.2.0"]:
+        raise AssertionError(f"prerelease candidate was not excluded: {candidates}")
+
+
 @pytest.mark.parametrize("case", [
     ("7.2.1", ">=3.11", "a", False),
     ("7.3.0", ">=3.10,<3.14", "d", False),

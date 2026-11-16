@@ -1,4 +1,3 @@
-# flake8: noqa -- requirements syntax is PEP 508, not Python; semicolons delimit markers.
 # Fully locked toolchain for the GuardDog job (.github/workflows/guarddog.yml).
 # Regenerate from the paired input; do not edit transitive pins by hand.
 # First install the exact resolver used by the repository:

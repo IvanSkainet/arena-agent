@@ -196,8 +196,10 @@ def test_secret_scanning_uses_its_dedicated_read_token(gate, clean_env, monkeypa
     for path in ("/code-scanning/alerts?state=open", "/secret-scanning/alerts?state=open"):
         if gate._get(path) != ([], ""):
             raise AssertionError(f"empty alert response was not preserved for {path}")
-    assert seen == [("Bearer job-token", gate.TIMEOUT),
-                    ("Bearer secret-feed-token", gate.TIMEOUT)]
+    expected = [("Bearer job-token", gate.TIMEOUT),
+                ("Bearer secret-feed-token", gate.TIMEOUT)]
+    if seen != expected:
+        raise AssertionError(f"unexpected auth headers or timeout values: {seen}")
 
 
 def test_secret_scanning_permission_error_names_its_own_scope(
@@ -211,8 +213,10 @@ def test_secret_scanning_permission_error_names_its_own_scope(
     monkeypatch.setattr(gate.urllib.request, "urlopen", raise_forbidden)
 
     alerts, note = gate._get("/secret-scanning/alerts?state=open")
-    assert alerts is None
-    assert "secret_scanning_alerts: read" in note
+    if alerts is not None:
+        raise AssertionError("the 403 secret-scanning response must be treated as unreadable")
+    if "secret_scanning_alerts: read" not in note:
+        raise AssertionError(f"the endpoint-specific permission hint is missing: {note}")
 
 
 def test_secret_scanning_does_not_fall_back_to_github_token(
@@ -224,9 +228,12 @@ def test_secret_scanning_does_not_fall_back_to_github_token(
     monkeypatch.setattr(gate.urllib.request, "urlopen", lambda *args, **kwargs: called.append(args))
 
     alerts, note = gate._get("/secret-scanning/alerts?state=open")
-    assert alerts is None
-    assert note == "no SECRET_SCANNING_TOKEN; cannot read security alerts"
-    assert called == []
+    if alerts is not None:
+        raise AssertionError("secret scanning must not be queried without its dedicated token")
+    if note != "no SECRET_SCANNING_TOKEN; cannot read security alerts":
+        raise AssertionError(f"unexpected missing-token message: {note}")
+    if called:
+        raise AssertionError("secret scanning attempted a request without its dedicated token")
 
 
 def test_workflows_scope_alert_tokens_and_permissions_to_the_gate_job():
