@@ -37,6 +37,7 @@ stale and then contradicts the parser twenty lines below it.
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 
@@ -289,3 +290,23 @@ def test_filesystem_parity_gate_detects_both_omissions_and_inventions() -> None:
             raise AssertionError(
                 f"parity check returned {actual_errors}, expected {expected_errors}"
             )
+
+
+
+def test_readme_mcp_examples_dispatch_a_tool(monkeypatch) -> None:
+    from arena.mcp import standalone_rpc
+
+    calls = []
+    monkeypatch.setattr(standalone_rpc, "call_tool",
+                        lambda name, arguments: calls.append((name, arguments)) or {"ok": True})
+    for name in ("README.md", "README.ru.md"):
+        text = (REPO_ROOT / name).read_text(encoding="utf-8")
+        example = next(line for line in text.splitlines() if "`POST /mcp`" in line)
+        bodies = re.findall(r"`(\{[^`]+\})`", example)
+        assert len(bodies) == 1, (name, example)
+        message = json.loads(bodies[0])
+        before = len(calls)
+        result = standalone_rpc.handle_rpc(message)
+        assert len(calls) == before + 1, (name, result)
+        assert calls[-1] == ("<tool>", {})
+        assert result == {"jsonrpc": "2.0", "id": 1, "result": {"ok": True}}

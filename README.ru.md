@@ -705,7 +705,7 @@ Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [REL
 | `ship` | `ship.status` / `ship.preflight` / `ship.smoke` — Карты всего корабля, проверки готовности, Linux flight check и real-machine smoke proof |
 | `tool_foundry` | `tool_foundry.validate` / `tool_foundry.publish` — Валидация Workbench project manifest/tests и публикация как callable custom tool |
 
-Все вызовы идут через MCP endpoint `POST /mcp` с JSON-телом `{"name": "<tool>", "arguments": {...}}`.
+Все вызовы идут через MCP endpoint `POST /mcp` с JSON-телом `{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "<tool>", "arguments": {}}}`.
 
 ---
 

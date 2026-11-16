@@ -1,18 +1,11 @@
 """The generated Termux lock must remain installable at Python 3.10+."""
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
 from typing import Any
 
-import pytest  # pyright: ignore[reportMissingImports]
+import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts" / "refresh_termux_requirements.py"
-spec = importlib.util.spec_from_file_location("refresh_termux_requirements", SCRIPT)
-assert spec and spec.loader  # nosec B101 -- pytest assertion
-refresh = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(refresh)
+from arena import termux_requirements as refresh
 
 
 def _file(version: str, *, yanked: bool = False) -> dict[str, Any]:
@@ -127,3 +120,25 @@ def test_yanked_artifacts_are_never_included_in_hashes(monkeypatch) -> None:
                         else detail)
 
     assert refresh.collect("multidict") == ("7.2.1", ["f" * 64])  # nosec B101 -- pytest assertion
+
+
+@pytest.mark.parametrize("artifact_python", [">=3.11", ">=3.10,<3.14", ">=>3.10"])
+def test_rejects_incompatible_artifact_even_when_release_metadata_allows_it(
+    monkeypatch, artifact_python: str,
+) -> None:
+    project = {"releases": {"7.2.0": [_file("7.2.0")], "7.1.0": [_file("7.1.0")]}}
+    newer = _detail("7.2.0", ">=3.10", "a" * 64)
+    newer["urls"][0]["requires_python"] = artifact_python
+    older = _detail("7.1.0", ">=3.10", "b" * 64)
+    details = {"7.2.0": newer, "7.1.0": older}
+    monkeypatch.setattr(refresh, "_fetch", lambda url: project if url.endswith("/multidict/json")
+                        else details[url.split("/")[-2]])
+    assert refresh.collect("multidict") == ("7.1.0", ["b" * 64])
+
+
+def test_hashes_keep_compatible_artifacts_and_exclude_incompatible_ones() -> None:
+    detail = _detail("7.2.0", ">=3.10", "a" * 64)
+    incompatible = dict(detail["urls"][0], requires_python=">=3.11",
+                        digests={"sha256": "b" * 64})
+    detail["urls"].append(incompatible)
+    assert refresh._usable_hashes(detail) == ["a" * 64]

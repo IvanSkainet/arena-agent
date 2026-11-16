@@ -137,7 +137,7 @@ def test_actions_write_detector_covers_scalar_and_mapping_forms(
     assert _grants_actions_write(permissions) is expected  # nosec B101 -- pytest assertion
 
 
-def test_stale_action_can_replace_its_state_cache_only_in_its_job() -> None:  # noqa: D212,D213 -- Codacy and local docstring rules disagree on summary placement
+def test_stale_action_can_replace_its_state_cache_only_in_its_job() -> None:
     """v11 deletes its old `_state` cache before persisting processed IDs.
 
     Without the job-scoped Actions write permission, the daily workflow gets
