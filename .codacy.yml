@@ -2,3 +2,10 @@
 # validated by the repository's lock ratchet and security dependency scans.
 exclude_paths:
   - "ci/guarddog/requirements.txt"
+
+# The repo's required Bandit scan intentionally doesn't scan tests/; the
+# same test-only exception applies here. Runtime modules remain fully scanned.
+engines:
+  bandit:
+    exclude_paths:
+      - "tests/**"
