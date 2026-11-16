@@ -116,17 +116,24 @@ def _fetch(url: str) -> dict:
 
 def _relevant(filename: str, packagetype: str) -> bool:
     """Source, universal, and explicitly Android/arm64 artifacts only."""
-    if packagetype == "sdist":
-        return True
-    if packagetype != "bdist_wheel":
-        return False
+    return packagetype == "sdist" or (
+        packagetype == "bdist_wheel" and _termux_wheel(filename)
+    )
+
+
+def _termux_wheel(filename: str) -> bool:
+    """Distinguish portable/Android wheels from glibc-only Linux wheels."""
     lowered = filename.lower()
-    if lowered.endswith("-none-any.whl") or "py3-none-any" in lowered:
-        return True
     platform_tag = lowered.rsplit("-", 1)[-1]
-    is_android = "android_" in platform_tag
+    if lowered.endswith("-none-any.whl"):
+        return True
     is_arm64 = "arm64_v8a" in platform_tag or "aarch64" in platform_tag
-    return is_android and is_arm64
+    return "android_" in platform_tag and is_arm64
+
+
+def _has_available_artifacts(files: list[dict]) -> bool:
+    """A release with no files or only yanked files cannot be installed."""
+    return any(not item.get("yanked", False) for item in files)
 
 
 def _stable_version(value: str) -> Version | None:
@@ -142,7 +149,7 @@ def _candidate_versions(releases: dict) -> list[str]:
     """Newest stable releases with at least one non-yanked file."""
     candidates: list[tuple[Version, str]] = []
     for version, files in releases.items():
-        if not any(not item.get("yanked", False) for item in files):
+        if not _has_available_artifacts(files):
             continue
         parsed = _stable_version(version)
         if parsed is not None:
@@ -265,7 +272,7 @@ def _collect_rows(
     for package in packages:
         try:
             version, digests = collect(package)
-        except (urllib.error.URLError, http.client.HTTPException, OSError, KeyError, RuntimeError) as exc:
+        except (http.client.HTTPException, OSError, KeyError, RuntimeError) as exc:
             label = "optional " if optional else ""
             print(f"FAILED to resolve {label}{package}: {exc}", file=sys.stderr)
             if not optional:
