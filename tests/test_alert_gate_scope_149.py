@@ -31,6 +31,8 @@ import unittest
 import pytest
 import yaml
 
+_CHECK = unittest.TestCase()
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "security_alerts_check.py"
 MODULE = ROOT / "arena" / "security_alerts.py"
@@ -66,7 +68,7 @@ def test_a_pull_request_is_judged_on_its_own_head(gate, clean_env):
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_REF", "refs/pull/149/merge")
 
-    assert gate.code_scanning_ref() == "refs/pull/149/head"
+    _CHECK.assertEqual(gate.code_scanning_ref(), "refs/pull/149/head")
 
 
 def test_the_merge_ref_is_not_used(gate, clean_env):
@@ -75,7 +77,7 @@ def test_the_merge_ref_is_not_used(gate, clean_env):
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_REF", "refs/pull/149/merge")
 
-    assert gate.code_scanning_ref().endswith("/head")
+    _CHECK.assertTrue(gate.code_scanning_ref().endswith("/head"))
 
 
 def test_pull_request_target_reads_the_event_payload(gate, clean_env, tmp_path):
@@ -84,7 +86,7 @@ def test_pull_request_target_reads_the_event_payload(gate, clean_env, tmp_path):
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request_target")
     clean_env.setenv("GITHUB_EVENT_PATH", str(payload))
 
-    assert gate.code_scanning_ref() == "refs/pull/77/head"
+    _CHECK.assertEqual(gate.code_scanning_ref(), "refs/pull/77/head")
 
 
 def test_the_event_decides_the_scope_not_the_ref_string(gate, clean_env):
@@ -100,8 +102,9 @@ def test_the_event_decides_the_scope_not_the_ref_string(gate, clean_env):
     clean_env.setenv("GITHUB_EVENT_NAME", "push")
     clean_env.setenv("GITHUB_REF", "refs/pull/9/merge")
 
-    assert gate.code_scanning_ref() is None, (
-        "a non-PR event narrowed its scope because the ref looked like a PR"
+    _CHECK.assertIsNone(
+        gate.code_scanning_ref(),
+        "a non-PR event narrowed its scope because the ref looked like a PR",
     )
 
 
@@ -110,14 +113,14 @@ def test_a_push_to_master_still_sees_the_whole_repository(gate, clean_env):
     clean_env.setenv("GITHUB_EVENT_NAME", "push")
     clean_env.setenv("GITHUB_REF", "refs/heads/master")
 
-    assert gate.code_scanning_ref() is None
+    _CHECK.assertIsNone(gate.code_scanning_ref())
 
 
 @pytest.mark.parametrize("event", ["release", "schedule", "workflow_dispatch", ""])
 def test_every_other_event_is_repository_wide(gate, clean_env, event):
     clean_env.setenv("GITHUB_EVENT_NAME", event)
 
-    assert gate.code_scanning_ref() is None
+    _CHECK.assertIsNone(gate.code_scanning_ref())
 
 
 def test_a_pull_request_with_no_discoverable_number_stays_wide(gate, clean_env):
@@ -129,14 +132,14 @@ def test_a_pull_request_with_no_discoverable_number_stays_wide(gate, clean_env):
     """
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
 
-    assert gate.code_scanning_ref() is None
+    _CHECK.assertIsNone(gate.code_scanning_ref())
 
 
 def test_an_unreadable_event_payload_does_not_crash_the_gate(gate, clean_env):
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_EVENT_PATH", "/definitely/not/here.json")
 
-    assert gate.code_scanning_ref() is None
+    _CHECK.assertIsNone(gate.code_scanning_ref())
 
 
 def test_a_corrupt_event_payload_does_not_crash_the_gate(gate, clean_env, tmp_path):
@@ -145,7 +148,7 @@ def test_a_corrupt_event_payload_does_not_crash_the_gate(gate, clean_env, tmp_pa
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_EVENT_PATH", str(payload))
 
-    assert gate.code_scanning_ref() is None
+    _CHECK.assertIsNone(gate.code_scanning_ref())
 
 
 def test_the_ref_actually_reaches_the_query(gate, clean_env, monkeypatch):
@@ -168,9 +171,16 @@ def test_the_ref_actually_reaches_the_query(gate, clean_env, monkeypatch):
     _, notes = gate.collect()
 
     code_scanning = [p for p in seen if p.startswith("/code-scanning")]
-    assert code_scanning, "the code-scanning feed was not queried at all"
-    assert "ref=refs/pull/149/head" in code_scanning[0], code_scanning[0]
-    assert any("scoped to" in n for n in notes), notes
+    _CHECK.assertTrue(
+        code_scanning,
+        "the code-scanning feed was not queried at all",
+    )
+    _CHECK.assertIn(
+        "ref=refs/pull/149/head",
+        code_scanning[0],
+        code_scanning[0],
+    )
+    _CHECK.assertTrue(any("scoped to" in n for n in notes), notes)
 
 
 def test_secret_scanning_uses_its_dedicated_read_token(gate, clean_env, monkeypatch):
@@ -345,7 +355,7 @@ def test_the_repository_wide_query_carries_no_ref(gate, clean_env, monkeypatch):
     gate.collect()
 
     code_scanning = [p for p in seen if p.startswith("/code-scanning")]
-    assert "ref=" not in code_scanning[0], code_scanning[0]
+    _CHECK.assertNotIn("ref=", code_scanning[0], code_scanning[0])
 
 
 def test_the_other_two_feeds_are_never_scoped(gate, clean_env, monkeypatch):
@@ -363,7 +373,7 @@ def test_the_other_two_feeds_are_never_scoped(gate, clean_env, monkeypatch):
 
     for path in seen:
         if not path.startswith("/code-scanning"):
-            assert "ref=" not in path, path
+            _CHECK.assertNotIn("ref=", path, path)
 
 
 def test_the_ref_is_url_encoded(gate, clean_env, monkeypatch):
@@ -383,8 +393,12 @@ def test_the_ref_is_url_encoded(gate, clean_env, monkeypatch):
         os.unlink(payload.name)
 
     code_scanning = [p for p in seen if p.startswith("/code-scanning")]
-    assert " " not in code_scanning[0], code_scanning[0]
-    assert "&evil" not in code_scanning[0].split("ref=")[-1], code_scanning[0]
+    _CHECK.assertNotIn(" ", code_scanning[0], code_scanning[0])
+    _CHECK.assertNotIn(
+        "&evil",
+        code_scanning[0].split("ref=")[-1],
+        code_scanning[0],
+    )
 
 
 # --- review found two ways to crash the gate; one was real ----------------
@@ -407,7 +421,7 @@ def test_valid_json_of_the_wrong_shape_does_not_crash_the_gate(
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_EVENT_PATH", str(event))
 
-    assert gate.code_scanning_ref() is None
+    _CHECK.assertIsNone(gate.code_scanning_ref())
 
 
 @pytest.mark.parametrize("ref", ["refs/pull/", "refs/pull", "refs/pull//", "refs/"])
@@ -427,7 +441,7 @@ def test_a_truncated_ref_does_not_crash_the_gate(gate, clean_env, ref):
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_REF", ref)
 
-    assert gate.code_scanning_ref() is None
+    _CHECK.assertIsNone(gate.code_scanning_ref())
 
 
 @pytest.mark.parametrize("number", ["a&b", "1 OR 1", "../../master", "", " "])
@@ -440,7 +454,7 @@ def test_a_non_numeric_pr_number_is_refused(gate, clean_env, tmp_path, number):
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_EVENT_PATH", str(event))
 
-    assert gate.code_scanning_ref() is None
+    _CHECK.assertIsNone(gate.code_scanning_ref())
 
 
 def test_unreadable_feed_fails_closed_even_with_only_low_findings(
@@ -543,8 +557,10 @@ def test_dependabot_pr_fix_requires_patched_version_in_same_manifest(
 
     findings, notes = gate.collect()
     dependabot = next(row for row in findings if row["feed"] == "dependabot")
-    assert dependabot["fixed_by_pr"] is True
-    assert any("1 alert(s) match patched lock entries" in note for note in notes)
+    _CHECK.assertIs(dependabot["fixed_by_pr"], True)
+    _CHECK.assertTrue(
+        any("1 alert(s) match patched lock entries" in note for note in notes),
+    )
 
 
 def test_dependabot_alert_is_not_suppressed_by_other_file_or_old_version(
@@ -564,7 +580,7 @@ def test_dependabot_alert_is_not_suppressed_by_other_file_or_old_version(
     }], ""))
 
     fixed, _ = gate._fixed_dependabot_alerts_by_pr([row])
-    assert fixed == set()
+    _CHECK.assertEqual(fixed, set())
 
 
 def test_ci_mode_fails_when_no_token_is_available(gate, clean_env, capsys):
@@ -594,8 +610,8 @@ def test_local_no_token_skip_remains_informational(
         gate, "collect", lambda: ([], ["dependabot: no GITHUB_TOKEN"]),
     )
 
-    assert gate.main(["--max-severity", "medium"]) == 0
-    assert "SKIPPED" in capsys.readouterr().out
+    _CHECK.assertEqual(gate.main(["--max-severity", "medium"]), 0)
+    _CHECK.assertIn("SKIPPED", capsys.readouterr().out)
 
 
 # --- #190: the script must stay a wrapper, not grow the gate back --------
@@ -616,13 +632,21 @@ def test_the_entrypoint_stays_a_thin_wrapper() -> None:
 
     functions = [n.name for n in tree.body
                  if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-    assert functions == [], (
+    _CHECK.assertEqual(
+        functions,
+        [],
         f"the entrypoint defines {functions!r}; gate logic belongs in "
-        "arena/security_alerts.py"
+        "arena/security_alerts.py",
     )
-    assert "urllib" not in source, "the entrypoint does its own networking again"
-    assert "arena.security_alerts" in source, (
-        "the entrypoint no longer delegates to the module"
+    _CHECK.assertNotIn(
+        "urllib",
+        source,
+        "the entrypoint does its own networking again",
+    )
+    _CHECK.assertIn(
+        "arena.security_alerts",
+        source,
+        "the entrypoint no longer delegates to the module",
     )
 
 
@@ -658,8 +682,8 @@ def test_the_entrypoint_still_runs_as_a_script(tmp_path) -> None:
         # turn a legible failure into a CalledProcessError traceback.
         check=False,
     )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "SKIPPED" in proc.stdout, proc.stdout
+    _CHECK.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+    _CHECK.assertIn("SKIPPED", proc.stdout, proc.stdout)
 
 
 def test_the_gate_module_does_not_shadow_arena_security() -> None:
@@ -682,12 +706,17 @@ def test_the_gate_module_does_not_shadow_arena_security() -> None:
     """
     import arena.security
 
-    assert not (ROOT / "arena" / "security").is_dir(), (
+    _CHECK.assertFalse(
+        (ROOT / "arena" / "security").is_dir(),
         "a arena/security/ package shadows arena/security.py, which "
-        "unified_bridge imports at start-up"
+        "unified_bridge imports at start-up",
     )
-    assert hasattr(arena.security, "_INPUT_INJECTION_PATTERNS"), (
+    _CHECK.assertTrue(
+        hasattr(arena.security, "_INPUT_INJECTION_PATTERNS"),
         "arena.security no longer resolves to the module runtime_deps.core "
-        "imports from"
+        "imports from",
     )
-    assert MODULE.is_file(), f"the gate module is missing at {MODULE}"
+    _CHECK.assertTrue(
+        MODULE.is_file(),
+        f"the gate module is missing at {MODULE}",
+    )
