@@ -3,23 +3,24 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from typing import Any
 
-import pytest
+import pytest  # pyright: ignore[reportMissingImports]
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "refresh_termux_requirements.py"
 spec = importlib.util.spec_from_file_location("refresh_termux_requirements", SCRIPT)
-assert spec and spec.loader
+assert spec and spec.loader  # nosec B101 -- pytest assertion
 refresh = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(refresh)
 
 
-def _file(version: str, *, yanked: bool = False) -> dict[str, object]:
+def _file(version: str, *, yanked: bool = False) -> dict[str, Any]:
     return {"filename": f"multidict-{version}.tar.gz", "packagetype": "sdist",
             "yanked": yanked}
 
 
-def _detail(version: str, requires_python: str, digest: str) -> dict[str, object]:
+def _detail(version: str, requires_python: str, digest: str) -> dict[str, Any]:
     return {"info": {"requires_python": requires_python},
             "urls": [{"filename": f"multidict-{version}.tar.gz",
                       "packagetype": "sdist", "yanked": False,
@@ -56,7 +57,7 @@ def test_skips_candidate_without_supported_python_or_installable_artifact(
                         lambda url: project if url.endswith("/multidict/json")
                         else details[url])
 
-    assert refresh.collect("multidict") == ("7.1.0", ["c" * 64])
+    assert refresh.collect("multidict") == ("7.1.0", ["c" * 64])  # nosec B101 -- pytest assertion
 
 
 def test_skips_yanked_newer_release(monkeypatch) -> None:
@@ -74,12 +75,12 @@ def test_skips_yanked_newer_release(monkeypatch) -> None:
 
 
 def test_relevant_wheels_are_termux_installable_not_glibc_only() -> None:
-    assert refresh._relevant(
+    assert refresh._relevant(  # nosec B101 -- pytest assertion
         "multidict-7.2.1-cp313-cp313-android_24_arm64_v8a.whl",
         "bdist_wheel",
     )
-    assert refresh._relevant("multidict-7.2.1-py3-none-any.whl", "bdist_wheel")
-    assert not refresh._relevant(
+    assert refresh._relevant("multidict-7.2.1-py3-none-any.whl", "bdist_wheel")  # nosec B101 -- pytest assertion
+    assert not refresh._relevant(  # nosec B101 -- pytest assertion
         "multidict-7.2.1-cp313-cp313-manylinux_2_17_aarch64.whl",
         "bdist_wheel",
     )
@@ -97,4 +98,4 @@ def test_yanked_artifacts_are_never_included_in_hashes(monkeypatch) -> None:
                         lambda url: project if url.endswith("/multidict/json")
                         else detail)
 
-    assert refresh.collect("multidict") == ("7.2.1", ["f" * 64])
+    assert refresh.collect("multidict") == ("7.2.1", ["f" * 64])  # nosec B101 -- pytest assertion

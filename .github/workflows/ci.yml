@@ -761,7 +761,11 @@ jobs:
 
       - name: Install wheel into clean path and import from neutral cwd
         run: |
-          python -m pip install --no-deps --only-binary=:all: dist/*.whl
+          wheel=$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)
+          test -n "$wheel"
+          digest=$(sha256sum "$wheel" | cut -d' ' -f1)
+          printf '%s --hash=sha256:%s\n' "$wheel" "$digest" > "$RUNNER_TEMP/wheel-requirements.txt"
+          python -m pip install --no-deps --only-binary=:all: --require-hashes -r "$RUNNER_TEMP/wheel-requirements.txt"
           cd "$RUNNER_TEMP"
           python -c "import arena, unified_bridge; from arena.constants import VERSION; import arena.admin.auto_update; print('wheel import OK', VERSION)"
 

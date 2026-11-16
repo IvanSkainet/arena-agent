@@ -258,7 +258,7 @@ def test_readme_filesystem_routes_match_the_registry() -> None:
         text = (REPO_ROOT / name).read_text(encoding="utf-8")
         documented = _filesystem_paths(text)
         omitted, invented = _filesystem_parity_errors(documented, registered)
-        assert not omitted and not invented, (
+        assert not omitted and not invented, (  # nosec B101 -- pytest assertion
             f"{name} filesystem routes differ from the registry; "
             f"omitted={sorted(omitted)}, invented={sorted(invented)}"
         )
@@ -267,9 +267,9 @@ def test_readme_filesystem_routes_match_the_registry() -> None:
 def test_filesystem_parity_gate_detects_both_omissions_and_inventions() -> None:
     """Bilateral sabotage: both missing and made-up routes must be caught."""
     expected = {"/v1/fs/view", "/v1/fs/edit"}
-    assert _filesystem_parity_errors(expected, expected) == (set(), set())
-    assert _filesystem_parity_errors({"/v1/fs/view"}, expected) == (
+    assert _filesystem_parity_errors(expected, expected) == (set(), set())  # nosec B101 -- pytest assertion
+    assert _filesystem_parity_errors({"/v1/fs/view"}, expected) == (  # nosec B101 -- pytest assertion
         {"/v1/fs/edit"}, set())
-    assert _filesystem_parity_errors(
+    assert _filesystem_parity_errors(  # nosec B101 -- pytest assertion
         {"/v1/fs/view", "/v1/fs/imaginary"}, expected) == (
         {"/v1/fs/edit"}, {"/v1/fs/imaginary"})

@@ -39,13 +39,20 @@ import pathlib
 import sys
 import urllib.error
 import urllib.request
+from typing import Any
 
 try:
-    from packaging.specifiers import InvalidSpecifier, SpecifierSet
-    from packaging.version import InvalidVersion, Version
+    from packaging import specifiers as _specifiers, version as _version
 except ImportError:  # Termux ships pip, which vendors the same PEP 440 parser.
-    from pip._vendor.packaging.specifiers import InvalidSpecifier, SpecifierSet
-    from pip._vendor.packaging.version import InvalidVersion, Version
+    from pip._vendor.packaging import specifiers as _specifiers, version as _version
+
+# The standalone and pip-vendored packaging modules have equivalent APIs but
+# distinct static types; aliasing these callables as Any keeps the fallback
+# from producing a false union-type error in cross-environment analyzers.
+InvalidSpecifier: Any = _specifiers.InvalidSpecifier
+SpecifierSet: Any = _specifiers.SpecifierSet
+InvalidVersion: Any = _version.InvalidVersion
+Version: Any = _version.Version
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TARGET = ROOT / "scripts" / "requirements-termux.txt"

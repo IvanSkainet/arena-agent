@@ -118,7 +118,8 @@ def _is_fork_pull_request() -> bool:
 
 
 def code_scanning_ref() -> str | None:
-    """The PR head ref, or None when the run is not safely scopeable.
+    """
+    The PR head ref, or None when the run is not safely scopeable.
 
     Repository-wide CodeQL findings would otherwise deadlock the PR that
     fixes them. A malformed event falls back to repo-wide inspection rather
@@ -264,25 +265,11 @@ def _at_least(candidate: str, minimum: str) -> bool:
         minimum_parts + (0,) * (length - len(minimum_parts)))
 
 
-def _fixed_dependabot_alerts_by_pr(
-    rows: list[dict[str, Any]],
-) -> tuple[set[str], str]:
-    """Find only Dependabot findings fixed by a changed pip lock entry.
-
-    GitHub's Dependabot alerts endpoint describes the base repository, not
-    the proposed PR. Suppress an existing alert only when this PR changes
-    that exact manifest and adds a numeric pinned version at or above the
-    advisory's first patched release. Anything ambiguous remains blocking.
-    """
-    number = _pull_request_number()
-    if not number or not rows:
-        return set(), ""
-    files, note = _get(f"/pulls/{number}/files?per_page=100")
-    if files is None:
-        return set(), f"dependabot PR comparison unavailable: {note}"
+def _added_pip_versions(
+    files: list[dict[str, Any]],
+) -> dict[tuple[str, str], list[str]]:
+    requirement = re.compile(r"^\+\s*([A-Za-z0-9_.-]+)\s*==\s*([^\\\s;]+)")
     added: dict[tuple[str, str], list[str]] = {}
-    requirement = re.compile(
-        r"^\+\s*([A-Za-z0-9_.-]+)\s*==\s*([^\\\s;]+)")
     for changed in files:
         manifest = changed.get("filename")
         patch = changed.get("patch", "")
@@ -293,21 +280,46 @@ def _fixed_dependabot_alerts_by_pr(
             if match:
                 key = (manifest, _normalise_package(match.group(1)))
                 added.setdefault(key, []).append(match.group(2))
-    fixed: set[str] = set()
-    for row in rows:
-        if row.get("ecosystem") != "pip":
-            continue
-        manifest = row.get("manifest_path")
-        package = row.get("where")
-        minimum = row.get("first_patched_version")
-        if (not isinstance(manifest, str) or not manifest
-                or not isinstance(package, str) or not package
-                or not isinstance(minimum, str) or not minimum):
-            continue
-        candidates = added.get((manifest, _normalise_package(package)), [])
-        if any(_at_least(version, minimum) for version in candidates):
-            fixed.add(str(row.get("number")))
-    return fixed, f"dependabot PR fixes checked: {len(fixed)} alert(s) match patched lock entries"
+    return added
+
+
+def _row_is_fixed_by_pr(
+    row: dict[str, Any], added: dict[tuple[str, str], list[str]],
+) -> bool:
+    if row.get("ecosystem") != "pip":
+        return False
+    manifest = row.get("manifest_path")
+    package = row.get("where")
+    minimum = row.get("first_patched_version")
+    if (not isinstance(manifest, str) or not manifest
+            or not isinstance(package, str) or not package
+            or not isinstance(minimum, str) or not minimum):
+        return False
+    candidates = added.get((manifest, _normalise_package(package)), [])
+    return any(_at_least(version, minimum) for version in candidates)
+
+
+def _fixed_dependabot_alerts_by_pr(
+    rows: list[dict[str, Any]],
+) -> tuple[set[str], str]:
+    """
+    Find findings fixed by a changed pip lock entry.
+
+    Dependabot reports the base repository. Suppress only when this PR
+    updates that same manifest to a numeric pin at or above the first
+    patched release; ambiguous or unrelated findings remain blocking.
+    """
+    number = _pull_request_number()
+    if not number or not rows:
+        return set(), ""
+    files, note = _get(f"/pulls/{number}/files?per_page=100")
+    if files is None:
+        return set(), f"dependabot PR comparison unavailable: {note}"
+    added = _added_pip_versions(files)
+    fixed = {str(row.get("number")) for row in rows
+             if _row_is_fixed_by_pr(row, added)}
+    summary = f"dependabot PR fixes checked: {len(fixed)} alert(s) match patched lock entries"
+    return fixed, summary
 
 
 def _read_feed(

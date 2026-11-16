@@ -20,6 +20,8 @@ another.
 """
 from __future__ import annotations
 
+# pytest fixtures intentionally use their registered names as test parameters.
+# pylint: disable=redefined-outer-name
 import json
 import os
 import pathlib
@@ -247,18 +249,17 @@ def test_workflows_scope_alert_tokens_and_permissions_to_the_gate_job():
 
 
 def test_strict_mode_skips_missing_secret_feed_only_for_fork_pr(
-    gate, clean_env, monkeypatch, tmp_path, capsys,
+    gate, clean_env, monkeypatch, capsys,
 ):
-    payload = tmp_path / "event.json"
-    payload.write_text(json.dumps({
+    payload = {
         "number": 475,
         "pull_request": {
             "head": {"repo": {"full_name": "contributor/arena-agent"}},
             "base": {"repo": {"full_name": "IvanSkainet/arena-agent"}},
         },
-    }), encoding="utf-8")
+    }
+    monkeypatch.setattr(gate, "_event_payload", lambda: payload)
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
-    clean_env.setenv("GITHUB_EVENT_PATH", str(payload))
     clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
     clean_env.setenv("GITHUB_TOKEN", "job-token")
     clean_env.delenv("SECRET_SCANNING_TOKEN", raising=False)
@@ -276,27 +277,27 @@ def test_strict_mode_skips_missing_secret_feed_only_for_fork_pr(
 
 
 def test_strict_mode_still_requires_secret_feed_for_same_repo_pr(
-    gate, clean_env, monkeypatch, tmp_path, capsys,
+    gate, clean_env, monkeypatch, capsys,
 ):
-    payload = tmp_path / "event.json"
-    payload.write_text(json.dumps({
+    payload = {
         "number": 475,
         "pull_request": {
             "head": {"repo": {"full_name": "IvanSkainet/arena-agent"}},
             "base": {"repo": {"full_name": "IvanSkainet/arena-agent"}},
         },
-    }), encoding="utf-8")
+    }
+    monkeypatch.setattr(gate, "_event_payload", lambda: payload)
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
-    clean_env.setenv("GITHUB_EVENT_PATH", str(payload))
     clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
     clean_env.setenv("GITHUB_TOKEN", "job-token")
+    clean_env.delenv("SECRET_SCANNING_TOKEN", raising=False)
     monkeypatch.setattr(
         gate, "collect", lambda: ([], [
             "secret scanning: no SECRET_SCANNING_TOKEN; cannot read security alerts",
         ]),
     )
 
-    assert gate.main(["--require-readable-feeds"]) == 2
+    assert gate.main(["--require-readable-feeds"]) == 2  # nosec B101 -- pytest assertion
     assert "one or more feeds could not be read" in capsys.readouterr().out
 
 
@@ -309,7 +310,7 @@ def test_strict_mode_accepts_readable_feeds_with_scope_note(
     clean_env.setenv("GITHUB_TOKEN", "test-token")
     monkeypatch.setattr(gate, "_get", lambda _path: ([], ""))
 
-    assert gate.main(["--require-readable-feeds"]) == 0
+    assert gate.main(["--require-readable-feeds"]) == 0  # nosec B101 -- pytest assertion
     output = capsys.readouterr().out
     assert "INFO -- code scanning scoped to refs/pull/149/head" in output
     assert "OK (no open alerts in any feed)" in output
@@ -436,11 +437,11 @@ def test_unreadable_feed_fails_closed_even_with_only_low_findings(
         ),
     )
 
-    assert gate.main(["--max-severity", "medium"]) == 2
+    assert gate.main(["--max-severity", "medium"]) == 2  # nosec B101 -- pytest assertion
     output = capsys.readouterr().out
     assert "ERROR -- dependabot: HTTP 403" in output
     assert "SKIPPED -- dependabot: HTTP 403" not in output
-    assert "ERROR -- one or more feeds could not be read" in output
+    assert "ERROR -- one or more feeds could not be read" in output  # nosec B101 -- pytest assertion
 
 
 def test_unreadable_feeds_fail_closed_when_no_findings_return(
@@ -453,7 +454,7 @@ def test_unreadable_feeds_fail_closed_when_no_findings_return(
     )
 
     assert gate.main(["--max-severity", "medium"]) == 2
-    assert "ERROR -- one or more feeds could not be read" in capsys.readouterr().out
+    assert "ERROR -- one or more feeds could not be read" in capsys.readouterr().out  # nosec B101 -- pytest assertion
 
 
 def test_pr_ignores_only_dependabot_alerts_fixed_in_changed_manifest(
@@ -545,6 +546,7 @@ def test_ci_mode_fails_when_no_token_is_available(gate, clean_env, capsys):
     """CI must not report success if the required feed credential is absent."""
     clean_env.delenv("GITHUB_TOKEN", raising=False)
     clean_env.delenv("GH_TOKEN", raising=False)
+    clean_env.delenv("SECRET_SCANNING_TOKEN", raising=False)
     # Exercise the real collect -> _get credential path. With no credential,
     # each feed returns an explicit unavailable result without making a request.
     assert gate.main(["--max-severity", "medium", "--require-readable-feeds"]) == 2
@@ -559,6 +561,7 @@ def test_local_no_token_skip_remains_informational(
     """Without CI's strict flag, a local no-token run remains an explicit skip."""
     clean_env.delenv("GITHUB_TOKEN", raising=False)
     clean_env.delenv("GH_TOKEN", raising=False)
+    clean_env.delenv("SECRET_SCANNING_TOKEN", raising=False)
     monkeypatch.setattr(
         gate, "collect", lambda: ([], ["dependabot: no GITHUB_TOKEN"]),
     )
@@ -616,7 +619,12 @@ def test_the_entrypoint_still_runs_as_a_script(tmp_path) -> None:
     proc = subprocess.run(  # nosec B603  # nosemgrep: dangerous-subprocess-use-audit
         [sys.executable, str(SCRIPT), "--max-severity", "medium"],
         capture_output=True, text=True, timeout=120,
-        env={**os.environ, "GITHUB_TOKEN": no_token, "GH_TOKEN": no_token},
+        env={
+            **os.environ,
+            "GITHUB_TOKEN": no_token,
+            "GH_TOKEN": no_token,
+            "SECRET_SCANNING_TOKEN": no_token,
+        },
         cwd=str(tmp_path),
         # The exit code IS the assertion below; raising on it here would
         # turn a legible failure into a CalledProcessError traceback.

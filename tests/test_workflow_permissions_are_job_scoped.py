@@ -134,11 +134,12 @@ def _grants_actions_write(permissions: object) -> bool:
 def test_actions_write_detector_covers_scalar_and_mapping_forms(
     permissions: object, expected: bool,
 ) -> None:
-    assert _grants_actions_write(permissions) is expected
+    assert _grants_actions_write(permissions) is expected  # nosec B101 -- pytest assertion
 
 
 def test_stale_action_can_replace_its_state_cache_only_in_its_job() -> None:
-    """v11 deletes its old `_state` cache before persisting processed IDs.
+    """
+    v11 deletes its old `_state` cache before persisting processed IDs.
 
     Without the job-scoped Actions write permission, the daily workflow gets
     HTTP 403 on cache deletion and replays the old processed-ID set forever.
@@ -146,8 +147,8 @@ def test_stale_action_can_replace_its_state_cache_only_in_its_job() -> None:
     """
     doc = _load(WORKFLOWS / "stale.yml")
 
-    assert doc.get("permissions") == {}, "write permissions must not be inherited by future jobs"
-    assert doc["jobs"]["stale"]["permissions"] == {
+    assert doc.get("permissions") == {}, "write permissions must not be inherited by future jobs"  # nosec B101 -- pytest assertion
+    assert doc["jobs"]["stale"]["permissions"] == {  # nosec B101 -- pytest assertion
         "issues": "write",
         "pull-requests": "write",
         "actions": "write",
@@ -156,7 +157,7 @@ def test_stale_action_can_replace_its_state_cache_only_in_its_job() -> None:
         name for name, job in doc["jobs"].items()
         if name != "stale" and _grants_actions_write(job.get("permissions"))
     ]
-    assert not other_action_writers, (
+    assert not other_action_writers, (  # nosec B101 -- pytest assertion
         "actions: write escaped the stale job: "
         f"{other_action_writers}"
     )
@@ -172,8 +173,8 @@ def test_security_alert_jobs_can_read_code_and_dependabot_alerts() -> None:
         "security-events": "read",
         "vulnerability-alerts": "read",
     }
-    assert ci["jobs"]["version-sync"]["permissions"] == expected
-    assert security["jobs"]["security-alerts"]["permissions"] == expected
+    assert ci["jobs"]["version-sync"]["permissions"] == expected  # nosec B101 -- pytest assertion
+    assert security["jobs"]["security-alerts"]["permissions"] == expected  # nosec B101 -- pytest assertion
 
 
 def test_every_workflow_pins_a_permissions_baseline() -> None:

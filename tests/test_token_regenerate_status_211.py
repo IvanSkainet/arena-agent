@@ -38,13 +38,13 @@ import pytest
 from tests._live_bridge import auth_header, json_payload, running_client
 
 TOKEN = "token-regenerate-status-211"
-TOKEN_REGENERATE_PATH = "/v1/token/regenerate"
+TOKEN_REGENERATE_PATH = "/v1/token/regenerate"  # nosec B105 -- route constant, not a credential
 
 
 def test_security_rotation_instructions_use_the_exercised_route() -> None:
     """The documented path is the same one tested for old-token revocation."""
     security = Path(__file__).resolve().parents[1] / "SECURITY.md"
-    assert f"`POST {TOKEN_REGENERATE_PATH}`" in security.read_text(encoding="utf-8")
+    assert f"`POST {TOKEN_REGENERATE_PATH}`" in security.read_text(encoding="utf-8")  # nosec B101 -- pytest assertion
 
 
 def _write_tokens_under(client, tmp_path: Path) -> Path:
