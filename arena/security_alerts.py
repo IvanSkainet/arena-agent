@@ -66,6 +66,8 @@ import urllib.parse
 import urllib.request
 from typing import Any, Callable, TypeGuard, cast
 
+from arena import security_manifest_proof as manifest_proof
+
 REPO = os.environ.get("ARENA_RELEASE_REPO", "IvanSkainet/arena-agent")
 TIMEOUT = 30
 
@@ -144,7 +146,7 @@ def _rank(level: str | None) -> int:
         return 0
 
 
-def _get(path: str) -> tuple[list[dict[str, Any]] | None, str]:
+def _request_json(path: str) -> tuple[Any, str]:
     """Return (alerts, note). `None` means "could not look", not "clean"."""
     secret_feed = path.startswith("/secret-scanning/")
     token_name = "SECRET_SCANNING_TOKEN" if secret_feed else "GITHUB_TOKEN"
@@ -167,7 +169,7 @@ def _get(path: str) -> tuple[list[dict[str, Any]] | None, str]:
         # nosemgrep: dynamic-urllib-use-detected -- fixed api.github.com host
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected
             data = json.loads(resp.read().decode("utf-8"))
-        return (data, "") if isinstance(data, list) else (None, "unexpected payload")
+        return data, ""
     except urllib.error.HTTPError as exc:
         if exc.code in (403, 404):
             permission = ("secret_scanning_alerts" if secret_feed else
@@ -176,6 +178,16 @@ def _get(path: str) -> tuple[list[dict[str, Any]] | None, str]:
         return None, f"HTTP {exc.code}"
     except (urllib.error.URLError, OSError, ValueError) as exc:
         return None, f"unreachable: {exc}"
+
+
+def _get(path: str) -> tuple[list[dict[str, Any]] | None, str]:
+    data, note = _request_json(path)
+    return (data, note) if isinstance(data, list) else (None, note or "unexpected payload")
+
+
+def _get_object(path: str) -> tuple[dict[str, Any] | None, str]:
+    data, note = _request_json(path)
+    return (data, note) if isinstance(data, dict) else (None, note or "unexpected payload")
 
 
 def _scanning_rows(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -245,49 +257,6 @@ def _dependabot_row(alert: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _normalise_package(name: str) -> str:
-    return re.sub(r"[-_.]+", "-", name).lower()
-
-
-def _version_tuple(value: str) -> tuple[int, ...] | None:
-    if not re.fullmatch(r"\d+(?:\.\d+)*", value):
-        return None
-    return tuple(int(part) for part in value.split("."))
-
-
-def _at_least(candidate: str, minimum: str) -> bool:
-    candidate_parts = _version_tuple(candidate)
-    minimum_parts = _version_tuple(minimum)
-    if candidate_parts is None or minimum_parts is None:
-        return False
-    length = max(len(candidate_parts), len(minimum_parts))
-    return candidate_parts + (0,) * (length - len(candidate_parts)) >= (
-        minimum_parts + (0,) * (length - len(minimum_parts)))
-
-
-def _added_pip_versions(
-    files: list[dict[str, Any]],
-) -> dict[tuple[str, str], list[str]]:
-    # Accept exact pins and numeric lower bounds, including quoted PEP 621
-    # dependency entries. Non-numeric/pre-release/wildcard bounds fail closed.
-    requirement = re.compile(
-        r"^\+\s*[\"']?([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?\s*"
-        r"(?:==|>=|~=)\s*(\d+(?:\.\d+)*)(?=[\s,;\"'\\]|$)"
-    )
-    added: dict[tuple[str, str], list[str]] = {}
-    for changed in files:
-        manifest = changed.get("filename")
-        patch = changed.get("patch", "")
-        if not isinstance(manifest, str) or not isinstance(patch, str):
-            continue
-        for line in patch.splitlines():
-            match = requirement.match(line)
-            if match:
-                key = (manifest, _normalise_package(match.group(1)))
-                added.setdefault(key, []).append(match.group(2))
-    return added
-
-
 def _nonempty_text(value: object) -> TypeGuard[str]:
     return isinstance(value, str) and bool(value)
 
@@ -307,45 +276,57 @@ def _dependabot_fix_identity(
     return cast(tuple[str, str, str], fields)
 
 
-def _has_patched_version(candidates: list[str], minimum: str) -> bool:
-    return any(_at_least(version, minimum) for version in candidates)
+def _event_head_sha() -> str:
+    payload = _event_payload() or {}
+    pr = payload.get("pull_request")
+    head = pr.get("head") if isinstance(pr, dict) else None
+    sha = head.get("sha") if isinstance(head, dict) else None
+    return sha if isinstance(sha, str) and re.fullmatch(r"[a-f0-9]{40}", sha) else ""
 
 
-def _row_is_fixed_by_pr(
-    row: dict[str, Any], added: dict[tuple[str, str], list[str]],
-    removed: set[str] | None = None,
+def _verified_manifest_fix(
+    row: dict[str, Any], changed: dict[str, dict[str, Any]],
+    tree: dict[str, Any], cache: dict[str, str | None],
 ) -> bool:
     identity = _dependabot_fix_identity(row)
     if identity is None:
         return False
-    manifest, package, minimum = identity
-    key = (manifest, _normalise_package(package))
-    return manifest in (removed or set()) or _has_patched_version(added.get(key, []), minimum)
+    path, package, minimum = identity
+    if path not in changed:
+        return False
+    state, sha = manifest_proof.tree_manifest(tree, path)
+    if state == "absent":
+        return changed[path].get("status") == "removed"
+    if state != "file":
+        return False
+    if sha not in cache:
+        blob, _ = _get_object(f"/git/blobs/{sha}")
+        cache[sha] = manifest_proof.decode_manifest(blob, sha) if blob else None
+    text = cache[sha]
+    return text is not None and manifest_proof.manifest_fixes(path, text, package, minimum)
 
 
 def _fixed_dependabot_alerts_by_pr(
     rows: list[dict[str, Any]],
 ) -> tuple[set[str], str]:
-    """
-    Find findings fixed by a changed pip manifest or removed manifest.
-
-    Dependabot reports the base repository. Suppress only when this PR
-    updates that same manifest to a numeric pin/lower bound at or above
-    the first patched release, or deletes the whole manifest. Removing
-    just a dependency line is ambiguous (includes/duplicates), so it stays
-    blocking; ambiguous or unrelated findings remain blocking.
-    """
+    """Prove fixes using full blobs from the event's exact head, never a diff."""
     number = _pull_request_number()
     if not number or not rows:
         return set(), ""
+    sha = _event_head_sha()
+    if not sha:
+        return set(), "dependabot PR comparison unavailable: no exact event head SHA"
     files, note = _get(f"/pulls/{number}/files?per_page=100")
     if files is None:
         return set(), f"dependabot PR comparison unavailable: {note}"
-    added = _added_pip_versions(files)
-    removed = {item["filename"] for item in files
-               if item.get("status") == "removed" and isinstance(item.get("filename"), str)}
+    tree, note = _get_object(f"/git/trees/{sha}?recursive=1")
+    if tree is None:
+        return set(), f"dependabot PR comparison unavailable: {note}"
+    changed = {item["filename"]: item for item in files
+               if isinstance(item.get("filename"), str)}
+    cache: dict[str, str | None] = {}
     fixed = {str(row.get("number")) for row in rows
-             if _row_is_fixed_by_pr(row, added, removed)}
+             if _verified_manifest_fix(row, changed, tree, cache)}
     summary = f"dependabot PR fixes checked: {len(fixed)} alert(s) match patched lock entries"
     return fixed, summary
 

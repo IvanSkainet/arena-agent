@@ -554,6 +554,18 @@ def test_dependabot_pr_fix_requires_patched_version_in_same_manifest(
             return [alert], ""
         return [], ""
     monkeypatch.setattr(gate, "_get", fake_get)
+    monkeypatch.setattr(gate, "_event_head_sha", lambda: "a" * 40)
+    import base64
+    text = b"aiohttp==3.14.5\n"
+    def fake_object(path):
+        if path.startswith("/git/trees/"):
+            return {"truncated": False, "tree": [{
+                "path": "scripts/requirements-termux.txt", "mode": "100644",
+                "type": "blob", "sha": "b" * 40,
+            }]}, ""
+        return {"sha": "b" * 40, "encoding": "base64", "size": len(text),
+                "content": base64.b64encode(text).decode()}, ""
+    monkeypatch.setattr(gate, "_get_object", fake_object)
 
     findings, notes = gate.collect()
     dependabot = next(row for row in findings if row["feed"] == "dependabot")
@@ -729,8 +741,12 @@ def test_the_gate_module_does_not_shadow_arena_security() -> None:
 def test_patched_numeric_lower_bounds_are_recognized(gate, declaration: str) -> None:
     row = {"ecosystem": "pip", "manifest_path": "pyproject.toml", "where": "aiohttp",
            "first_patched_version": "3.14.4"}
-    added = gate._added_pip_versions([{"filename": "pyproject.toml", "patch": declaration}])
-    assert gate._row_is_fixed_by_pr(row, added)
+    from arena.security_manifest_proof import manifest_fixes
+    # The old diff parser accepted quoted PEP 621 additions. Now parse a full
+    # TOML document for these cases, not a line pretending to be a manifest.
+    requirement = declaration[1:].strip().strip(',').strip('"')
+    text = "[project]\ndependencies = " + json.dumps([requirement])
+    assert manifest_fixes(row["manifest_path"], text, row["where"], row["first_patched_version"])
 
 
 @pytest.mark.parametrize("declaration", [
@@ -740,8 +756,9 @@ def test_patched_numeric_lower_bounds_are_recognized(gate, declaration: str) -> 
 def test_ambiguous_or_vulnerable_bounds_do_not_suppress_alert(gate, declaration: str) -> None:
     row = {"ecosystem": "pip", "manifest_path": "requirements.txt", "where": "aiohttp",
            "first_patched_version": "3.14.4"}
-    added = gate._added_pip_versions([{"filename": "requirements.txt", "patch": declaration}])
-    assert not gate._row_is_fixed_by_pr(row, added)
+    from arena.security_manifest_proof import manifest_fixes
+    assert not manifest_fixes(row["manifest_path"], declaration[1:], row["where"],
+                              row["first_patched_version"])
 
 
 def test_removed_manifest_fixes_only_its_own_alert(gate, clean_env, monkeypatch) -> None:
@@ -750,6 +767,8 @@ def test_removed_manifest_fixes_only_its_own_alert(gate, clean_env, monkeypatch)
     monkeypatch.setattr(gate, "_get", lambda path: ([{
         "filename": "requirements.txt", "status": "removed",
     }], ""))
+    monkeypatch.setattr(gate, "_event_head_sha", lambda: "a" * 40)
+    monkeypatch.setattr(gate, "_get_object", lambda path: ({"truncated": False, "tree": []}, ""))
     rows = [{"number": 1, "ecosystem": "pip", "manifest_path": "requirements.txt",
              "where": "aiohttp", "first_patched_version": "3.14.4"},
             {"number": 2, "ecosystem": "pip", "manifest_path": "other.txt",
