@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import sys
 import tempfile
 import unittest
 
@@ -751,7 +752,8 @@ def test_patched_numeric_lower_bounds_are_recognized(gate, declaration: str) -> 
     # TOML document for these cases, not a line pretending to be a manifest.
     requirement = declaration[1:].strip().strip(',').strip('"')
     text = "[project]\ndependencies = " + json.dumps([requirement])
-    assert manifest_fixes(row["manifest_path"], text, row["where"], row["first_patched_version"])
+    _CHECK.assertEqual(manifest_fixes(row["manifest_path"], text, row["where"], row["proof_floor"]),
+                       sys.version_info >= (3, 11))
 
 
 @pytest.mark.parametrize("declaration", [
@@ -762,8 +764,8 @@ def test_ambiguous_or_vulnerable_bounds_do_not_suppress_alert(gate, declaration:
     row = {"ecosystem": "pip", "manifest_path": "requirements.txt", "where": "aiohttp",
            "first_patched_version": "3.14.4", "proof_floor": "3.14.4"}
     from arena.security_manifest_proof import manifest_fixes
-    assert not manifest_fixes(row["manifest_path"], declaration[1:], row["where"],
-                              row["first_patched_version"])
+    _CHECK.assertFalse(manifest_fixes(row["manifest_path"], declaration[1:], row["where"],
+                                      row["proof_floor"]))
 
 
 def test_removed_manifest_fixes_only_its_own_alert(gate, clean_env, monkeypatch) -> None:

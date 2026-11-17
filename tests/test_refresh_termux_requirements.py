@@ -163,7 +163,7 @@ def test_candidate_order_is_numeric_and_skips_empty_releases() -> None:
 def test_fetch_refuses_non_pypi_origins_before_connecting(monkeypatch, url: str) -> None:
     def unexpected_connection(*args, **kwargs):
         raise AssertionError("invalid origin reached the network")
-    monkeypatch.setattr(refresh.urllib.request, "urlopen", unexpected_connection)
+    monkeypatch.setattr(refresh, "_open_pypi", unexpected_connection)
     with pytest.raises(ValueError, match="only the HTTPS PyPI"):
         refresh._fetch(url)
 
@@ -174,9 +174,9 @@ def test_fetch_uses_fixed_https_origin_and_closes_response(monkeypatch) -> None:
     calls = []
     response = io.BytesIO(b'{"releases": {}}')
     def urlopen(request, timeout):
-        calls.append((request.full_url, timeout))
+        calls.append((request.full_url, request.get_header("Accept"), timeout))
         return response
-    monkeypatch.setattr(refresh.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(refresh, "_open_pypi", urlopen)
     _CHECK.assertEqual(refresh._fetch("https://pypi.org/pypi/aiohttp/json"), {"releases": {}})
-    _CHECK.assertEqual(calls, [("https://pypi.org/pypi/aiohttp/json", refresh.TIMEOUT_S)])
+    _CHECK.assertEqual(calls, [("https://pypi.org/pypi/aiohttp/json", "application/json", refresh.TIMEOUT_S)])
     _CHECK.assertTrue(response.closed)

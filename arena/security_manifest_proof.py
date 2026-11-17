@@ -1,4 +1,8 @@
-"""Conservative, non-executing proof of patched Python manifests (#477)."""
+"""Conservative, non-executing proof of patched Python manifests (#477).
+
+TOML proof requires Python 3.11+ (the workflow uses 3.12). On Python 3.10,
+requirements proof remains supported but TOML deliberately stays blocking.
+"""
 from __future__ import annotations
 
 import base64
@@ -19,7 +23,7 @@ def normalise(name: str) -> str:
 
 
 def numeric_version(version: str) -> tuple[int, ...] | None:
-    if not re.fullmatch(r"\d+(?:\.\d+)*", version):
+    if len(version) > 256 or not re.fullmatch(r"\d+(?:\.\d+)*", version):
         return None
     return tuple(map(int, version.split(".")))
 
@@ -33,15 +37,10 @@ def numeric_at_least(candidate: str, minimum: str) -> bool:
 
 
 def _flatten_arrays(arrays: list[Any]) -> list[str] | None:
-    items: list[str] = []
-    for array in arrays:
-        if not isinstance(array, list):
-            return None
-        for item in array:
-            if not isinstance(item, str):
-                return None
-            items.append(item)
-    return items
+    if any(not isinstance(array, list) for array in arrays):
+        return None
+    items = [item for array in arrays for item in array]
+    return items if all(isinstance(item, str) for item in items) else None
 
 
 def _other_project_arrays(doc: dict[str, Any]) -> list[Any] | None:

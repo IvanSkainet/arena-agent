@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import json
+import sys
 from unittest import TestCase
 
 import pytest
@@ -47,8 +48,8 @@ dependencies = ["aiohttp>=3.14.4"]
 old = ["aiohttp==3.14.3; python_version < '3.12'"]
 '''
     CHECK.assertFalse(proof.manifest_fixes("pyproject.toml", text, "aiohttp", "3.14.4"))
-    CHECK.assertTrue(proof.manifest_fixes("pyproject.toml", text.replace("3.14.3", "3.14.5"),
-                                         "aiohttp", "3.14.4"))
+    CHECK.assertEqual(proof.manifest_fixes("pyproject.toml", text.replace("3.14.3", "3.14.5"),
+                                          "aiohttp", "3.14.4"), sys.version_info >= (3, 11))
 
 
 @pytest.mark.parametrize("text", ['not TOML', '[project]\ndynamic=["dependencies"]',
@@ -141,3 +142,7 @@ def test_deleted_manifest_must_be_absent_in_complete_head_tree(monkeypatch, tmp_
     CHECK.assertEqual(gate._fixed_dependabot_alerts_by_pr([ROW])[0], set())
     monkeypatch.setattr(gate, "_get_object", lambda path: ({"truncated": False, "tree": []}, ""))
     CHECK.assertEqual(gate._fixed_dependabot_alerts_by_pr([ROW])[0], {"1"})
+
+
+def test_oversized_numeric_component_stays_blocking() -> None:
+    CHECK.assertFalse(proof.manifest_fixes(PATH, "aiohttp==" + "9" * 5000, "aiohttp", "3.14.4"))

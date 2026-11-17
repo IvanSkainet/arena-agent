@@ -24,10 +24,13 @@ def _python_matches(requirement: str, version: str) -> bool:
 
 def _interpreter_matches(interpreter: str, abi: str, version: str) -> bool:
     code = version.replace(".", "")
-    if interpreter in ("py3", "py" + code, "cp" + code):
-        return True
-    if abi == "abi3" and interpreter.startswith("cp3"):
-        return int(interpreter[3:]) <= int(version.split(".")[1])
+    if interpreter in ("py3", "py" + code):
+        return abi == "none"
+    if interpreter == "cp" + code:
+        return abi in ("none", "abi3", "cp" + code)
+    suffix = interpreter[3:]
+    if abi == "abi3" and interpreter.startswith("cp3") and suffix.isdecimal():
+        return int(suffix) <= int(version.split(".")[1])
     return False
 
 

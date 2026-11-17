@@ -26,6 +26,8 @@ Only that a documented path is a path the server actually serves. That is the
 part a machine can settle. A wrong method, an invented description of what an
 endpoint does, or a claim like "the default timeout is 60 s" all pass this
 gate untouched -- documentation is not verified because this is green.
+The narrow filesystem tables in the two READMEs additionally enforce methods
+and completeness, including upload/download, with per-row negative controls.
 
 The reverse direction is deliberately not checked. The registry holds
 several hundred routes; demanding prose for every one of them produces a
@@ -262,18 +264,49 @@ def test_method_prefixed_documented_paths_are_detected() -> None:
         raise AssertionError(f"method-prefixed route was not extracted: {found}")
 
 
+def _filesystem_route(path: str) -> bool:
+    return path.startswith("/v1/fs/") or path in ("/v1/upload", "/v1/download")
+
+
+def _registered_filesystem_methods() -> set[tuple[str, str]]:
+    # Canonical declarative rows, not methods copied from the documentation.
+    text = (REGISTRY_DIR / "registry.py").read_text(encoding="utf-8")
+    rows = re.findall(r"\(\s*['\"]([A-Z]+)['\"]\s*,\s*['\"](/[^'\"]+)['\"]", text)
+    return {(method, path) for method, path in rows if _filesystem_route(path)}
+
+
+def _documented_filesystem_methods(text: str) -> set[tuple[str, str]]:
+    # Deliberately require a table row: a prose mention cannot hide a missing
+    # public table entry (upload/download used to escape the path-only gate).
+    rows = re.findall(r"^\| `([A-Z]+)` \| `([^`]+)` \|", text, re.MULTILINE)
+    return {(method, path) for method, path in rows if _filesystem_route(path)}
+
+
 def test_readme_filesystem_routes_match_the_registry() -> None:
-    """The public filesystem table must neither invent nor omit a route."""
-    registered = {path for path in _registered_paths() if path.startswith("/v1/fs/")}
+    """The public filesystem table must neither omit nor mislabel routes."""
+    registered = _registered_filesystem_methods()
+    check = TestCase()
+    check.assertGreaterEqual(len(registered), 7)
+    check.assertIn(("POST", "/v1/upload"), registered)
+    check.assertIn(("GET", "/v1/download"), registered)
     for name in ("README.md", "README.ru.md"):
         text = (REPO_ROOT / name).read_text(encoding="utf-8")
-        documented = _filesystem_paths(text)
-        omitted, invented = _filesystem_parity_errors(documented, registered)
-        if omitted or invented:
-            raise AssertionError(
-                f"{name} filesystem routes differ from the registry; "
-                f"omitted={sorted(omitted)}, invented={sorted(invented)}"
-            )
+        check.assertEqual(_documented_filesystem_methods(text), registered, name)
+
+
+def test_filesystem_method_gate_detects_actual_readme_sabotage() -> None:
+    check = TestCase()
+    registered = _registered_filesystem_methods()
+    for name in ("README.md", "README.ru.md"):
+        text = (REPO_ROOT / name).read_text(encoding="utf-8")
+        check.assertEqual(_documented_filesystem_methods(text), registered)
+        for method, path in registered:
+            row = f"| `{method}` | `{path}` |"
+            check.assertEqual(text.count(row), 1, (name, row))
+            removed = "\n".join(line for line in text.splitlines() if not line.startswith(row))
+            check.assertNotEqual(_documented_filesystem_methods(removed), registered, (name, row))
+            wrong = text.replace(row, f"| `WRONG` | `{path}` |")
+            check.assertNotEqual(_documented_filesystem_methods(wrong), registered, (name, row))
 
 
 def test_filesystem_parity_gate_detects_both_omissions_and_inventions() -> None:

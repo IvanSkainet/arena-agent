@@ -31,7 +31,8 @@ def _active(requirement: Requirement, versions: tuple[str, ...]) -> bool:
     if requirement.marker is None:
         return True
     marker = str(requirement.marker)
-    if "platform_release" in marker or "platform_version" in marker:
+    if any(key in marker for key in ("platform_release", "platform_version",
+                                     "python_full_version", "implementation_version")):
         raise RuntimeError(f"cannot prove device-specific dependency marker: {marker}")
     return any(requirement.marker.evaluate(env) for env in _environments(versions))
 
@@ -47,6 +48,18 @@ def _validate_requirement(text: str, known: dict[str, str], versions: tuple[str,
         raise RuntimeError(f"selected lock does not satisfy {requirement}")
 
 
+def _requirements(detail: dict, package: str) -> list[str]:
+    info = detail.get("info")
+    if not isinstance(info, dict) or "requires_dist" not in info:
+        raise RuntimeError(f"missing dependency metadata for {package}")
+    requirements = info["requires_dist"]
+    if requirements is None:
+        return []
+    if not isinstance(requirements, list) or any(not isinstance(item, str) for item in requirements):
+        raise RuntimeError(f"invalid dependency metadata for {package}")
+    return requirements
+
+
 def validate_closure(
     rows: list[tuple[str, str, list[str]]], fetch: Callable[[str], dict],
     versions: tuple[str, ...], *, installed: list[tuple[str, str, list[str]]] | None = None,
@@ -55,11 +68,5 @@ def validate_closure(
     known = {_name(package): version for package, version, _ in [*(installed or []), *rows]}
     for package, version, _ in rows:
         detail = fetch(f"https://pypi.org/pypi/{package}/{version}/json")
-        info = detail.get("info")
-        if not isinstance(info, dict) or "requires_dist" not in info:
-            raise RuntimeError(f"missing dependency metadata for {package}")
-        requirements = info["requires_dist"] or []
-        if not isinstance(requirements, list):
-            raise RuntimeError(f"invalid dependency metadata for {package}")
-        for requirement in requirements:
+        for requirement in _requirements(detail, package):
             _validate_requirement(requirement, known, versions)

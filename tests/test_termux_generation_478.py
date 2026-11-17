@@ -40,7 +40,7 @@ def test_closure_rejects_missing_or_incompatible_dependency(requirement) -> None
         validate_closure([("demo", "1.0", ["a" * 64])], fetch, VERSIONS)
 
 
-def test_closure_checks_markers_for_all_targets_not_runner_only() -> None:
+def test_closure_ignores_dependencies_inactive_on_every_target() -> None:
     def fetch(url):
         return {"info": {"requires_dist": ['missing; sys_platform == "win32"']}}
     validate_closure([("demo", "1.0", ["a" * 64])], fetch, VERSIONS)
@@ -86,9 +86,7 @@ def test_closure_failure_does_not_write_either_lock(monkeypatch, tmp_path) -> No
 
 
 def test_malformed_json_follows_controlled_collect_failure(monkeypatch, capsys) -> None:
-    def fail(package):
-        raise ValueError("malformed JSON")
-    monkeypatch.setattr(refresh, "collect", fail)
+    monkeypatch.setattr(refresh, "_open_pypi", lambda *args, **kwargs: io.BytesIO(b'not JSON'))
     CHECK.assertIsNone(refresh._collect_rows(("demo",)))
     CHECK.assertIn("FAILED", capsys.readouterr().err)
 
@@ -111,3 +109,33 @@ def test_fetch_preserves_stdlib_https_proxy_handling(monkeypatch) -> None:
     monkeypatch.setattr(urllib.request, "build_opener", builder)
     CHECK.assertEqual(refresh._fetch("https://pypi.org/pypi/demo/json"), {})
     CHECK.assertIn("http://proxy.example.test:8080", seen)
+
+
+@pytest.mark.parametrize("marker", ['sys_platform == "android"', 'python_version == "3.10"'])
+def test_target_active_markers_cannot_use_runner_environment(marker) -> None:
+    def fetch(url):
+        return {"info": {"requires_dist": ["missing; " + marker]}}
+    with pytest.raises(RuntimeError, match="does not satisfy"):
+        validate_closure([("demo", "1.0", [])], fetch, VERSIONS)
+
+
+@pytest.mark.parametrize("marker", ['python_full_version >= "3.11.4"',
+                                    'implementation_version >= "3.11.4"'])
+def test_unknown_patch_markers_block_generation(marker) -> None:
+    def fetch(url):
+        return {"info": {"requires_dist": ["missing; " + marker]}}
+    with pytest.raises(RuntimeError, match="cannot prove"):
+        validate_closure([("demo", "1.0", [])], fetch, VERSIONS)
+
+
+@pytest.mark.parametrize("tag", ["cp314-cp314t", "cp314-cp313", "cp3-abi3", "cp3x-abi3"])
+def test_incompatible_or_malformed_abi_cannot_supply_coverage(tag) -> None:
+    wheel = _artifact("demo-1.0-" + tag + "-android_24_arm64_v8a.whl", "bdist_wheel", ">=3.10", "a")
+    CHECK.assertEqual(usable_hashes({"urls": [wheel]}, ("3.14",)), [])
+
+
+@pytest.mark.parametrize("url", ["https://evil.test/x", "http://pypi.org/x", "ftp://pypi.org/x"])
+def test_redirect_cannot_leave_https_pypi_origin(url) -> None:
+    request = refresh.urllib.request.Request("https://pypi.org/pypi/demo/json")
+    with pytest.raises(ValueError, match="HTTPS PyPI"):
+        refresh._PyPIRedirect().redirect_request(request, None, 302, "Found", {}, url)
