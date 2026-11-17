@@ -156,12 +156,6 @@ def _rank(level: str | None) -> int:
         return 0
 
 
-def _alert_token(path: str) -> tuple[str | None, str]:
-    if path.startswith("/secret-scanning/"):
-        return os.environ.get("SECRET_SCANNING_TOKEN"), "SECRET_SCANNING_TOKEN"
-    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN"), "GITHUB_TOKEN"
-
-
 def _http_error_note(code: int, secret_feed: bool) -> str:
     if code not in (403, 404):
         return f"HTTP {code}"
@@ -172,7 +166,12 @@ def _http_error_note(code: int, secret_feed: bool) -> str:
 def _request_json(path: str) -> tuple[Any, str]:
     """Return (alerts, note). `None` means "could not look", not "clean"."""
     secret_feed = path.startswith("/secret-scanning/")
-    token, token_name = _alert_token(path)
+    # Keep credential values local to the request; never return them with
+    # diagnostic text, which is propagated to the printed report.
+    token_name = "SECRET_SCANNING_TOKEN" if secret_feed else "GITHUB_TOKEN"
+    token = os.environ.get(token_name)
+    if not secret_feed and not token:
+        token = os.environ.get("GH_TOKEN")
     if not token:
         return None, f"no {token_name}; cannot read security alerts"
     req = urllib.request.Request(

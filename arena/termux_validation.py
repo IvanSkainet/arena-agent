@@ -51,9 +51,7 @@ def _validate_requirement(text: str, known: dict[str, str], versions: tuple[str,
 def _requirement_list(value, package: str) -> list[str]:
     if value is None:
         return []
-    if not isinstance(value, list):
-        raise RuntimeError(f"invalid dependency metadata for {package}")
-    if not all(isinstance(item, str) for item in value):
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise RuntimeError(f"invalid dependency metadata for {package}")
     return value
 

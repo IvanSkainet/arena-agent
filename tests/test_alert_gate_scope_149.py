@@ -782,3 +782,24 @@ def test_removed_manifest_fixes_only_its_own_alert(gate, clean_env, monkeypatch)
              "where": "aiohttp", "first_patched_version": "3.14.4", "proof_floor": "3.14.4"}]
     fixed, _ = gate._fixed_dependabot_alerts_by_pr(rows)
     assert fixed == {"1"}
+
+
+@pytest.mark.parametrize("job_value", [None, "", "preferred-job-value"])
+def test_regular_feed_auth_fallback_stays_out_of_diagnostics(
+    gate, clean_env, monkeypatch, job_value
+):
+    clean_env.setenv("GH_TOKEN", "fallback-job-value")
+    if job_value is not None:
+        clean_env.setenv("GITHUB_TOKEN", job_value)
+    seen = []
+
+    def unavailable(request, timeout):
+        seen.append(request.get_header("Authorization"))
+        raise gate.urllib.error.HTTPError(request.full_url, 403, "forbidden", {}, None)
+
+    monkeypatch.setattr(gate.urllib.request, "urlopen", unavailable)
+    data, note = gate._request_json("/code-scanning/alerts?state=open")
+    assert data is None
+    assert seen == [f"Bearer {job_value or 'fallback-job-value'}"]
+    assert "preferred-job-value" not in note
+    assert "fallback-job-value" not in note
