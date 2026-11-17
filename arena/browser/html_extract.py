@@ -53,12 +53,7 @@ class _Context:
 
 
 class ExtractedPage(HTMLParser):
-    """
-    Extract fixed fields, never compile or evaluate CSS selectors.
-
-    Deliberately not a browser DOM or a replacement for arbitrary BeautifulSoup
-    APIs. Input, element count and stack depth are bounded; no recursive walks.
-    """
+    """Extract bounded fields iteratively, without DOM/CSS evaluation."""
 
     def __init__(self, markup: str):
         """Parse bounded markup using an indexed, non-recursive context stack."""
@@ -112,7 +107,7 @@ class ExtractedPage(HTMLParser):
 
     def _close_in_scope(self, targets: tuple[str, ...], barriers: tuple[str, ...]) -> None:
         index = self._last_open(targets)
-        if index > self._last_open(barriers):
+        if index > max(self._last_open(barriers), self._last_open(("template",))):
             self._truncate(index)
 
     def _close_implied(self, tag: str) -> None:
@@ -136,7 +131,7 @@ class ExtractedPage(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         positions = self._open.get(tag)
-        if positions:
+        if positions and positions[-1] >= self._last_open(("template",)):
             self._truncate(positions[-1])
 
     def handle_data(self, data: str) -> None:

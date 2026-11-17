@@ -131,3 +131,32 @@ def test_hidden_anchors_are_absent_from_links_and_search():
                               '<a class="result__a" href="visible">good</a>')
     CHECK.assertEqual(page.links(), [{"href": "visible", "text": "good"}])
     CHECK.assertEqual(page.search_results(3), [{"url": "visible", "title": "good", "snippet": ""}])
+
+
+@pytest.mark.parametrize("outer,inner", [
+    ("p", "p"), ("p", "div"), ("li", "li"), ("dt", "dd"),
+    ("option", "option"), ("optgroup", "optgroup"), ("tr", "tr"),
+    ("td", "th"), ("tbody", "tfoot"), ("rt", "rp"),
+])
+def test_template_is_a_scope_barrier_for_every_implied_close(outer, inner):
+    page = html.ExtractedPage(
+        f'<{outer}>Visible<template><{inner}>'
+        '<a class="result__a" href="/hidden">Hidden</a>'
+        f'</{inner}></template>After</{outer}>'
+        '<a class="result__a" href="/visible">Link</a>')
+    CHECK.assertEqual(page.text(), "Visible\nAfter\nLink")
+    CHECK.assertEqual(page.links(), [{"text": "Link", "href": "/visible"}])
+    CHECK.assertEqual(page.search_results(10), [
+        {"title": "Link", "url": "/visible", "snippet": ""},
+    ])
+
+
+@pytest.mark.parametrize("outer", ["p", "li", "div", "table", "select"])
+def test_explicit_close_cannot_escape_an_open_template(outer):
+    page = html.ExtractedPage(
+        f'<{outer}>Visible<template></{outer}>'
+        '<a class="result__a" href="/hidden">Hidden</a></template>After'
+        f'</{outer}><a href="/visible">Link</a>')
+    CHECK.assertEqual(page.text(), "Visible\nAfter\nLink")
+    CHECK.assertEqual(page.links(), [{"text": "Link", "href": "/visible"}])
+    CHECK.assertEqual(page.search_results(10), [])

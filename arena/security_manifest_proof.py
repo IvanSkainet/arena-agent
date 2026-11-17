@@ -12,7 +12,8 @@ MAX_MANIFEST_BYTES = 512 * 1024
 _NAME = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_.-]*)(?:\[[A-Za-z0-9_., -]+\])?\s*(.*)$")
 _BOUND = re.compile(
     r"(==|~=|>=|<=|!=|>|<)\s*(\d+(?:\.\d+)*"
-    r"(?:(?:a|b|rc|\.post|\.dev)\d+)*(?:\+[A-Za-z0-9.]+)?(?:\.\*)?)"
+    r"(?:(?:a|b|rc)\d+)?(?:\.post\d+)?(?:\.dev\d+)?"
+    r"(?:\+[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*)?(?:\.\*)?)"
 )
 
 
@@ -105,7 +106,10 @@ def _declaration(line: str) -> tuple[str, list[tuple[str, str]]] | None:
     if not specifier:
         return normalise(name), bounds
     for part in specifier.split(","):
-        bound = _BOUND.fullmatch(part.strip())
+        token = part.strip()
+        if len(token) > 256:
+            return None
+        bound = _BOUND.fullmatch(token)
         if bound is None:
             return None
         bounds.append((bound[1], bound[2]))

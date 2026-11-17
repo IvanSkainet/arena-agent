@@ -38,7 +38,6 @@ import datetime as _dt
 import json
 import pathlib
 import sys
-import urllib.error
 import urllib.parse
 import urllib.request
 from typing import TYPE_CHECKING

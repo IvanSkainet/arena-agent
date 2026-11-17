@@ -179,3 +179,18 @@ def test_invalid_blob_retains_alert_and_reports_rejected_evidence(monkeypatch, t
     fixed, summary = gate._fixed_dependabot_alerts_by_pr([ROW])
     CHECK.assertEqual(fixed, set())
     CHECK.assertIn("invalid or incomplete evidence", summary)
+
+
+@pytest.mark.parametrize("suffix", [".post1", "rc1", ".dev1", "+local.1"])
+def test_nonnumeric_target_versions_stay_conservatively_blocking(suffix):
+    CHECK.assertFalse(proof.manifest_fixes(PATH, "aiohttp==3.14.4" + suffix,
+                                          "aiohttp", "3.14.4"))
+
+
+@pytest.mark.parametrize("token", ["1" + "a1" * 2000 + "!", "1+" + "x." * 2000 + "!"])
+def test_bound_parser_rejects_oversized_suffix_before_regex(monkeypatch, token):
+    class NoMatch:
+        def fullmatch(self, value):
+            raise AssertionError("oversized token must not reach the regex")
+    monkeypatch.setattr(proof, "_BOUND", NoMatch())
+    CHECK.assertIsNone(proof._declaration("aiohttp==" + token))

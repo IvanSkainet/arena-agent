@@ -180,3 +180,25 @@ def test_wheel_tags_never_accept_unicode_digits():
 
     CHECK.assertFalse(termux_artifacts._platform_matches("android_٢٤_arm64_v8a"))
     CHECK.assertFalse(termux_artifacts._stable_abi_interpreter("cp3٣", "3.10"))
+
+
+@pytest.mark.parametrize("future", ["315", "316"])
+def test_published_future_wheel_hash_is_retained_without_supplying_matrix_coverage(future):
+    source = _artifact("demo-1.0.tar.gz", "sdist", ">=3.10", "a")
+    wheel = _artifact(f"demo-1.0-cp{future}-cp{future}-android_24_arm64_v8a.whl",
+                      "bdist_wheel", ">=3.10", "b")
+    CHECK.assertEqual(usable_hashes({"urls": [source, wheel]}, VERSIONS), ["a" * 64, "b" * 64])
+    CHECK.assertEqual(usable_hashes({"urls": [wheel]}, VERSIONS), [])
+
+
+@pytest.mark.parametrize("change", [
+    {"yanked": True}, {"requires_python": "<3.15"}, {"requires_python": ">=>3.10"},
+    {"filename": "demo-1.0-cp315-cp315t-android_24_arm64_v8a.whl"},
+    {"filename": "demo-1.0-cp315-cp315-android_25_arm64_v8a.whl"},
+])
+def test_extra_wheel_hash_still_requires_valid_metadata_platform_and_abi(change):
+    source = _artifact("demo-1.0.tar.gz", "sdist", ">=3.10", "a")
+    wheel = _artifact("demo-1.0-cp315-cp315-android_24_arm64_v8a.whl",
+                      "bdist_wheel", ">=3.10", "b")
+    wheel.update(change)
+    CHECK.assertEqual(usable_hashes({"urls": [source, wheel]}, VERSIONS), ["a" * 64])

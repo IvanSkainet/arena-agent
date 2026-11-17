@@ -77,6 +77,21 @@ def _artifact_matches(entry: dict, version: str, fallback: str) -> bool:
     return entry.get("packagetype") == "bdist_wheel" and _wheel_matches(entry["filename"], version)
 
 
+def _additional_wheel_versions(entry: dict) -> set[str]:
+    # Retaining a published wheel digest is not a claim of tested support.
+    # Coverage remains mandatory for the explicit CI matrix below, but pip on
+    # a newer CPython must not select a valid wheel whose hash we discarded.
+    if entry.get("packagetype") != "bdist_wheel" or entry.get("yanked", False):
+        return set()
+    try:
+        _, _, _, tags = parse_wheel_filename(entry["filename"])
+    except InvalidWheelFilename:
+        return set()
+    return {"3." + tag.interpreter[3:] for tag in tags
+            if re.fullmatch(r"cp3\d{1,2}", tag.interpreter, flags=re.ASCII)
+            and _platform_matches(tag.platform)}
+
+
 def usable_hashes(detail: dict, versions: tuple[str, ...]) -> list[str]:
     """Every supported interpreter needs an artifact; retain the union of hashes."""
     fallback = detail.get("info", {}).get("requires_python") or ""
@@ -87,4 +102,8 @@ def usable_hashes(detail: dict, versions: tuple[str, ...]) -> list[str]:
         if not compatible:
             return []
         hashes.update(entry["digests"]["sha256"] for entry in compatible)
+    for entry in entries:
+        if any(_artifact_matches(entry, version, fallback)
+               for version in _additional_wheel_versions(entry)):
+            hashes.add(entry["digests"]["sha256"])
     return sorted(hashes)
