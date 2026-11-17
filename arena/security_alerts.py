@@ -61,10 +61,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, TypeGuard, cast
 
 from arena import security_manifest_proof as manifest_proof
@@ -81,13 +83,40 @@ def _number_from_ref(ref: str) -> str:
     return parts[2] if len(parts) > 2 else ""
 
 
-def _event_payload(payload_path: str | None = None) -> dict[str, Any] | None:
-    path = payload_path or os.environ.get("GITHUB_EVENT_PATH", "")
-    if not path or not os.path.exists(path):
+def _runner_event_path(requested: str) -> Path | None:
+    """Accept only the runner-owned event location, never an arbitrary file.
+
+    RUNNER_TEMP is trusted runner configuration, not event data. Hosted and
+    self-hosted runners put the event in its _github_workflow directory;
+    container actions mount it at /github/workflow/event.json. This does not
+    defend against another process with the runner user's filesystem rights.
+    """
+    path = Path(requested)
+    if not path.is_absolute() or ".." in path.parts:
         return None
+    root = os.environ.get("RUNNER_TEMP", "")
+    expected = Path(root) / "_github_workflow" / "event.json" if root else None
+    if path == Path("/github/workflow/event.json"):
+        expected = Path("/github/workflow/event.json")
+    if expected is None or path != expected:
+        return None
+    if expected.is_symlink() or expected.parent.is_symlink():
+        return None
+    return expected
+
+
+def _event_payload(payload_path: str | None = None) -> dict[str, Any] | None:
     try:
-        with open(path, encoding="utf-8") as fh:
-            payload = json.load(fh)
+        path = _runner_event_path(payload_path or os.environ.get("GITHUB_EVENT_PATH", ""))
+        if path is None or not stat.S_ISREG(path.stat().st_mode):
+            return None
+        # Bound parser input, and reject devices/FIFOs before opening. The
+        # runner owns this directory; untrusted PR code must not run here.
+        with path.open(encoding="utf-8") as fh:
+            text = fh.read(8 * 1024 * 1024 + 1)
+        if len(text) > 8 * 1024 * 1024:
+            return None
+        payload = json.loads(text)
     except (OSError, ValueError):
         return None
     return payload if isinstance(payload, dict) else None

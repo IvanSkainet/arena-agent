@@ -624,6 +624,13 @@ pytest -q tests/test_tunnels.py tests/test_zerotier.py tests/test_cloudflared.py
           tests/test_browseract.py tests/test_superpowers_layout.py
 ```
 
+The security-alert checker (`scripts/security_alerts_check.py`) needs Python 3.11+
+for `pyproject.toml` fix proofs; CI uses 3.12. On Python 3.10, requirements-file
+proofs still work, but TOML alerts remain blocking rather than being guessed fixed.
+Runner event metadata is read only from `$RUNNER_TEMP/_github_workflow/event.json`
+or the container mount `/github/workflow/event.json`; arbitrary event-file paths
+and symlinks are rejected. `RUNNER_TEMP` must remain trusted runner configuration.
+
 Before pushing, run the same security gates CI runs:
 
 ```bash

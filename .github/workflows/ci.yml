@@ -579,7 +579,7 @@ jobs:
           cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
-        # v4.169.25: requirements.txt carries floors (`aiohttp>=3.14.1`),
+        # v4.169.25: requirements.txt carries floors (version lower bounds),
         # so this resolved to whatever PyPI served that minute. Every
         # package it lists is already hash-pinned in requirements-ci.lock.
         # Unpinned installs are how a supply-chain swap lands without
@@ -1315,7 +1315,7 @@ jobs:
           cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
-        # v4.169.25: requirements.txt carries floors (`aiohttp>=3.14.1`),
+        # v4.169.25: requirements.txt carries floors (version lower bounds),
         # so this resolved to whatever PyPI served that minute. Every
         # package it lists is already hash-pinned in requirements-ci.lock.
         # Unpinned installs are how a supply-chain swap lands without
@@ -1376,7 +1376,7 @@ jobs:
           cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
-        # v4.169.25: requirements.txt carries floors (`aiohttp>=3.14.1`),
+        # v4.169.25: requirements.txt carries floors (version lower bounds),
         # so this resolved to whatever PyPI served that minute. Every
         # package it lists is already hash-pinned in requirements-ci.lock.
         # Unpinned installs are how a supply-chain swap lands without
@@ -1429,7 +1429,7 @@ jobs:
           cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
-        # v4.169.25: requirements.txt carries floors (`aiohttp>=3.14.1`),
+        # v4.169.25: requirements.txt carries floors (version lower bounds),
         # so this resolved to whatever PyPI served that minute. Every
         # package it lists is already hash-pinned in requirements-ci.lock.
         # Unpinned installs are how a supply-chain swap lands without
@@ -1527,7 +1527,7 @@ jobs:
           cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
-        # v4.169.25: requirements.txt carries floors (`aiohttp>=3.14.1`),
+        # v4.169.25: requirements.txt carries floors (version lower bounds),
         # so this resolved to whatever PyPI served that minute. Every
         # package it lists is already hash-pinned in requirements-ci.lock.
         # Unpinned installs are how a supply-chain swap lands without
@@ -1585,7 +1585,7 @@ jobs:
           cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
-        # v4.169.25: requirements.txt carries floors (`aiohttp>=3.14.1`),
+        # v4.169.25: requirements.txt carries floors (version lower bounds),
         # so this resolved to whatever PyPI served that minute. Every
         # package it lists is already hash-pinned in requirements-ci.lock.
         # Unpinned installs are how a supply-chain swap lands without

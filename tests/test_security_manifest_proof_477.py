@@ -59,7 +59,9 @@ def test_dynamic_or_malformed_project_is_not_proof(text: str) -> None:
 
 
 def _install_evidence(monkeypatch, tmp_path, text: str, *, truncated: bool = False) -> list[str]:
-    event = tmp_path / "event.json"
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    (tmp_path / "_github_workflow").mkdir(exist_ok=True)
+    event = tmp_path / "_github_workflow" / "event.json"
     event.write_text(json.dumps({"number": 475, "pull_request": {"head": {"sha": HEAD}}}))
     monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
     monkeypatch.setenv("GITHUB_REF", "refs/pull/475/merge")

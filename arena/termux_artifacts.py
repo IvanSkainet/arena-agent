@@ -16,6 +16,12 @@ else:
         from pip._vendor.packaging.utils import InvalidWheelFilename, parse_wheel_filename
 
 
+# Conservative artifact floor: retain compatibility with Android 7/API 24.
+# Device validation currently uses Android 16/API 36; this is not a claim
+# that all dependency source builds have been exercised on older Android.
+MIN_ANDROID_API = 24
+
+
 def _python_matches(requirement: str, version: str) -> bool:
     try:
         return not requirement or SpecifierSet(requirement).contains(version)
@@ -43,8 +49,10 @@ def _stable_abi_interpreter(interpreter: str, version: str) -> bool:
 
 
 def _platform_matches(platform: str) -> bool:
-    return platform == "any" or (
-        "android_" in platform and ("arm64_v8a" in platform or "aarch64" in platform))
+    if platform == "any":
+        return True
+    match = re.fullmatch(r"android_([0-9]{1,3})_(?:arm64_v8a|aarch64)", platform)
+    return bool(match and 1 <= int(match.group(1)) <= MIN_ANDROID_API)
 
 
 def _tag_matches(tag, version: str) -> bool:

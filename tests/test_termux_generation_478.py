@@ -159,3 +159,12 @@ def test_unbounded_abi_suffix_is_rejected_without_integer_conversion() -> None:
     wheel = _artifact("demo-1.0-cp3" + "9" * 5000 + "-abi3-android_24_arm64_v8a.whl",
                       "bdist_wheel", ">=3.10", "a")
     CHECK.assertEqual(usable_hashes({"urls": [wheel]}, ("3.14",)), [])
+
+
+@pytest.mark.parametrize("platform", ["android_25_arm64_v8a", "android_37_arm64_v8a",
+                                      "android_24_x86_64", "android_aarch64",
+                                      "not_android_24_arm64_v8a", "android_0_aarch64"])
+def test_wheel_only_release_above_api_floor_or_wrong_platform_is_unusable(platform):
+    from arena.termux_artifacts import usable_hashes
+    wheel = _artifact(f"demo-1.0-py3-none-{platform}.whl", "bdist_wheel", ">=3.10", "a")
+    assert usable_hashes({"info": {}, "urls": [wheel]}, ("3.10",)) == []

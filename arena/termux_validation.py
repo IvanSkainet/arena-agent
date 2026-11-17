@@ -17,23 +17,32 @@ def _name(value: str) -> str:
     return value.lower().replace("_", "-").replace(".", "-")
 
 
+def _environment(version: str, system: str, platform: str) -> dict[str, str]:
+    """Build one reproducible target, not the generator host's environment."""
+    return {"implementation_name": "cpython", "implementation_version": version + ".0",
+            "os_name": "posix", "platform_machine": "aarch64", "platform_release": "",
+            "platform_system": system, "platform_version": "",
+            "python_full_version": version + ".0", "python_version": version,
+            "platform_python_implementation": "CPython", "sys_platform": platform, "extra": ""}
+
+
 def _environments(versions: tuple[str, ...]):
     for version in versions:
         for system, platform in (("Android", "android"), ("Linux", "linux")):
-            yield {"implementation_name": "cpython", "implementation_version": version + ".0",
-                   "os_name": "posix", "platform_machine": "aarch64", "platform_release": "",
-                   "platform_system": system, "platform_version": "",
-                   "python_full_version": version + ".0", "python_version": version,
-                   "platform_python_implementation": "CPython", "sys_platform": platform, "extra": ""}
+            yield _environment(version, system, platform)
+
+
+def _check_marker(marker: str) -> None:
+    """Refuse conditions whose truth depends on an unspecified device build."""
+    if any(key in marker for key in ("platform_release", "platform_version",
+                                     "python_full_version", "implementation_version")):
+        raise RuntimeError(f"cannot prove device-specific dependency marker: {marker}")
 
 
 def _active(requirement: Requirement, versions: tuple[str, ...]) -> bool:
     if requirement.marker is None:
         return True
-    marker = str(requirement.marker)
-    if any(key in marker for key in ("platform_release", "platform_version",
-                                     "python_full_version", "implementation_version")):
-        raise RuntimeError(f"cannot prove device-specific dependency marker: {marker}")
+    _check_marker(str(requirement.marker))
     return any(requirement.marker.evaluate(env) for env in _environments(versions))
 
 

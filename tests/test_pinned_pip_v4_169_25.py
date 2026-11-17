@@ -6,7 +6,7 @@ both workflows:
 
   * `pip install pytest` and `pip install hypothesis` in the contract job
   * `pip install -r requirements.txt` in six jobs -- that file carries
-    floors (`aiohttp>=3.14.1`), not pins
+    floors (version lower bounds), not pins
   * `pip install "bandit>=1.7"`, `"semgrep>=1.170"`, `"pip-audit>=2.7"`
     in the security scan
 

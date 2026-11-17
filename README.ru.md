@@ -617,6 +617,16 @@ pytest -q tests/test_tunnels.py tests/test_zerotier.py tests/test_cloudflared.py
           tests/test_browseract.py tests/test_superpowers_layout.py
 ```
 
+### Среда проверки security alerts
+
+Для доказательства исправлений в `pyproject.toml` скрипту
+`scripts/security_alerts_check.py` нужен Python 3.11+ (CI использует 3.12).
+На Python 3.10 проверка requirements-файлов работает, но TOML-находки остаются
+блокирующими: отсутствие парсера не считается доказательством исправления.
+Event metadata читается только из `$RUNNER_TEMP/_github_workflow/event.json`
+или контейнерного `/github/workflow/event.json`; произвольные пути и симлинки
+отклоняются. `RUNNER_TEMP` — доверенная конфигурация runner, не данные PR.
+
 Перед push запустите те же security-gate, что запускает CI:
 
 ```bash

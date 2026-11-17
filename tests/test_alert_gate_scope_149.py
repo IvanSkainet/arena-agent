@@ -26,7 +26,6 @@ import json
 import os
 import pathlib
 import sys
-import tempfile
 import unittest
 
 import pytest
@@ -58,10 +57,12 @@ def gate():
 
 
 @pytest.fixture
-def clean_env(monkeypatch):
+def clean_env(monkeypatch, tmp_path):
     for key in ("GITHUB_EVENT_NAME", "GITHUB_REF", "GITHUB_EVENT_PATH",
                 "GITHUB_TOKEN", "GH_TOKEN", "SECRET_SCANNING_TOKEN"):
         monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    (tmp_path / "_github_workflow").mkdir(exist_ok=True)
     return monkeypatch
 
 
@@ -82,7 +83,7 @@ def test_the_merge_ref_is_not_used(gate, clean_env):
 
 
 def test_pull_request_target_reads_the_event_payload(gate, clean_env, tmp_path):
-    payload = tmp_path / "event.json"
+    payload = tmp_path / "_github_workflow" / "event.json"
     payload.write_text(json.dumps({"number": 77}), encoding="utf-8")
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request_target")
     clean_env.setenv("GITHUB_EVENT_PATH", str(payload))
@@ -144,7 +145,7 @@ def test_an_unreadable_event_payload_does_not_crash_the_gate(gate, clean_env):
 
 
 def test_a_corrupt_event_payload_does_not_crash_the_gate(gate, clean_env, tmp_path):
-    payload = tmp_path / "event.json"
+    payload = tmp_path / "_github_workflow" / "event.json"
     payload.write_text("{not json", encoding="utf-8")
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_EVENT_PATH", str(payload))
@@ -377,21 +378,20 @@ def test_the_other_two_feeds_are_never_scoped(gate, clean_env, monkeypatch):
             _CHECK.assertNotIn("ref=", path, path)
 
 
-def test_the_ref_is_url_encoded(gate, clean_env, monkeypatch):
+def test_the_ref_is_url_encoded(gate, clean_env, monkeypatch, tmp_path):
     """`refs/pull/N/head` has slashes; they must survive as slashes and
     nothing else may sneak through unescaped."""
-    payload = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
-    json.dump({"number": "149 &evil"}, payload)
-    payload.close()
+    payload = tmp_path / "_github_workflow" / "event.json"
+    payload.write_text(json.dumps({"number": "149 &evil"}), encoding="utf-8")
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
-    clean_env.setenv("GITHUB_EVENT_PATH", payload.name)
+    clean_env.setenv("GITHUB_EVENT_PATH", str(payload))
 
     seen = []
     monkeypatch.setattr(gate, "_get", lambda path: (seen.append(path), ([], ""))[1])
     try:
         gate.collect()
     finally:
-        os.unlink(payload.name)
+        payload.unlink()
 
     code_scanning = [p for p in seen if p.startswith("/code-scanning")]
     _CHECK.assertNotIn(" ", code_scanning[0], code_scanning[0])
@@ -417,7 +417,7 @@ def test_valid_json_of_the_wrong_shape_does_not_crash_the_gate(
     "failed", and the fix for a failing security check is not obvious to
     whoever looks next.
     """
-    event = tmp_path / "event.json"
+    event = tmp_path / "_github_workflow" / "event.json"
     event.write_text(payload, encoding="utf-8")
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_EVENT_PATH", str(event))
@@ -450,7 +450,7 @@ def test_a_non_numeric_pr_number_is_refused(gate, clean_env, tmp_path, number):
     """A PR number is digits. Anything else builds a ref that matches
     nothing, and a query matching nothing returns zero alerts -- which
     reads exactly like a clean repository."""
-    event = tmp_path / "event.json"
+    event = tmp_path / "_github_workflow" / "event.json"
     event.write_text(json.dumps({"number": number}), encoding="utf-8")
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_EVENT_PATH", str(event))
@@ -803,3 +803,70 @@ def test_regular_feed_auth_fallback_stays_out_of_diagnostics(
     assert seen == [f"Bearer {job_value or 'fallback-job-value'}"]
     assert "preferred-job-value" not in note
     assert "fallback-job-value" not in note
+
+
+@pytest.mark.parametrize("location", ["outside", "traversal", "relative", "wrong_name", "missing_root"])
+def test_event_reader_rejects_untrusted_locations_before_open(
+    gate, clean_env, tmp_path, monkeypatch, location
+):
+    event = tmp_path / "_github_workflow" / "event.json"
+    event.write_text('{"number": 77}', encoding="utf-8")
+    locations = {
+        "outside": tmp_path / "event.json",
+        "traversal": event.parent / ".." / "_github_workflow" / "event.json",
+        "relative": pathlib.Path("_github_workflow/event.json"),
+        "wrong_name": event.with_name("credentials.json"),
+        "missing_root": event,
+    }
+    (tmp_path / "event.json").write_text('{"number": 999}', encoding="utf-8")
+    event.with_name("credentials.json").write_text('{"number": 999}', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    if location == "missing_root":
+        clean_env.delenv("RUNNER_TEMP")
+    clean_env.setenv("GITHUB_EVENT_PATH", str(locations[location]))
+
+    def forbidden_open(*_args, **_kwargs):
+        raise AssertionError("untrusted event path reached open")
+
+    monkeypatch.setattr(pathlib.Path, "open", forbidden_open)
+    assert gate._event_payload() is None
+
+
+def test_event_reader_rejects_symlink_to_outside_file(gate, clean_env, tmp_path):
+    outside = tmp_path / "outside.json"
+    outside.write_text('{"number": 999}', encoding="utf-8")
+    event = tmp_path / "_github_workflow" / "event.json"
+    try:
+        event.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation requires filesystem/OS support")
+    clean_env.setenv("GITHUB_EVENT_PATH", str(event))
+    assert gate._event_payload() is None
+
+
+def test_event_reader_rejects_oversized_payload(gate, clean_env, tmp_path):
+    event = tmp_path / "_github_workflow" / "event.json"
+    event.write_text('{"value":"' + 'x' * (8 * 1024 * 1024) + '"}', encoding="utf-8")
+    clean_env.setenv("GITHUB_EVENT_PATH", str(event))
+    assert gate._event_payload() is None
+
+
+def test_event_reader_rejects_non_regular_file(gate, clean_env, tmp_path):
+    event = tmp_path / "_github_workflow" / "event.json"
+    event.mkdir()
+    clean_env.setenv("GITHUB_EVENT_PATH", str(event))
+    assert gate._event_payload() is None
+
+
+def test_event_reader_rejects_symlinked_workflow_directory(gate, clean_env, tmp_path):
+    directory = tmp_path / "_github_workflow"
+    directory.rmdir()
+    outside = tmp_path / "other-workflow"
+    outside.mkdir()
+    (outside / "event.json").write_text('{"number": 999}', encoding="utf-8")
+    try:
+        directory.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks require filesystem/OS support")
+    clean_env.setenv("GITHUB_EVENT_PATH", str(directory / "event.json"))
+    assert gate._event_payload() is None
