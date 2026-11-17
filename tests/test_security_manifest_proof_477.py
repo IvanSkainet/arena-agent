@@ -194,3 +194,16 @@ def test_bound_parser_rejects_oversized_suffix_before_regex(monkeypatch, token):
             raise AssertionError("oversized token must not reach the regex")
     monkeypatch.setattr(proof, "_BOUND", NoMatch())
     CHECK.assertIsNone(proof._declaration("aiohttp==" + token))
+
+
+@pytest.mark.parametrize("suffix,expected", [
+    (" " * 100_000, True),
+    (" " * 100_000 + "--hash=sha256:" + "a" * 64, True),
+    (" --hash=sha256:" + "a" * 63, False),
+    (" --hash=sha256:" + "a" * 65, False),
+    (" --hash=sha256:" + "a" * 64 + "junk", False),
+    ("--hash=sha256:" + "a" * 64, False),
+])
+def test_hash_option_tokenization_preserves_fail_closed_manifest_proof(suffix, expected):
+    CHECK.assertEqual(proof.manifest_fixes(PATH, "aiohttp>=3.14.4" + suffix,
+                                         "aiohttp", "3.14.4"), expected)

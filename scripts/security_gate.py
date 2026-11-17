@@ -113,7 +113,7 @@ def check_pip_audit(report_path: str, requirements_path: str | None = None) -> i
         if requirements_path is None:
             raise ValueError("pip-audit requires its requested requirements file")
         check_coverage(deps, Path(requirements_path).read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         print(f"error: pip-audit coverage: {exc}", file=sys.stderr)
         return 2
     findings = finding_lines(deps)

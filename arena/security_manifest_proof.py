@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import base64
-import binascii
 import re
 from typing import Any
 
@@ -97,7 +96,10 @@ def _declaration(line: str) -> tuple[str, list[tuple[str, str]]] | None:
     # Check EVERY marker variant, not just the runner's environment. An older
     # supported Python/platform must not retain a vulnerable declaration.
     requirement = line.split(";", 1)[0]
-    requirement = re.sub(r"\s+--hash=sha256:[a-fA-F0-9]{64}", "", requirement).strip()
+    # Tokenize first: an unanchored whitespace+ prefix can rescan long runs
+    # quadratically when no hash follows. Only complete SHA256 options vanish.
+    requirement = " ".join(token for token in requirement.split()
+                           if not re.fullmatch(r"--hash=sha256:[a-fA-F0-9]{64}", token))
     match = _NAME.fullmatch(requirement)
     if match is None:
         return None
@@ -206,5 +208,5 @@ def decode_manifest(blob: dict[str, Any], sha: str) -> str | None:
     try:
         raw = base64.b64decode("".join(content.splitlines()), validate=True)
         return raw.decode("utf-8") if len(raw) == size else None
-    except (binascii.Error, UnicodeError, ValueError):
+    except ValueError:
         return None

@@ -39,27 +39,32 @@ class AuditCoverageTests(TestCase):
     def test_bootstrap_packages_are_not_exempt_from_coverage(self):
         for name in ("pip", "setuptools", "wheel"):
             text = "demo>=2\n" + name + ">=2"
+            missing = [_dependency()]
             with self.subTest(name=name):
                 with self.assertRaises(ValueError):
-                    check_coverage([_dependency()], text)
+                    check_coverage(missing, text)
                 check_coverage([_dependency(), _dependency(name)], text)
 
     def test_requirements_are_intersected_not_overwritten(self):
+        dependencies = [_dependency()]
         with self.assertRaises(ValueError):
-            check_coverage([_dependency()], "demo>=2\ndemo<2")
+            check_coverage(dependencies, "demo>=2\ndemo<2")
 
     def test_unknown_or_empty_requirements_are_not_an_audit(self):
         for text in ("", "# only a comment", "-r other.txt", "--index-url https://pypi.org",
                      "demo @ https://example.test/demo.whl", "demo=>2"):
+            dependencies = [_dependency()]
             with self.subTest(text=text), self.assertRaises(ValueError):
-                check_coverage([_dependency()], text)
+                check_coverage(dependencies, text)
 
     def test_markers_use_the_explicit_scanner_environment(self):
         text = 'demo>=2; sys_platform == "win32"'
         check_coverage([], text, {"sys_platform": "linux"})
         check_coverage([_dependency()], text, {"sys_platform": "win32"})
+        dependencies = []
+        environment = {"sys_platform": "win32"}
         with self.assertRaises(ValueError):
-            check_coverage([], text, {"sys_platform": "win32"})
+            check_coverage(dependencies, text, environment)
 
     def test_prerelease_versions_still_obey_requested_bounds(self):
         with self.assertRaises(ValueError):
