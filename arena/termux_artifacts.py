@@ -1,6 +1,7 @@
 """Per-interpreter coverage of Android/arm64 and universal PyPI artifacts."""
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -28,10 +29,17 @@ def _interpreter_matches(interpreter: str, abi: str, version: str) -> bool:
         return abi == "none"
     if interpreter == "cp" + code:
         return abi in ("none", "abi3", "cp" + code)
-    suffix = interpreter[3:]
-    if abi == "abi3" and interpreter.startswith("cp3") and suffix.isdecimal():
-        return int(suffix) <= int(version.split(".")[1])
-    return False
+    if abi != "abi3":
+        return False
+    return _stable_abi_interpreter(interpreter, version)
+
+
+def _stable_abi_interpreter(interpreter: str, version: str) -> bool:
+    # Stable ABI is defined only for CPython3; bounded ASCII digits avoid
+    # malformed/unbounded integer conversion on untrusted wheel filenames.
+    if not re.fullmatch(r"cp3[0-9]{1,2}", interpreter):
+        return False
+    return int(interpreter[3:]) <= int(version.split(".")[1])
 
 
 def _platform_matches(platform: str) -> bool:
@@ -39,13 +47,16 @@ def _platform_matches(platform: str) -> bool:
         "android_" in platform and ("arm64_v8a" in platform or "aarch64" in platform))
 
 
+def _tag_matches(tag, version: str) -> bool:
+    return _platform_matches(tag.platform) and _interpreter_matches(tag.interpreter, tag.abi, version)
+
+
 def _wheel_matches(filename: str, version: str) -> bool:
     try:
         _, _, _, tags = parse_wheel_filename(filename)
     except InvalidWheelFilename:
         return False
-    return any(_platform_matches(tag.platform) and _interpreter_matches(tag.interpreter, tag.abi, version)
-               for tag in tags)
+    return any(_tag_matches(tag, version) for tag in tags)
 
 
 def _artifact_matches(entry: dict, version: str, fallback: str) -> bool:

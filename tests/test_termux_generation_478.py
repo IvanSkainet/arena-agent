@@ -94,21 +94,19 @@ def test_malformed_json_follows_controlled_collect_failure(monkeypatch, capsys) 
 def test_fetch_preserves_stdlib_https_proxy_handling(monkeypatch) -> None:
     import urllib.request
 
-    seen = []
-    build = urllib.request.build_opener
-    class Opener:
-        def open(self, *args, **kwargs):
-            return io.BytesIO(b'{}')
-    def builder(*handlers):
-        actual = build(*handlers)
-        seen.extend(handler.proxies.get("https") for handler in actual.handlers
-                    if isinstance(handler, urllib.request.ProxyHandler))
-        return Opener()
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example.test:8080")
-    monkeypatch.setattr(urllib.request, "_opener", None)
-    monkeypatch.setattr(urllib.request, "build_opener", builder)
+    opener = refresh._pypi_opener()
+    proxies = [handler.proxies.get("https") for handler in opener.handlers
+               if isinstance(handler, urllib.request.ProxyHandler)]
+    CHECK.assertIn("http://proxy.example.test:8080", proxies)
+    calls = []
+    def open_request(request, timeout):
+        calls.append((request.full_url, timeout))
+        return io.BytesIO(b'{}')
+    monkeypatch.setattr(opener, "open", open_request)
+    monkeypatch.setattr(refresh, "_pypi_opener", lambda: opener)
     CHECK.assertEqual(refresh._fetch("https://pypi.org/pypi/demo/json"), {})
-    CHECK.assertIn("http://proxy.example.test:8080", seen)
+    CHECK.assertEqual(calls, [("https://pypi.org/pypi/demo/json", refresh.TIMEOUT_S)])
 
 
 @pytest.mark.parametrize("marker", ['sys_platform == "android"', 'python_version == "3.10"'])
@@ -134,8 +132,30 @@ def test_incompatible_or_malformed_abi_cannot_supply_coverage(tag) -> None:
     CHECK.assertEqual(usable_hashes({"urls": [wheel]}, ("3.14",)), [])
 
 
-@pytest.mark.parametrize("url", ["https://evil.test/x", "http://pypi.org/x", "ftp://pypi.org/x"])
-def test_redirect_cannot_leave_https_pypi_origin(url) -> None:
-    request = refresh.urllib.request.Request("https://pypi.org/pypi/demo/json")
-    with pytest.raises(ValueError, match="HTTPS PyPI"):
-        refresh._PyPIRedirect().redirect_request(request, None, 302, "Found", {}, url)
+@pytest.mark.parametrize("url", ["https://evil.test/x", "http://pypi.org/x", "ftp://pypi.org/x",
+                                 "https://pypi.org/pypi/redirected/json"])
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_redirect_cannot_supply_metadata(url, status) -> None:
+    import urllib.error
+    import urllib.request
+
+    request = urllib.request.Request("https://pypi.org/pypi/demo/json")
+    opener = refresh._pypi_opener()
+    CHECK.assertFalse(any(isinstance(handler, urllib.request.HTTPRedirectHandler)
+                          for handler in opener.handlers))
+    with pytest.raises(urllib.error.HTTPError) as raised:
+        opener.error("http", request, io.BytesIO(b'untrusted'), status, "Redirect", {"Location": url})
+    CHECK.assertEqual(raised.value.code, status)
+
+
+@pytest.mark.parametrize("metadata", [{}, {"info": {}}, {"info": {"requires_dist": "missing"}},
+                                      {"info": {"requires_dist": [7]}}])
+def test_unknown_dependency_metadata_fails_closed(metadata) -> None:
+    with pytest.raises(RuntimeError, match="dependency metadata"):
+        validate_closure([("demo", "1.0", [])], lambda url: metadata, VERSIONS)
+
+
+def test_unbounded_abi_suffix_is_rejected_without_integer_conversion() -> None:
+    wheel = _artifact("demo-1.0-cp3" + "9" * 5000 + "-abi3-android_24_arm64_v8a.whl",
+                      "bdist_wheel", ">=3.10", "a")
+    CHECK.assertEqual(usable_hashes({"urls": [wheel]}, ("3.14",)), [])

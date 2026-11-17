@@ -48,16 +48,21 @@ def _validate_requirement(text: str, known: dict[str, str], versions: tuple[str,
         raise RuntimeError(f"selected lock does not satisfy {requirement}")
 
 
+def _requirement_list(value, package: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise RuntimeError(f"invalid dependency metadata for {package}")
+    if not all(isinstance(item, str) for item in value):
+        raise RuntimeError(f"invalid dependency metadata for {package}")
+    return value
+
+
 def _requirements(detail: dict, package: str) -> list[str]:
     info = detail.get("info")
     if not isinstance(info, dict) or "requires_dist" not in info:
         raise RuntimeError(f"missing dependency metadata for {package}")
-    requirements = info["requires_dist"]
-    if requirements is None:
-        return []
-    if not isinstance(requirements, list) or any(not isinstance(item, str) for item in requirements):
-        raise RuntimeError(f"invalid dependency metadata for {package}")
-    return requirements
+    return _requirement_list(info["requires_dist"], package)
 
 
 def validate_closure(

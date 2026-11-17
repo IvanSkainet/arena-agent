@@ -146,3 +146,32 @@ def test_deleted_manifest_must_be_absent_in_complete_head_tree(monkeypatch, tmp_
 
 def test_oversized_numeric_component_stays_blocking() -> None:
     CHECK.assertFalse(proof.manifest_fixes(PATH, "aiohttp==" + "9" * 5000, "aiohttp", "3.14.4"))
+
+
+@pytest.mark.parametrize("note", ["HTTP 403", "unreachable: timeout"])
+def test_unreadable_blob_retains_alert_and_surfaces_cached_diagnostic(monkeypatch, tmp_path, note) -> None:
+    _install_evidence(monkeypatch, tmp_path, "aiohttp>=3.14.4")
+    get_object = gate._get_object
+    seen = []
+    def fetch(path):
+        if path.startswith("/git/blobs/"):
+            seen.append(path)
+            return None, note
+        return get_object(path)
+    monkeypatch.setattr(gate, "_get_object", fetch)
+    fixed, summary = gate._fixed_dependabot_alerts_by_pr([ROW, dict(ROW, number=2)])
+    CHECK.assertEqual(fixed, set())
+    CHECK.assertIn(note, summary)
+    CHECK.assertIn(BLOB, summary)
+    CHECK.assertEqual(summary.count(note), 1)
+    CHECK.assertEqual(seen, [f"/git/blobs/{BLOB}"])
+
+
+def test_invalid_blob_retains_alert_and_reports_rejected_evidence(monkeypatch, tmp_path) -> None:
+    _install_evidence(monkeypatch, tmp_path, "aiohttp>=3.14.4")
+    get_object = gate._get_object
+    monkeypatch.setattr(gate, "_get_object", lambda path: ({"encoding": "none"}, "")
+                        if path.startswith("/git/blobs/") else get_object(path))
+    fixed, summary = gate._fixed_dependabot_alerts_by_pr([ROW])
+    CHECK.assertEqual(fixed, set())
+    CHECK.assertIn("invalid or incomplete evidence", summary)

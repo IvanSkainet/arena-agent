@@ -713,7 +713,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `ship` | `ship.status` / `ship.preflight` / `ship.smoke` — Whole-ship maps, readiness checks, Linux flight check, and real-machine smoke proof |
 | `tool_foundry` | `tool_foundry.validate` / `tool_foundry.publish` — Validate a Workbench project manifest/tests and publish it as a callable custom tool |
 
-All calls go through the MCP endpoint `POST /mcp` with JSON body `{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "<tool>", "arguments": {}}}`.
+For the MCP Streamable HTTP transport, calls go through `POST /mcp` with JSON body `{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "<tool>", "arguments": {}}}`. Alternative transports are SSE (`GET /sse` with `POST /messages`) and WebSocket (`GET /ws`).
 
 ---
 

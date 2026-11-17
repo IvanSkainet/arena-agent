@@ -100,18 +100,21 @@ TIMEOUT_S = 60
 SUPPORTED_PYTHON_VERSIONS = ("3.10", "3.11", "3.12", "3.13", "3.14")
 
 
-class _PyPIRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        parsed = urllib.parse.urlsplit(newurl)
-        if parsed.scheme != "https" or parsed.netloc != "pypi.org":
-            raise ValueError("only the HTTPS PyPI JSON API is supported")
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+def _pypi_opener():
+    # Deliberately omit HTTPRedirectHandler: metadata endpoints must answer
+    # directly. Keep stdlib TLS, environment proxies, and HTTP error handling;
+    # omit file/FTP/data handlers as this client only fetches HTTPS metadata.
+    opener = urllib.request.OpenerDirector()
+    handlers = (urllib.request.ProxyHandler(), urllib.request.UnknownHandler(),
+                urllib.request.HTTPHandler(), urllib.request.HTTPDefaultErrorHandler(),
+                urllib.request.HTTPSHandler(), urllib.request.HTTPErrorProcessor())
+    for handler in handlers:
+        opener.add_handler(handler)
+    return opener
 
 
 def _open_pypi(request, timeout):
-    # Default handlers retain system/environment proxy settings; the explicit
-    # redirect handler enforces the origin restriction on every network hop.
-    return urllib.request.build_opener(_PyPIRedirect()).open(request, timeout=timeout)
+    return _pypi_opener().open(request, timeout=timeout)
 
 
 def _fetch(url: str) -> dict:
@@ -122,8 +125,7 @@ def _fetch(url: str) -> dict:
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
     # Keep urllib's system/environment proxy handling. The origin was checked
     # above; callers supply only PyPI metadata paths, never operator URLs.
-    # nosemgrep: dynamic-urllib-use-detected -- exact HTTPS pypi.org origin validated above, preserves HTTPS_PROXY
-    with _open_pypi(request, timeout=TIMEOUT_S) as response:  # nosec B310 -- exact HTTPS pypi.org origin validated above
+    with _open_pypi(request, timeout=TIMEOUT_S) as response:
         return json.load(response)
 
 

@@ -64,6 +64,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass, field
 from typing import Any, Callable, TypeGuard, cast
 
 from arena import security_manifest_proof as manifest_proof
@@ -113,11 +114,19 @@ def _is_fork_pull_request() -> bool:
     pull_request = payload.get("pull_request")
     if not isinstance(pull_request, dict):
         return False
-    head = pull_request.get("head") or {}
-    base = pull_request.get("base") or {}
-    head_repo = (head.get("repo") or {}).get("full_name")
-    base_repo = (base.get("repo") or {}).get("full_name")
+    head_repo = _repository_name(pull_request.get("head"))
+    base_repo = _repository_name(pull_request.get("base"))
     return bool(head_repo and base_repo and head_repo != base_repo)
+
+
+def _repository_name(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    repo = value.get("repo")
+    if not isinstance(repo, dict):
+        return ""
+    name = repo.get("full_name")
+    return name if isinstance(name, str) else ""
 
 
 def code_scanning_ref() -> str | None:
@@ -147,13 +156,23 @@ def _rank(level: str | None) -> int:
         return 0
 
 
+def _alert_token(path: str) -> tuple[str | None, str]:
+    if path.startswith("/secret-scanning/"):
+        return os.environ.get("SECRET_SCANNING_TOKEN"), "SECRET_SCANNING_TOKEN"
+    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN"), "GITHUB_TOKEN"
+
+
+def _http_error_note(code: int, secret_feed: bool) -> str:
+    if code not in (403, 404):
+        return f"HTTP {code}"
+    permission = "secret_scanning_alerts" if secret_feed else "security_events or vulnerability_alerts"
+    return f"HTTP {code} (token may lack {permission}: read)"
+
+
 def _request_json(path: str) -> tuple[Any, str]:
     """Return (alerts, note). `None` means "could not look", not "clean"."""
     secret_feed = path.startswith("/secret-scanning/")
-    token_name = "SECRET_SCANNING_TOKEN" if secret_feed else "GITHUB_TOKEN"
-    token = os.environ.get(token_name)
-    if not secret_feed:
-        token = token or os.environ.get("GH_TOKEN")
+    token, token_name = _alert_token(path)
     if not token:
         return None, f"no {token_name}; cannot read security alerts"
     req = urllib.request.Request(
@@ -172,11 +191,7 @@ def _request_json(path: str) -> tuple[Any, str]:
             data = json.loads(resp.read().decode("utf-8"))
         return data, ""
     except urllib.error.HTTPError as exc:
-        if exc.code in (403, 404):
-            permission = ("secret_scanning_alerts" if secret_feed else
-                         "security_events or vulnerability_alerts")
-            return None, f"HTTP {exc.code} (token may lack {permission}: read)"
-        return None, f"HTTP {exc.code}"
+        return None, _http_error_note(exc.code, secret_feed)
     except (urllib.error.URLError, OSError, ValueError) as exc:
         return None, f"unreachable: {exc}"
 
@@ -287,26 +302,45 @@ def _event_head_sha() -> str:
     return sha if isinstance(sha, str) and re.fullmatch(r"[a-f0-9]{40}", sha) else ""
 
 
-def _verified_manifest_fix(
-    row: dict[str, Any], changed: dict[str, dict[str, Any]],
-    tree: dict[str, Any], cache: dict[str, str | None],
-) -> bool:
+@dataclass
+class _ManifestEvidence:
+    tree: dict[str, Any]
+    changed: dict[str, dict[str, Any]]
+    cache: dict[str, str | None] = field(default_factory=dict)
+    notes: list[str] = field(default_factory=list)
+
+    def content(self, sha: str) -> str | None:
+        if sha not in self.cache:
+            blob, note = _get_object(f"/git/blobs/{sha}")
+            self.cache[sha] = manifest_proof.decode_manifest(blob, sha) if blob else None
+            self._record_blob_problem(sha, note)
+        return self.cache[sha]
+
+    def _record_blob_problem(self, sha: str, note: str) -> None:
+        if note:
+            self.notes.append(f"dependabot manifest blob {sha} unavailable: {note}")
+        elif self.cache[sha] is None:
+            self.notes.append(f"dependabot manifest blob {sha} rejected: invalid or incomplete evidence")
+
+
+def _verified_manifest_fix(row: dict[str, Any], evidence: _ManifestEvidence) -> bool:
     identity = _dependabot_fix_identity(row)
     if identity is None:
         return False
     path, package, minimum = identity
-    if path not in changed:
+    if path not in evidence.changed:
         return False
-    state, sha = manifest_proof.tree_manifest(tree, path)
+    state, sha = manifest_proof.tree_manifest(evidence.tree, path)
     if state == "absent":
-        return changed[path].get("status") == "removed"
+        return evidence.changed[path].get("status") == "removed"
     if state != "file":
         return False
-    if sha not in cache:
-        blob, _ = _get_object(f"/git/blobs/{sha}")
-        cache[sha] = manifest_proof.decode_manifest(blob, sha) if blob else None
-    text = cache[sha]
+    text = evidence.content(sha)
     return text is not None and manifest_proof.manifest_fixes(path, text, package, minimum)
+
+
+def _changed_manifest_files(files: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {item["filename"]: item for item in files if isinstance(item.get("filename"), str)}
 
 
 def _fixed_dependabot_alerts_by_pr(
@@ -325,13 +359,10 @@ def _fixed_dependabot_alerts_by_pr(
     tree, note = _get_object(f"/git/trees/{sha}?recursive=1")
     if tree is None:
         return set(), f"dependabot PR comparison unavailable: {note}"
-    changed = {item["filename"]: item for item in files
-               if isinstance(item.get("filename"), str)}
-    cache: dict[str, str | None] = {}
-    fixed = {str(row.get("number")) for row in rows
-             if _verified_manifest_fix(row, changed, tree, cache)}
+    evidence = _ManifestEvidence(tree, _changed_manifest_files(files))
+    fixed = {str(row.get("number")) for row in rows if _verified_manifest_fix(row, evidence)}
     summary = f"dependabot PR fixes checked: {len(fixed)} alert(s) match patched lock entries"
-    return fixed, summary
+    return fixed, "; ".join([summary, *evidence.notes])
 
 
 def _read_feed(
@@ -341,6 +372,13 @@ def _read_feed(
     if alerts is None:
         return [], f"{label}: {note}"
     return row_builder(alerts), ""
+
+
+def _mark_dependabot_fixes(rows: list[dict[str, Any]]) -> str:
+    fixed, note = _fixed_dependabot_alerts_by_pr(rows)
+    for row in rows:
+        row["fixed_by_pr"] = str(row.get("number")) in fixed
+    return note
 
 
 def collect() -> tuple[list[dict[str, Any]], list[str]]:
@@ -361,9 +399,7 @@ def collect() -> tuple[list[dict[str, Any]], list[str]]:
     for path, label, row_builder in feeds:
         rows, note = _read_feed(path, label, row_builder)
         if label == "dependabot" and not note:
-            fixed, comparison_note = _fixed_dependabot_alerts_by_pr(rows)
-            for row in rows:
-                row["fixed_by_pr"] = str(row.get("number")) in fixed
+            comparison_note = _mark_dependabot_fixes(rows)
             if comparison_note:
                 notes.append(comparison_note)
         findings.extend(rows)
@@ -431,6 +467,10 @@ def _print_findings(findings: list[dict[str, Any]]) -> None:
               f"{finding['id']}  {finding['where']}")
 
 
+def _is_proven_pr_fix(item: dict[str, Any], scoped_pr: bool) -> bool:
+    return bool(scoped_pr and item["feed"] == "dependabot" and item.get("fixed_by_pr"))
+
+
 def _threshold_exit(
     findings: list[dict[str, Any]], threshold: str | None, *, scoped_pr: bool,
 ) -> int:
@@ -441,8 +481,7 @@ def _threshold_exit(
     # and package this PR updates to the first patched version; unrelated or
     # ambiguous findings continue to block. Push runs always check every feed.
     candidates = [item for item in findings
-                  if not (scoped_pr and item["feed"] == "dependabot"
-                          and item.get("fixed_by_pr"))]
+                  if not _is_proven_pr_fix(item, scoped_pr)]
     over = [item for item in candidates
             if _rank(item["severity"]) >= _rank(threshold)]
     if not over:
