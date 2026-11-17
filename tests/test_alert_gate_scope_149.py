@@ -533,7 +533,12 @@ def test_dependabot_pr_fix_requires_patched_version_in_same_manifest(
     clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
     alert = {
         "number": 7,
-        "security_advisory": {"severity": "high", "summary": "test advisory"},
+        "security_advisory": {"severity": "high", "summary": "test advisory",
+                              "vulnerabilities": [{
+                                  "package": {"name": "aiohttp", "ecosystem": "pip"},
+                                  "vulnerable_version_range": "< 3.14.4",
+                                  "first_patched_version": {"identifier": "3.14.4"},
+                              }]},
         "security_vulnerability": {
             "first_patched_version": {"identifier": "3.14.4"},
         },
@@ -582,7 +587,7 @@ def test_dependabot_alert_is_not_suppressed_by_other_file_or_old_version(
     clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
     row = {
         "number": 7, "ecosystem": "pip", "manifest_path": "requirements.lock",
-        "where": "aiohttp", "first_patched_version": "3.14.4",
+        "where": "aiohttp", "first_patched_version": "3.14.4", "proof_floor": "3.14.4",
     }
     monkeypatch.setattr(gate, "_pull_request_number", lambda: "475")
     monkeypatch.setattr(gate, "_get", lambda _path: ([{
@@ -740,7 +745,7 @@ def test_the_gate_module_does_not_shadow_arena_security() -> None:
 ])
 def test_patched_numeric_lower_bounds_are_recognized(gate, declaration: str) -> None:
     row = {"ecosystem": "pip", "manifest_path": "pyproject.toml", "where": "aiohttp",
-           "first_patched_version": "3.14.4"}
+           "first_patched_version": "3.14.4", "proof_floor": "3.14.4"}
     from arena.security_manifest_proof import manifest_fixes
     # The old diff parser accepted quoted PEP 621 additions. Now parse a full
     # TOML document for these cases, not a line pretending to be a manifest.
@@ -755,7 +760,7 @@ def test_patched_numeric_lower_bounds_are_recognized(gate, declaration: str) -> 
 ])
 def test_ambiguous_or_vulnerable_bounds_do_not_suppress_alert(gate, declaration: str) -> None:
     row = {"ecosystem": "pip", "manifest_path": "requirements.txt", "where": "aiohttp",
-           "first_patched_version": "3.14.4"}
+           "first_patched_version": "3.14.4", "proof_floor": "3.14.4"}
     from arena.security_manifest_proof import manifest_fixes
     assert not manifest_fixes(row["manifest_path"], declaration[1:], row["where"],
                               row["first_patched_version"])
@@ -770,8 +775,8 @@ def test_removed_manifest_fixes_only_its_own_alert(gate, clean_env, monkeypatch)
     monkeypatch.setattr(gate, "_event_head_sha", lambda: "a" * 40)
     monkeypatch.setattr(gate, "_get_object", lambda path: ({"truncated": False, "tree": []}, ""))
     rows = [{"number": 1, "ecosystem": "pip", "manifest_path": "requirements.txt",
-             "where": "aiohttp", "first_patched_version": "3.14.4"},
+             "where": "aiohttp", "first_patched_version": "3.14.4", "proof_floor": "3.14.4"},
             {"number": 2, "ecosystem": "pip", "manifest_path": "other.txt",
-             "where": "aiohttp", "first_patched_version": "3.14.4"}]
+             "where": "aiohttp", "first_patched_version": "3.14.4", "proof_floor": "3.14.4"}]
     fixed, _ = gate._fixed_dependabot_alerts_by_pr(rows)
     assert fixed == {"1"}

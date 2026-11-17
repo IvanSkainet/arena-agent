@@ -139,12 +139,12 @@ def test_rejects_incompatible_artifact_even_when_release_metadata_allows_it(
     _CHECK.assertEqual(refresh.collect("multidict"), ("7.1.0", ["b" * 64]))
 
 
-def test_hashes_keep_compatible_artifacts_and_exclude_incompatible_ones() -> None:
+def test_hashes_retain_artifacts_compatible_with_part_of_the_matrix() -> None:
     detail = _detail("7.2.0", ">=3.10", "a" * 64)
     incompatible = dict(detail["urls"][0], requires_python=">=3.11",
                         digests={"sha256": "b" * 64})
     detail["urls"].append(incompatible)
-    _CHECK.assertEqual(refresh._usable_hashes(detail), ["a" * 64])
+    _CHECK.assertEqual(refresh._usable_hashes(detail), ["a" * 64, "b" * 64])
 
 
 @pytest.mark.parametrize("version", ["bad-version", "7.3.0rc1", "7.3.0.dev1"])
@@ -163,28 +163,20 @@ def test_candidate_order_is_numeric_and_skips_empty_releases() -> None:
 def test_fetch_refuses_non_pypi_origins_before_connecting(monkeypatch, url: str) -> None:
     def unexpected_connection(*args, **kwargs):
         raise AssertionError("invalid origin reached the network")
-    monkeypatch.setattr(refresh.http.client, "HTTPSConnection", unexpected_connection)
+    monkeypatch.setattr(refresh.urllib.request, "urlopen", unexpected_connection)
     with pytest.raises(ValueError, match="only the HTTPS PyPI"):
         refresh._fetch(url)
 
 
-def test_fetch_uses_fixed_https_host_and_closes_connection(monkeypatch) -> None:
+def test_fetch_uses_fixed_https_origin_and_closes_response(monkeypatch) -> None:
     import io
 
     calls = []
-    class Connection:
-        def __init__(self, host, timeout):
-            calls.append((host, timeout))
-        def request(self, method, path, headers):
-            calls.append((method, path, headers))
-        def getresponse(self):
-            response = io.BytesIO(b'{"releases": {}}')
-            response.status = 200
-            return response
-        def close(self):
-            calls.append("closed")
-    monkeypatch.setattr(refresh.http.client, "HTTPSConnection", Connection)
+    response = io.BytesIO(b'{"releases": {}}')
+    def urlopen(request, timeout):
+        calls.append((request.full_url, timeout))
+        return response
+    monkeypatch.setattr(refresh.urllib.request, "urlopen", urlopen)
     _CHECK.assertEqual(refresh._fetch("https://pypi.org/pypi/aiohttp/json"), {"releases": {}})
-    _CHECK.assertEqual(calls, [("pypi.org", refresh.TIMEOUT_S),
-                              ("GET", "/pypi/aiohttp/json", {"Accept": "application/json"}),
-                              "closed"])
+    _CHECK.assertEqual(calls, [("https://pypi.org/pypi/aiohttp/json", refresh.TIMEOUT_S)])
+    _CHECK.assertTrue(response.closed)

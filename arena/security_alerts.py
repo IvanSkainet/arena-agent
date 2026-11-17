@@ -67,6 +67,7 @@ import urllib.request
 from typing import Any, Callable, TypeGuard, cast
 
 from arena import security_manifest_proof as manifest_proof
+from arena.security_advisory_proof import advisory_floor
 
 REPO = os.environ.get("ARENA_RELEASE_REPO", "IvanSkainet/arena-agent")
 TIMEOUT = 30
@@ -253,6 +254,8 @@ def _dependabot_row(alert: dict[str, Any]) -> dict[str, Any]:
         "ecosystem": package.get("ecosystem"),
         "manifest_path": dependency.get("manifest_path"),
         "first_patched_version": patched.get("identifier"),
+        "proof_floor": advisory_floor(advisory, str(package.get("name", "")),
+                                      str(package.get("ecosystem", ""))),
         "fixed_by_pr": False,
     }
 
@@ -269,7 +272,7 @@ def _dependabot_fix_identity(
     fields = (
         row.get("manifest_path"),
         row.get("where"),
-        row.get("first_patched_version"),
+        row.get("proof_floor"),
     )
     if not all(map(_nonempty_text, fields)):
         return None

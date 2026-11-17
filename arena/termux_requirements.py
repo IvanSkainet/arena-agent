@@ -35,13 +35,16 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
-import http.client
 import json
 import pathlib
 import sys
 import urllib.error
 import urllib.parse
+import urllib.request
 from typing import TYPE_CHECKING
+
+from arena.termux_artifacts import usable_hashes
+from arena.termux_validation import validate_closure
 
 if TYPE_CHECKING:
     from packaging.specifiers import InvalidSpecifier, SpecifierSet
@@ -102,16 +105,12 @@ def _fetch(url: str) -> dict:
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme != "https" or parsed.netloc != "pypi.org":
         raise ValueError("only the HTTPS PyPI JSON API is supported")
-    # nosemgrep: httpsconnection-detected -- supported Python >=3.10 verifies certificates/hostnames by default; fixed PyPI host
-    connection = http.client.HTTPSConnection("pypi.org", timeout=TIMEOUT_S)
-    try:
-        connection.request("GET", parsed.path, headers={"Accept": "application/json"})
-        response = connection.getresponse()
-        if response.status != 200:
-            raise urllib.error.URLError(f"PyPI returned HTTP {response.status}")
+    request = urllib.request.Request(url, headers={"Accept": "application/json"})
+    # Keep urllib's system/environment proxy handling. The origin was checked
+    # above; callers supply only PyPI metadata paths, never operator URLs.
+    # nosemgrep: dynamic-urllib-use-detected -- exact HTTPS pypi.org origin validated above, preserves HTTPS_PROXY
+    with urllib.request.urlopen(request, timeout=TIMEOUT_S) as response:  # nosec B310 -- exact HTTPS pypi.org origin validated above
         return json.load(response)
-    finally:
-        connection.close()
 
 
 def _relevant(filename: str, packagetype: str) -> bool:
@@ -170,14 +169,7 @@ def _supports_python(requires_python: str) -> bool:
 
 
 def _usable_hashes(detail: dict) -> list[str]:
-    """Hashes for relevant, non-yanked artifacts only."""
-    return sorted({
-        entry["digests"]["sha256"]
-        for entry in detail.get("urls", [])
-        if not entry.get("yanked", False)
-        and _relevant(entry["filename"], entry["packagetype"])
-        and _supports_python(entry.get("requires_python") or "")
-    })
+    return usable_hashes(detail, SUPPORTED_PYTHON_VERSIONS)
 
 
 def collect(package: str) -> tuple[str, list[str]]:
@@ -185,9 +177,6 @@ def collect(package: str) -> tuple[str, list[str]]:
     project = _fetch(f"https://pypi.org/pypi/{package}/json")
     for version in _candidate_versions(project.get("releases", {})):
         detail = _fetch(f"https://pypi.org/pypi/{package}/{version}/json")
-        requires_python = detail.get("info", {}).get("requires_python") or ""
-        if not _supports_python(requires_python):
-            continue
         digests = _usable_hashes(detail)
         if digests:
             return version, digests
@@ -272,7 +261,7 @@ def _collect_rows(
     for package in packages:
         try:
             version, digests = collect(package)
-        except (http.client.HTTPException, OSError, KeyError, RuntimeError) as exc:
+        except (OSError, ValueError, KeyError, RuntimeError) as exc:
             label = "optional " if optional else ""
             print(f"FAILED to resolve {label}{package}: {exc}", file=sys.stderr)
             if not optional:
@@ -287,26 +276,30 @@ def _collect_rows(
 
 def _pins(text: str) -> list[str]:
     return [line.strip() for line in text.splitlines()
-            if line.strip().startswith("--hash=")
-            or ("==" in line and not line.lstrip().startswith("#"))]
+            if line.strip() and not line.strip().startswith("# Verified against PyPI on ")]
 
 
-def _check_current(rendered: str) -> int:
-    if not TARGET.exists():
-        print(f"{TARGET} is missing", file=sys.stderr)
+def _check_current(rendered: str, target: pathlib.Path | None = None) -> int:
+    target = TARGET if target is None else target
+    if not target.exists():
+        print(f"{target} is missing", file=sys.stderr)
         return 1
     # Ignore the generated date; pins must be reproducible across days.
-    current = TARGET.read_text(encoding="utf-8")
+    current = target.read_text(encoding="utf-8")
     if _pins(current) != _pins(rendered):
-        print("requirements-termux.txt is out of date; run "
+        print(f"{target.name} is out of date; run "
               "scripts/refresh_termux_requirements.py", file=sys.stderr)
         return 1
-    print("requirements-termux.txt is current")
+    print(f"{target.name} is current")
     return 0
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=(
+        "Regenerate both hash-locked Termux requirements from PyPI; validate "
+        "dependency closure and artifact coverage for Python 3.10-3.14. "
+        "Install packaging first. --check verifies both files without writing."
+    ))
     parser.add_argument("--check", action="store_true",
                         help="fail if the committed file is out of date")
     args = parser.parse_args()
@@ -314,11 +307,18 @@ def main() -> int:
     if rows is None:
         return 2
     rendered = render(rows)
-    if args.check:
-        return _check_current(rendered)
     optional_rows = _collect_rows(OPTIONAL, optional=True)
     if optional_rows is None:
         return 2
+    try:
+        validate_closure(rows, _fetch, SUPPORTED_PYTHON_VERSIONS)
+        validate_closure(optional_rows, _fetch, SUPPORTED_PYTHON_VERSIONS, installed=rows)
+    except (OSError, ValueError, KeyError, RuntimeError) as exc:
+        print(f"FAILED to validate dependency closure: {exc}", file=sys.stderr)
+        return 2
+    if args.check:
+        return max(_check_current(rendered), _check_current(
+            render(optional_rows, header=OPTIONAL_HEADER), OPTIONAL_TARGET))
     TARGET.write_text(rendered, encoding="utf-8")
     OPTIONAL_TARGET.write_text(
         render(optional_rows, header=OPTIONAL_HEADER), encoding="utf-8")

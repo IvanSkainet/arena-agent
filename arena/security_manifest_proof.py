@@ -18,14 +18,14 @@ def normalise(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def _numeric(version: str) -> tuple[int, ...] | None:
+def numeric_version(version: str) -> tuple[int, ...] | None:
     if not re.fullmatch(r"\d+(?:\.\d+)*", version):
         return None
     return tuple(map(int, version.split(".")))
 
 
-def _at_least(candidate: str, minimum: str) -> bool:
-    left, right = _numeric(candidate), _numeric(minimum)
+def numeric_at_least(candidate: str, minimum: str) -> bool:
+    left, right = numeric_version(candidate), numeric_version(minimum)
     if left is None or right is None:
         return False
     width = max(len(left), len(right))
@@ -126,7 +126,7 @@ def _parse_declarations(lines: list[str]) -> list[tuple[str, list[tuple[str, str
 
 
 def _patched_bounds(bounds: list[tuple[str, str]], minimum: str) -> bool:
-    return any(op in ("==", ">=", "~=") and _at_least(version, minimum)
+    return any(op in ("==", ">=", "~=") and numeric_at_least(version, minimum)
                for op, version in bounds)
 
 

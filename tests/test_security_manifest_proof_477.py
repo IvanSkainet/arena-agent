@@ -14,7 +14,7 @@ HEAD = "a" * 40
 BLOB = "b" * 40
 PATH = "requirements.txt"
 ROW = {"number": 1, "ecosystem": "pip", "manifest_path": PATH,
-       "where": "aiohttp", "first_patched_version": "3.14.4"}
+       "where": "aiohttp", "first_patched_version": "3.14.4", "proof_floor": "3.14.4"}
 
 
 @pytest.mark.parametrize("text", [

@@ -17,12 +17,11 @@
 # wheel when the ABI does match. Omitting the artifact pip actually
 # picks would fail the install rather than skip the check.
 #
-# Verified against PyPI on 2026-11-15.
+# Verified against PyPI on 2026-09-05.
 
 
 aiohttp==3.14.5 \
     --hash=sha256:5558a7f5a05af9ecf744af91e5baefc436f93c9333e656c27ec253f9a6bbe178 \
-    --hash=sha256:788ecaa9c10533b786ce5ba70c4f2df78ad41819fd00a6c99d92b66f9a32e1da \
     --hash=sha256:939042d5cda21d41a6f512e7cc8b8e33a2aebff863352251da495fbd91b673b5 \
     --hash=sha256:9ad7e6aa38c20da1be697874349c4c273c8a03b7887169665081706398d0439a \
     --hash=sha256:efc21a454892828368b11c2c780de0ff8bc991f73f6b99c6b66e56205470929b
