@@ -1,14 +1,16 @@
 """T72: a clean pip-audit result must cover the requirements it audited."""
 from __future__ import annotations
 
+import io
 import json
-import subprocess
-import sys
 import tempfile
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import TestCase
 
 from arena.security_audit_coverage import check_coverage
+from scripts import security_gate
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,6 +35,14 @@ class AuditCoverageTests(TestCase):
         for dependencies in cases:
             with self.subTest(dependencies=dependencies), self.assertRaises(ValueError):
                 check_coverage(dependencies, "demo>=2")
+
+    def test_bootstrap_packages_are_not_exempt_from_coverage(self):
+        for name in ("pip", "setuptools", "wheel"):
+            text = "demo>=2\n" + name + ">=2"
+            with self.subTest(name=name):
+                with self.assertRaises(ValueError):
+                    check_coverage([_dependency()], text)
+                check_coverage([_dependency(), _dependency(name)], text)
 
     def test_requirements_are_intersected_not_overwritten(self):
         with self.assertRaises(ValueError):
@@ -61,11 +71,16 @@ class AuditCoverageTests(TestCase):
         report_path.write_text(json.dumps(report), encoding="utf-8")
         requirements_path = directory / "requirements.txt"
         requirements_path.write_text(requirements, encoding="utf-8")
-        args = [sys.executable, str(ROOT / "scripts" / "security_gate.py"),
-                "pip-audit", str(report_path)]
+        args = ["security_gate.py", "pip-audit", str(report_path)]
         if not omit_input:
             args.extend(["--requirements", str(requirements_path)])
-        return subprocess.run(args, cwd=ROOT, capture_output=True, text=True, timeout=15)
+        return self._run_gate(args)
+
+    def _run_gate(self, args):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            result = security_gate.main(args)
+        return SimpleNamespace(returncode=result, stdout=stdout.getvalue(), stderr=stderr.getvalue())
 
     def test_cli_empty_missing_coverage_and_cve_are_distinct_from_clean(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -92,10 +107,9 @@ class AuditCoverageTests(TestCase):
             directory = Path(temporary)
             report = directory / "audit.json"
             report.write_text(json.dumps({"dependencies": [_dependency()]}), encoding="utf-8")
-            result = subprocess.run(
-                [sys.executable, str(ROOT / "scripts" / "security_gate.py"), "pip-audit",
-                 str(report), "--requirements", str(directory / "absent")],
-                cwd=ROOT, capture_output=True, text=True, timeout=15)
+            result = self._run_gate(
+                ["security_gate.py", "pip-audit", str(report),
+                 "--requirements", str(directory / "absent")])
             self.assertEqual(result.returncode, 2)
             self.assertIn("coverage", result.stderr)
 
@@ -106,3 +120,6 @@ class AuditCoverageTests(TestCase):
                       workflow)
         self.assertIn("security_gate.py pip-audit /tmp/pip-audit-local.json "
                       "--requirements /tmp/runtime-reqs.txt", makefile)
+        self.assertIn("PIP_IGNORE_INSTALLED=1 pip-audit --requirement runtime-reqs.txt", workflow)
+        self.assertIn("PIP_IGNORE_INSTALLED=1 pip-audit --requirement /tmp/runtime-reqs.txt",
+                      makefile)

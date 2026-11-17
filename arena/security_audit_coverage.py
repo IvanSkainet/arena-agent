@@ -30,9 +30,7 @@ def _requirements(text: str) -> list[Requirement]:
 
 
 def _dependency_name(dependency: dict) -> str:
-    name = dependency.get("name")
-    if not isinstance(name, str) or not name.strip():
-        raise ValueError("audit inventory has a missing dependency name")
+    name = _nonempty_text(dependency.get("name"))
     if "skip_reason" in dependency:
         raise ValueError("audit inventory contains an unaudited dependency")
     return canonicalize_name(name, validate=True)
@@ -80,22 +78,33 @@ def check_coverage(dependencies: list[dict], requirements_text: str,
             _check_requirement(requirement, inventory)
 
 
-def _validate_dependency(dependency: Any) -> None:
-    if not isinstance(dependency, dict):
-        raise ValueError("pip-audit dependency must be an object")
-    fields = (dependency.get("name"), dependency.get("version"))
-    if not all(isinstance(value, str) for value in fields):
-        raise ValueError("pip-audit dependency has invalid name/version fields")
-    vulns = dependency.get("vulns")
-    if not isinstance(vulns, list) or any(not isinstance(vuln, dict) for vuln in vulns):
-        raise ValueError("pip-audit dependency has invalid vulnerabilities")
+def _as_object(value: Any) -> dict:
+    if not isinstance(value, dict):
+        raise ValueError("pip-audit dependency/finding must be an object")
+    return value
+
+
+def _object_array(value: Any, label: str) -> list[dict]:
+    if not isinstance(value, list):
+        raise ValueError(f"pip-audit report must contain a {label} array")
+    return [_as_object(item) for item in value]
+
+
+def _nonempty_text(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("audit inventory has a missing name/version field")
+    return value
+
+
+def _validate_dependency(dependency: dict) -> None:
+    for field in ("name", "version"):
+        _nonempty_text(dependency.get(field))
+    _object_array(dependency.get("vulns"), "vulnerabilities")
 
 
 def report_dependencies(report: dict) -> list[dict]:
     """Require a well-formed inventory even when the scanner exits zero."""
-    dependencies = report.get("dependencies")
-    if not isinstance(dependencies, list):
-        raise ValueError("pip-audit report must contain a dependencies array")
+    dependencies = _object_array(report.get("dependencies"), "dependencies")
     for dependency in dependencies:
         _validate_dependency(dependency)
     return dependencies
@@ -103,6 +112,6 @@ def report_dependencies(report: dict) -> list[dict]:
 
 def finding_lines(dependencies: list[dict]) -> list[str]:
     """Render validated findings without changing the CVE blocking policy."""
-    return [f"FAIL: CVE in {dep['name']}=={dep['version']}: "
-            f"{vuln.get('id')} -- fix: {vuln.get('fix_versions')}"
-            for dep in dependencies for vuln in dep["vulns"]]
+    return ["FAIL: CVE in {}=={}: {} -- fix: {}".format(
+        dep["name"], dep["version"], vuln.get("id"), vuln.get("fix_versions"))
+        for dep in dependencies for vuln in dep["vulns"]]

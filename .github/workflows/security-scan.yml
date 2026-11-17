@@ -524,7 +524,9 @@ jobs:
       - name: Run pip-audit
         run: |
           set +e
-          pip-audit --requirement runtime-reqs.txt --format json \
+          # pip-audit uses pip's dry-run report: force all requested packages
+          # into that inventory, including already bootstrapped setuptools/wheel.
+          PIP_IGNORE_INSTALLED=1 pip-audit --requirement runtime-reqs.txt --format json \
               --output pip-audit.json
           scanner_rc=$?
           set -e

@@ -89,7 +89,7 @@ security-semgrep:
 security-pip-audit:
 	@echo "-- pip-audit --"
 	@$(PYTHON) scripts/extract_runtime_reqs.py > /tmp/runtime-reqs.txt
-	@set +e; pip-audit --requirement /tmp/runtime-reqs.txt --format json \
+	@set +e; PIP_IGNORE_INSTALLED=1 pip-audit --requirement /tmp/runtime-reqs.txt --format json \
 	    --output /tmp/pip-audit-local.json > /dev/null 2>&1; \
 	  scanner_rc=$$?; set -e; \
 	  $(PYTHON) scripts/scanner_contract_gate.py --tool pip-audit --exit-code "$$scanner_rc" --allowed-exits 0,1
