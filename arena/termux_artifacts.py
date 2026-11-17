@@ -102,8 +102,10 @@ def usable_hashes(detail: dict, versions: tuple[str, ...]) -> list[str]:
         if not compatible:
             return []
         hashes.update(entry["digests"]["sha256"] for entry in compatible)
-    for entry in entries:
-        if any(_artifact_matches(entry, version, fallback)
-               for version in _additional_wheel_versions(entry)):
-            hashes.add(entry["digests"]["sha256"])
-    return sorted(hashes)
+    return sorted(hashes | _published_wheel_hashes(entries, fallback))
+
+
+def _published_wheel_hashes(entries: list[dict], fallback: str) -> set[str]:
+    return {entry["digests"]["sha256"] for entry in entries
+            if any(_artifact_matches(entry, version, fallback)
+                   for version in _additional_wheel_versions(entry))}
