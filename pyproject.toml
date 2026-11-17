@@ -30,7 +30,6 @@ full = [
     "requests>=2.32",
     "certifi>=2026.10.19",
     "idna>=3.15",
-    "beautifulsoup4>=4.12",
 ]
 # Tooling for contributors. v4.61.0 adds:
 #   * hypothesis>=6.0  -- property-based testing (skip if missing, tests self-skip)

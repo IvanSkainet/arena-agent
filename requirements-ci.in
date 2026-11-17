@@ -23,7 +23,6 @@ psutil==7.2.2
 websockets==16.1.1
 requests==2.34.2
 idna==3.19
-beautifulsoup4==4.15.0
 # The Termux requirements generator uses PEP 440 parsing; keep it available
 # directly rather than relying on an unrelated tool's transitive dependency.
 packaging==26.2

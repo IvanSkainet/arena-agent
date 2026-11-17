@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import pathlib
+from unittest import TestCase
 
 import pytest
 
 from arena import security_alerts as gate
+
+CHECK = TestCase()
 
 
 @pytest.fixture
@@ -43,7 +46,7 @@ def test_event_reader_rejects_untrusted_locations_before_open(
         raise AssertionError("untrusted event path reached open")
 
     monkeypatch.setattr(pathlib.Path, "open", forbidden_open)
-    assert gate._event_payload() is None
+    CHECK.assertIsNone(gate._event_payload())
 
 
 def test_event_reader_rejects_symlink_to_outside_file(runner_environment):
@@ -55,19 +58,19 @@ def test_event_reader_rejects_symlink_to_outside_file(runner_environment):
         event.symlink_to(outside)
     except (OSError, NotImplementedError):
         pytest.skip("symlink creation requires filesystem/OS support")
-    assert gate._event_payload() is None
+    CHECK.assertIsNone(gate._event_payload())
 
 
 def test_event_reader_rejects_oversized_payload(runner_environment):
     event = runner_environment
     event.write_text('{"value":"' + 'x' * (8 * 1024 * 1024) + '"}', encoding="utf-8")
-    assert gate._event_payload() is None
+    CHECK.assertIsNone(gate._event_payload())
 
 
 def test_event_reader_rejects_non_regular_file(runner_environment):
     event = runner_environment
     event.mkdir()
-    assert gate._event_payload() is None
+    CHECK.assertIsNone(gate._event_payload())
 
 
 def test_event_reader_rejects_symlinked_workflow_directory(runner_environment):
@@ -81,4 +84,4 @@ def test_event_reader_rejects_symlinked_workflow_directory(runner_environment):
         directory.symlink_to(outside, target_is_directory=True)
     except (OSError, NotImplementedError):
         pytest.skip("directory symlinks require filesystem/OS support")
-    assert gate._event_payload() is None
+    CHECK.assertIsNone(gate._event_payload())

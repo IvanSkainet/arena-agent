@@ -799,7 +799,7 @@ def test_regular_feed_auth_fallback_stays_out_of_diagnostics(
 
     monkeypatch.setattr(gate.urllib.request, "urlopen", unavailable)
     data, note = gate._request_json("/code-scanning/alerts?state=open")
-    assert data is None
-    assert seen == [f"Bearer {job_value or 'fallback-job-value'}"]
-    assert "preferred-job-value" not in note
-    assert "fallback-job-value" not in note
+    _CHECK.assertIsNone(data)
+    _CHECK.assertEqual(seen, [f"Bearer {job_value or 'fallback-job-value'}"])
+    _CHECK.assertNotIn("preferred-job-value", note)
+    _CHECK.assertNotIn("fallback-job-value", note)

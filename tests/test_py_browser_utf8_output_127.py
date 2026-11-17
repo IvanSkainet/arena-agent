@@ -107,13 +107,13 @@ def search_shim(tmp_path, ddg_stub):
     # can never reach the real network (an earlier draft only pinned `get`
     # and silently scraped the live endpoint).
     shim.write_text(
-        "import sys, requests\n"
+        "import sys, requests, runpy\n"
         f"_STUB = {json.dumps(ddg_stub)}\n"
         "_get, _post = requests.get, requests.post\n"
         "requests.get = lambda url, **kw: _get(_STUB, **kw)\n"
         "requests.post = lambda url, **kw: _post(_STUB, **kw)\n"
         'sys.argv = ["py_browser.py"] + sys.argv[1:]\n'
-        f"exec(open({json.dumps(str(PY_BROWSER))}, encoding='utf-8').read())\n",
+        f"runpy.run_path({json.dumps(str(PY_BROWSER))}, run_name='__main__')\n",
         encoding="utf-8",
     )
     return shim

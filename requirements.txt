@@ -13,4 +13,3 @@ requests>=2.32
 # GHSA-6q48-6c7w-9gw2: require the fixed CA bundle, not an older transitive pin.
 certifi>=2026.10.19
 idna>=3.15
-beautifulsoup4>=4.12

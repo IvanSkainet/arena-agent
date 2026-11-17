@@ -167,4 +167,4 @@ def test_unbounded_abi_suffix_is_rejected_without_integer_conversion() -> None:
 def test_wheel_only_release_above_api_floor_or_wrong_platform_is_unusable(platform):
     from arena.termux_artifacts import usable_hashes
     wheel = _artifact(f"demo-1.0-py3-none-{platform}.whl", "bdist_wheel", ">=3.10", "a")
-    assert usable_hashes({"info": {}, "urls": [wheel]}, ("3.10",)) == []
+    CHECK.assertEqual(usable_hashes({"info": {}, "urls": [wheel]}, ("3.10",)), [])
