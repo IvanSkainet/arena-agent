@@ -6,7 +6,7 @@ Usage::
 
     python3 scripts/security_gate.py bandit /tmp/bandit.json
     python3 scripts/security_gate.py semgrep /tmp/semgrep.json
-    python3 scripts/security_gate.py pip-audit /tmp/pip-audit.json
+    python3 scripts/security_gate.py pip-audit /tmp/pip-audit.json --requirements /tmp/runtime-reqs.txt
 
 Extracted from CI + Makefile so both call the same logic; means
 "passes locally" also means "passes in CI". See SECURITY.md for
@@ -32,6 +32,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from pathlib import Path
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
 def _load(path: str) -> dict:
@@ -102,56 +103,40 @@ def check_semgrep(report_path: str) -> int:
     return 1
 
 
-def check_pip_audit(report_path: str) -> int:
-    """Fail on any CVE in the runtime + full-extras deps."""
-    d = _load(report_path)
-    deps = d.get("dependencies")
-    if not isinstance(deps, list):
-        print("error: pip-audit report must contain a dependencies array", file=sys.stderr)
+def check_pip_audit(report_path: str, requirements_path: str | None = None) -> int:
+    """Require full input coverage, then fail on any CVE in the audited deps."""
+    from arena.security_audit_coverage import check_coverage, finding_lines, report_dependencies
+
+    report = _load(report_path)
+    try:
+        deps = report_dependencies(report)
+        if requirements_path is None:
+            raise ValueError("pip-audit requires its requested requirements file")
+        check_coverage(deps, Path(requirements_path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as exc:
+        print(f"error: pip-audit coverage: {exc}", file=sys.stderr)
         return 2
-    if any(not isinstance(dep, dict) for dep in deps):
-        print("error: pip-audit dependency must be an object", file=sys.stderr)
-        return 2
-    for dep in deps:
-        vulns = dep.get("vulns")
-        if (
-            not isinstance(dep.get("name"), str)
-            or not isinstance(dep.get("version"), str)
-            or not isinstance(vulns, list)
-            or any(not isinstance(vuln, dict) for vuln in vulns)
-        ):
-            print("error: pip-audit dependency has missing/invalid required fields", file=sys.stderr)
-            return 2
-    any_cve = False
-    for dep in deps:
-        vulns = dep.get("vulns") or []
-        if vulns:
-            any_cve = True
-            for v in vulns:
-                print(
-                    f"FAIL: CVE in {dep['name']}=={dep['version']}: "
-                    f"{v.get('id')} -- fix: {v.get('fix_versions')}"
-                )
-    if any_cve:
-        print(
-            "\nUpgrade the affected dep(s) to a fixed version and "
-            "re-run `make security-pip-audit`."
-        )
+    findings = finding_lines(deps)
+    for line in findings:
+        print(line)
+    if findings:
+        print("\nUpgrade the affected dep(s) to a fixed version and "
+              "re-run `make security-pip-audit`.")
         return 1
     print(f"OK: pip-audit clean ({len(deps)} deps scanned)")
     return 0
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 3 or argv[1] not in ("bandit", "semgrep", "pip-audit"):
+    if len(argv) == 5 and argv[1] == "pip-audit" and argv[3] == "--requirements":
+        return check_pip_audit(argv[2], argv[4])
+    if len(argv) != 3 or argv[1] not in ("bandit", "semgrep"):
         print(__doc__, file=sys.stderr)
         return 2
     tool = argv[1]
     if tool == "bandit":
         return check_bandit(argv[2])
-    if tool == "semgrep":
-        return check_semgrep(argv[2])
-    return check_pip_audit(argv[2])
+    return check_semgrep(argv[2])
 
 
 if __name__ == "__main__":

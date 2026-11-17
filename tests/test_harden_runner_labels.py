@@ -198,3 +198,11 @@ def test_osv_artifact_receiver_alias_does_not_require_disabling_block_mode():
     upload = next(step for step in steps if step.get("uses", "").startswith("actions/upload-artifact@"))
     TestCase().assertFalse(upload.get("continue-on-error", False))
     TestCase().assertEqual(upload["with"]["if-no-files-found"], "error")
+
+
+def test_harden_runner_does_not_regress_to_pre_dns_proxy_fix():
+    # v2.21.0's agent can reject allowed hosts under GitHub's resolver/proxy
+    # experiment (#479). The v2.22.4 pin includes the upstream default-on fix.
+    old = "step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c"
+    for workflow, job, step in _harden_runner_steps():
+        TestCase().assertNotEqual(step["uses"], old, f"{workflow}:{job}")

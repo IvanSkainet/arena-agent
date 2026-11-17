@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -95,7 +95,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -172,7 +172,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # scans history already on disk, but ships as a Docker action, so
@@ -204,7 +204,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # scans commits already on disk.
@@ -235,7 +235,7 @@ jobs:
       vulnerability-alerts: read
     steps:
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -283,7 +283,7 @@ jobs:
       contents: read
     steps:
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # queries the OSV database, uploads SARIF.
@@ -346,7 +346,7 @@ jobs:
       contents: read
     steps:
       - name: Harden Runner (audit mode, egress visibility)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -397,7 +397,7 @@ jobs:
       contents: read
     steps:
       - name: Harden Runner (audit mode, egress visibility)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -432,7 +432,7 @@ jobs:
       contents: read
     steps:
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # static linter; uploads a SARIF artifact.
@@ -487,7 +487,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -532,7 +532,7 @@ jobs:
             --tool pip-audit --exit-code "$scanner_rc" --allowed-exits 0,1
 
       - name: Gate on any CVE
-        run: python3 scripts/security_gate.py pip-audit pip-audit.json
+        run: python3 scripts/security_gate.py pip-audit pip-audit.json --requirements runtime-reqs.txt
 
       - name: Upload pip-audit report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

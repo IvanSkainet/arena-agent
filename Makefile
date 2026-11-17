@@ -93,7 +93,7 @@ security-pip-audit:
 	    --output /tmp/pip-audit-local.json > /dev/null 2>&1; \
 	  scanner_rc=$$?; set -e; \
 	  $(PYTHON) scripts/scanner_contract_gate.py --tool pip-audit --exit-code "$$scanner_rc" --allowed-exits 0,1
-	@$(PYTHON) scripts/security_gate.py pip-audit /tmp/pip-audit-local.json
+	@$(PYTHON) scripts/security_gate.py pip-audit /tmp/pip-audit-local.json --requirements /tmp/runtime-reqs.txt
 
 # Install the three security tools. Split so a contributor who only
 # wants to run the scan doesn't drag in all test dependencies.
