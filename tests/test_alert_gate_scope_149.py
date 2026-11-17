@@ -378,9 +378,8 @@ def test_the_other_two_feeds_are_never_scoped(gate, clean_env, monkeypatch):
             _CHECK.assertNotIn("ref=", path, path)
 
 
-def test_the_ref_is_url_encoded(gate, clean_env, monkeypatch, tmp_path):
-    """`refs/pull/N/head` has slashes; they must survive as slashes and
-    nothing else may sneak through unescaped."""
+def test_non_numeric_event_number_is_refused_before_url_construction(gate, clean_env, monkeypatch, tmp_path):
+    """An invalid event number must never become an empty scoped query."""
     payload = tmp_path / "_github_workflow" / "event.json"
     payload.write_text(json.dumps({"number": "149 &evil"}), encoding="utf-8")
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
@@ -394,6 +393,7 @@ def test_the_ref_is_url_encoded(gate, clean_env, monkeypatch, tmp_path):
         payload.unlink()
 
     code_scanning = [p for p in seen if p.startswith("/code-scanning")]
+    _CHECK.assertNotIn("ref=", code_scanning[0])
     _CHECK.assertNotIn(" ", code_scanning[0], code_scanning[0])
     _CHECK.assertNotIn(
         "&evil",
@@ -781,7 +781,7 @@ def test_removed_manifest_fixes_only_its_own_alert(gate, clean_env, monkeypatch)
             {"number": 2, "ecosystem": "pip", "manifest_path": "other.txt",
              "where": "aiohttp", "first_patched_version": "3.14.4", "proof_floor": "3.14.4"}]
     fixed, _ = gate._fixed_dependabot_alerts_by_pr(rows)
-    assert fixed == {"1"}
+    _CHECK.assertEqual(fixed, {"1"})
 
 
 @pytest.mark.parametrize("job_value", [None, "", "preferred-job-value"])

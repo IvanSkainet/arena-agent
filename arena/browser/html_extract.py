@@ -9,6 +9,20 @@ MAX_DEPTH = 512
 MAX_ELEMENTS = 100_000
 _VOID = frozenset("area base br col embed hr img input link meta param source track wbr".split())
 _HIDDEN = frozenset(("script", "style", "template"))
+_P_CLOSE = frozenset(("address article aside blockquote div dl fieldset footer form h1 h2 h3 h4 h5 h6 "
+                      "header hgroup hr main menu nav ol p pre section table ul").split())
+_IMPLIED = {
+    "li": (("li",), ("ul", "ol", "menu")),
+    "dt": (("dt", "dd"), ("dl",)), "dd": (("dt", "dd"), ("dl",)),
+    "rt": (("rt", "rp"), ("ruby",)), "rp": (("rt", "rp"), ("ruby",)),
+    "option": (("option",), ("select", "datalist", "optgroup")),
+    "optgroup": (("optgroup",), ("select", "datalist")),
+    "tr": (("tr",), ("table", "thead", "tbody", "tfoot")),
+    "td": (("td", "th"), ("tr", "table")), "th": (("td", "th"), ("tr", "table")),
+    "thead": (("thead", "tbody", "tfoot"), ("table",)),
+    "tbody": (("thead", "tbody", "tfoot"), ("table",)),
+    "tfoot": (("thead", "tbody", "tfoot"), ("table",)),
+}
 
 
 def _text(parts: list[str], separator: str = "") -> str:
@@ -39,17 +53,20 @@ class _Context:
 
 
 class ExtractedPage(HTMLParser):
-    """Extract fixed fields, never compile or evaluate CSS selectors.
+    """
+    Extract fixed fields, never compile or evaluate CSS selectors.
 
     Deliberately not a browser DOM or a replacement for arbitrary BeautifulSoup
     APIs. Input, element count and stack depth are bounded; no recursive walks.
     """
 
     def __init__(self, markup: str):
+        """Parse bounded markup using an indexed, non-recursive context stack."""
         super().__init__(convert_charrefs=True)
         if len(markup) > MAX_MARKUP:
             raise ValueError("HTML exceeds extraction size limit")
         self._stack: list[_Context] = []
+        self._open: dict[str, list[int]] = {}
         self._parts: list[str] = []
         self._titles: list[str] = []
         self._title_seen = False
@@ -59,11 +76,13 @@ class ExtractedPage(HTMLParser):
         self.close()
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._close_implied(tag)
         self._elements += 1
         if self._elements > MAX_ELEMENTS or len(self._stack) >= MAX_DEPTH:
             raise ValueError("HTML exceeds extraction structure limit")
         context = self._context(tag, attrs)
         if tag not in _VOID:
+            self._open.setdefault(tag, []).append(len(self._stack))
             self._stack.append(context)
 
     def _context(self, tag: str, attrs: list[tuple[str, str | None]]) -> _Context:
@@ -82,17 +101,43 @@ class ExtractedPage(HTMLParser):
         return context
 
     def _attach_link(self, context: _Context, values: dict[str, str | None], classes: list[str]) -> None:
+        if context.hidden:
+            return
         if context.tag == "a" and "href" in values:
             context.link = _Link(values["href"] or "", "result__a" in classes, context.result)
             self._links.append(context.link)
 
+    def _last_open(self, tags: tuple[str, ...]) -> int:
+        return max((self._open[tag][-1] for tag in tags if tag in self._open), default=-1)
+
+    def _close_in_scope(self, targets: tuple[str, ...], barriers: tuple[str, ...]) -> None:
+        index = self._last_open(targets)
+        if index > self._last_open(barriers):
+            self._truncate(index)
+
+    def _close_implied(self, tag: str) -> None:
+        # These common optional end tags must not turn shallow valid HTML into
+        # apparent deep nesting. Scope barriers preserve nested lists/tables.
+        if tag in _P_CLOSE:
+            self._close_in_scope(("p",), ("button", "table", "td", "th", "html"))
+        if tag == "optgroup":
+            self._close_in_scope(("option",), ("select", "datalist"))
+        targets, barriers = _IMPLIED.get(tag, ((), ()))
+        self._close_in_scope(targets, barriers)
+
+    def _truncate(self, index: int) -> None:
+        # Each pushed context is removed once: total work is amortized linear.
+        while len(self._stack) > index:
+            tag = self._stack.pop().tag
+            positions = self._open[tag]
+            positions.pop()
+            if not positions:
+                del self._open[tag]
+
     def handle_endtag(self, tag: str) -> None:
-        # Tolerate missing/mismatched end tags without recursion. Work per
-        # token is bounded by MAX_DEPTH even for hostile malformed input.
-        for index in range(len(self._stack) - 1, -1, -1):
-            if self._stack[index].tag == tag:
-                del self._stack[index:]
-                return
+        positions = self._open.get(tag)
+        if positions:
+            self._truncate(positions[-1])
 
     def handle_data(self, data: str) -> None:
         context = self._stack[-1] if self._stack else _Context()

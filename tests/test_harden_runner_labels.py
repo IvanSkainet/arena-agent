@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from unittest import TestCase
 
 import pytest
 import yaml
@@ -177,9 +178,23 @@ def test_allowed_endpoints_are_all_host_port_pairs():
     "npm ci", "npm install", "npm i", "npm update", "npm exec oxlint", "npx oxlint",
 ])
 def test_npm_network_command_detection(command: str) -> None:
-    assert _installs_from_npm({"steps": [{"run": command}]})
+    TestCase().assertTrue(_installs_from_npm({"steps": [{"run": command}]}))
 
 
 @pytest.mark.parametrize("command", ["npm --version", "npm run test", "echo pnpm install"])
 def test_npm_non_install_commands_do_not_require_registry(command: str) -> None:
-    assert not _installs_from_npm({"steps": [{"run": command}]})
+    TestCase().assertFalse(_installs_from_npm({"steps": [{"run": command}]}))
+
+
+def test_osv_artifact_receiver_alias_does_not_require_disabling_block_mode():
+    workflow = yaml.safe_load((WORKFLOWS[0].parent / "security-scan.yml").read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["osv-scanner"]["steps"]
+    harden = next(step for step in steps if step.get("uses", "").startswith("step-security/harden-runner@"))
+    settings = harden["with"]
+    TestCase().assertEqual(settings["egress-policy"], "block")
+    endpoints = settings["allowed-endpoints"].split()
+    TestCase().assertIn("results-receiver.actions.githubusercontent.com:443", endpoints)
+    TestCase().assertIn("actions-results-receiver-production.githubapp.com:443", endpoints)
+    upload = next(step for step in steps if step.get("uses", "").startswith("actions/upload-artifact@"))
+    TestCase().assertFalse(upload.get("continue-on-error", False))
+    TestCase().assertEqual(upload["with"]["if-no-files-found"], "error")

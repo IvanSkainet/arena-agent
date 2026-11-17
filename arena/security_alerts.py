@@ -84,13 +84,11 @@ def _number_from_ref(ref: str) -> str:
 
 
 def _runner_event_path(requested: str) -> Path | None:
-    """Accept only the runner-owned event location, never an arbitrary file.
-
-    RUNNER_TEMP is trusted runner configuration, not event data. Hosted and
-    self-hosted runners put the event in its _github_workflow directory;
-    container actions mount it at /github/workflow/event.json. This does not
-    defend against another process with the runner user's filesystem rights.
-    """
+    """Accept only the runner-owned event location, never an arbitrary file."""
+    # RUNNER_TEMP is trusted runner configuration, not event data. Hosted and
+    # self-hosted runners use its _github_workflow directory; containers mount
+    # /github/workflow/event.json. This does not defend against another
+    # process with the runner user's filesystem rights.
     path = Path(requested)
     if not path.is_absolute() or ".." in path.parts:
         return None
@@ -117,7 +115,7 @@ def _event_payload(payload_path: str | None = None) -> dict[str, Any] | None:
         if len(text) > 8 * 1024 * 1024:
             return None
         payload = json.loads(text)
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return None
     return payload if isinstance(payload, dict) else None
 
@@ -159,13 +157,9 @@ def _repository_name(value: Any) -> str:
 
 
 def code_scanning_ref() -> str | None:
-    """
-    The PR head ref, or None when the run is not safely scopeable.
-
-    Repository-wide CodeQL findings would otherwise deadlock the PR that
-    fixes them. A malformed event falls back to repo-wide inspection rather
-    than constructing a ref that would look like an empty alert list.
-    """
+    """Return the PR head ref, or None when the run is not safely scopeable."""
+    # Repository-wide CodeQL findings would deadlock the PR that fixes them.
+    # Malformed events fall back to repo-wide inspection, never an empty ref.
     if not os.environ.get("GITHUB_EVENT_NAME", "").startswith("pull_request"):
         return None
     number = _number_from_ref(os.environ.get("GITHUB_REF", ""))

@@ -173,6 +173,7 @@ def test_fetch_uses_fixed_https_origin_and_closes_response(monkeypatch) -> None:
 
     calls = []
     response = io.BytesIO(b'{"releases": {}}')
+
     def urlopen(request, timeout):
         calls.append((request.full_url, request.get_header("Accept"), timeout))
         return response

@@ -96,10 +96,11 @@ def test_fetch_preserves_stdlib_https_proxy_handling(monkeypatch) -> None:
 
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example.test:8080")
     opener = refresh._pypi_opener()
-    proxies = [handler.proxies.get("https") for handler in opener.handlers
+    proxies = [vars(handler)["proxies"].get("https") for handler in vars(opener)["handlers"]
                if isinstance(handler, urllib.request.ProxyHandler)]
     CHECK.assertIn("http://proxy.example.test:8080", proxies)
     calls = []
+
     def open_request(request, timeout):
         calls.append((request.full_url, timeout))
         return io.BytesIO(b'{}')
@@ -142,7 +143,7 @@ def test_redirect_cannot_supply_metadata(url, status) -> None:
     request = urllib.request.Request("https://pypi.org/pypi/demo/json")
     opener = refresh._pypi_opener()
     CHECK.assertFalse(any(isinstance(handler, urllib.request.HTTPRedirectHandler)
-                          for handler in opener.handlers))
+                          for handler in vars(opener)["handlers"]))
     with pytest.raises(urllib.error.HTTPError) as raised:
         opener.error("http", request, io.BytesIO(b'untrusted'), status, "Redirect", {"Location": url})
     CHECK.assertEqual(raised.value.code, status)
@@ -165,6 +166,17 @@ def test_unbounded_abi_suffix_is_rejected_without_integer_conversion() -> None:
                                       "android_24_x86_64", "android_aarch64",
                                       "not_android_24_arm64_v8a", "android_0_aarch64"])
 def test_wheel_only_release_above_api_floor_or_wrong_platform_is_unusable(platform):
-    from arena.termux_artifacts import usable_hashes
     wheel = _artifact(f"demo-1.0-py3-none-{platform}.whl", "bdist_wheel", ">=3.10", "a")
     CHECK.assertEqual(usable_hashes({"info": {}, "urls": [wheel]}, ("3.10",)), [])
+
+
+def test_py3_none_android_wheel_at_api_floor_is_usable():
+    wheel = _artifact("demo-1.0-py3-none-android_24_arm64_v8a.whl", "bdist_wheel", ">=3.10", "a")
+    CHECK.assertEqual(usable_hashes({"info": {}, "urls": [wheel]}, ("3.10",)), ["a" * 64])
+
+
+def test_wheel_tags_never_accept_unicode_digits():
+    from arena import termux_artifacts
+
+    CHECK.assertFalse(termux_artifacts._platform_matches("android_٢٤_arm64_v8a"))
+    CHECK.assertFalse(termux_artifacts._stable_abi_interpreter("cp3٣", "3.10"))

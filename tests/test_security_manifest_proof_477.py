@@ -71,6 +71,7 @@ def _install_evidence(monkeypatch, tmp_path, text: str, *, truncated: bool = Fal
         "filename": PATH, "patch": "+aiohttp==99.0", "status": "modified",
     }], ""))
     seen = []
+
     def get_object(path):
         seen.append(path)
         if path.startswith("/git/trees/"):
@@ -155,6 +156,7 @@ def test_unreadable_blob_retains_alert_and_surfaces_cached_diagnostic(monkeypatc
     _install_evidence(monkeypatch, tmp_path, "aiohttp>=3.14.4")
     get_object = gate._get_object
     seen = []
+
     def fetch(path):
         if path.startswith("/git/blobs/"):
             seen.append(path)

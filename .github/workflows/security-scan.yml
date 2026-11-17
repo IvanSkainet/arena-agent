@@ -293,6 +293,7 @@ jobs:
             objects.githubusercontent.com:443
             release-assets.githubusercontent.com:443
             results-receiver.actions.githubusercontent.com:443
+            actions-results-receiver-production.githubapp.com:443
             productionresultssa0.blob.core.windows.net:443
             productionresultssa1.blob.core.windows.net:443
             productionresultssa2.blob.core.windows.net:443
@@ -335,7 +336,7 @@ jobs:
           name: osv-report
           path: osv-results.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 14
 
   sbom-and-grype:
     timeout-minutes: 10

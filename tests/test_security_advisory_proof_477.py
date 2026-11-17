@@ -23,6 +23,8 @@ def test_all_advisory_release_lines_control_the_proof_floor() -> None:
                                     _branch(">= 2.9.0, < 2.9.18", "2.9.18")]}
     floor = advisory_floor(advisory, "demo", "pip")
     CHECK.assertEqual(floor, "2.9.18")
+    if floor is None:
+        raise AssertionError("known advisory must provide a proof floor")
     CHECK.assertFalse(manifest_fixes("requirements.txt", "demo==2.9.0", "demo", floor))
     CHECK.assertFalse(manifest_fixes("requirements.txt", "demo>=2.8.19", "demo", floor))
     CHECK.assertTrue(manifest_fixes("requirements.txt", "demo>=2.9.18", "demo", floor))

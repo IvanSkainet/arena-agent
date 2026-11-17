@@ -11,8 +11,8 @@ from arena import security_alerts as gate
 CHECK = TestCase()
 
 
-@pytest.fixture
-def runner_environment(monkeypatch, tmp_path):
+@pytest.fixture(name="runner_environment")
+def _runner_environment(monkeypatch, tmp_path):
     monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
     directory = tmp_path / "_github_workflow"
     directory.mkdir()
@@ -85,3 +85,22 @@ def test_event_reader_rejects_symlinked_workflow_directory(runner_environment):
     except (OSError, NotImplementedError):
         pytest.skip("directory symlinks require filesystem/OS support")
     CHECK.assertIsNone(gate._event_payload())
+
+
+def test_json_decoder_recursion_failure_is_controlled(runner_environment, monkeypatch):
+    runner_environment.write_text('{"value": 1}', encoding="utf-8")
+
+    def overflow(_text):
+        raise RecursionError("decoder recursion limit")
+
+    monkeypatch.setattr(gate.json, "loads", overflow)
+    CHECK.assertIsNone(gate._event_payload())
+
+
+def test_deeply_nested_json_cannot_crash_event_reader(runner_environment):
+    runner_environment.write_text('{"value":' + '[' * 2000 + '0' + ']' * 2000 + '}', encoding="utf-8")
+    # Native decoder depth limits vary across Python releases. A decoder
+    # that supports this depth may return a dict; one that overflows must
+    # return None rather than escaping the reader's error contract.
+    result = gate._event_payload()
+    CHECK.assertTrue(result is None or isinstance(result, dict))

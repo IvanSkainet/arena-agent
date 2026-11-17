@@ -43,7 +43,7 @@ def _interpreter_matches(interpreter: str, abi: str, version: str) -> bool:
 def _stable_abi_interpreter(interpreter: str, version: str) -> bool:
     # Stable ABI is defined only for CPython3; bounded ASCII digits avoid
     # malformed/unbounded integer conversion on untrusted wheel filenames.
-    if not re.fullmatch(r"cp3[0-9]{1,2}", interpreter):
+    if not re.fullmatch(r"cp3\d{1,2}", interpreter, flags=re.ASCII):
         return False
     return int(interpreter[3:]) <= int(version.split(".")[1])
 
@@ -51,7 +51,7 @@ def _stable_abi_interpreter(interpreter: str, version: str) -> bool:
 def _platform_matches(platform: str) -> bool:
     if platform == "any":
         return True
-    match = re.fullmatch(r"android_([0-9]{1,3})_(?:arm64_v8a|aarch64)", platform)
+    match = re.fullmatch(r"android_(\d{1,3})_(?:arm64_v8a|aarch64)", platform, flags=re.ASCII)
     return bool(match and 1 <= int(match.group(1)) <= MIN_ANDROID_API)
 
 

@@ -42,8 +42,9 @@ def test_void_elements_comments_and_mismatched_end_tags():
     CHECK.assertEqual(page.links(), [])
 
 
-def test_no_recursive_walk_of_deep_document():
-    page = html.ExtractedPage('<div>' * 400 + 'text' + '</div>' * 400)
+def test_no_recursive_walk_of_deep_document(monkeypatch):
+    monkeypatch.setattr(html, "MAX_DEPTH", 4000)
+    page = html.ExtractedPage('<div>' * 3000 + 'text' + '</div>' * 3000)
     CHECK.assertEqual(page.text(), "text")
 
 
@@ -86,3 +87,47 @@ def test_htmlparser_dispatches_text_to_the_extraction_callback(monkeypatch):
 def test_only_first_document_title_is_reported():
     CHECK.assertEqual(html.ExtractedPage('<title>first</title><title>second</title>').title, "first")
     CHECK.assertEqual(html.ExtractedPage('<title></title><title>second</title>').title, "")
+
+
+@pytest.mark.parametrize("markup", [
+    '<ul>' + '<li>x' * 600 + '</ul>',
+    '<p>x' * 600,
+    '<dl>' + '<dt>x<dd>y' * 600 + '</dl>',
+    '<table>' + '<tr><td>x<td>y' * 600 + '</table>',
+    '<select>' + '<option>x' * 600 + '</select>',
+])
+def test_omitted_optional_end_tags_do_not_look_like_deep_nesting(markup):
+    page = html.ExtractedPage(markup)
+    CHECK.assertGreaterEqual(page.text().count('x'), 600)
+
+
+def test_nested_list_scope_preserves_outer_item():
+    page = html.ExtractedPage('<ul><li>outer<ul><li>inner<li>inner2</ul><li>outer2</ul>')
+    CHECK.assertEqual(page.text(), "outer\ninner\ninner2\nouter2")
+    CHECK.assertEqual(page._stack, [])
+    CHECK.assertEqual(page._open, {})
+
+
+def test_unmatched_end_tags_do_not_walk_the_context_stack():
+    page = html.ExtractedPage('<div>' * 500)
+    reads = []
+
+    class ObservedStack(list):
+        def __getitem__(self, index):
+            """Record indexing to expose a regression to full-stack scans."""
+            reads.append(index)
+            raise AssertionError("unmatched closing tag inspected the context stack")
+
+    page._stack = ObservedStack(page._stack)
+    page.feed('</unknown>' * 10000)
+    CHECK.assertEqual(reads, [])
+    CHECK.assertEqual(len(page._stack), 500)
+    page.feed('</div>' * 500)
+    CHECK.assertEqual(page._open, {})
+
+
+def test_hidden_anchors_are_absent_from_links_and_search():
+    page = html.ExtractedPage('<template><a class="result__a" href="hidden">bad</a></template>'
+                              '<a class="result__a" href="visible">good</a>')
+    CHECK.assertEqual(page.links(), [{"href": "visible", "text": "good"}])
+    CHECK.assertEqual(page.search_results(3), [{"url": "visible", "title": "good", "snippet": ""}])

@@ -1,8 +1,6 @@
-"""Conservative, non-executing proof of patched Python manifests (#477).
-
-TOML proof requires Python 3.11+ (the workflow uses 3.12). On Python 3.10,
-requirements proof remains supported but TOML deliberately stays blocking.
-"""
+"""Conservative, non-executing proof of patched Python manifests (#477)."""
+# TOML proof requires Python 3.11+ (the workflow uses 3.12). On Python 3.10,
+# requirements proof remains supported but TOML deliberately stays blocking.
 from __future__ import annotations
 
 import base64
