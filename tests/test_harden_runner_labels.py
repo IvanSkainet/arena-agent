@@ -200,9 +200,10 @@ def test_osv_artifact_receiver_alias_does_not_require_disabling_block_mode():
     TestCase().assertEqual(upload["with"]["if-no-files-found"], "error")
 
 
-def test_harden_runner_does_not_regress_to_pre_dns_proxy_fix():
-    # v2.21.0's agent can reject allowed hosts under GitHub's resolver/proxy
-    # experiment (#479). The v2.22.4 pin includes the upstream default-on fix.
-    old = "step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c"
-    for workflow, job, step in _harden_runner_steps():
-        TestCase().assertNotEqual(step["uses"], old, f"{workflow}:{job}")
+def test_harden_runner_uses_reviewed_dns_proxy_fix_pin():
+    # Keep every job on the reviewed release, not merely off one known-bad SHA.
+    pinned = "step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a"
+    steps = list(_harden_runner_steps())
+    TestCase().assertTrue(steps)
+    for workflow, job, step in steps:
+        TestCase().assertEqual(step["uses"], pinned, f"{workflow}:{job}")

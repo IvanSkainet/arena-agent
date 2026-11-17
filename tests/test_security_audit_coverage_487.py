@@ -79,7 +79,10 @@ class AuditCoverageTests(TestCase):
     def _run_gate(self, args):
         stdout, stderr = io.StringIO(), io.StringIO()
         with redirect_stdout(stdout), redirect_stderr(stderr):
-            result = security_gate.main(args)
+            try:
+                result = security_gate.main(args)
+            except SystemExit as exc:
+                result = exc.code if isinstance(exc.code, int) else int(exc.code is not None)
         return SimpleNamespace(returncode=result, stdout=stdout.getvalue(), stderr=stderr.getvalue())
 
     def test_cli_empty_missing_coverage_and_cve_are_distinct_from_clean(self):
@@ -101,6 +104,23 @@ class AuditCoverageTests(TestCase):
             result = self._gate(directory, {"dependencies": [_dependency(vulns=[cve])]})
             self.assertEqual(result.returncode, 1, result.stderr)
             self.assertIn("CVE-test", result.stdout)
+
+    def test_cli_missing_and_malformed_report_exit_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            report = directory / "audit.json"
+            requirements = directory / "requirements.txt"
+            requirements.write_text("demo>=2", encoding="utf-8")
+            args = ["security_gate.py", "pip-audit", str(report),
+                    "--requirements", str(requirements)]
+            self.assertEqual(self._run_gate(args).returncode, 2)
+            for text in ("", "{", "null", "[]"):
+                with self.subTest(text=text):
+                    report.write_text(text, encoding="utf-8")
+                    result = self._run_gate(args)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn("error:", result.stderr)
+                    self.assertNotIn("OK:", result.stdout)
 
     def test_cli_does_not_treat_unreadable_requirements_as_clean(self):
         with tempfile.TemporaryDirectory() as temporary:

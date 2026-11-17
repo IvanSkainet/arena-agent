@@ -88,7 +88,7 @@ def _additional_wheel_versions(entry: dict) -> set[str]:
     except InvalidWheelFilename:
         return set()
     return {"3." + tag.interpreter[3:] for tag in tags
-            if re.fullmatch(r"cp3\d{1,2}", tag.interpreter, flags=re.ASCII)
+            if re.fullmatch(r"(?:cp|py)3\d{1,2}", tag.interpreter, flags=re.ASCII)
             and _platform_matches(tag.platform)}
 
 
