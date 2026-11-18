@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
-import xml.etree.ElementTree as ET
+from xml.etree import ElementTree
 from pathlib import Path
 from unittest import TestCase
 
@@ -17,12 +17,12 @@ CHECK = TestCase()
 
 
 def _report(tmp_path, rows):
-    root = ET.Element("{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}TestRun")
-    results = ET.SubElement(root, "Results")
+    root = ElementTree.Element("{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}TestRun")
+    results = ElementTree.SubElement(root, "Results")
     for name, outcome in rows:
-        ET.SubElement(results, "UnitTestResult", testName="Game.Tests." + name, outcome=outcome)
+        ElementTree.SubElement(results, "UnitTestResult", testName="Game.Tests." + name, outcome=outcome)
     path = tmp_path / "result.trx"
-    ET.ElementTree(root).write(path)
+    ElementTree.ElementTree(root).write(path)
     return path
 
 

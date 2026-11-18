@@ -12,6 +12,7 @@ def test_windows_path_uses_query_not_os_kill(monkeypatch):
     # Avoid changing global os.name: pathlib and pytest also depend on it.
     class WindowsOS:
         name = "nt"
+
         def kill(self, *_args):
             raise AssertionError("os.kill on Windows can terminate the process")
 

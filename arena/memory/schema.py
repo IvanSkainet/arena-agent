@@ -332,6 +332,7 @@ def _stable_jsonl_read(jsonl_path: Path, start: int, expected_hash: str) -> tupl
         data = handle.read()
         after = os.fstat(handle.fileno())
         current = jsonl_path.stat()
+
         def signature(st):
             return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns
         if signature(before) != signature(after) or signature(after) != signature(current):

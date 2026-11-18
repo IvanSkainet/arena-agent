@@ -26,6 +26,7 @@ import subprocess
 import sys
 import time
 import uuid
+from pathlib import Path
 
 from arena.home import agent_home
 
@@ -40,6 +41,20 @@ def now_utc() -> str:
 
 def short_id() -> str:
     return uuid.uuid4().hex[:10]
+
+
+def _subagent_env(sid: str, name: str) -> dict[str, str]:
+    env = os.environ.copy()
+    env.update({"ARENA_SUBAGENT_ID": sid, "ARENA_SUBAGENT_NAME": name, "ARENA_AGENT_HOME": str(ROOT)})
+    return env
+
+
+def _output_tail(path: Path, lines: int) -> str:
+    try:
+        return "\n".join(path.read_text().splitlines()[-lines:])
+    except (OSError, UnicodeError) as exc:
+        print(f"[subagent] Cannot read output tail {path}: {exc}", file=sys.stderr)
+        return ""
 
 
 def spawn(args) -> int:
@@ -57,12 +72,7 @@ def spawn(args) -> int:
     summary_path = sd / "summary.json"
 
     # env: пробрасываем ARENA_*, помечаем subagent
-    env = os.environ.copy()
-    env.update({
-        "ARENA_SUBAGENT_ID": sid,
-        "ARENA_SUBAGENT_NAME": meta["name"],
-        "ARENA_AGENT_HOME": str(ROOT),
-    })
+    env = _subagent_env(sid, meta["name"])
 
     t0 = time.time()
     if args.wait:
@@ -70,7 +80,7 @@ def spawn(args) -> int:
         with open(out_path, "w") as fout, open(err_path, "w") as ferr:
             try:
                 p = subprocess.run(args.cmd, shell=True, env=env, stdout=fout, stderr=ferr,  # nosec B602 -- subagent runs the command the operator passed on argv  # nosemgrep: subprocess-shell-true -- explicit local operator shell-command API, not a remotely supplied executable
-                                   timeout=args.timeout, cwd=str(ROOT))
+                                   timeout=args.timeout, cwd=str(ROOT), check=False)
                 rc = p.returncode
                 status = "ok" if rc == 0 else "fail"
             except subprocess.TimeoutExpired:
@@ -90,13 +100,8 @@ def spawn(args) -> int:
     dur = round(time.time() - t0, 3)
 
     # summary
-    out_tail = ""
-    err_tail = ""
-    try:
-        out_tail = "\n".join(open(out_path).read().splitlines()[-args.max_out:])
-        err_tail = "\n".join(open(err_path).read().splitlines()[-30:])
-    except Exception:
-        pass
+    out_tail = _output_tail(out_path, args.max_out)
+    err_tail = _output_tail(err_path, 30)
 
     summary = {
         "id": sid, "name": meta["name"], "status": status, "exit": rc,

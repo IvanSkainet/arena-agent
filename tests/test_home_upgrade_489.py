@@ -177,3 +177,28 @@ def test_nested_saved_missions_count_as_real_split_state(locations):
     mission.write_text('{"id":"saved"}')
     with pytest.raises(RuntimeError, match="ARENA_AGENT_HOME"):
         home.agent_home()
+
+
+def test_subagent_shell_runs_with_the_shared_home(tmp_path, monkeypatch, capsys):
+    import shlex
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    from arena import subagent_cli
+
+    monkeypatch.setattr(subagent_cli, "ROOT", tmp_path)
+    monkeypatch.setattr(subagent_cli, "SUB_DIR", tmp_path / "subagents")
+    argv = [sys.executable, "-c", "import os; print(os.environ['ARENA_AGENT_HOME'])"]
+    command = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
+    args = SimpleNamespace(cmd=command, name="review", timeout=10, wait=True, max_out=10)
+    CHECK.assertEqual(subagent_cli.spawn(args), 0)
+    result = json.loads(capsys.readouterr().out)
+    CHECK.assertEqual(result["stdout_tail"], str(tmp_path))
+    CHECK.assertEqual(result["exit"], 0)
+
+
+def test_subagent_missing_tail_is_visible_not_silently_swallowed(tmp_path, capsys):
+    from arena import subagent_cli
+
+    CHECK.assertEqual(subagent_cli._output_tail(tmp_path / "missing.log", 10), "")
+    CHECK.assertIn("Cannot read output tail", capsys.readouterr().err)

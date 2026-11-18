@@ -72,8 +72,9 @@ from arena.home import agent_home
 
 
 def jail_roots(home: Path, root: Path, extra_roots: tuple[Path, ...] | None = None) -> tuple[Path, ...]:
-    """The trees a request may name: the caller's home, the workspace root, and
-    the agent's own state directory (#B-030).
+    """Allowed caller-home, workspace and agent-state trees.
+
+    The agent's own state directory is included for #B-030.
 
     An agent that cannot read the queue it just wrote, or the workspace it was
     pointed at, is not being kept safe -- it is being kept blind. ``extra_roots``
@@ -365,7 +366,8 @@ def validate_watch_target(target: str, *, root: Path, home: Path) -> tuple[Path 
     path, error, status = resolve_home_path(target, root=root, home=home)
     if error:
         return None, error, status
-    assert path is not None
+    if path is None:
+        return None, "watch path is not usable", 400
     try:
         sensitivity = _sensitivity_error(path, _policy_base(path), action="watching")
     except (OSError, RuntimeError):
