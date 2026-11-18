@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import shutil
+import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -12,6 +13,9 @@ from pathlib import Path
 from typing import Any
 
 from aiohttp import web
+
+from arena.private_state import private_directory, write_private_json
+from arena.tasks.queue import reclaim_interrupted_tasks
 
 
 @dataclass(frozen=True)
@@ -49,10 +53,49 @@ def move_atomic(src: Path, dst: Path) -> None:
             pass
 
 
+
+
+async def _task_process_output(process, timeout: int) -> tuple[bytes, bytes]:
+    """Read output without communicate(), which would close the owner lease."""
+    readers = asyncio.gather(process.stdout.read(), process.stderr.read(), process.wait())
+    try:
+        stdout, stderr, _ = await asyncio.wait_for(readers, timeout=timeout + 5)
+        return stdout, stderr
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        process.stdin.close()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=12)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+        raise
+    finally:
+        process.stdin.close()
+
+
+def _reclaim_quietly(ctx_: TaskRunnerContext, when: str) -> None:
+    """Never let recovery of old records stop new work from running."""
+    try:
+        result = reclaim_interrupted_tasks(
+            running=ctx_.running, failed=ctx_.failed, done=ctx_.done, now_fn=ctx_.utc_now
+        )
+    except Exception as e:  # pragma: no cover - defensive, would hide new work
+        ctx_.log_error("[TaskRunner] Reclaim (%s) failed: %s", when, e)
+        return
+    for error in result.get("errors", []):
+        ctx_.log_error("[TaskRunner] Reclaim (%s): %s", when, error)
+    if result.get("reclaimed"):
+        ctx_.log_info(
+            "[TaskRunner] Reclaimed %d interrupted task(s) %s: %s",
+            len(result["reclaimed"]), when, ", ".join(result["reclaimed"][:5]),
+        )
+
+
+
 def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
     def task_ensure_dirs() -> None:
         for p in [ctx.inbox, ctx.running, ctx.done, ctx.failed]:
-            p.mkdir(parents=True, exist_ok=True)
+            private_directory(p)
 
     async def task_run_one(task_path: Path) -> bool:
         """Process a single task JSON file asynchronously."""
@@ -71,7 +114,10 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
 
         task["started_at"] = ctx.utc_now()
         task["state"] = "running"
-        rp.write_text(json.dumps(task, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        # Who claimed it, so a later start can tell "still running elsewhere"
+        # from "left behind by a process that no longer exists" (#B-032).
+        task["pid"] = os.getpid()
+        write_private_json(rp, task)
 
         cwd = Path(task.get("cwd") or str(Path.home())).expanduser()
         timeout = int(task.get("timeout") or 3600)
@@ -80,7 +126,7 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
             task["state"] = "failed"
             task["exit_code"] = -1
             task["stderr"] = f"blocked: {blk}"
-            rp.write_text(json.dumps(task, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            write_private_json(rp, task)
             move_atomic(rp, ctx.failed / rp.name)
             return True
 
@@ -90,16 +136,16 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
 
         t0 = time.time()
         try:
-            proc = await asyncio.create_subprocess_shell(
-                task["cmd"], cwd=str(cwd), env=env,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            worker = Path(__file__).with_name("process_worker.py")
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-I", str(worker), str(rp.resolve()), cwd=str(cwd), env=env,
+                stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
             try:
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+                stdout, stderr = await _task_process_output(proc, timeout)
                 stdout = stdout.decode("utf-8", "replace")
                 stderr = stderr.decode("utf-8", "replace")
                 exit_code = proc.returncode
             except asyncio.TimeoutError:
-                proc.kill()
                 stdout, stderr = "", "timeout"
                 exit_code = 124
         except Exception as e:
@@ -123,7 +169,7 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
             "truncated": truncated, "state": state,
         })
         dest = (ctx.done if exit_code == 0 else ctx.failed) / task_path.name
-        dest.write_text(json.dumps(task, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        write_private_json(dest, task)
         try:
             rp.unlink()
         except FileNotFoundError:
@@ -136,9 +182,11 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
         """Background task: watches INBOX for new tasks every 5 seconds."""
         task_ensure_dirs()
         ctx.log_info("[TaskRunner] Watching %s", ctx.inbox)
+        _reclaim_quietly(ctx, "at startup")
         while True:
             try:
                 task_ensure_dirs()
+                _reclaim_quietly(ctx, "on tick")
                 for p in sorted(ctx.inbox.glob("*.json"))[:3]:
                     await task_run_one(p)
             except Exception as e:

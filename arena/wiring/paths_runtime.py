@@ -5,7 +5,10 @@ from typing import Any, MutableMapping
 
 
 def build_paths_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
-    paths = g["ArenaPaths"].from_env(g["BRIDGE_DIR"])
+    # No argument: the data directory is ARENA_AGENT_HOME / ~/arena-bridge.
+    # Passing BRIDGE_DIR here is what used to fill the checkout (or
+    # site-packages) with queue/missions/relay on a default run.
+    paths = g["ArenaPaths"].from_env()
     return {
         "PATHS": paths,
         "ROOT_AGENT": paths.root_agent,

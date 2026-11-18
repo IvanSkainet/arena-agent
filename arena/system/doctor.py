@@ -7,6 +7,10 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
+from arena.memory.health import memory_status
+
+_disk_usage = shutil.disk_usage
+
 
 def check_internet(timeout: int = 3) -> bool:
     try:
@@ -52,11 +56,11 @@ def run_doctor(
             "critical": False,
         })
 
-    try:
-        fact_count = facts_count_fn()
-    except Exception:
-        fact_count = 0
-    checks.append({"name": "Memory facts", "ok": True, "detail": f"{fact_count} entries", "status": "ok" if fact_count else "empty", "critical": False})
+    checks.append(_memory_facts_check(facts_count_fn))
+    memory = memory_status(memory_dir / "facts.db")
+    checks.append({"name": "Memory recovery", "ok": memory != "rebuilt", "status": memory,
+                   "critical": False, "detail": "inspect preserved quarantine before acknowledging recovery"
+                   if memory == "rebuilt" else memory})
 
     internet_ok = internet_check_fn()
     checks.append({"name": "Internet", "ok": internet_ok, "detail": "available" if internet_ok else "not reachable"})
@@ -90,12 +94,30 @@ def run_doctor(
             checks.append({"name": "Sound", "ok": sound_ok, "detail": "beep/paplay available" if sound_ok else "no sound device", "critical": False})
 
     try:
-        disk = shutil.disk_usage(str(home_dir or Path.home()))
+        disk = _disk_usage(str(home_dir or Path.home()))
         usage_pct = round(disk.used / disk.total * 100, 1) if disk.total > 0 else 0
         disk_ok = usage_pct < 80
         checks.append({"name": "Disk free", "ok": disk_ok, "detail": f"{disk.free // (1024**3)} GB free ({usage_pct}% used)"})
     except Exception:
         pass
 
-    passed = sum(1 for check in checks if check["ok"] or not check.get("critical", True))
-    return {"ok": True, "passed": passed, "total": len(checks), "checks": checks}
+    return summarize_checks(checks)
+
+
+def _memory_facts_check(facts_count_fn: Callable[[], int]) -> dict[str, Any]:
+    try:
+        count = facts_count_fn()
+    except Exception as exc:
+        return {"name": "Memory facts", "ok": False, "critical": True,
+                "status": "error", "detail": f"{type(exc).__name__}: {exc}"}
+    return {"name": "Memory facts", "ok": True, "detail": f"{count} entries",
+            "status": "ok" if count else "empty", "critical": False}
+
+
+def summarize_checks(checks: list[dict[str, Any]]) -> dict[str, Any]:
+    passed = sum(1 for check in checks if check["ok"])
+    failed = sum(1 for check in checks if not check["ok"] and check.get("critical", True))
+    degraded = len(checks) - passed - failed
+    status = "unhealthy" if failed else "degraded" if degraded else "healthy"
+    return {"ok": failed == 0, "status": status, "passed": passed, "failed": failed,
+            "degraded": degraded, "total": len(checks), "checks": checks}

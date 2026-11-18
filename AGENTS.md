@@ -448,13 +448,13 @@ count at zero.
   close a multi-line statement (`''').strip()); print(out)`). Rows that
   cannot be proven safe are LEFT AS DEBT, not forced. Write the tool,
   let it reject you, fix the tool.
-- **Hash-locked CI installs only**: `requirements-ci.lock` (tests +
+- **Hash-locked CI installs only**: `requirements-ci.txt` (tests +
   tools), `requirements-lint.lock` (ruff), `requirements-packaging.lock`
   (build/twine/check-wheel-contents). Regenerate with the
   `uv pip compile --universal ...` command documented in each `.in`
   header, then ALWAYS verify: `python scripts/check_ci_lock.py` (uv
   0.12.1 has dropped marker-guarded pins on cold caches) followed by a
-  real `pip install --require-hashes -r requirements-ci.lock` in a
+  real `pip install --require-hashes -r requirements-ci.txt` in a
   fresh venv on the OLDEST supported Python (3.10). No unpinned
   `pip install` in workflows (Scorecard gate).
 - **No system-Python installs** on any machine that runs the bridge —
@@ -573,11 +573,26 @@ between your last pull and now.
 For live bridge changes, also run endpoint smoke and
 `dev/stress-test-v4.py --restart`.
 
-For remote-access / provider work, verify the live surface:
+For remote-access / provider work, verify the live surface. By default the
+bearer token is in `~/arena-bridge/token.txt`, not in the checkout. Set
+`ARENA_TOKEN_FILE` to the actual token file if the bridge uses another one;
+`ARENA_AGENT_HOME` may also select the data directory (use an absolute path).
+The example checks for a missing or empty token before sending requests:
 
 ```bash
-curl -sH "Authorization: Bearer $(cat token.txt)" \
-  http://127.0.0.1:8765/v1/tunnels/status | jq
-curl -sH "Authorization: Bearer $(cat token.txt)" \
-  http://127.0.0.1:8765/v1/capabilities | jq '{network, browser}'
+TOKEN_PATH="${ARENA_TOKEN_FILE:-${ARENA_AGENT_HOME:-$HOME/arena-bridge}/token.txt}"
+if [ ! -r "$TOKEN_PATH" ]; then
+  printf 'Token file is not readable: %s\n' "$TOKEN_PATH" >&2
+else
+  TOKEN="$(cat "$TOKEN_PATH")"
+  if [ -z "$TOKEN" ]; then
+    printf 'Token file is empty: %s\n' "$TOKEN_PATH" >&2
+  else
+    curl -sH "Authorization: Bearer $TOKEN" \
+      http://127.0.0.1:8765/v1/tunnels/status | jq
+    curl -sH "Authorization: Bearer $TOKEN" \
+      http://127.0.0.1:8765/v1/capabilities | jq '{network, browser}'
+  fi
+  unset TOKEN
+fi
 ```

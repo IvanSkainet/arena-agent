@@ -4,7 +4,6 @@ from __future__ import annotations
 from arena.agentctl_extras.common import (
     AGENTCTL,
     ROOT,
-    Path,
     json,
     os,
     shutil,
@@ -12,6 +11,7 @@ from arena.agentctl_extras.common import (
     sys,
     time,
 )
+from arena.home import agent_home
 
 
 def play_notification_sound():
@@ -78,7 +78,7 @@ def cmd_tail(args: list[str]) -> int:
     if kind == "audit":
         p = ROOT / "logs" / "audit.jsonl"
         if not p.exists():
-            p = Path.home() / "arena-bridge" / "audit.jsonl"
+            p = agent_home() / "audit.jsonl"
     else:
         p = ROOT / "logs" / f"{kind}.jsonl"
 

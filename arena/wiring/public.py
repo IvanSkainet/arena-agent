@@ -15,6 +15,7 @@ class PublicWiringContext:
     now: Callable[[], float]
     hostname: Callable[[], str]
     bridge_port: Callable[[], int]
+    memory_status: Callable[[], str] = lambda: "unknown"
 
 
 def build_public_handlers(ctx: PublicWiringContext) -> dict[str, Callable[..., Any]]:
@@ -30,6 +31,7 @@ def build_public_handlers(ctx: PublicWiringContext) -> dict[str, Callable[..., A
         now=ctx.now,
         hostname=ctx.hostname,
         bridge_port=ctx.bridge_port,
+        memory_status=ctx.memory_status,
     )
     handlers = make_public_handlers(public_ctx)
     return {

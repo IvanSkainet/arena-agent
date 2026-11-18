@@ -249,3 +249,11 @@ def test_release_md_lists_the_runtime_state_the_builder_actually_drops():
     done = {p for p in _mod.EXCLUDE_PATH_PATTERNS if p.startswith("queue/")}
     assert said == done, (
         f"RELEASE.md says {sorted(said)}, the builder drops {sorted(done)}")
+
+
+@pytest.mark.parametrize("path", [".inventory-cache/git_repos.json", "code-runs/id/run.json",
+                                  "flight-records/probe.json", "update/post-update-smoke-last.json",
+                                  "memory/facts.db", "memory/facts.db-wal",
+                                  "memory/facts.db.corrupt-123/facts.db"])
+def test_private_runtime_state_is_not_a_release_asset(path):
+    assert _mod.should_exclude(path)

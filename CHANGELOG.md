@@ -1180,7 +1180,7 @@ Dependabot proposed mypy 1.19.1 → 2.3.0 twice: inside a group (PR #5) and
 again on its own the moment that was closed (PR #6). Chasing the second
 one down answered why the bump felt empty.
 
-mypy is installed by `requirements-ci.lock` in every CI job and executed
+mypy is installed by `requirements-ci.txt` in every CI job and executed
 in none of them. The only references in the whole tree were a
 `[tool.mypy]` config section, two comments in `dependabot.yml`, and a
 `.mypy_cache` exclusion. Type checking here is pyrefly's, gated by
@@ -1276,12 +1276,12 @@ comment block directly above the pin counts now, and a test holds it.
 
 The PR was not useless. `scripts/lock_conflict_ratchet.py`, added
 yesterday, was the one thing in the pipeline that flagged it: the relock
-job's regeneration left `requirements-ci.lock` and
+job's regeneration left `requirements-ci.txt` and
 `requirements-mutation.lock` disagreeing on `coverage` and `packaging`
 inside a job that installs both.
 
 Also noted while reviewing it, not fixed here: mypy is installed by
-`requirements-ci.lock` on every job and never executed. Type checking is
+`requirements-ci.txt` on every job and never executed. Type checking is
 pyrefly's, through `scripts/quality_ratchet.py`. The only mypy references
 in the tree are a config section and two comments. Wiring it up or
 dropping it is a change that deserves its own release.
@@ -1345,7 +1345,7 @@ anyone remembering to update the guard.
 
 What it deliberately does not check: agreement between locks that never
 meet. `requirements-security.lock` resolves `rich`, `packaging` and `cffi`
-differently from `requirements-ci.lock` because its own graph demands it,
+differently from `requirements-ci.txt` because its own graph demands it,
 and no job installs both. Forcing unrelated resolutions to match produces
 failures with nothing behind them, and a detector with false positives is
 worse than no detector — so that case is tested to stay silent.
@@ -1576,7 +1576,7 @@ The last three are the ones that matter. A security scan that resolves
 its own scanner from an unpinned range decides what counts as secure
 using code nobody reviewed, and its verdict is what says a release is
 fit to publish. Everything in the first two groups was *already* pinned
-in `requirements-ci.lock`, so those commands got shorter as well as
+in `requirements-ci.txt`, so those commands got shorter as well as
 safer. The scanners now have `requirements-security.lock`, generated the
 same way as the lint lock that has existed for months -- the note in
 `requirements-lint.in` even cites this exact Scorecard rule, so the work
@@ -7231,7 +7231,7 @@ Green still does not mean an emulator boots: no CI runner has one, and
 ## v4.153.3 - Reproducible package installs and hash-locked CI
 
 ### Security and CI
-- **Hash-locked CI environment**: added `requirements-ci.in` and generated `requirements-ci.lock`; every third-party test dependency is version- and SHA-256-pinned and CI installs it with `pip --require-hashes`.
+- **Hash-locked CI environment**: added `requirements-ci.in` and generated `requirements-ci.txt`; every third-party test dependency is version- and SHA-256-pinned and CI installs it with `pip --require-hashes`.
 - **Cross-version lock**: the lock is a *universal* resolution (`uv pip compile --universal`); the initial host-only lock silently dropped marker-gated deps (`async-timeout`, `exceptiongroup`, `tomli` for Python <3.11) and broke `--require-hashes` installs on the Python 3.10 matrix cells.
 - **Safe local project installation in CI**: editable install is now `--no-deps --no-build-isolation`, so after the lock is installed it resolves no new network dependencies. This addresses Scorecard Pinned-Dependencies findings without suppressing them.
 - **Installable source distribution**: explicitly configured setuptools package discovery for `arena*` and the compatibility module `unified_bridge`; editable installs and wheels now build from the repository.

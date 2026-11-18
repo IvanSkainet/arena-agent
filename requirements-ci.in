@@ -4,7 +4,7 @@
 # silently dropped and hash-mode installs fail on those matrix cells:
 #   uv pip compile --universal --generate-hashes --strip-extras \
 #     --python-version 3.10 \
-#     --output-file=requirements-ci.lock requirements-ci.in
+#     --output-file=requirements-ci.txt requirements-ci.in
 #
 # --python-version 3.10 is REQUIRED, not cosmetic: without it uv resolves for
 # the interpreter it happens to be running on, and every marker-guarded pin

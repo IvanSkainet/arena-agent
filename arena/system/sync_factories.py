@@ -23,7 +23,7 @@ def make_doctor_sync(
     missions_dir: Path,
     facts_count_fn: Callable[[], int],
     internet_check_fn: Callable[[], bool],
-    home_dir: Path,
+    home_dir: Path | Callable[[], Path],
 ) -> Callable[[str], dict[str, Any]]:
     def _doctor_sync(token: str) -> dict[str, Any]:
         return run_doctor_fn(
@@ -34,7 +34,7 @@ def make_doctor_sync(
             missions_dir=missions_dir,
             facts_count_fn=facts_count_fn,
             internet_check_fn=internet_check_fn,
-            home_dir=home_dir,
+            home_dir=home_dir() if callable(home_dir) else home_dir,
         )
 
     return _doctor_sync

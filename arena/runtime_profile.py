@@ -17,6 +17,8 @@ this exists to fix, moved one layer down.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any
 
 # The live config dict, published by the bridge at startup. None until
@@ -41,6 +43,11 @@ def current_profile() -> str:
         return DEFAULT_PROFILE
     value = _CONFIG.get("profile")
     return value if isinstance(value, str) and value else DEFAULT_PROFILE
+
+
+def current_config() -> Mapping[str, Any] | None:
+    """The published config, or None before startup / in CLIs and tests."""
+    return MappingProxyType(_CONFIG) if _CONFIG is not None else None
 
 
 def reset_for_tests() -> None:

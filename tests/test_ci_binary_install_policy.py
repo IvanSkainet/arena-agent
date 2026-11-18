@@ -38,7 +38,7 @@ class BinaryInstallPolicyTests(TestCase):
         expected = [
             ("guarddog.yml", "ci/guarddog/requirements.txt", None, 1),
             ("relock-dependabot.yml", "requirements-relock.lock", None, 1),
-            ("mutation-sweep.yml", "requirements-ci.lock", None, 1),
+            ("mutation-sweep.yml", "requirements-ci.txt", None, 1),
             ("mutation-sweep.yml", "requirements-mutation.lock", "glob2,mutmut", 1),
             ("security-scan.yml", "requirements-security.lock", None, 3),
         ]

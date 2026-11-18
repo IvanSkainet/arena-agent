@@ -32,6 +32,11 @@ FORBIDDEN_PREFIXES = (
     f"{PREFIX}.github/",
     f"{PREFIX}.git/",
     f"{PREFIX}dev/",
+    f"{PREFIX}.inventory-cache/",
+    f"{PREFIX}code-runs/",
+    f"{PREFIX}flight-records/",
+    f"{PREFIX}update/",
+    f"{PREFIX}memory/facts.db",
 )
 FORBIDDEN_BASENAMES = frozenset({
     "token.txt",

@@ -5,6 +5,7 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 
+from arena.home import code_root, token_path
 from arena.token_storage import TokenFileModeWarning, write_owner_token
 
 
@@ -19,6 +20,10 @@ def resolve_token(
     env_file = os.environ.get("ARENA_TOKEN_FILE", "").strip()
     token_file = Path(env_file).expanduser() if env_file else default_token_file
 
+    read_file = token_file
+    if not env_file and token_file == code_root() / "token.txt":
+        token_file = token_path(for_write=True)
+
     if cli_token:
         return cli_token, token_file
 
@@ -26,17 +31,17 @@ def resolve_token(
     if env_tok:
         return env_tok, token_file
 
-    if token_file.is_symlink():
+    if read_file.is_symlink():
         raise OSError("refusing to use a symlink token path")
 
     try:
-        existing = token_file.read_text(encoding="utf-8").strip()
-        if existing and len(existing) >= 16:
-            return existing, token_file
+        existing = read_file.read_text(encoding="utf-8").strip()
     except FileNotFoundError:
-        pass
-    except Exception:
-        pass
+        existing = ""
+    if existing and len(existing) >= 16:
+        if token_file != read_file:
+            _generate_into(token_file, existing, log_info)
+        return existing, token_file
 
     new_tok = token_generator()
     _generate_into(token_file, new_tok, log_info)

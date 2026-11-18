@@ -114,7 +114,7 @@ def test_workflow_checks_out_exact_game_pin_and_rejects_stale_upstream() -> None
     assert "ref: ${{ env.ARENA_SOURCE_SHA }}" in raw
     assert "ARENA_COMMIT: ${{ env.ARENA_SOURCE_SHA }}" in raw
     assert "persist-credentials: false" in raw
-    assert "cache-dependency-path: requirements-ci.lock" in raw
+    assert "cache-dependency-path: requirements-ci.txt" in raw
 
 
 def test_workflow_builds_release_and_game_then_runs_real_contract() -> None:

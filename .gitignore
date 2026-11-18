@@ -167,3 +167,9 @@ android_app/build/
 # measurement: machine-generated, meaningless without the run that produced
 # them, and rewritten by every subsequent one.
 .schemathesis/
+
+# Private runtime state, including compatibility-mode source installs.
+.inventory-cache/
+code-runs/
+flight-records/
+update/

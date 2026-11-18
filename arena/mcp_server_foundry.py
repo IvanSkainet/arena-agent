@@ -8,12 +8,13 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from arena.home import agent_home
 from arena.jsonshape import loads_object
 from arena.mcp_client.client import McpError, McpStdioClient
 
 
 def root() -> Path:
-    p = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser() / "mcp-servers"
+    p = agent_home() / "mcp-servers"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -166,7 +167,7 @@ def test(name: str, *, tool: str | None = None, arguments: dict[str, Any] | None
 
 
 def _mcp_config_path() -> Path:
-    p = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser() / "mcp" / "mcp.json"
+    p = agent_home() / "mcp" / "mcp.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     if not p.exists():
         p.write_text(json.dumps({"mcpServers": {}}, indent=2), encoding="utf-8")

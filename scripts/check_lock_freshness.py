@@ -4,7 +4,7 @@
 Why this exists
 ---------------
 CI installs exclusively from the `.lock` files (`pip install --require-hashes
--r requirements-ci.lock`). The `.in` files are inputs to the generator and are
+-r requirements-ci.txt`). The `.in` files are inputs to the generator and are
 never installed, so editing one without regenerating its lock is invisible:
 the new dependency simply is not there, CI stays green, and the failure
 surfaces later as an ImportError in whatever job first needs it.
@@ -185,7 +185,8 @@ def check_paths(in_path: Path, lock_path: Path) -> list[str]:
 
 def check_pair(stem: str) -> list[str]:
     """Root-convention pair: `requirements-<stem>.in` / `.lock`."""
-    return check_paths(ROOT / f"{stem}.in", ROOT / f"{stem}.lock")
+    suffix = ".txt" if stem == "requirements-ci" else ".lock"
+    return check_paths(ROOT / f"{stem}.in", ROOT / f"{stem}{suffix}")
 
 
 def check_extra_pairs() -> list[str]:

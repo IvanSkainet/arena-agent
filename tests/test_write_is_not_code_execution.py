@@ -137,8 +137,8 @@ def test_the_rule_is_write_only_by_construction():
     """Guard the design, not just today's behaviour."""
     src = (REPO / "arena" / "files" / "sandbox.py").read_text(encoding="utf-8")
     for verb in ("uploading", "editing", "creating"):
-        assert f'_execution_on_write_error(target_path, home, action="{verb}")' in src, (
+        assert f'_execution_on_write_error(target_path, _policy_base(target_path), action="{verb}")' in src, (
             f"the {verb} validator no longer consults the execution-on-write list")
     for verb in ("downloading", "viewing"):
-        assert f'_execution_on_write_error(target_path, home, action="{verb}")' not in src, (
+        assert f'_execution_on_write_error(target_path, _policy_base(target_path), action="{verb}")' not in src, (
             f"{verb} must not be blocked: reading shell config is legitimate")

@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import MutableMapping
 from typing import Any, Callable
 
+from arena import home as arena_home
 from arena.files.safe_edit import apply_preview, create_preview, rollback_change
 from arena.wiring.env import RuntimeEnv
 
@@ -93,7 +94,7 @@ def build_observability_registries(g: MutableMapping[str, Any]) -> dict[str, Cal
             "record_request": env._record_request,
             "cors_json_response": env._cors_json_response,
             "audit": env.audit,
-            "home": env.Path.home(),
+            "home": env.Path(arena_home.sandbox_home()),
             "bridge_py": env.Path(__file__).resolve(),
             "create_edit_preview": create_preview,
             "apply_edit_preview": apply_preview,
@@ -117,7 +118,7 @@ def build_observability_registries(g: MutableMapping[str, Any]) -> dict[str, Cal
             "record_request": env._record_request,
             "cors_json_response": env._cors_json_response,
             "audit": env.audit,
-            "home": env.Path.home(),
+            "home": env.Path(arena_home.sandbox_home()),
             "bridge_py": env.Path(__file__).resolve(),
         },
         {

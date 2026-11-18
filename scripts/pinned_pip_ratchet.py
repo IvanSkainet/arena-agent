@@ -16,7 +16,7 @@ where a swapped package changes what the tests run against, with nothing
 turning red.
 
 Every package involved was already hash-pinned in
-`requirements-ci.lock`, so the fix made the commands shorter as well as
+`requirements-ci.txt`, so the fix made the commands shorter as well as
 safer.
 
 Allowed:
@@ -168,7 +168,7 @@ def main() -> int:
         for line in found:
             print(f"  {line}")
         print()
-        print("  python -m pip install --require-hashes -r requirements-ci.lock")
+        print("  python -m pip install --require-hashes -r requirements-ci.txt")
         return 1
     print(f"pinned pip ratchet: OK ({scanned} workflow files)")
     return 0

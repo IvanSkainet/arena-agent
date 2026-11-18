@@ -138,7 +138,8 @@ def test_a_module_that_binds_a_tmp_home_does_not_hand_it_to_the_next_importer(
 
         def test_a_later_qualified_import_is_not_given_the_first_tmp_home():
             import arena.agent_helpers.files as reimported
-            assert reimported.ROOT == Path.home() / "arena-bridge"
+            from arena.home import agent_home
+            assert reimported.ROOT == agent_home()
 
         def test_a_later_import_through_the_parent_package_is_not_either():
             # `sys.modules` is not the only reference: importing a
@@ -146,7 +147,8 @@ def test_a_module_that_binds_a_tmp_home_does_not_hand_it_to_the_next_importer(
             # import form reads that attribute. Verified by mutation --
             # dropping only the sys.modules entry fails here.
             from arena.agent_helpers import files
-            assert files.ROOT == Path.home() / "arena-bridge"
+            from arena.home import agent_home
+            assert files.ROOT == agent_home()
     '''), encoding="utf-8")
 
     result = _run_pytest(tmp_path, "test_reads_root.py")

@@ -22,3 +22,7 @@ def main() -> int:
     s.set_defaults(func=cmd_test)
     args = ap.parse_args()
     return args.func(args) or 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

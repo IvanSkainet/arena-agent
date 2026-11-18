@@ -8,7 +8,11 @@ import unified_bridge as ub  # noqa: E402
 from arena.system.doctor import run_doctor  # noqa: E402
 
 
-def test_run_doctor_basic_shape(tmp_path):
+def test_run_doctor_basic_shape(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("arena.system.doctor._disk_usage",
+                        lambda _: SimpleNamespace(total=100, used=50, free=50))
     res = run_doctor(
         version="test",
         token="abc",

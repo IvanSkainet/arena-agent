@@ -21,6 +21,13 @@ WATCHDOG_STATE: dict[str, Any] = {
 _WATCHDOG_TASK: asyncio.Task | None = None
 
 
+def _watchdog_process():
+    """Resolve the process locally so tests need not patch global psutil."""
+    import psutil
+
+    return psutil.Process()
+
+
 async def watchdog_loop(
     *,
     utc_now_fn: Callable[[], str],
@@ -38,11 +45,10 @@ async def watchdog_loop(
             mem_mb = 0.0
             cpu_pct = 0.0
             try:
-                import psutil  # type: ignore
-                proc = psutil.Process()
+                proc = _watchdog_process()
                 mem_info = proc.memory_info()
                 mem_mb = mem_info.rss / (1024 * 1024)
-                cpu_pct = proc.cpu_percent(interval=1.0)
+                cpu_pct = await asyncio.to_thread(proc.cpu_percent, interval=1.0)
             except ImportError:
                 # Fallback: read from /proc/self/status on Linux.
                 try:

@@ -197,7 +197,7 @@ def test_the_lock_is_not_swept_up_by_the_relock_workflow() -> None:
     """
     assert LOCK_IN.is_file(), "ci/guarddog/requirements.in is missing"
     workflow = RELOCK.read_text(encoding="utf-8")
-    pattern_line = "for in_file in requirements-*.in; do"
+    pattern_line = 'in_files="$(python scripts/lock_regeneration_order.py)"'
     assert pattern_line in workflow, (
         "relock-dependabot.yml no longer loops over requirements-*.in; this "
         "gate is asserting against a pattern that is gone, re-derive it"
@@ -223,8 +223,10 @@ def test_the_lock_is_not_swept_up_by_the_relock_workflow() -> None:
     assert not fnmatch.fnmatch(relative.as_posix(), "requirements-*.in"), (
         f"{relative.as_posix()} matches the relock loop's glob"
     )
-    # And the decisive one: enumerate what that loop would actually pick up.
-    reachable = {p.relative_to(REPO_ROOT) for p in REPO_ROOT.glob("requirements-*.in")}
+    # Enumerate the actual planner used by the workflow, not its old glob.
+    from arena.lock_regeneration import regeneration_order
+
+    reachable = {REPO_ROOT.joinpath(name).relative_to(REPO_ROOT) for name in regeneration_order(REPO_ROOT)}
     assert relative not in reachable, (
         f"{relative.as_posix()} is reachable by the relock loop; renaming it "
         "to requirements-<something>.in in the root would put guarddog's "

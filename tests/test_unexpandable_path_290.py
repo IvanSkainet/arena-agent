@@ -115,7 +115,7 @@ def test_the_resolver_refuses_without_raising(tmp_path: Path, path: str) -> None
     assert resolved is None
     assert status in (400, 403), (status, error)
     assert error is not None
-    assert error in ("path outside home directory",) or "not a usable path" in error
+    assert error in ("path outside allowed filesystem roots",) or "not a usable path" in error
 
 
 def test_a_path_the_platform_cannot_expand_is_a_400(
@@ -156,7 +156,7 @@ def test_the_forms_that_already_worked_still_work(tmp_path: Path) -> None:
     _, outside_error, outside_status = resolve_home_path(
         "/etc/passwd", root=tmp_path, home=tmp_path)
     assert outside_status == 403
-    assert outside_error == "path outside home directory"
+    assert outside_error == "path outside allowed filesystem roots"
 
     _, traversal_error, traversal_status = resolve_home_path(
         "../x", root=tmp_path, home=tmp_path)

@@ -1,16 +1,24 @@
 """Push notification extension for standalone MCP WebSocket server."""
 from __future__ import annotations
 
+from arena.home import agent_home
+
 # Explicit: these are underscore-prefixed, so `import *` never provided
 # them. Until v4.155.0 this module called _send_text/_http_handshake that
 # were simply not bound -- the resulting NameError was swallowed by a
 # per-subscriber `except Exception`, silently marking every WebSocket
 # subscriber dead. Confirmed by execution, not by reading.
-from arena.mcp.ws_frames import Path, _send_text, json, threading, time
+from arena.mcp.ws_frames import (  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+    Path,
+    _send_text,
+    json,
+    threading,
+    time,
+)
 
 SUBS: dict = {}
 SUBS_LOCK = threading.Lock()
-NOTIFY_QUEUE = Path.home() / "arena-bridge" / "logs" / "ws_notify.queue"
+NOTIFY_QUEUE = agent_home() / "logs" / "ws_notify.queue"
 NOTIFY_QUEUE.parent.mkdir(parents=True, exist_ok=True)
 NOTIFY_QUEUE.touch(exist_ok=True)
 

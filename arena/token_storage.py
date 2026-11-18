@@ -184,7 +184,7 @@ def write_owner_token(target: Path, token: str) -> None:
     if target.is_symlink():
         raise OSError("refusing to replace a symlink token path")
 
-    target.parent.mkdir(parents=True, exist_ok=True)
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     staged: _StagedToken | None = None
     try:
         staged = _StagedToken(*_write_temp_beside(target, token))

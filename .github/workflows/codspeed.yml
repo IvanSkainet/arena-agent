@@ -69,15 +69,15 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      # Both locks land in one environment on purpose: requirements-ci.lock
+      # Both locks land in one environment on purpose: requirements-ci.txt
       # carries pytest and the bridge's runtime dependencies (importing
       # `arena` needs them), requirements-bench.lock adds pytest-codspeed on
-      # top. requirements-bench.in is resolved under `-c requirements-ci.lock`,
+      # top. requirements-bench.in is resolved under `-c requirements-ci.txt`,
       # and scripts/lock_conflict_ratchet.py fails the build if the two ever
       # disagree on a shared package.
       - name: Install the benchmark environment (hash-locked)
         run: |
-          python -m pip install --only-binary=:all: --require-hashes -r requirements-ci.lock
+          python -m pip install --only-binary=:all: --require-hashes -r requirements-ci.txt
           python -m pip install --only-binary=:all: --require-hashes -r requirements-bench.lock
 
       # The bridge is imported from the checkout, not installed. `pip install

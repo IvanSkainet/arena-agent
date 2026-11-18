@@ -13,11 +13,11 @@ import platform
 import shutil
 import socket
 import sys
-from pathlib import Path
 from typing import Any, Callable
 
 from arena.autonomy import posture as _posture
 from arena.constants import VERSION
+from arena.home import agent_home
 from arena.util import _subprocess_kwargs
 
 
@@ -29,7 +29,7 @@ def _safe(name: str, fn: Callable[[], Any]) -> Any:
 
 
 def _root() -> str:
-    return str(Path(os.environ.get("ARENA_AGENT_HOME") or Path.home() / "arena-bridge"))
+    return str(agent_home())
 
 
 def _bridge_status() -> dict[str, Any]:

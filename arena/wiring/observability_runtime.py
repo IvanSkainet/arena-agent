@@ -1,11 +1,10 @@
 """audit, error middleware and env.log-cleanup runtime wiring."""
 from __future__ import annotations
 
-import os
 from collections.abc import MutableMapping
-from pathlib import Path
 from typing import Any
 
+from arena.home import agent_home
 from arena.wiring.env import RuntimeEnv
 
 
@@ -17,7 +16,7 @@ def build_observability_runtimes(g: MutableMapping[str, Any]) -> dict[str, Any]:
     audit_runtime_ctx = env.AuditRuntimeContext(
         audit_path=env.AUDIT,
         app_dir=env.APP_DIR,
-        webhooks_file=Path(os.environ.get("ARENA_AGENT_HOME", str(env.BRIDGE_DIR))).expanduser() / "webhooks.json",
+        webhooks_file=agent_home() / "webhooks.json",
         utc_now=env.utc_now,
         slow_executor=env._SLOW_EXECUTOR,
         log_debug=env.log.debug,
