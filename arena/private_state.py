@@ -1,4 +1,8 @@
-"""Atomic owner-only state publication; no incomplete JSON becomes visible."""
+"""Atomic state publication with private POSIX modes.
+
+Windows deployments must restrict the state root ACL to the service owner;
+chmod does not replace an inherited Windows ACL. No partial JSON is published.
+"""
 from __future__ import annotations
 
 import json
@@ -11,7 +15,14 @@ _replace = os.replace
 
 
 def private_directory(path: Path) -> None:
+    missing = []
+    parent = path
+    while not parent.exists():
+        missing.append(parent)
+        parent = parent.parent
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    for created in reversed(missing):
+        created.chmod(0o700)
     path.chmod(0o700)
 
 

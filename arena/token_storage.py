@@ -7,6 +7,8 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
+from arena.private_state import private_directory
+
 _LOG = logging.getLogger("arena-bridge")
 
 TOKEN_FILE_MODE = 0o600
@@ -184,7 +186,7 @@ def write_owner_token(target: Path, token: str) -> None:
     if target.is_symlink():
         raise OSError("refusing to replace a symlink token path")
 
-    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    private_directory(target.parent)
     staged: _StagedToken | None = None
     try:
         staged = _StagedToken(*_write_temp_beside(target, token))

@@ -334,3 +334,7 @@ def _join_sweepers(processes, results):
             if process.is_alive():
                 process.terminate()
                 process.join()
+
+
+def test_oversized_pid_is_conservatively_alive_not_a_sweep_crash():
+    assert pid_is_alive(2**200) is True

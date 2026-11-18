@@ -120,6 +120,8 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
         assert data is not None  # the guard above already proved this
         target = str(data.get("path", ""))
         content = data.get("content", "")
+        if not isinstance(content, str):
+            return _err(ctx, "content must be a string", 400)
         if not content:
             return _err(ctx, "missing or empty 'content'", 400)
         target_path, err, status = validate_create_target(

@@ -105,6 +105,8 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
             ctx.log_error("[TaskRunner] Failed to read %s: %s", task_path, e)
             return False
 
+        if not isinstance(task, dict):
+            task = {"invalid_submission": task}
         tid = task.get("id") or task_path.stem
         rp = ctx.running / task_path.name
         try:
@@ -117,25 +119,31 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
         # Who claimed it, so a later start can tell "still running elsewhere"
         # from "left behind by a process that no longer exists" (#B-032).
         task["pid"] = os.getpid()
-        cwd = Path(task.get("cwd") or str(Path.home())).expanduser().resolve()
-        task["cwd"] = str(cwd)
-        write_private_json(rp, task)
-        timeout = int(task.get("timeout") or 3600)
-        blk = ctx.blocked_reason(task["cmd"])
-        if blk:
-            task["state"] = "failed"
-            task["exit_code"] = -1
-            task["stderr"] = f"blocked: {blk}"
-            write_private_json(rp, task)
-            move_atomic(rp, ctx.failed / rp.name)
-            return True
-
-        env = os.environ.copy()
-        if isinstance(task.get("env"), dict):
-            env.update({str(k): str(v) for k, v in task["env"].items()})
-
         t0 = time.time()
+        max_output = 2_000_000
         try:
+            cwd = Path(task.get("cwd") or str(Path.home())).expanduser().resolve()
+            task["cwd"] = str(cwd)
+            write_private_json(rp, task)
+            timeout = int(task.get("timeout") or 3600)
+            max_output = int(task.get("max_output") or 2_000_000)
+            if timeout <= 0 or max_output <= 0:
+                raise ValueError("timeout and max_output must be positive")
+            if not isinstance(task.get("cmd"), str) or not task["cmd"].strip():
+                raise ValueError("cmd must be a nonempty string")
+            blk = ctx.blocked_reason(task["cmd"])
+            if blk:
+                task["state"] = "failed"
+                task["exit_code"] = -1
+                task["stderr"] = f"blocked: {blk}"
+                write_private_json(rp, task)
+                move_atomic(rp, ctx.failed / rp.name)
+                return True
+
+            env = os.environ.copy()
+            if isinstance(task.get("env"), dict):
+                env.update({str(k): str(v) for k, v in task["env"].items()})
+
             worker = Path(__file__).with_name("process_worker.py")
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, "-I", str(worker), str(rp.resolve()), cwd=str(cwd), env=env,
@@ -153,7 +161,6 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
             exit_code = 125
 
         duration = round(time.time() - t0, 3)
-        max_output = int(task.get("max_output") or 2_000_000)
         truncated = False
         if len(stdout.encode("utf-8", "replace")) > max_output:
             stdout = stdout[:max_output]

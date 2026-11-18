@@ -102,3 +102,25 @@ def test_relative_task_cwd_is_resolved_only_once(tmp_path, monkeypatch):
     result = json.loads((tmp_path / "done" / task.name).read_text())
     assert result["exit_code"] == 0
     assert Path(result["stdout"].strip()) == work
+
+
+def test_invalid_claimed_task_always_becomes_a_failed_result(tmp_path):
+    invalid = [
+        {"cmd": "echo never", "cwd": "bad\x00folder"},
+        {"cmd": "echo never", "timeout": "not-a-number"},
+        {"cmd": "echo never", "max_output": "not-a-number"},
+        {"cmd": None},
+        ["not", "an", "object"],
+    ]
+    for index, data in enumerate(invalid):
+        folder = tmp_path / str(index)
+        runtime = make_task_runner_runtime(_ctx(folder))
+        runtime.ensure_dirs()
+        task = folder / "inbox" / "invalid.json"
+        task.write_text(json.dumps(data))
+        assert asyncio.run(runtime.run_one(task)) is True
+        assert not (folder / "running" / task.name).exists()
+        result = json.loads((folder / "failed" / task.name).read_text())
+        assert result["state"] == "failed"
+        assert result["exit_code"] != 0
+        assert result["stderr"]

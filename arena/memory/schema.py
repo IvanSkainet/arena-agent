@@ -130,6 +130,8 @@ def _move_quarantine_main(db_path: Path, target: Path, marker: Path,
 def _move_quarantine_sidecars(db_path: Path, target: Path) -> None:
     for suffix in ("-wal", "-shm"):
         sidecar = db_path.with_name(db_path.name + suffix)
+        if sidecar.is_symlink():
+            raise OSError(f"refusing a symlink memory sidecar: {sidecar.name}")
         if sidecar.exists():
             destination = target.with_name(target.name + suffix)
             os.replace(sidecar, destination)

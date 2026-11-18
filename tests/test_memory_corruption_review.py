@@ -184,3 +184,26 @@ def test_failed_recovery_record_keeps_incomplete_marker(tmp_path, monkeypatch):
     assert next(tmp_path.glob("facts.db.corrupt-*/facts.db")).read_bytes() == b"corrupt source preserved"
     with pytest.raises(RuntimeError, match="incomplete"):
         schema.init_memory_db(db_path=db, jsonl_path=tmp_path / "facts.jsonl")
+
+
+def test_quarantine_rejects_symlink_sidecars_without_chmod_of_target(tmp_path):
+    import os
+    import stat
+
+    db = tmp_path / "facts.db"
+    db.write_bytes(b"corrupt main")
+    outside = tmp_path / "outside"
+    outside.write_bytes(b"must not change")
+    outside.chmod(0o644)
+    sidecar = tmp_path / "facts.db-wal"
+    try:
+        sidecar.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+    before = stat.S_IMODE(outside.stat().st_mode)
+    with pytest.raises(OSError, match="symlink memory sidecar"):
+        schema._quarantine_db(db, sqlite3.DatabaseError("corrupt"), None)
+    assert outside.read_bytes() == b"must not change"
+    if os.name != "nt":
+        assert stat.S_IMODE(outside.stat().st_mode) == before
+    assert schema._recovery_marker(db).exists()

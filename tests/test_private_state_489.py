@@ -86,3 +86,18 @@ def test_repeated_quarantines_do_not_depend_on_a_clock(tmp_path, monkeypatch):
     CHECK.assertNotEqual(first, second)
     CHECK.assertEqual(first.read_bytes(), b"first bytes")
     CHECK.assertEqual(second.read_bytes(), b"second bytes")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode contract; Windows uses deployment ACLs")
+def test_new_intermediate_private_directories_are_not_umask_exposed(tmp_path):
+    import stat
+
+    parent = tmp_path / "new" / "intermediate"
+    target = parent / "leaf"
+    previous = os.umask(0)
+    try:
+        private_state.private_directory(target)
+    finally:
+        os.umask(previous)
+    for path in (tmp_path / "new", parent, target):
+        CHECK.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o700)

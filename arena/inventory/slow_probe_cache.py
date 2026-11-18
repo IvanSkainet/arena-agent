@@ -20,6 +20,7 @@ from typing import Any
 
 from arena.home import agent_home
 from arena.inventory.cache_lease import cache_lease
+from arena.private_state import private_directory
 
 _TTL_SEC = 1800.0
 _MAX_CACHE_BYTES = 8 * 1024 * 1024
@@ -58,7 +59,7 @@ def _read(name: str, directory: Path) -> tuple[dict | None, float]:
 
 def _write(name: str, directory: Path, result: dict) -> None:
     path = _path(name, directory)
-    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    private_directory(directory)
     fd, temporary = tempfile.mkstemp(dir=directory, prefix=name + ".", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
@@ -97,16 +98,19 @@ def cached_probe(name: str) -> dict:
     directory = _cache_dir()
     result, age = _read(name, directory)
     error = None
+    error_type = ""
     if result is None or age > _TTL_SEC:
         try:
             _start_refresh(name, directory)
         except (OSError, RuntimeError) as exc:
-            error = f"{type(exc).__name__}: {exc}"
+            error_type = type(exc).__name__
+            error = f"{error_type}: {exc}"
             _LOG.warning("inventory cache refresh unavailable for %s: %s", name, exc)
     out: dict[str, Any] = dict(result) if result is not None else {"available": False, _KEYS[name]: []}
     out["cache"] = {"state": "ready" if result is not None else "pending", "age_sec": round(age, 1)}
     if error:
         out["cache"]["error"] = error
+        out["cache"]["error_type"] = error_type
     return out
 
 
@@ -126,6 +130,7 @@ def refresh_probe(name: str, directory: Path, collector: Callable[[], dict]) -> 
         except Exception as exc:
             result = dict(previous) if previous is not None else {"available": False, _KEYS[name]: []}
             result["error"] = f"{type(exc).__name__}: {exc}"
+            result["error_type"] = type(exc).__name__
         _write(name, directory, result)
         return True
 

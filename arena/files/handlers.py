@@ -53,7 +53,7 @@ def content_disposition(name: str) -> str:
     fallback = "".join(
         ch if 32 <= ord(ch) < 127 and ch not in '"\\;' else "_" for ch in name
     ) or "download"
-    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(name, safe='')}"
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(name, safe='', errors='surrogateescape')}"
 
 
 def _json_error(ctx: FileHandlerContext, message: str, status: int) -> web.Response:

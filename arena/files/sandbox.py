@@ -80,7 +80,8 @@ def jail_roots(home: Path, root: Path, extra_roots: tuple[Path, ...] | None = No
     pointed at, is not being kept safe -- it is being kept blind. ``extra_roots``
     replaces the state directory for callers that need a different third tree.
     """
-    return (home, root, agent_home(), *(extra_roots or ()))
+    additional = (agent_home(),) if extra_roots is None else extra_roots
+    return (home, root, *additional)
 
 
 def inside_any(resolved: Path, allowed: tuple[Path, ...]) -> bool:
