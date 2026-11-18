@@ -166,3 +166,14 @@ def test_packaged_mcp_cli_really_executes_the_dispatcher(tmp_path):
     result = subprocess.run([sys.executable, "-m", "arena.mcp_marketplace.cli", "list"],
                             env=env, capture_output=True, text=True, check=True, timeout=10)
     CHECK.assertEqual(json.loads(result.stdout), {"mcpServers": {}})
+
+
+def test_nested_saved_missions_count_as_real_split_state(locations):
+    code, state = locations
+    (code / "memory").mkdir()
+    (code / "memory/facts.db").write_bytes(b"legacy database")
+    mission = state / "missions" / "saved" / "mission.json"
+    mission.parent.mkdir(parents=True)
+    mission.write_text('{"id":"saved"}')
+    with pytest.raises(RuntimeError, match="ARENA_AGENT_HOME"):
+        home.agent_home()

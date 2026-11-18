@@ -89,7 +89,7 @@ def _has_state(root: Path) -> bool:
     fixed = ("memory/facts.db", "memory/facts.jsonl", "webhooks.json")
     if any((root / name).is_file() for name in fixed):
         return True
-    patterns = ("queue/*/*.json", "missions/*.json", "relay/**/*.json")
+    patterns = ("queue/*/*.json", "missions/*.json", "missions/*/mission.json", "relay/**/*.json")
     return any(any(root.glob(pattern)) for pattern in patterns)
 
 

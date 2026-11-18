@@ -168,3 +168,19 @@ def test_quarantine_collision_never_overwrites_prior_files(tmp_path, monkeypatch
     assert target == tmp_path / "facts.db.corrupt-fresh" / db.name
     assert target.read_bytes() == b"new damaged database"
     assert (prior / db.name).read_bytes() == b"first saved database"
+
+
+def test_failed_recovery_record_keeps_incomplete_marker(tmp_path, monkeypatch):
+    db = tmp_path / "facts.db"
+    db.write_bytes(b"corrupt source preserved")
+
+    def fail_notice(*_args):
+        raise OSError("notice publication failed")
+
+    monkeypatch.setattr(schema, "record_recovery", fail_notice)
+    with pytest.raises(OSError, match="notice publication failed"):
+        schema.init_memory_db(db_path=db, jsonl_path=tmp_path / "facts.jsonl")
+    assert schema._recovery_marker(db).exists()
+    assert next(tmp_path.glob("facts.db.corrupt-*/facts.db")).read_bytes() == b"corrupt source preserved"
+    with pytest.raises(RuntimeError, match="incomplete"):
+        schema.init_memory_db(db_path=db, jsonl_path=tmp_path / "facts.jsonl")

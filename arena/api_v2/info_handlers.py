@@ -70,7 +70,9 @@ def make_v2_health_handler(ctx: ApiV2HandlerContext):
         checks = {
             "bridge": True,
             "cdp": ctx.cdp_state["connected"],
-            "watchdog": ctx.watchdog_state["last_check"] > 0,
+            "watchdog": (ctx.watchdog_state["last_check"] > 0
+                         and 0 <= ctx.now() - ctx.watchdog_state["last_check"]
+                         <= max(60, ctx.watchdog_state.get("check_interval_s", 30) * 3)),
             "tls": tls_ready(ctx.tls_config),
             "cluster": ctx.cluster_config["enabled"],
         }

@@ -117,9 +117,9 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
         # Who claimed it, so a later start can tell "still running elsewhere"
         # from "left behind by a process that no longer exists" (#B-032).
         task["pid"] = os.getpid()
+        cwd = Path(task.get("cwd") or str(Path.home())).expanduser().resolve()
+        task["cwd"] = str(cwd)
         write_private_json(rp, task)
-
-        cwd = Path(task.get("cwd") or str(Path.home())).expanduser()
         timeout = int(task.get("timeout") or 3600)
         blk = ctx.blocked_reason(task["cmd"])
         if blk:

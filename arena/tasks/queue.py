@@ -231,7 +231,10 @@ def _load_reclaim_candidate(path: Path, alive: Callable[[int], bool],
 def _reclaim_one(path: Path, failed: Path, done: Path, now_fn: Callable[[], str],
                  alive: Callable[[int], bool], now_epoch: float, grace_seconds: int) -> str | None:
     task = _load_reclaim_candidate(path, alive, now_epoch, grace_seconds)
-    if task is None or (done / path.name).exists():
+    if task is None:
+        return None
+    if (done / path.name).exists() or (failed / path.name).exists():
+        path.unlink(missing_ok=True)
         return None
     task["reason"] = "interrupted"
     task["state"] = "failed"

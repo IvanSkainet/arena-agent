@@ -84,3 +84,21 @@ def test_task_runner_run_one_blocked(tmp_path):
     assert data["state"] == "failed"
     assert data["exit_code"] == -1
     assert "blocked-test" in data["stderr"]
+
+
+def test_relative_task_cwd_is_resolved_only_once(tmp_path, monkeypatch):
+    import subprocess
+
+    monkeypatch.chdir(tmp_path)
+    work = tmp_path / "work"
+    work.mkdir()
+    runtime = make_task_runner_runtime(_ctx(tmp_path))
+    runtime.ensure_dirs()
+    argv = [sys.executable, "-c", "from pathlib import Path; print(Path.cwd())"]
+    command = subprocess.list2cmdline(argv) if sys.platform == "win32" else shlex.join(argv)
+    task = tmp_path / "inbox" / "relative.json"
+    task.write_text(json.dumps({"id": "relative", "cmd": command, "cwd": "work", "timeout": 10}))
+    assert asyncio.run(runtime.run_one(task)) is True
+    result = json.loads((tmp_path / "done" / task.name).read_text())
+    assert result["exit_code"] == 0
+    assert Path(result["stdout"].strip()) == work

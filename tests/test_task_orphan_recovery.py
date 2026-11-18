@@ -312,3 +312,21 @@ def test_two_processes_cannot_overwrite_the_same_recovery_result(tmp_path):
     assert sorted(len(result["reclaimed"]) for result in outputs) == [0, 1]
     assert not (running / "racing.json").exists()
     assert json.loads((failed / "racing.json").read_text(encoding="utf-8"))["reason"] == "interrupted"
+
+
+def test_terminal_results_remove_only_dead_owners_running_copy(tmp_path):
+    for terminal in ("done", "failed"):
+        root = tmp_path / terminal
+        running, failed = _queue(root)
+        done = root / "queue" / "done"
+        done.mkdir()
+        path = _write(running, "finished", pid=999_999_999)
+        target = (done if terminal == "done" else failed) / path.name
+        final = b'{"id":"finished","state":"terminal","stdout":"preserved"}'
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(final)
+        reclaim_interrupted_tasks(running=running, failed=failed, done=done, now_fn=lambda: NOW, alive=lambda _: True)
+        assert path.exists()
+        reclaim_interrupted_tasks(running=running, failed=failed, done=done, now_fn=lambda: NOW, alive=lambda _: False)
+        assert not path.exists()
+        assert target.read_bytes() == final

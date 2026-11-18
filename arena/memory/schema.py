@@ -54,6 +54,7 @@ def init_memory_db(*, db_path: Path, jsonl_path: Path, log_error: Callable[..., 
         os.close(fd)
         _prepare_memory_db(db_path)
         record_recovery(db_path, quarantined)
+        marker.unlink()
     migrate_jsonl_facts(db_path=db_path, jsonl_path=jsonl_path, log_error=log_error)
 
 
@@ -157,7 +158,6 @@ def _quarantine_db(
             log_error("[Memory] Quarantine incomplete for %s: %s; marker %s retained, inspect %s",
                       db_path, move_error, marker, target)
         raise
-    marker.unlink()
     if log_error:
         log_error("[Memory] Database at %s was unreadable (%s); moved to %s; "
                   "a fresh one will be created, previous facts remain in quarantine",
@@ -352,6 +352,8 @@ def _import_jsonl_line(conn: sqlite3.Connection, line: str) -> None:
         return  # a torn line is skipped, never fatal: the rest of the file is good
     if not isinstance(item, dict):
         return  # valid JSON scalars and arrays are not fact records
+    if item.get("key", "") is None:
+        return  # NOT NULL key violations must not strand following records
     if any(not isinstance(item.get(field), (str, int, float, type(None)))
            for field in ("key", "value", "timestamp", "ts")):
         return  # JSON arrays/objects are not valid SQLite scalar bindings

@@ -76,11 +76,11 @@ def test_public_health_reports_rebuilt_without_leaking_the_quarantine_path():
     CHECK.assertEqual(json.loads(healthy.text)["status"], "healthy")
 
 
-def _v2(*, watchdog=True, tls_enabled=False, tls_path=""):
+def _v2(*, watchdog=True, tls_enabled=False, tls_path="", now=2):
     ctx = SimpleNamespace(record_request=lambda: None, cors_json_response=web.json_response,
                            cdp_state={"connected": False}, watchdog_state={"last_check": int(watchdog)},
                            tls_config={"enabled": tls_enabled, "cert_path": tls_path},
-                           cluster_config={"enabled": False}, version="test", now=lambda: 2,
+                           cluster_config={"enabled": False}, version="test", now=lambda: now,
                            metrics={"start_time": 1})
     return json.loads(asyncio.run(make_v2_health_handler(ctx)(None)).text)
 
@@ -116,3 +116,10 @@ def test_doctor_cli_displays_degradation(monkeypatch, capsys):
     text = capsys.readouterr().out
     CHECK.assertIn("1/2 checks passed", text)
     CHECK.assertIn("1 degraded", text)
+
+
+def test_stalled_watchdog_is_not_ready_forever():
+    result = _v2(watchdog=True, now=1000)
+    CHECK.assertFalse(result["ok"])
+    CHECK.assertFalse(result["checks"]["watchdog"])
+    CHECK.assertEqual(_v2(watchdog=True, now=10)["status"], "healthy")
