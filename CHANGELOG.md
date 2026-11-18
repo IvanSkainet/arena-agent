@@ -1,5 +1,14 @@
 ## v4.170.0 — 2026-09-03
 
+### Optional external game diagnostic
+
+The Book of Eternity live compatibility workflow is now independent and
+non-blocking: manual/weekly execution only, no PR/push trigger and no release
+attestation dependency. Real diagnostic failures remain visible. Upstream
+drift is informational; the declared pin is not silently advanced. Arena relay
+and security tests remain required.
+
+
 48 commits since v4.169.50. The theme is not new features: it is that
 several gates and one live code path were reporting success when they
 should not have been. Four of the security fixes below were found by

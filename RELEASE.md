@@ -53,8 +53,8 @@ gh pr create --base master --head release/vX.Y.Z --title "vX.Y.Z: <summary>"
 # Wait for CI required + Security required + Dependency Review + Zizmor, then merge.
 
 # 4) Build the exact master commit twice and attest the matching bytes.
-#    This workflow first runs the pinned The Book of Eternity: Reborn Windows
-#    ConPTY/relay/repair contract; candidate attestation waits for that job.
+#    External game compatibility is an independent optional diagnostic;
+#    candidate attestation does not wait for it.
 gh workflow run release-candidate.yml --ref master
 # Resolve the run whose headSha is the exact intended master commit, wait for success,
 # then download its final artifact without renaming or rebuilding the ZIPs or APK.
@@ -358,9 +358,9 @@ debug key because its APK is a build test, never a release asset.
 - [ ] Working tree clean, on `master`, up to date with `origin/master`.
 - [ ] `release-candidate.yml` succeeded on that exact master SHA; independent
       builds A/B matched byte-for-byte and `release-verification.json` is clean.
-- [ ] Its reusable pinned **The Book of Eternity: Reborn** Windows contract
-      passed on the same SHA with current upstream pin, three correlated
-      dispatches, empty relay queues, and no surviving GM bridge process.
+- External **The Book of Eternity: Reborn** compatibility is optional and is
+  not a release checkbox. Its separate manual/weekly diagnostic reports actual
+  failures and does not establish compatibility with untested upstream heads.
 - [ ] Both ZIP names and `arena-bridge.apk` pass build-provenance and their
       matching SPDX SBOM verification with the pinned release-candidate signer
       workflow and `--source-digest` equal to the exact intended master commit.
