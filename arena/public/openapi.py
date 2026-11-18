@@ -168,8 +168,10 @@ def _json_schema(properties: dict, required: list[str]) -> dict:
 _SUCCESS_SCHEMAS: dict[tuple[str, str], tuple[dict, list[str]]] = {
     ("/health", "get"): (
         {"ok": {"type": "boolean"}, "service": {"type": "string"},
-         "version": {"type": "string"}, "uptime_seconds": {"type": "number"}},
-        ["ok", "service", "version", "uptime_seconds"],
+         "version": {"type": "string"}, "uptime_seconds": {"type": "number"},
+         "memory": {"type": "string"},
+         "status": {"type": "string", "enum": ["healthy", "degraded"]}},
+        ["ok", "service", "version", "uptime_seconds", "memory", "status"],
     ),
     ("/v1/version", "get"): (
         {"ok": {"type": "boolean"}, "version": {"type": "string"},

@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import os
 import signal
-import subprocess
+import subprocess  # nosec B404 -- authorized task shell worker; parent owns policy enforcement and lifetime
 import sys
 import threading
 import time
@@ -72,9 +72,8 @@ def _stop_tree(process: subprocess.Popen) -> None:
     if os.name == "nt":
         # The process-lifetime Job Object remains the final backstop, including
         # when the command shell has already exited before its descendants.
-        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, timeout=10, check=False)
+        cleanup = ["taskkill", "/PID", str(process.pid), "/T", "/F"]
+        subprocess.run(cleanup, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False)  # nosec B603 -- fixed Windows cleanup utility + owned child PID, never caller input
     else:
         try:
             os.killpg(process.pid, signal.SIGKILL)

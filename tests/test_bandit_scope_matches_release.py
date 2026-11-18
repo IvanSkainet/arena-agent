@@ -182,3 +182,12 @@ def test_total_ceiling_matches_the_sum_of_per_test_ceilings():
         f"docs/bandit-low-ceiling.txt says {total} but the per-test "
         f"ceilings sum to {summed}"
     )
+
+
+def test_local_bandit_scans_the_same_release_trees_as_hosted_ci():
+    """A local green must not hide shipped scripts that fail hosted CI."""
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    command = next(line for line in makefile.splitlines() if "bandit -r" in line)
+    scanned = _scanned_targets(command)
+    assert _shipped_python_trees() <= scanned
+    assert scanned == _scanned_targets(_bandit_command())

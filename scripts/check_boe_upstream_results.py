@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosec B405 -- custom parser below rejects every DTD before entity use
 from pathlib import Path
 
 REQUIRED_TESTS = frozenset({
@@ -13,8 +13,18 @@ REQUIRED_TESTS = frozenset({
 })
 
 
+class _NoDtdBuilder(ET.TreeBuilder):
+    """TRX needs elements and attributes, never document type declarations."""
+
+    def doctype(self, _name, _pubid, _system):
+        raise ValueError("DTD declarations are forbidden in upstream reports")
+
+
 def check_results(path: Path) -> None:
-    root = ET.parse(path).getroot()
+    # Reject DTDs at parser level, including UTF-16 documents: byte substring
+    # checks miss encodings. No entity declaration can reach the tree builder.
+    parser = ET.XMLParser(target=_NoDtdBuilder())  # nosec B314 -- _NoDtdBuilder rejects DTDs for every encoding
+    root = ET.parse(path, parser=parser).getroot()  # nosec B314 -- DTD rejected above
     results = [node for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "UnitTestResult"]
     names: set[str] = set()
     for node in results:

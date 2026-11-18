@@ -10,7 +10,7 @@ import json
 import logging
 import math
 import os
-import subprocess
+import subprocess  # nosec B404 -- isolated fixed Python worker, argv only, never a shell
 import sys
 import tempfile
 import time
@@ -79,7 +79,7 @@ def _spawn_detached(argv: list[str]) -> None:
         options["creationflags"] = 0x08000000 | 0x00000200  # NO_WINDOW | NEW_PROCESS_GROUP
     else:
         options["start_new_session"] = True
-    _WORKERS.append(subprocess.Popen(argv, **options))
+    _WORKERS.append(subprocess.Popen(argv, **options))  # nosec B603 -- argv is the fixed current interpreter + isolated cache_worker.py and validated probe key
 
 
 def _start_refresh(name: str, directory: Path) -> None:

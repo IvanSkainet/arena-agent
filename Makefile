@@ -60,7 +60,7 @@ security-scan: security-bandit security-semgrep security-pip-audit
 # a handful of runtime invariants.
 security-bandit:
 	@echo "-- bandit --"
-	@set +e; bandit -r arena/ --skip B101 -f json -o /tmp/bandit-local.json > /dev/null 2>&1; \
+	@set +e; bandit -r arena/ scripts/ bin/ skills/ --skip B101 -f json -o /tmp/bandit-local.json > /dev/null 2>&1; \
 	  scanner_rc=$$?; set -e; \
 	  $(PYTHON) scripts/scanner_contract_gate.py --tool bandit --exit-code "$$scanner_rc" --allowed-exits 0,1
 	@$(PYTHON) scripts/security_gate.py bandit /tmp/bandit-local.json

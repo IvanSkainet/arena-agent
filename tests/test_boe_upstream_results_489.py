@@ -53,3 +53,16 @@ def test_workflow_checks_the_actual_trx_after_dotnet():
     CHECK.assertIn("boe-upstream-contract.trx", text)
     CHECK.assertIn("upstream dotnet contracts failed", text)
     CHECK.assertIn("DaemonAutomaticDispatch_DoesNotSendBootstrapAsSeparateGmRequest", text)
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16"])
+@pytest.mark.parametrize("declaration", [
+    '<!DOCTYPE TestRun [<!ENTITY attack "expanded">]>',
+    '<!DOCTYPE TestRun SYSTEM "file:///never-read-external-dtd">',
+])
+def test_upstream_report_rejects_all_dtds(tmp_path, encoding, declaration):
+    report = tmp_path / "hostile.trx"
+    report.write_bytes((f'<?xml version="1.0" encoding="{encoding}"?>'
+                        + declaration + '<TestRun/>').encode(encoding))
+    with pytest.raises(ValueError, match="DTD declarations are forbidden"):
+        checker.check_results(report)
