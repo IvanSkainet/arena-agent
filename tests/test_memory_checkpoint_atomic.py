@@ -28,8 +28,9 @@ def test_replacement_same_size_or_larger_is_imported(tmp_path, extra):
     init_memory_db(db_path=db, jsonl_path=source)
     old_size = source.stat().st_size
     replacement = _fact("new", "b" * (4 + extra))
-    assert len(replacement.encode()) >= old_size
     source.write_text(replacement, encoding="utf-8")  # truncate/rewrite in place
+    # Compare actual on-disk bytes: Windows text writes expand LF to CRLF.
+    assert source.stat().st_size >= old_size
     migrate_jsonl_facts(db_path=db, jsonl_path=source)
     assert _value(db, "new") == "b" * (4 + extra)
 
