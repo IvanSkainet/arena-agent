@@ -59,6 +59,7 @@ jobs:
           set -euo pipefail
           case "$SHARDS" in
             ''|*[!0-9]*) echo "shards must be a positive integer" >&2; exit 1 ;;
+            *) ;; # Numeric input continues to the range check below.
           esac
           # v4.169.34: if/then form -- the A && B || C idiom trips
           # SC2015 (shellcheck 0.10 flags the brace-group form; the CI
@@ -83,7 +84,7 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - name: Harden Runner (audit mode, egress visibility)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -109,7 +110,7 @@ jobs:
           # targets in five seconds. The report said "ran" with a straight
           # face -- a fail-open in the very tooling written to find
           # fail-opens. No `|| true` here.
-          python -m pip install --require-hashes -r requirements-ci.lock
+          python -m pip install --only-binary :all: --require-hashes -r requirements-ci.lock
           python -m pip install --no-deps --no-build-isolation -e .
           # mutmut 2.5.1, not 3.x: 3.x copies the tree into mutants/ and
           # breaks our imports. Measured, not assumed. Hash-locked in
@@ -117,7 +118,9 @@ jobs:
           # install here -- `pip install "mutmut==2.5.1"` pins the version
           # but not the artefact, and opened two alerts on this very
           # workflow the day it landed.
-          python -m pip install --require-hashes -r requirements-mutation.lock
+          # These pinned legacy releases publish only source distributions.
+          # Keep the exception named; all other dependencies must be wheels.
+          python -m pip install --only-binary :all: --no-binary glob2,mutmut --require-hashes -r requirements-mutation.lock
 
       - name: Prove the suite runs before mutating anything
         run: |

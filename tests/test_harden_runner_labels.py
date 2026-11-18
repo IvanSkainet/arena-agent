@@ -10,7 +10,9 @@ rather than left to review.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
+from unittest import TestCase
 
 import pytest
 import yaml
@@ -54,6 +56,16 @@ def _allows_pypi(step) -> bool:
     """
     endpoints = str((step.get("with") or {}).get("allowed-endpoints", "")).split()
     return any(e.split(":")[0] == "pypi.org" for e in endpoints)
+
+
+def _installs_from_npm(job) -> bool:
+    runs = " ".join(str(s.get("run", "")) for s in job.get("steps") or [])
+    return bool(re.search(r"(?<![\w.-])(?:npm\s+(?:ci|install|i|update|exec)\b|npx\b)", runs))
+
+
+def _allows_npm_registry(step) -> bool:
+    endpoints = str((step.get("with") or {}).get("allowed-endpoints", "")).split()
+    return any(e.split(":")[0] == "registry.npmjs.org" for e in endpoints)
 
 
 def test_workflows_exist():
@@ -118,6 +130,18 @@ def test_pypi_allowed_wherever_pip_is_used():
     assert not wrong, f"these jobs pip-install but cannot reach PyPI: {wrong}"
 
 
+def test_npm_registry_allowed_only_where_npm_is_used():
+    wrong = [
+        f"{wf}:{jid}"
+        for wf, jid, job, step in _blocking_jobs()
+        if _installs_from_npm(job) != _allows_npm_registry(step)
+    ]
+    assert not wrong, (
+        "npm registry egress must be granted exactly to npm-installing jobs: "
+        f"{wrong}"
+    )
+
+
 def test_pypi_not_granted_where_pip_is_unused():
     """An allowlist that grants more than the job needs is not an allowlist."""
     wrong = [
@@ -148,3 +172,38 @@ def test_allowed_endpoints_are_all_host_port_pairs():
         "allowlist entries that are not host:port (a comment folded into the "
         f"YAML block scalar?): {bad}"
     )
+
+
+@pytest.mark.parametrize("command", [
+    "npm ci", "npm install", "npm i", "npm update", "npm exec oxlint", "npx oxlint",
+])
+def test_npm_network_command_detection(command: str) -> None:
+    TestCase().assertTrue(_installs_from_npm({"steps": [{"run": command}]}))
+
+
+@pytest.mark.parametrize("command", ["npm --version", "npm run test", "echo pnpm install"])
+def test_npm_non_install_commands_do_not_require_registry(command: str) -> None:
+    TestCase().assertFalse(_installs_from_npm({"steps": [{"run": command}]}))
+
+
+def test_osv_artifact_receiver_alias_does_not_require_disabling_block_mode():
+    workflow = yaml.safe_load((WORKFLOWS[0].parent / "security-scan.yml").read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["osv-scanner"]["steps"]
+    harden = next(step for step in steps if step.get("uses", "").startswith("step-security/harden-runner@"))
+    settings = harden["with"]
+    TestCase().assertEqual(settings["egress-policy"], "block")
+    endpoints = settings["allowed-endpoints"].split()
+    TestCase().assertIn("results-receiver.actions.githubusercontent.com:443", endpoints)
+    TestCase().assertIn("actions-results-receiver-production.githubapp.com:443", endpoints)
+    upload = next(step for step in steps if step.get("uses", "").startswith("actions/upload-artifact@"))
+    TestCase().assertFalse(upload.get("continue-on-error", False))
+    TestCase().assertEqual(upload["with"]["if-no-files-found"], "error")
+
+
+def test_harden_runner_uses_reviewed_dns_proxy_fix_pin():
+    # Keep every job on the reviewed release, not merely off one known-bad SHA.
+    pinned = "step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a"
+    steps = list(_harden_runner_steps())
+    TestCase().assertTrue(steps)
+    for workflow, job, step in steps:
+        TestCase().assertEqual(step["uses"], pinned, f"{workflow}:{job}")

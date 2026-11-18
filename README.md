@@ -27,9 +27,9 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 
 | Metric | Value |
 | --- | --- |
-| Runtime code | **115,818** lines across 824 files |
-| Test code | **119,689** lines across 605 files |
-| Test-to-code ratio | **1.03×** |
+| Runtime code | **116,473** lines across 824 files |
+| Test code | **121,811** lines across 611 files |
+| Test-to-code ratio | **1.05×** |
 | CI workflows | **16** |
 | Quality gates (ratchets) | **20** |
 
@@ -470,8 +470,10 @@ the full threat model, environment-variable reference, and audit history).
 
 **Filesystem access.**
 
-- Every `/v1/fs/*` verb (view / edit / create / upload / **download**) routes
-  through the same sandbox validator. Sensitive files are blocked by both
+- Filesystem routes use the sandbox validators. The API paths are not all
+  under `/v1/fs/*`: upload is `POST /v1/upload` and download is
+  `GET /v1/download`; view, create and edit routes use the `/v1/fs/` prefix.
+  Sensitive files are blocked by both
   basename (`token.txt`, `.env`, `id_rsa`, `.git-credentials`, `.pypirc`,
   `.npmrc`, `.bash_history`, shell history in general) and directory prefix
   (`.ssh/`, `.aws/`, `.gnupg/`, `.docker/`, `.kube/`, `.config/gh/`, browser
@@ -552,6 +554,23 @@ Runtime tools:
 | `GET` | `/v1/desktop/screenshot` | Desktop screenshot where supported |
 | `GET` | `/v1/skills` | List discovered skill packages |
 
+Filesystem:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `PATCH` | `/v1/fs/edit` | Apply a text edit by default; set `"preview": true` to request a preview |
+| `POST` | `/v1/fs/edit/apply` | Apply a previewed edit |
+| `POST` | `/v1/fs/edit/rollback` | Roll back an applied edit |
+| `POST` | `/v1/fs/view` | Read a file through the filesystem sandbox |
+| `POST` | `/v1/fs/create` | Create a file through the filesystem sandbox |
+| `POST` | `/v1/upload` | Upload a file |
+| `GET` | `/v1/download` | Download a file |
+
+For safe edits, call `/v1/fs/edit` with `"preview": true`, then apply the
+returned preview with `/v1/fs/edit/apply`; use `/v1/fs/edit/rollback` if you
+need to undo the applied change. Without `"preview": true`, the edit route
+applies the change directly.
+
 Extension bridge:
 
 | Method | Path | Purpose |
@@ -605,6 +624,13 @@ pytest -q tests/test_tunnels.py tests/test_zerotier.py tests/test_cloudflared.py
           tests/test_browseract.py tests/test_superpowers_layout.py
 ```
 
+The security-alert checker (`scripts/security_alerts_check.py`) needs Python 3.11+
+for `pyproject.toml` fix proofs; CI uses 3.12. On Python 3.10, requirements-file
+proofs still work, but TOML alerts remain blocking rather than being guessed fixed.
+Runner event metadata is read only from `$RUNNER_TEMP/_github_workflow/event.json`
+or the container mount `/github/workflow/event.json`; arbitrary event-file paths
+and symlinks are rejected. `RUNNER_TEMP` must remain trusted runner configuration.
+
 Before pushing, run the same security gates CI runs:
 
 ```bash
@@ -623,7 +649,7 @@ Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [REL
 
 | Document | What's inside |
 | --- | --- |
-| [SECURITY.md](SECURITY.md) | **Threat model, environment-variable reference (14 knobs), recommended production preset, CI security-scan pipeline, audit history v4.40.0 → v4.46.0. Read this before exposing the bridge to any network.** |
+| [SECURITY.md](SECURITY.md) | **Threat model, environment-variable reference, recommended production preset, CI security-scan pipeline, audit history v4.40.0 → v4.46.0. Read this before exposing the bridge to any network.** |
 | [CHANGELOG.md](CHANGELOG.md) · [ru](CHANGELOG.ru.md) | Release history |
 | [RELEASE.md](RELEASE.md) | Release packaging and publishing checklist |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, tests, workflow, `make security-scan` gate |
@@ -694,7 +720,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `ship` | `ship.status` / `ship.preflight` / `ship.smoke` — Whole-ship maps, readiness checks, Linux flight check, and real-machine smoke proof |
 | `tool_foundry` | `tool_foundry.validate` / `tool_foundry.publish` — Validate a Workbench project manifest/tests and publish it as a callable custom tool |
 
-All calls go through `POST /v1/mcp/call` with JSON body `{"name": "<tool>", "arguments": {...}}`.
+For the MCP Streamable HTTP transport, calls go through `POST /mcp` with JSON body `{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "<tool>", "arguments": {}}}`. Alternative transports are SSE (`GET /sse` with `POST /messages`) and WebSocket (`GET /ws`).
 
 ---
 

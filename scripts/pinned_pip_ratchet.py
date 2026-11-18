@@ -6,7 +6,7 @@ Scorecard flagged `.github/workflows/ci.yml` with
 was pointing at one line out of eight: two jobs ran `pip install pytest`
 and `pip install hypothesis`, and six more ran
 `pip install -r requirements.txt`, which carries floors
-(`aiohttp>=3.14.1`) rather than pins. Every one of those resolved to
+(version lower bounds) rather than pins. Every one of those resolved to
 whatever PyPI served that minute.
 
 That matters more here than in most projects. This repository ships a

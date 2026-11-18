@@ -20,12 +20,18 @@ another.
 """
 from __future__ import annotations
 
+# pytest fixtures intentionally use their registered names as test parameters.
+# pylint: disable=redefined-outer-name
 import json
 import os
 import pathlib
-import tempfile
+import sys
+import unittest
 
 import pytest
+import yaml
+
+_CHECK = unittest.TestCase()
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "security_alerts_check.py"
@@ -51,9 +57,12 @@ def gate():
 
 
 @pytest.fixture
-def clean_env(monkeypatch):
-    for key in ("GITHUB_EVENT_NAME", "GITHUB_REF", "GITHUB_EVENT_PATH"):
+def clean_env(monkeypatch, tmp_path):
+    for key in ("GITHUB_EVENT_NAME", "GITHUB_REF", "GITHUB_EVENT_PATH",
+                "GITHUB_TOKEN", "GH_TOKEN", "SECRET_SCANNING_TOKEN"):
         monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    (tmp_path / "_github_workflow").mkdir(exist_ok=True)
     return monkeypatch
 
 
@@ -61,7 +70,7 @@ def test_a_pull_request_is_judged_on_its_own_head(gate, clean_env):
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_REF", "refs/pull/149/merge")
 
-    assert gate.code_scanning_ref() == "refs/pull/149/head"
+    _CHECK.assertEqual(gate.code_scanning_ref(), "refs/pull/149/head")
 
 
 def test_the_merge_ref_is_not_used(gate, clean_env):
@@ -70,16 +79,16 @@ def test_the_merge_ref_is_not_used(gate, clean_env):
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_REF", "refs/pull/149/merge")
 
-    assert gate.code_scanning_ref().endswith("/head")
+    _CHECK.assertTrue(gate.code_scanning_ref().endswith("/head"))
 
 
 def test_pull_request_target_reads_the_event_payload(gate, clean_env, tmp_path):
-    payload = tmp_path / "event.json"
+    payload = tmp_path / "_github_workflow" / "event.json"
     payload.write_text(json.dumps({"number": 77}), encoding="utf-8")
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request_target")
     clean_env.setenv("GITHUB_EVENT_PATH", str(payload))
 
-    assert gate.code_scanning_ref() == "refs/pull/77/head"
+    _CHECK.assertEqual(gate.code_scanning_ref(), "refs/pull/77/head")
 
 
 def test_the_event_decides_the_scope_not_the_ref_string(gate, clean_env):
@@ -95,8 +104,9 @@ def test_the_event_decides_the_scope_not_the_ref_string(gate, clean_env):
     clean_env.setenv("GITHUB_EVENT_NAME", "push")
     clean_env.setenv("GITHUB_REF", "refs/pull/9/merge")
 
-    assert gate.code_scanning_ref() is None, (
-        "a non-PR event narrowed its scope because the ref looked like a PR"
+    _CHECK.assertIsNone(
+        gate.code_scanning_ref(),
+        "a non-PR event narrowed its scope because the ref looked like a PR",
     )
 
 
@@ -105,14 +115,14 @@ def test_a_push_to_master_still_sees_the_whole_repository(gate, clean_env):
     clean_env.setenv("GITHUB_EVENT_NAME", "push")
     clean_env.setenv("GITHUB_REF", "refs/heads/master")
 
-    assert gate.code_scanning_ref() is None
+    _CHECK.assertIsNone(gate.code_scanning_ref())
 
 
 @pytest.mark.parametrize("event", ["release", "schedule", "workflow_dispatch", ""])
 def test_every_other_event_is_repository_wide(gate, clean_env, event):
     clean_env.setenv("GITHUB_EVENT_NAME", event)
 
-    assert gate.code_scanning_ref() is None
+    _CHECK.assertIsNone(gate.code_scanning_ref())
 
 
 def test_a_pull_request_with_no_discoverable_number_stays_wide(gate, clean_env):
@@ -124,23 +134,23 @@ def test_a_pull_request_with_no_discoverable_number_stays_wide(gate, clean_env):
     """
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
 
-    assert gate.code_scanning_ref() is None
+    _CHECK.assertIsNone(gate.code_scanning_ref())
 
 
 def test_an_unreadable_event_payload_does_not_crash_the_gate(gate, clean_env):
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_EVENT_PATH", "/definitely/not/here.json")
 
-    assert gate.code_scanning_ref() is None
+    _CHECK.assertIsNone(gate.code_scanning_ref())
 
 
 def test_a_corrupt_event_payload_does_not_crash_the_gate(gate, clean_env, tmp_path):
-    payload = tmp_path / "event.json"
+    payload = tmp_path / "_github_workflow" / "event.json"
     payload.write_text("{not json", encoding="utf-8")
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_EVENT_PATH", str(payload))
 
-    assert gate.code_scanning_ref() is None
+    _CHECK.assertIsNone(gate.code_scanning_ref())
 
 
 def test_the_ref_actually_reaches_the_query(gate, clean_env, monkeypatch):
@@ -163,9 +173,180 @@ def test_the_ref_actually_reaches_the_query(gate, clean_env, monkeypatch):
     _, notes = gate.collect()
 
     code_scanning = [p for p in seen if p.startswith("/code-scanning")]
-    assert code_scanning, "the code-scanning feed was not queried at all"
-    assert "ref=refs/pull/149/head" in code_scanning[0], code_scanning[0]
-    assert any("scoped to" in n for n in notes), notes
+    _CHECK.assertTrue(
+        code_scanning,
+        "the code-scanning feed was not queried at all",
+    )
+    _CHECK.assertIn(
+        "ref=refs/pull/149/head",
+        code_scanning[0],
+        code_scanning[0],
+    )
+    _CHECK.assertTrue(any("scoped to" in n for n in notes), notes)
+
+
+def test_secret_scanning_uses_its_dedicated_read_token(gate, clean_env, monkeypatch):
+    """GITHUB_TOKEN cannot read secret-scanning alerts on GitHub."""
+    clean_env.setenv("GITHUB_TOKEN", "job-token")
+    clean_env.setenv("SECRET_SCANNING_TOKEN", "secret-feed-token")
+    seen = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return b"[]"
+
+    def fake_urlopen(request, timeout):
+        seen.append((request.get_header("Authorization"), timeout))
+        return Response()
+
+    monkeypatch.setattr(gate.urllib.request, "urlopen", fake_urlopen)
+    for path in ("/code-scanning/alerts?state=open", "/secret-scanning/alerts?state=open"):
+        if gate._get(path) != ([], ""):
+            raise AssertionError(f"empty alert response was not preserved for {path}")
+    expected = [("Bearer job-token", gate.TIMEOUT),
+                ("Bearer secret-feed-token", gate.TIMEOUT)]
+    if seen != expected:
+        raise AssertionError(f"unexpected auth headers or timeout values: {seen}")
+
+
+def test_secret_scanning_permission_error_names_its_own_scope(
+    gate, clean_env, monkeypatch,
+):
+    clean_env.setenv("SECRET_SCANNING_TOKEN", "secret-feed-token")
+    error = gate.urllib.error.HTTPError("https://api.github.com", 403,
+                                       "forbidden", {}, None)
+    def raise_forbidden(*_args, **_kwargs):
+        raise error
+    monkeypatch.setattr(gate.urllib.request, "urlopen", raise_forbidden)
+
+    alerts, note = gate._get("/secret-scanning/alerts?state=open")
+    if alerts is not None:
+        raise AssertionError("the 403 secret-scanning response must be treated as unreadable")
+    if "secret_scanning_alerts: read" not in note:
+        raise AssertionError(f"the endpoint-specific permission hint is missing: {note}")
+
+
+def test_secret_scanning_does_not_fall_back_to_github_token(
+    gate, clean_env, monkeypatch
+):
+    clean_env.setenv("GITHUB_TOKEN", "job-token")
+    monkeypatch.delenv("SECRET_SCANNING_TOKEN", raising=False)
+    called = []
+    monkeypatch.setattr(gate.urllib.request, "urlopen", lambda *args, **kwargs: called.append(args))
+
+    alerts, note = gate._get("/secret-scanning/alerts?state=open")
+    if alerts is not None:
+        raise AssertionError("secret scanning must not be queried without its dedicated token")
+    if note != "no SECRET_SCANNING_TOKEN; cannot read security alerts":
+        raise AssertionError(f"unexpected missing-token message: {note}")
+    if called:
+        raise AssertionError("secret scanning attempted a request without its dedicated token")
+
+
+def test_workflows_scope_alert_tokens_and_permissions_to_the_gate_job():
+    """The alert-check job uses least privilege, not unrelated env entries."""
+    targets = (
+        (ROOT / ".github/workflows/ci.yml", "version-sync",
+         "Open security alerts (fails at medium and above)"),
+        (ROOT / ".github/workflows/security-scan.yml", "security-alerts",
+         "Check GitHub security alerts feed"),
+    )
+    for workflow, job_name, step_name in targets:
+        document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+        job = document["jobs"][job_name]
+        step = next(step for step in job["steps"] if step.get("name") == step_name)
+        env = step["env"]
+        check = unittest.TestCase()
+        check.assertEqual(
+            env["SECRET_SCANNING_TOKEN"], "${{ secrets.SECRET_SCANNING_TOKEN }}",  # nosec B105 -- workflow placeholder, not a credential
+            f"{workflow} should use the dedicated secret-scanning token",
+        )
+        check.assertEqual(env["GITHUB_TOKEN"], "${{ github.token }}")  # nosec B105 -- workflow placeholder, not a credential
+        check.assertEqual(
+            env["ALERT_PR_AUTHOR"], "${{ github.event.pull_request.user.login }}",
+        )
+        check.assertIn('"$ALERT_PR_AUTHOR" != "dependabot[bot]"', step["run"])
+        permissions = job["permissions"]
+        check.assertEqual(permissions["security-events"], "read")
+        check.assertEqual(permissions["vulnerability-alerts"], "read")
+        check.assertEqual(permissions["pull-requests"], "read")
+
+
+def test_strict_mode_skips_missing_secret_feed_only_for_fork_pr(
+    gate, clean_env, monkeypatch, capsys,
+):
+    payload = {
+        "number": 475,
+        "pull_request": {
+            "head": {"repo": {"full_name": "contributor/arena-agent"}},
+            "base": {"repo": {"full_name": "IvanSkainet/arena-agent"}},
+        },
+    }
+    monkeypatch.setattr(gate, "_event_payload", lambda: payload)
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
+    clean_env.setenv("GITHUB_TOKEN", "job-token")
+    clean_env.delenv("SECRET_SCANNING_TOKEN", raising=False)
+    monkeypatch.setattr(
+        gate, "collect", lambda: ([], [
+            "code scanning scoped to refs/pull/475/head",
+            "secret scanning: no SECRET_SCANNING_TOKEN; cannot read security alerts",
+        ]),
+    )
+
+    check = unittest.TestCase()
+    check.assertEqual(gate.main(["--max-severity", "medium", "--require-readable-feeds"]), 0)
+    out = capsys.readouterr().out
+    check.assertIn("SKIPPED -- secret scanning: no SECRET_SCANNING_TOKEN", out)
+    check.assertNotIn("ERROR -- one or more feeds could not be read", out)
+
+
+def test_strict_mode_still_requires_secret_feed_for_same_repo_pr(
+    gate, clean_env, monkeypatch, capsys,
+):
+    payload = {
+        "number": 475,
+        "pull_request": {
+            "head": {"repo": {"full_name": "IvanSkainet/arena-agent"}},
+            "base": {"repo": {"full_name": "IvanSkainet/arena-agent"}},
+        },
+    }
+    monkeypatch.setattr(gate, "_event_payload", lambda: payload)
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
+    clean_env.setenv("GITHUB_TOKEN", "job-token")
+    clean_env.delenv("SECRET_SCANNING_TOKEN", raising=False)
+    monkeypatch.setattr(
+        gate, "collect", lambda: ([], [
+            "secret scanning: no SECRET_SCANNING_TOKEN; cannot read security alerts",
+        ]),
+    )
+
+    check = unittest.TestCase()
+    check.assertEqual(gate.main(["--require-readable-feeds"]), 2)
+    check.assertIn("one or more feeds could not be read", capsys.readouterr().out)
+
+
+def test_strict_mode_accepts_readable_feeds_with_scope_note(
+    gate, clean_env, monkeypatch, capsys
+):
+    """A PR scope note reports where the feed was read, not a read failure."""
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_REF", "refs/pull/149/merge")
+    clean_env.setenv("GITHUB_TOKEN", "test-token")
+    monkeypatch.setattr(gate, "_get", lambda _path: ([], ""))
+
+    check = unittest.TestCase()
+    check.assertEqual(gate.main(["--require-readable-feeds"]), 0)
+    output = capsys.readouterr().out
+    check.assertIn("INFO -- code scanning scoped to refs/pull/149/head", output)
+    check.assertIn("OK (no open alerts in any feed)", output)
 
 
 def test_the_repository_wide_query_carries_no_ref(gate, clean_env, monkeypatch):
@@ -176,7 +357,7 @@ def test_the_repository_wide_query_carries_no_ref(gate, clean_env, monkeypatch):
     gate.collect()
 
     code_scanning = [p for p in seen if p.startswith("/code-scanning")]
-    assert "ref=" not in code_scanning[0], code_scanning[0]
+    _CHECK.assertNotIn("ref=", code_scanning[0], code_scanning[0])
 
 
 def test_the_other_two_feeds_are_never_scoped(gate, clean_env, monkeypatch):
@@ -194,28 +375,31 @@ def test_the_other_two_feeds_are_never_scoped(gate, clean_env, monkeypatch):
 
     for path in seen:
         if not path.startswith("/code-scanning"):
-            assert "ref=" not in path, path
+            _CHECK.assertNotIn("ref=", path, path)
 
 
-def test_the_ref_is_url_encoded(gate, clean_env, monkeypatch):
-    """`refs/pull/N/head` has slashes; they must survive as slashes and
-    nothing else may sneak through unescaped."""
-    payload = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
-    json.dump({"number": "149 &evil"}, payload)
-    payload.close()
+def test_non_numeric_event_number_is_refused_before_url_construction(gate, clean_env, monkeypatch, tmp_path):
+    """An invalid event number must never become an empty scoped query."""
+    payload = tmp_path / "_github_workflow" / "event.json"
+    payload.write_text(json.dumps({"number": "149 &evil"}), encoding="utf-8")
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
-    clean_env.setenv("GITHUB_EVENT_PATH", payload.name)
+    clean_env.setenv("GITHUB_EVENT_PATH", str(payload))
 
     seen = []
     monkeypatch.setattr(gate, "_get", lambda path: (seen.append(path), ([], ""))[1])
     try:
         gate.collect()
     finally:
-        os.unlink(payload.name)
+        payload.unlink()
 
     code_scanning = [p for p in seen if p.startswith("/code-scanning")]
-    assert " " not in code_scanning[0], code_scanning[0]
-    assert "&evil" not in code_scanning[0].split("ref=")[-1], code_scanning[0]
+    _CHECK.assertNotIn("ref=", code_scanning[0])
+    _CHECK.assertNotIn(" ", code_scanning[0], code_scanning[0])
+    _CHECK.assertNotIn(
+        "&evil",
+        code_scanning[0].split("ref=")[-1],
+        code_scanning[0],
+    )
 
 
 # --- review found two ways to crash the gate; one was real ----------------
@@ -233,12 +417,12 @@ def test_valid_json_of_the_wrong_shape_does_not_crash_the_gate(
     "failed", and the fix for a failing security check is not obvious to
     whoever looks next.
     """
-    event = tmp_path / "event.json"
+    event = tmp_path / "_github_workflow" / "event.json"
     event.write_text(payload, encoding="utf-8")
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_EVENT_PATH", str(event))
 
-    assert gate.code_scanning_ref() is None
+    _CHECK.assertIsNone(gate.code_scanning_ref())
 
 
 @pytest.mark.parametrize("ref", ["refs/pull/", "refs/pull", "refs/pull//", "refs/"])
@@ -258,7 +442,7 @@ def test_a_truncated_ref_does_not_crash_the_gate(gate, clean_env, ref):
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_REF", ref)
 
-    assert gate.code_scanning_ref() is None
+    _CHECK.assertIsNone(gate.code_scanning_ref())
 
 
 @pytest.mark.parametrize("number", ["a&b", "1 OR 1", "../../master", "", " "])
@@ -266,12 +450,186 @@ def test_a_non_numeric_pr_number_is_refused(gate, clean_env, tmp_path, number):
     """A PR number is digits. Anything else builds a ref that matches
     nothing, and a query matching nothing returns zero alerts -- which
     reads exactly like a clean repository."""
-    event = tmp_path / "event.json"
+    event = tmp_path / "_github_workflow" / "event.json"
     event.write_text(json.dumps({"number": number}), encoding="utf-8")
     clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
     clean_env.setenv("GITHUB_EVENT_PATH", str(event))
 
-    assert gate.code_scanning_ref() is None
+    _CHECK.assertIsNone(gate.code_scanning_ref())
+
+
+def test_unreadable_feed_fails_closed_even_with_only_low_findings(
+    gate, clean_env, monkeypatch, capsys
+):
+    """A partial feed response must not let below-threshold findings mask 403."""
+    clean_env.setenv("GITHUB_TOKEN", "test-token")
+    monkeypatch.setattr(
+        gate,
+        "collect",
+        lambda: (
+            [{"feed": "code-scanning", "number": 1, "severity": "note",
+              "id": "low-note", "where": "src/example.py:1"}],
+            ["dependabot: HTTP 403", "secret scanning: HTTP 403"],
+        ),
+    )
+
+    check = unittest.TestCase()
+    check.assertEqual(gate.main(["--max-severity", "medium"]), 2)
+    output = capsys.readouterr().out
+    check.assertIn("ERROR -- dependabot: HTTP 403", output)
+    check.assertNotIn("SKIPPED -- dependabot: HTTP 403", output)
+    check.assertIn("ERROR -- one or more feeds could not be read", output)
+
+
+def test_unreadable_feeds_fail_closed_when_no_findings_return(
+    gate, clean_env, monkeypatch, capsys
+):
+    """Zero findings from an unreadable feed is not evidence of zero alerts."""
+    clean_env.setenv("GITHUB_TOKEN", "test-token")
+    monkeypatch.setattr(
+        gate, "collect", lambda: ([], ["dependabot: HTTP 403"]),
+    )
+
+    if gate.main(["--max-severity", "medium"]) != 2:
+        raise AssertionError("an unreadable alert feed must fail the gate")
+    if "ERROR -- one or more feeds could not be read" not in capsys.readouterr().out:
+        raise AssertionError("the unreadable-feed summary was not printed")
+
+
+def test_pr_ignores_only_dependabot_alerts_fixed_in_changed_manifest(
+    gate, clean_env, monkeypatch, capsys,
+):
+    """Unrelated default-branch alerts remain blockers on a PR."""
+    fixed = {
+        "feed": "dependabot", "number": 7, "severity": "high",
+        "id": "fixed by this PR", "where": "aiohttp", "fixed_by_pr": True,
+    }
+    unrelated = {
+        "feed": "dependabot", "number": 8, "severity": "high",
+        "id": "not changed by this PR", "where": "certifi", "fixed_by_pr": False,
+    }
+    monkeypatch.setattr(gate, "collect", lambda: ([fixed, unrelated], []))
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
+
+    check = unittest.TestCase()
+    check.assertEqual(gate.main(["--max-severity", "medium"]), 1)
+    pull_output = capsys.readouterr().out
+    check.assertIn("2 open (2 dependabot)", pull_output)
+    check.assertIn("1 at or above 'medium'", pull_output)
+
+    monkeypatch.setattr(gate, "collect", lambda: ([fixed], []))
+    check.assertEqual(gate.main(["--max-severity", "medium"]), 0)
+    check.assertIn("none at or above 'medium'", capsys.readouterr().out)
+
+    clean_env.setenv("GITHUB_EVENT_NAME", "push")
+    check.assertEqual(gate.main(["--max-severity", "medium"]), 1)
+    check.assertIn("1 at or above 'medium'", capsys.readouterr().out)
+
+
+def test_dependabot_pr_fix_requires_patched_version_in_same_manifest(
+    gate, clean_env, monkeypatch,
+):
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
+    alert = {
+        "number": 7,
+        "security_advisory": {"severity": "high", "summary": "test advisory",
+                              "vulnerabilities": [{
+                                  "package": {"name": "aiohttp", "ecosystem": "pip"},
+                                  "vulnerable_version_range": "< 3.14.4",
+                                  "first_patched_version": {"identifier": "3.14.4"},
+                              }]},
+        "security_vulnerability": {
+            "first_patched_version": {"identifier": "3.14.4"},
+        },
+        "dependency": {
+            "manifest_path": "scripts/requirements-termux.txt",
+            "package": {"ecosystem": "pip", "name": "aiohttp"},
+        },
+    }
+    def fake_get(path):
+        if path.startswith("/pulls/475/files"):
+            return [{
+                "filename": "scripts/requirements-termux.txt",
+                "patch": "\n".join((
+                    "@@ -1 +1 @@", "-aiohttp==3.14.3", "+aiohttp==3.14.5",
+                )),
+            }], ""
+        if path.startswith("/dependabot/alerts"):
+            return [alert], ""
+        return [], ""
+    monkeypatch.setattr(gate, "_get", fake_get)
+    monkeypatch.setattr(gate, "_event_head_sha", lambda: "a" * 40)
+    import base64
+    text = b"aiohttp==3.14.5\n"
+    def fake_object(path):
+        if path.startswith("/git/trees/"):
+            return {"truncated": False, "tree": [{
+                "path": "scripts/requirements-termux.txt", "mode": "100644",
+                "type": "blob", "sha": "b" * 40,
+            }]}, ""
+        return {"sha": "b" * 40, "encoding": "base64", "size": len(text),
+                "content": base64.b64encode(text).decode()}, ""
+    monkeypatch.setattr(gate, "_get_object", fake_object)
+
+    findings, notes = gate.collect()
+    dependabot = next(row for row in findings if row["feed"] == "dependabot")
+    _CHECK.assertIs(dependabot["fixed_by_pr"], True)
+    _CHECK.assertTrue(
+        any("1 alert(s) match patched lock entries" in note for note in notes),
+    )
+
+
+def test_dependabot_alert_is_not_suppressed_by_other_file_or_old_version(
+    gate, clean_env, monkeypatch,
+):
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
+    row = {
+        "number": 7, "ecosystem": "pip", "manifest_path": "requirements.lock",
+        "where": "aiohttp", "first_patched_version": "3.14.4", "proof_floor": "3.14.4",
+    }
+    monkeypatch.setattr(gate, "_pull_request_number", lambda: "475")
+    monkeypatch.setattr(gate, "_get", lambda _path: ([{
+        "filename": "other.lock", "patch": "+aiohttp==3.14.5",
+    }, {
+        "filename": "requirements.lock", "patch": "+aiohttp==3.14.3",
+    }], ""))
+
+    fixed, _ = gate._fixed_dependabot_alerts_by_pr([row])
+    _CHECK.assertEqual(fixed, set())
+
+
+def test_ci_mode_fails_when_no_token_is_available(gate, clean_env, capsys):
+    """CI must not report success if the required feed credential is absent."""
+    clean_env.delenv("GITHUB_TOKEN", raising=False)
+    clean_env.delenv("GH_TOKEN", raising=False)
+    clean_env.delenv("SECRET_SCANNING_TOKEN", raising=False)
+    # Exercise the real collect -> _get credential path. With no credential,
+    # each feed returns an explicit unavailable result without making a request.
+    if gate.main(["--max-severity", "medium", "--require-readable-feeds"]) != 2:
+        raise AssertionError("CI mode must fail when no alert feed is readable")
+    output = capsys.readouterr().out
+    if "SKIPPED -- code scanning: no GITHUB_TOKEN" not in output:
+        raise AssertionError("the missing code-scanning credential was not reported")
+    if "ERROR -- one or more feeds could not be read" not in output:
+        raise AssertionError("the unreadable-feed summary was not printed")
+
+
+def test_local_no_token_skip_remains_informational(
+    gate, clean_env, monkeypatch, capsys
+):
+    """Without CI's strict flag, a local no-token run remains an explicit skip."""
+    clean_env.delenv("GITHUB_TOKEN", raising=False)
+    clean_env.delenv("GH_TOKEN", raising=False)
+    clean_env.delenv("SECRET_SCANNING_TOKEN", raising=False)
+    monkeypatch.setattr(
+        gate, "collect", lambda: ([], ["dependabot: no GITHUB_TOKEN"]),
+    )
+
+    _CHECK.assertEqual(gate.main(["--max-severity", "medium"]), 0)
+    _CHECK.assertIn("SKIPPED", capsys.readouterr().out)
 
 
 # --- #190: the script must stay a wrapper, not grow the gate back --------
@@ -292,13 +650,21 @@ def test_the_entrypoint_stays_a_thin_wrapper() -> None:
 
     functions = [n.name for n in tree.body
                  if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-    assert functions == [], (
+    _CHECK.assertEqual(
+        functions,
+        [],
         f"the entrypoint defines {functions!r}; gate logic belongs in "
-        "arena/security_alerts.py"
+        "arena/security_alerts.py",
     )
-    assert "urllib" not in source, "the entrypoint does its own networking again"
-    assert "arena.security_alerts" in source, (
-        "the entrypoint no longer delegates to the module"
+    _CHECK.assertNotIn(
+        "urllib",
+        source,
+        "the entrypoint does its own networking again",
+    )
+    _CHECK.assertIn(
+        "arena.security_alerts",
+        source,
+        "the entrypoint no longer delegates to the module",
     )
 
 
@@ -323,14 +689,19 @@ def test_the_entrypoint_still_runs_as_a_script(tmp_path) -> None:
     proc = subprocess.run(  # nosec B603  # nosemgrep: dangerous-subprocess-use-audit
         [sys.executable, str(SCRIPT), "--max-severity", "medium"],
         capture_output=True, text=True, timeout=120,
-        env={**os.environ, "GITHUB_TOKEN": no_token, "GH_TOKEN": no_token},
+        env={
+            **os.environ,
+            "GITHUB_TOKEN": no_token,
+            "GH_TOKEN": no_token,
+            "SECRET_SCANNING_TOKEN": no_token,
+        },
         cwd=str(tmp_path),
         # The exit code IS the assertion below; raising on it here would
         # turn a legible failure into a CalledProcessError traceback.
         check=False,
     )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "SKIPPED" in proc.stdout, proc.stdout
+    _CHECK.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+    _CHECK.assertIn("SKIPPED", proc.stdout, proc.stdout)
 
 
 def test_the_gate_module_does_not_shadow_arena_security() -> None:
@@ -353,12 +724,82 @@ def test_the_gate_module_does_not_shadow_arena_security() -> None:
     """
     import arena.security
 
-    assert not (ROOT / "arena" / "security").is_dir(), (
+    _CHECK.assertFalse(
+        (ROOT / "arena" / "security").is_dir(),
         "a arena/security/ package shadows arena/security.py, which "
-        "unified_bridge imports at start-up"
+        "unified_bridge imports at start-up",
     )
-    assert hasattr(arena.security, "_INPUT_INJECTION_PATTERNS"), (
+    _CHECK.assertTrue(
+        hasattr(arena.security, "_INPUT_INJECTION_PATTERNS"),
         "arena.security no longer resolves to the module runtime_deps.core "
-        "imports from"
+        "imports from",
     )
-    assert MODULE.is_file(), f"the gate module is missing at {MODULE}"
+    _CHECK.assertTrue(
+        MODULE.is_file(),
+        f"the gate module is missing at {MODULE}",
+    )
+
+
+@pytest.mark.parametrize("declaration", [
+    "+aiohttp==3.14.5", "+aiohttp>=3.14.4,<4", '+  "aiohttp>=3.14.4",',
+    "+aiohttp~=3.14.4", '+  "aiohttp[speedups]>=3.14.4",',
+])
+def test_patched_numeric_lower_bounds_are_recognized(gate, declaration: str) -> None:
+    row = {"ecosystem": "pip", "manifest_path": "pyproject.toml", "where": "aiohttp",
+           "first_patched_version": "3.14.4", "proof_floor": "3.14.4"}
+    from arena.security_manifest_proof import manifest_fixes
+    # The old diff parser accepted quoted PEP 621 additions. Now parse a full
+    # TOML document for these cases, not a line pretending to be a manifest.
+    requirement = declaration[1:].strip().strip(',').strip('"')
+    text = "[project]\ndependencies = " + json.dumps([requirement])
+    _CHECK.assertEqual(manifest_fixes(row["manifest_path"], text, row["where"], row["proof_floor"]),
+                       sys.version_info >= (3, 11))
+
+
+@pytest.mark.parametrize("declaration", [
+    "+aiohttp>=3.14.3", "+aiohttp==3.14.4.*", "+aiohttp>=3.14.4rc1",
+    "+aiohttp<=3.14.4", "+aiohttp!=3.14.4", "+aiohttp>3.14.3",
+])
+def test_ambiguous_or_vulnerable_bounds_do_not_suppress_alert(gate, declaration: str) -> None:
+    row = {"ecosystem": "pip", "manifest_path": "requirements.txt", "where": "aiohttp",
+           "first_patched_version": "3.14.4", "proof_floor": "3.14.4"}
+    from arena.security_manifest_proof import manifest_fixes
+    _CHECK.assertFalse(manifest_fixes(row["manifest_path"], declaration[1:], row["where"],
+                                      row["proof_floor"]))
+
+
+def test_removed_manifest_fixes_only_its_own_alert(gate, clean_env, monkeypatch) -> None:
+    clean_env.setenv("GITHUB_EVENT_NAME", "pull_request")
+    clean_env.setenv("GITHUB_REF", "refs/pull/475/merge")
+    monkeypatch.setattr(gate, "_get", lambda path: ([{
+        "filename": "requirements.txt", "status": "removed",
+    }], ""))
+    monkeypatch.setattr(gate, "_event_head_sha", lambda: "a" * 40)
+    monkeypatch.setattr(gate, "_get_object", lambda path: ({"truncated": False, "tree": []}, ""))
+    rows = [{"number": 1, "ecosystem": "pip", "manifest_path": "requirements.txt",
+             "where": "aiohttp", "first_patched_version": "3.14.4", "proof_floor": "3.14.4"},
+            {"number": 2, "ecosystem": "pip", "manifest_path": "other.txt",
+             "where": "aiohttp", "first_patched_version": "3.14.4", "proof_floor": "3.14.4"}]
+    fixed, _ = gate._fixed_dependabot_alerts_by_pr(rows)
+    _CHECK.assertEqual(fixed, {"1"})
+
+
+@pytest.mark.parametrize("job_value", [None, "", "preferred-job-value"])
+def test_regular_feed_auth_fallback_stays_out_of_diagnostics(
+    gate, clean_env, monkeypatch, job_value
+):
+    clean_env.setenv("GH_TOKEN", "fallback-job-value")
+    if job_value is not None:
+        clean_env.setenv("GITHUB_TOKEN", job_value)
+    seen = []
+
+    def unavailable(request, timeout):
+        seen.append(request.get_header("Authorization"))
+        raise gate.urllib.error.HTTPError(request.full_url, 403, "forbidden", {}, None)
+
+    monkeypatch.setattr(gate.urllib.request, "urlopen", unavailable)
+    data, note = gate._request_json("/code-scanning/alerts?state=open")
+    _CHECK.assertIsNone(data)
+    _CHECK.assertEqual(seen, [f"Bearer {job_value or 'fallback-job-value'}"])
+    _CHECK.assertNotIn("preferred-job-value", note)
+    _CHECK.assertNotIn("fallback-job-value", note)

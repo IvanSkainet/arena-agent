@@ -34,7 +34,7 @@ jobs:
       run_expensive: ${{ steps.scope.outputs.run_expensive }}
     steps:
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -77,7 +77,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # lints workflow YAML on disk.
@@ -165,7 +165,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (audit mode, egress visibility)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -186,7 +186,7 @@ jobs:
           # Every third-party artifact is version- and hash-locked. The
           # editable project install below is local-only and does not resolve
           # or download dependencies.
-          python -m pip install --require-hashes -r requirements-ci.lock
+          python -m pip install --only-binary=:all: --require-hashes -r requirements-ci.lock
           python -m pip install --no-deps --no-build-isolation -e .
 
       - name: Verify installed package surface
@@ -346,7 +346,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (audit mode, egress visibility)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -384,6 +384,11 @@ jobs:
     timeout-minutes: 5
     name: Version sync (4 sources in lockstep)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      security-events: read
+      vulnerability-alerts: read
     steps:
       # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
       # records network egress / file integrity / processes to the
@@ -392,7 +397,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -440,7 +445,21 @@ jobs:
       - name: Open security alerts (fails at medium and above)
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python scripts/security_alerts_check.py --max-severity medium
+          # GITHUB_TOKEN cannot read secret-scanning alerts; this repository
+          # secret must be a fine-grained token with that endpoint's read-only permission.
+          SECRET_SCANNING_TOKEN: ${{ secrets.SECRET_SCANNING_TOKEN }}
+          ALERT_EVENT_NAME: ${{ github.event_name }}
+          ALERT_REPOSITORY: ${{ github.repository }}
+          ALERT_PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          ALERT_PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          alert_args=(--max-severity medium)
+          if [[ "$ALERT_EVENT_NAME" != "pull_request" || \
+                ( "$ALERT_PR_HEAD_REPOSITORY" == "$ALERT_REPOSITORY" && \
+                  "$ALERT_PR_AUTHOR" != "dependabot[bot]" ) ]]; then
+            alert_args+=(--require-readable-feeds)
+          fi
+          python scripts/security_alerts_check.py "${alert_args[@]}"
 
       # v4.169.29: the check above asks for state=open, and pressing
       # Dismiss is exactly the act of removing an alert from that query.
@@ -480,7 +499,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Pilot for moving off audit. This job checks out the repo and runs
@@ -536,7 +555,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -560,12 +579,12 @@ jobs:
           cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
-        # v4.169.25: requirements.txt carries floors (`aiohttp>=3.14.1`),
+        # v4.169.25: requirements.txt carries floors (version lower bounds),
         # so this resolved to whatever PyPI served that minute. Every
         # package it lists is already hash-pinned in requirements-ci.lock.
         # Unpinned installs are how a supply-chain swap lands without
         # anything turning red -- Scorecard flagged exactly this.
-        run: python -m pip install --require-hashes -r requirements-ci.lock
+        run: "python -m pip install --only-binary=:all: --require-hashes -r requirements-ci.lock"
 
       - name: Run catalogue hardening guard
         run: |
@@ -601,7 +620,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -629,7 +648,7 @@ jobs:
       # the version AND the artifact hashes. Bump deliberately together
       # with scripts/lint_baseline.json.
       - name: Install ruff
-        run: python -m pip install --require-hashes -r requirements-lint.lock
+        run: "python -m pip install --only-binary=:all: --require-hashes -r requirements-lint.lock"
 
       - name: Critical lint (blocking)
         run: ruff check . --select F821,F811
@@ -675,7 +694,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -730,8 +749,8 @@ jobs:
 
       - name: Install packaging + project dependencies (hash-locked)
         run: |
-          python -m pip install --require-hashes -r requirements-packaging.lock
-          python -m pip install --require-hashes -r requirements-ci.lock
+          python -m pip install --only-binary=:all: --require-hashes -r requirements-packaging.lock
+          python -m pip install --only-binary=:all: --require-hashes -r requirements-ci.lock
 
       - name: Build wheel
         run: python -m build --wheel . --outdir dist
@@ -744,7 +763,14 @@ jobs:
 
       - name: Install wheel into clean path and import from neutral cwd
         run: |
-          python -m pip install --no-deps dist/*.whl
+          # This is a locally built artifact, not a third-party dependency.
+          # The digest pins the bytes for pip hash mode; it is NOT independent
+          # proof of origin, a signature, or release provenance.
+          wheel=$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)
+          test -n "$wheel"
+          digest=$(sha256sum "$wheel" | cut -d' ' -f1)
+          printf '%s --hash=sha256:%s\n' "$wheel" "$digest" > "$RUNNER_TEMP/wheel-requirements.txt"
+          python -m pip install --no-deps --only-binary=:all: --require-hashes -r "$RUNNER_TEMP/wheel-requirements.txt"
           cd "$RUNNER_TEMP"
           python -c "import arena, unified_bridge; from arena.constants import VERSION; import arena.admin.auto_update; print('wheel import OK', VERSION)"
 
@@ -772,7 +798,7 @@ jobs:
       # build, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (audit mode, egress visibility)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -786,7 +812,7 @@ jobs:
           cache: pip
 
       - name: Install runtime + test deps (hash-locked)
-        run: python -m pip install --require-hashes -r requirements-ci.lock
+        run: "python -m pip install --only-binary=:all: --require-hashes -r requirements-ci.lock"
 
       # Not hash-locked like the rest: the browser is a binary blob fetched
       # by Playwright's own downloader, not a PyPI wheel. The python package
@@ -832,7 +858,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -886,10 +912,10 @@ jobs:
         run: python scripts/pyrefly_preset_ratchet.py
 
       - name: Install CI dependencies (hash-locked)
-        run: python -m pip install --require-hashes -r requirements-ci.lock
+        run: "python -m pip install --only-binary=:all: --require-hashes -r requirements-ci.lock"
 
       - name: Install packaging tooling (hash-locked)
-        run: python -m pip install --require-hashes -r requirements-packaging.lock
+        run: "python -m pip install --only-binary=:all: --require-hashes -r requirements-packaging.lock"
 
       - name: Build wheel
         run: python -m build --wheel . --outdir dist
@@ -897,7 +923,7 @@ jobs:
       - name: Install wheel into an isolated venv (hash-locked deps)
         run: |
           python -m venv "$RUNNER_TEMP/artifact-venv"
-          "$RUNNER_TEMP/artifact-venv/bin/python" -m pip install --quiet --require-hashes -r requirements-ci.lock
+          "$RUNNER_TEMP/artifact-venv/bin/python" -m pip install --quiet --only-binary=:all: --require-hashes -r requirements-ci.lock
           "$RUNNER_TEMP/artifact-venv/bin/python" -m pip install --quiet --no-deps dist/*.whl
 
       - name: Run live E2E against the INSTALLED artifact
@@ -940,7 +966,7 @@ jobs:
       # packages from npm, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           allowed-endpoints: >
@@ -948,6 +974,7 @@ jobs:
             api.github.com:443
             objects.githubusercontent.com:443
             release-assets.githubusercontent.com:443
+            registry.npmjs.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -1013,7 +1040,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -1068,7 +1095,7 @@ jobs:
 
       - name: Install project and CI dependencies (hash-locked)
         run: |
-          python -m pip install --require-hashes -r requirements-ci.lock
+          python -m pip install --only-binary=:all: --require-hashes -r requirements-ci.lock
           python -m pip install --no-deps --no-build-isolation -e .
 
       - name: Debt totals (exit 1 while any debt remains — intentional)
@@ -1106,7 +1133,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -1161,7 +1188,7 @@ jobs:
 
       - name: Install project and CI dependencies (hash-locked)
         run: |
-          python -m pip install --require-hashes -r requirements-ci.lock
+          python -m pip install --only-binary=:all: --require-hashes -r requirements-ci.lock
           python -m pip install --no-deps --no-build-isolation -e .
 
       - name: Architecture contracts (blocking)
@@ -1217,7 +1244,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Pilot for moving off audit. This job checks out the repo and runs
@@ -1264,7 +1291,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -1288,12 +1315,12 @@ jobs:
           cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
-        # v4.169.25: requirements.txt carries floors (`aiohttp>=3.14.1`),
+        # v4.169.25: requirements.txt carries floors (version lower bounds),
         # so this resolved to whatever PyPI served that minute. Every
         # package it lists is already hash-pinned in requirements-ci.lock.
         # Unpinned installs are how a supply-chain swap lands without
         # anything turning red -- Scorecard flagged exactly this.
-        run: python -m pip install --require-hashes -r requirements-ci.lock
+        run: "python -m pip install --only-binary=:all: --require-hashes -r requirements-ci.lock"
 
       - name: Run catalogue consistency guard
         run: |
@@ -1325,7 +1352,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -1349,12 +1376,12 @@ jobs:
           cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
-        # v4.169.25: requirements.txt carries floors (`aiohttp>=3.14.1`),
+        # v4.169.25: requirements.txt carries floors (version lower bounds),
         # so this resolved to whatever PyPI served that minute. Every
         # package it lists is already hash-pinned in requirements-ci.lock.
         # Unpinned installs are how a supply-chain swap lands without
         # anything turning red -- Scorecard flagged exactly this.
-        run: python -m pip install --require-hashes -r requirements-ci.lock
+        run: "python -m pip install --only-binary=:all: --require-hashes -r requirements-ci.lock"
 
       - name: Run dead-dispatch guard
         run: |
@@ -1378,7 +1405,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -1402,12 +1429,12 @@ jobs:
           cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
-        # v4.169.25: requirements.txt carries floors (`aiohttp>=3.14.1`),
+        # v4.169.25: requirements.txt carries floors (version lower bounds),
         # so this resolved to whatever PyPI served that minute. Every
         # package it lists is already hash-pinned in requirements-ci.lock.
         # Unpinned installs are how a supply-chain swap lands without
         # anything turning red -- Scorecard flagged exactly this.
-        run: python -m pip install --require-hashes -r requirements-ci.lock
+        run: "python -m pip install --only-binary=:all: --require-hashes -r requirements-ci.lock"
 
       - name: Run JSON Schema check
         run: |
@@ -1432,7 +1459,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Pilot for moving off audit. This job checks out the repo and runs
@@ -1476,7 +1503,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -1500,12 +1527,12 @@ jobs:
           cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
-        # v4.169.25: requirements.txt carries floors (`aiohttp>=3.14.1`),
+        # v4.169.25: requirements.txt carries floors (version lower bounds),
         # so this resolved to whatever PyPI served that minute. Every
         # package it lists is already hash-pinned in requirements-ci.lock.
         # Unpinned installs are how a supply-chain swap lands without
         # anything turning red -- Scorecard flagged exactly this.
-        run: python -m pip install --require-hashes -r requirements-ci.lock
+        run: "python -m pip install --only-binary=:all: --require-hashes -r requirements-ci.lock"
 
       - name: Run handler-namespace consistency check
         run: |
@@ -1534,7 +1561,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -1558,12 +1585,12 @@ jobs:
           cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
-        # v4.169.25: requirements.txt carries floors (`aiohttp>=3.14.1`),
+        # v4.169.25: requirements.txt carries floors (version lower bounds),
         # so this resolved to whatever PyPI served that minute. Every
         # package it lists is already hash-pinned in requirements-ci.lock.
         # Unpinned installs are how a supply-chain swap lands without
         # anything turning red -- Scorecard flagged exactly this.
-        run: python -m pip install --require-hashes -r requirements-ci.lock
+        run: "python -m pip install --only-binary=:all: --require-hashes -r requirements-ci.lock"
 
       - name: Run namespace-doc coverage (enforce mode)
         run: |
@@ -1577,7 +1604,7 @@ jobs:
       # Harden-Runner in block mode: this job installs from PyPI and then
       # talks only to 127.0.0.1, so anything leaving the box is wrong.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           allowed-endpoints: >
@@ -1601,8 +1628,8 @@ jobs:
       # is not in requirements-ci.lock on purpose -- see requirements-fuzz.in.
       - name: Install the bridge and the fuzzer (hash-pinned)
         run: |
-          python -m pip install --require-hashes -r requirements-ci.lock
-          python -m pip install --require-hashes -r requirements-fuzz.lock
+          python -m pip install --only-binary=:all: --require-hashes -r requirements-ci.lock
+          python -m pip install --only-binary=:all: --require-hashes -r requirements-fuzz.lock
 
       # The fuzzer needs a real server: it reads /openapi.json over HTTP and
       # then sends thousands of requests back at the same host. The runner is
@@ -1660,7 +1687,7 @@ jobs:
       # hundreds of PyPI packages, so egress visibility matters.
       # Signal route: their dashboard, NOT our red — by design.
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           # Wave 2 of moving off audit mode (#217 piloted three jobs).
@@ -1691,7 +1718,7 @@ jobs:
       # requirements-ci.lock with hashes, so this is a smaller command
       # as well as a safer one.
       - name: Install test dependencies (hash-pinned)
-        run: python -m pip install --require-hashes -r requirements-ci.lock
+        run: "python -m pip install --only-binary=:all: --require-hashes -r requirements-ci.lock"
 
       - name: Run MCP contract test
         # The test re-scans arena/mcp/tool_*.py and compares
@@ -1730,7 +1757,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden Runner (block mode, egress enforced)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           allowed-endpoints: >

@@ -5,6 +5,8 @@
 # The bridge has exactly one hard dependency (aiohttp) and is pure
 # Python, so "installing on Android" is far less exotic than it sounds:
 # measured on a POCO F7 Pro (Android 16, SDK 36, arm64-v8a, 11 GB RAM),
+# Artifact selection targets Android API 24+ conservatively; this is not
+# a claim of device testing on every older Android release. On that device,
 # the bridge idles at ~57 MB RSS with 6 threads and starts in 0.42 s.
 #
 # What this script does NOT do, deliberately:

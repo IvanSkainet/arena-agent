@@ -115,6 +115,64 @@ def test_no_write_scopes_at_workflow_level(path: pathlib.Path) -> None:
     )
 
 
+def _grants_actions_write(permissions: object) -> bool:
+    """Understand both mapping and shorthand permissions syntax."""
+    if isinstance(permissions, str):
+        return permissions.lower() == "write-all"
+    if isinstance(permissions, dict):
+        return str(permissions.get("actions", "")).lower() == "write"
+    return False
+
+
+@pytest.mark.parametrize(("permissions", "expected"), [
+    ("write-all", True),
+    ("read-all", False),
+    ({"actions": "write"}, True),
+    ({"actions": "read"}, False),
+    ({"contents": "write"}, False),
+])
+def test_actions_write_detector_covers_scalar_and_mapping_forms(
+    permissions: object, expected: bool,
+) -> None:
+    assert _grants_actions_write(permissions) is expected  # nosec B101 -- pytest assertion
+
+
+def test_stale_action_can_replace_its_state_cache_only_in_its_job() -> None:
+    """Confine stale v11's state-cache replacement permission to its job."""
+    # Without Actions write, cache deletion returns HTTP 403 and the old
+    # processed-ID set may be replayed. Future jobs must not inherit it.
+    doc = _load(WORKFLOWS / "stale.yml")
+
+    assert doc.get("permissions") == {}, "write permissions must not be inherited by future jobs"  # nosec B101 -- pytest assertion
+    assert doc["jobs"]["stale"]["permissions"] == {  # nosec B101 -- pytest assertion
+        "issues": "write",
+        "pull-requests": "write",
+        "actions": "write",
+    }
+    other_action_writers = [
+        name for name, job in doc["jobs"].items()
+        if name != "stale" and _grants_actions_write(job.get("permissions"))
+    ]
+    assert not other_action_writers, (  # nosec B101 -- pytest assertion
+        "actions: write escaped the stale job: "
+        f"{other_action_writers}"
+    )
+
+
+def test_security_alert_jobs_can_read_code_and_dependabot_alerts() -> None:
+    """Both strict gates need their feed-specific read permissions."""
+    ci = _load(WORKFLOWS / "ci.yml")
+    security = _load(WORKFLOWS / "security-scan.yml")
+    expected = {
+        "contents": "read",
+        "pull-requests": "read",
+        "security-events": "read",
+        "vulnerability-alerts": "read",
+    }
+    assert ci["jobs"]["version-sync"]["permissions"] == expected  # nosec B101 -- pytest assertion
+    assert security["jobs"]["security-alerts"]["permissions"] == expected  # nosec B101 -- pytest assertion
+
+
 def test_every_workflow_pins_a_permissions_baseline() -> None:
     """No workflow may fall back to the repository-wide default token.
 

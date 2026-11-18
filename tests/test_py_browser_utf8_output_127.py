@@ -34,6 +34,7 @@ from __future__ import annotations
 import ast
 import http.server
 import importlib.util
+import io
 import json
 import os
 import socketserver
@@ -41,6 +42,9 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import TestCase
+from unittest.mock import Mock
 
 import pytest
 
@@ -58,6 +62,17 @@ def _load_py_browser():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def _reply_to_stub_post(handler):
+    # Closing with unread POST bytes can reset the connection on Windows.
+    # This local fixture accepts only bounded, known-length test requests.
+    length = int(handler.headers.get("Content-Length", "0"))
+    if not 0 <= length <= 2 * 1024 * 1024:
+        handler.send_error(413)
+        return
+    handler.rfile.read(length)
+    handler.do_GET()
 
 
 @pytest.fixture
@@ -83,7 +98,7 @@ def ddg_stub():
             self.end_headers()
             self.wfile.write(html)
 
-        do_POST = do_GET  # noqa: N815 - stdlib callback name
+        do_POST = _reply_to_stub_post  # noqa: N815 - stdlib callback name
 
         def log_message(self, *_args):  # noqa: D102 - silence the test log
             return
@@ -107,13 +122,13 @@ def search_shim(tmp_path, ddg_stub):
     # can never reach the real network (an earlier draft only pinned `get`
     # and silently scraped the live endpoint).
     shim.write_text(
-        "import sys, requests\n"
+        "import sys, requests, runpy\n"
         f"_STUB = {json.dumps(ddg_stub)}\n"
         "_get, _post = requests.get, requests.post\n"
         "requests.get = lambda url, **kw: _get(_STUB, **kw)\n"
         "requests.post = lambda url, **kw: _post(_STUB, **kw)\n"
         'sys.argv = ["py_browser.py"] + sys.argv[1:]\n'
-        f"exec(open({json.dumps(str(PY_BROWSER))}, encoding='utf-8').read())\n",
+        f"runpy.run_path({json.dumps(str(PY_BROWSER))}, run_name='__main__')\n",
         encoding="utf-8",
     )
     return shim
@@ -462,3 +477,37 @@ def test_every_py_browser_launch_asks_for_utf8():
         "py_browser prints UTF-8; these launches read it with the console "
         "codepage:\n  " + "\n  ".join(offenders)
     )
+
+
+def test_stub_consumes_the_post_body_before_sending_a_response():
+    body = io.BytesIO(b"search=local-query")
+    seen = []
+    handler = SimpleNamespace(
+        headers={"Content-Length": str(len(body.getvalue()))}, rfile=body,
+        do_GET=lambda: seen.append(body.tell()), send_error=Mock(),
+    )
+    _reply_to_stub_post(handler)
+    TestCase().assertEqual(seen, [len(body.getvalue())])
+    handler.send_error.assert_not_called()
+
+
+def test_stub_refuses_oversized_post_without_reading_or_sending_success():
+    handler = SimpleNamespace(
+        headers={"Content-Length": str(2 * 1024 * 1024 + 1)},
+        rfile=Mock(), do_GET=Mock(), send_error=Mock(),
+    )
+    _reply_to_stub_post(handler)
+    handler.send_error.assert_called_once_with(413)
+    handler.rfile.read.assert_not_called()
+    handler.do_GET.assert_not_called()
+
+
+def test_stub_post_callback_is_wired_to_body_drain():
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    callbacks = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets = [getattr(target, "id", None) for target in node.targets]
+            if "do_POST" in targets:
+                callbacks.append(ast.unparse(node.value))
+    TestCase().assertEqual(callbacks, ["_reply_to_stub_post"])

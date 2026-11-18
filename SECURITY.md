@@ -56,7 +56,7 @@ The threats we defend against, in decreasing severity order.
 |---|---|
 | Unauthenticated caller with network access to the bridge URL | Bearer-token auth on every endpoint (`hmac.compare_digest` for constant-time match), rate-limit 10 fails / 60 s / IP, TLS strict-verify by default |
 | Rogue / compromised CA issuing a cert for the bridge's hostname | Opt-in cert pinning via `ARENA_BRIDGE_PIN_SHA256`; both cert-fp and SPKI-fp checked; pin match aborts BEFORE any bearer token is sent |
-| Authenticated narrow-scope multi-agent bearer escalating to full privilege | Sandbox blocklist for every `/v1/fs/*` verb (both basename and prefix — `.ssh/`, `.aws/`, `.gnupg/`, `.docker/`, `.kube/`, browser profiles, shell history, `token.txt`, `.env`, credential dotfiles). Same check runs on view / edit / create / upload / download |
+| Authenticated narrow-scope multi-agent bearer escalating to full privilege | Sandbox blocklist for `/v1/fs/*`, upload requests to `/v1/upload`, and downloads from `/v1/download` (both basename and prefix — `.ssh/`, `.aws/`, `.gnupg/`, `.docker/`, `.kube/`, browser profiles, shell history, `token.txt`, `.env`, credential dotfiles). The same check runs on view / edit / create / upload / download |
 | Authenticated caller chaining a second command through a first-word allow-list | `cautious` and sandbox shell paths fail closed on an empty allow-list, require the first word, and reject shell control characters (`;`, `|`, `&`, `$`, backticks, redirection, and newlines) before starting a child process; the same policy covers MCP `exec.exec` |
 | Attacker with local write to the operator's home | Cache poisoning defeated by HMAC signature keyed on `BRIDGE_TOKEN`; APK staging + URL cache + tempfiles all 0o600; `~/.arena/` 0o700 |
 | Attacker on network path between CLI and bridge | TLS strict-verify default; `?token=` query auth deprecated with `Warning: 299` response header; opt-in cert pinning |
@@ -401,7 +401,7 @@ file hashes and base64 payloads throughout the log. The process knows the value,
 so it registers it: `register_literal_secret()` records an exact string that is
 substituted before the pattern battery runs. Registration happens where the
 token first becomes known (`arena/cli.py`, at `resolve_token`) and is kept in
-step on rotation (`/v1/admin/token/regenerate` registers the new value before
+step on rotation (`/v1/token/regenerate` registers the new value before
 retiring the old one, so there is no window in which the fresh token is
 unprotected — and the old literal is kept when the new value cannot be
 registered, so a rotation never ends with neither protected).
@@ -435,7 +435,7 @@ gitleaks duly rejected the first revision of this very change.
 **Rotate after an exposure.** Redaction applies at write time. Audit files
 written before v4.170.0 retain any token that ever appeared in a command, so an
 operator who ran `exec` with the bearer on the command line should rotate it
-(`POST /v1/admin/token/regenerate`) and treat the historical audit as
+(`POST /v1/token/regenerate`) and treat the historical audit as
 compromised. Rotation takes effect on the next request; no restart is required.
 
 ### Recommended production preset

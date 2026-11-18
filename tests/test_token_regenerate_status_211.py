@@ -38,6 +38,13 @@ import pytest
 from tests._live_bridge import auth_header, json_payload, running_client
 
 TOKEN = "token-regenerate-status-211"
+TOKEN_REGENERATE_PATH = "/v1/token/regenerate"  # nosec B105 -- route constant, not a credential
+
+
+def test_security_rotation_instructions_use_the_exercised_route() -> None:
+    """The documented path is the same one tested for old-token revocation."""
+    security = Path(__file__).resolve().parents[1] / "SECURITY.md"
+    assert f"`POST {TOKEN_REGENERATE_PATH}`" in security.read_text(encoding="utf-8")  # nosec B101 -- pytest assertion
 
 
 def _write_tokens_under(client, tmp_path: Path) -> Path:
@@ -82,7 +89,7 @@ async def _failed_rotation_is_a_500(tmp_path: Path) -> None:
     async with running_client(tmp_path, TOKEN) as client:
         _break_the_token_file(client, tmp_path)
         response = await client.post(
-            "/v1/token/regenerate", headers=auth_header(TOKEN))
+            TOKEN_REGENERATE_PATH, headers=auth_header(TOKEN))
         payload = await json_payload(response)
 
     assert response.status == 500, payload
@@ -104,7 +111,7 @@ async def _failed_rotation_is_not_2xx(tmp_path: Path) -> None:
     async with running_client(tmp_path, TOKEN) as client:
         _break_the_token_file(client, tmp_path)
         response = await client.post(
-            "/v1/token/regenerate", headers=auth_header(TOKEN))
+            TOKEN_REGENERATE_PATH, headers=auth_header(TOKEN))
         payload = await json_payload(response)
 
     assert not (200 <= response.status < 300), (response.status, payload)
@@ -125,7 +132,7 @@ async def _old_token_survives(tmp_path: Path) -> None:
     async with running_client(tmp_path, TOKEN) as client:
         _break_the_token_file(client, tmp_path)
         failed = await client.post(
-            "/v1/token/regenerate", headers=auth_header(TOKEN))
+            TOKEN_REGENERATE_PATH, headers=auth_header(TOKEN))
         assert failed.status == 500
 
         after = await client.get("/v1/status", headers=auth_header(TOKEN))
@@ -141,7 +148,7 @@ async def _success_is_200(tmp_path: Path) -> None:
     async with running_client(tmp_path, TOKEN) as client:
         target = _write_tokens_under(client, tmp_path)
         response = await client.post(
-            "/v1/token/regenerate", headers=auth_header(TOKEN))
+            TOKEN_REGENERATE_PATH, headers=auth_header(TOKEN))
         payload = await json_payload(response)
 
     assert response.status == 200, payload
@@ -165,7 +172,7 @@ async def _rotation_takes_effect(tmp_path: Path) -> None:
     async with running_client(tmp_path, TOKEN) as client:
         _write_tokens_under(client, tmp_path)
         rotated = await client.post(
-            "/v1/token/regenerate", headers=auth_header(TOKEN))
+            TOKEN_REGENERATE_PATH, headers=auth_header(TOKEN))
         payload = await json_payload(rotated)
         assert rotated.status == 200, payload
         new_token = payload["token"]
@@ -198,7 +205,7 @@ async def _journal_records_the_failure(tmp_path: Path) -> None:
     async with running_client(tmp_path, TOKEN) as client:
         _break_the_token_file(client, tmp_path)
         response = await client.post(
-            "/v1/token/regenerate", headers=auth_header(TOKEN))
+            TOKEN_REGENERATE_PATH, headers=auth_header(TOKEN))
         assert response.status == 500
 
 
@@ -223,7 +230,7 @@ async def _failure_entry_is_clean(tmp_path: Path) -> None:
     async with running_client(tmp_path, TOKEN) as client:
         _break_the_token_file(client, tmp_path)
         assert (await client.post(
-            "/v1/token/regenerate", headers=auth_header(TOKEN))).status == 500
+            TOKEN_REGENERATE_PATH, headers=auth_header(TOKEN))).status == 500
 
 
 def _recorded_audit_events(monkeypatch) -> list[dict]:
@@ -263,7 +270,7 @@ def test_the_document_declares_both_outcomes(status: str) -> None:
     from arena.public.openapi import build_openapi_spec
 
     responses = build_openapi_spec(MagicMock())[
-        "paths"]["/v1/token/regenerate"]["post"]["responses"]
+        "paths"][TOKEN_REGENERATE_PATH]["post"]["responses"]
     assert status in responses, sorted(responses)
 
 
@@ -274,7 +281,7 @@ def test_the_document_no_longer_promises_a_200_on_failure() -> None:
     from arena.public.openapi import build_openapi_spec
 
     operation = build_openapi_spec(MagicMock())[
-        "paths"]["/v1/token/regenerate"]["post"]
+        "paths"][TOKEN_REGENERATE_PATH]["post"]
     described = operation["description"] + operation["responses"]["200"]["description"]
     assert "ALSO reported with HTTP 200" not in described, described
     assert "500" in operation["description"], operation["description"]

@@ -463,8 +463,10 @@ audit history — в [`SECURITY.md`](SECURITY.md)).
 
 **Доступ к файловой системе.**
 
-- Каждый `/v1/fs/*` verb (view / edit / create / upload / **download**) идёт
-  через тот же sandbox validator. Sensitive-файлы блокируются и по basename
+- Файловые маршруты используют проверки sandbox. Не все они начинаются с
+  `/v1/fs/*`: загрузка выполняется через `POST /v1/upload`, скачивание —
+  через `GET /v1/download`; маршруты просмотра, создания и редактирования
+  используют префикс `/v1/fs/`. Чувствительные файлы блокируются и по basename
   (`token.txt`, `.env`, `id_rsa`, `.git-credentials`, `.pypirc`, `.npmrc`,
   `.bash_history`, shell history вообще), и по directory prefix (`.ssh/`,
   `.aws/`, `.gnupg/`, `.docker/`, `.kube/`, `.config/gh/`, browser profiles).
@@ -545,6 +547,23 @@ Runtime-инструменты:
 | `GET` | `/v1/desktop/screenshot` | Desktop screenshot, где поддерживается |
 | `GET` | `/v1/skills` | Список обнаруженных skill-пакетов |
 
+Файловая система:
+
+| Method | Path | Назначение |
+| --- | --- | --- |
+| `PATCH` | `/v1/fs/edit` | Применить изменение по умолчанию; для preview укажите `"preview": true` |
+| `POST` | `/v1/fs/edit/apply` | Применить подготовленное изменение |
+| `POST` | `/v1/fs/edit/rollback` | Отменить применённое изменение |
+| `POST` | `/v1/fs/view` | Прочитать файл через файловый sandbox |
+| `POST` | `/v1/fs/create` | Создать файл через файловый sandbox |
+| `POST` | `/v1/upload` | Загрузить файл |
+| `GET` | `/v1/download` | Скачать файл |
+
+Для безопасного изменения вызовите `/v1/fs/edit` с `"preview": true`, затем
+примените полученный preview через `/v1/fs/edit/apply`. Чтобы отменить
+изменение, используйте `/v1/fs/edit/rollback`. Без `"preview": true` маршрут
+редактирования применяет изменение сразу.
+
 Extension bridge:
 
 | Method | Path | Назначение |
@@ -598,6 +617,16 @@ pytest -q tests/test_tunnels.py tests/test_zerotier.py tests/test_cloudflared.py
           tests/test_browseract.py tests/test_superpowers_layout.py
 ```
 
+### Среда проверки security alerts
+
+Для доказательства исправлений в `pyproject.toml` скрипту
+`scripts/security_alerts_check.py` нужен Python 3.11+ (CI использует 3.12).
+На Python 3.10 проверка requirements-файлов работает, но TOML-находки остаются
+блокирующими: отсутствие парсера не считается доказательством исправления.
+Event metadata читается только из `$RUNNER_TEMP/_github_workflow/event.json`
+или контейнерного `/github/workflow/event.json`; произвольные пути и симлинки
+отклоняются. `RUNNER_TEMP` — доверенная конфигурация runner, не данные PR.
+
 Перед push запустите те же security-gate, что запускает CI:
 
 ```bash
@@ -616,7 +645,7 @@ Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [REL
 
 | Документ | Что внутри |
 | --- | --- |
-| [SECURITY.md](SECURITY.md) | **Threat model, env-var reference (14 knobs), recommended production preset, CI security-scan pipeline, audit history v4.40.0 → v4.46.0. Прочтите перед тем, как выставлять bridge в сеть.** |
+| [SECURITY.md](SECURITY.md) | **Threat model, env-var reference, recommended production preset, CI security-scan pipeline, audit history v4.40.0 → v4.46.0. Прочтите перед тем, как выставлять bridge в сеть.** |
 | [CHANGELOG.md](CHANGELOG.md) · [ru](CHANGELOG.ru.md) | История изменений |
 | [RELEASE.md](RELEASE.md) | Packaging / publishing checklist |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, тесты, workflow, `make security-scan` gate |
@@ -686,7 +715,7 @@ Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [REL
 | `ship` | `ship.status` / `ship.preflight` / `ship.smoke` — Карты всего корабля, проверки готовности, Linux flight check и real-machine smoke proof |
 | `tool_foundry` | `tool_foundry.validate` / `tool_foundry.publish` — Валидация Workbench project manifest/tests и публикация как callable custom tool |
 
-Все вызовы идут через `POST /v1/mcp/call` с JSON-телом `{"name": "<tool>", "arguments": {...}}`.
+Для транспорта MCP Streamable HTTP вызовы идут через `POST /mcp` с JSON-телом `{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "<tool>", "arguments": {}}}`. Альтернативные транспорты: SSE (`GET /sse` и `POST /messages`) и WebSocket (`GET /ws`).
 
 ---
 

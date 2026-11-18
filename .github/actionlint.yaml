@@ -1,0 +1,7 @@
+# actionlint v1.7.12 predates GitHub's read-only GITHUB_TOKEN permission for
+# Dependabot alerts. Keep the least-privilege scope in workflows and ignore
+# only this stale-schema diagnostic until actionlint learns the permission.
+paths:
+  ".github/workflows/**/*.{yml,yaml}":
+    ignore:
+      - 'unknown permission scope "vulnerability-alerts"'

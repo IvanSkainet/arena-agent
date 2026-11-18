@@ -12,7 +12,7 @@
 # which is exactly the "cold-cache marker-drop" scripts/check_ci_lock.py
 # exists to catch. Verified by reproducing it while adding playwright in
 # v4.157.0: the bare command produced 0 marker lines, the flagged one 6.
-aiohttp==3.14.3
+aiohttp==3.14.5
 psutil==7.2.2
 # websockets 16.x, NOT 17.x: 17.0 requires Python >= 3.11, while this
 # package promises requires-python = ">=3.10" and CI keeps a 3.10
@@ -23,7 +23,9 @@ psutil==7.2.2
 websockets==16.1.1
 requests==2.34.2
 idna==3.19
-beautifulsoup4==4.15.0
+# The Termux requirements generator uses PEP 440 parsing; keep it available
+# directly rather than relying on an unrelated tool's transitive dependency.
+packaging==26.2
 pytest==9.1.1
 pytest-cov==7.1.0
 # Workflow contract tests parse GitHub Actions YAML; this must be direct so
@@ -41,7 +43,7 @@ ruff==0.16.5
 # pyrefly to `basic`, which stops checking calls and assignments.
 # Enforced by scripts/pyrefly_preset_ratchet.py.
 pathspec==1.1.1
-setuptools==84.0.0
+setuptools==84.2.1
 wheel==0.48.0
 
 # Test hardening: order shuffling + hang guard.

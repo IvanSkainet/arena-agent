@@ -17,9 +17,13 @@ loopback is noise, and a gate that fails on noise gets bypassed within a
 week. With ``--max-severity`` it fails on anything at or above the given
 level, which is what CI uses.
 
-Needs a token with `security_events` scope. Without one it says so and
-exits 0 rather than pretending the repository is clean -- the empty
-result and the unauthorised result must never look the same.
+Code scanning and Dependabot use the job's read-only ``GITHUB_TOKEN``
+(``security-events: read`` and ``vulnerability-alerts: read``). GitHub
+does not let ``GITHUB_TOKEN`` read secret-scanning alerts, so that feed
+uses a separate ``SECRET_SCANNING_TOKEN`` with only the repository's
+Secret scanning alerts: read permission. Missing credentials are reported
+explicitly; strict CI mode fails rather than mistaking an unreadable feed
+for a clean one.
 
 Why this lives in ``arena/`` and not in the script that runs it
 ---------------------------------------------------------------
@@ -56,66 +60,112 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import stat
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, TypeGuard, cast
+
+from arena import security_manifest_proof as manifest_proof
+from arena.security_advisory_proof import advisory_floor
 
 REPO = os.environ.get("ARENA_RELEASE_REPO", "IvanSkainet/arena-agent")
 TIMEOUT = 30
 
 
-def code_scanning_ref() -> str | None:
-    """The git ref whose code-scanning alerts this run should judge.
+def _number_from_ref(ref: str) -> str:
+    if not ref.startswith("refs/pull/"):
+        return ""
+    parts = ref.split("/")
+    return parts[2] if len(parts) > 2 else ""
 
-    Without this the query is repository-wide, and a finding on `master`
-    fails every open pull request -- including the one that fixes it.
-    That happened: two `py/command-line-injection` alerts landed on
-    `master`, and the branch that removed the `shell=True` behind them
-    could not merge, because the gate kept reporting the alerts still
-    sitting on the branch being merged into. A gate that cannot be
-    satisfied by fixing the code is not a gate, it is a deadlock.
 
-    On a pull request, judge the PR's own head. Everywhere else -- a
-    push to master, a release -- judge the whole repository, which is
-    the behaviour that catches a finding nobody has a PR for.
-    """
-    event = os.environ.get("GITHUB_EVENT_NAME", "")
-    if not event.startswith("pull_request"):
+def _runner_event_path(requested: str) -> Path | None:
+    """Accept only the runner-owned event location, never an arbitrary file."""
+    # RUNNER_TEMP is trusted runner configuration, not event data. Hosted and
+    # self-hosted runners use its _github_workflow directory; containers mount
+    # /github/workflow/event.json. This does not defend against another
+    # process with the runner user's filesystem rights.
+    path = Path(requested)
+    if not path.is_absolute() or ".." in path.parts:
         return None
-    number = ""
-    ref = os.environ.get("GITHUB_REF", "")
-    if ref.startswith("refs/pull/"):
-        # `startswith("refs/pull/")` already guarantees three segments,
-        # so `[2]` cannot raise -- review flagged an IndexError here and
-        # it is not reachable. Written defensively anyway because the
-        # prefix and the index are two facts that must agree, and only
-        # one of them is visible from the other.
-        parts = ref.split("/")
-        number = parts[2] if len(parts) > 2 else ""
+    root = os.environ.get("RUNNER_TEMP", "")
+    expected = Path(root) / "_github_workflow" / "event.json" if root else None
+    if path == Path("/github/workflow/event.json"):
+        expected = Path("/github/workflow/event.json")
+    if expected is None or path != expected:
+        return None
+    if expected.is_symlink() or expected.parent.is_symlink():
+        return None
+    return expected
+
+
+def _event_payload(payload_path: str | None = None) -> dict[str, Any] | None:
+    try:
+        path = _runner_event_path(payload_path or os.environ.get("GITHUB_EVENT_PATH", ""))
+        if path is None or not stat.S_ISREG(path.stat().st_mode):
+            return None
+        # Bound parser input, and reject devices/FIFOs before opening. The
+        # runner owns this directory; untrusted PR code must not run here.
+        with path.open(encoding="utf-8") as fh:
+            text = fh.read(8 * 1024 * 1024 + 1)
+        if len(text) > 8 * 1024 * 1024:
+            return None
+        payload = json.loads(text)
+    except (OSError, ValueError, RecursionError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _number_from_payload(payload_path: str) -> str:
+    payload = _event_payload(payload_path)
+    return str(payload.get("number") or "") if payload else ""
+
+
+def _pull_request_number() -> str:
+    if not os.environ.get("GITHUB_EVENT_NAME", "").startswith("pull_request"):
+        return ""
+    number = _number_from_ref(os.environ.get("GITHUB_REF", ""))
     if not number:
-        path = os.environ.get("GITHUB_EVENT_PATH", "")
-        if path and os.path.exists(path):
-            try:
-                with open(path, encoding="utf-8") as fh:
-                    payload = json.load(fh)
-            except (OSError, ValueError):
-                payload = None
-            # Valid JSON of the wrong shape is not an error condition, it
-            # is a list or a string where a dict was expected. Reaching
-            # `.get` on one raises AttributeError and takes the whole gate
-            # down -- a security check must not be crashable by the
-            # contents of a file it merely consults.
-            if isinstance(payload, dict):
-                number = str(payload.get("number") or "")
-    if not number.isdigit():
-        # Better repo-wide than silently unfiltered-but-claiming-scoped.
-        # `isdigit` and not just truthiness: a ref segment can be any
-        # string, and a non-numeric one would build a ref that matches
-        # nothing, which reads as "no alerts" -- the failure this gate
-        # exists to prevent.
+        number = _number_from_payload(os.environ.get("GITHUB_EVENT_PATH", ""))
+    return number if number.isdigit() else ""
+
+
+def _is_fork_pull_request() -> bool:
+    if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
+        return False
+    payload = _event_payload() or {}
+    pull_request = payload.get("pull_request")
+    if not isinstance(pull_request, dict):
+        return False
+    head_repo = _repository_name(pull_request.get("head"))
+    base_repo = _repository_name(pull_request.get("base"))
+    return bool(head_repo and base_repo and head_repo != base_repo)
+
+
+def _repository_name(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    repo = value.get("repo")
+    if not isinstance(repo, dict):
+        return ""
+    name = repo.get("full_name")
+    return name if isinstance(name, str) else ""
+
+
+def code_scanning_ref() -> str | None:
+    """Return the PR head ref, or None when the run is not safely scopeable."""
+    # Repository-wide CodeQL findings would deadlock the PR that fixes them.
+    # Malformed events fall back to repo-wide inspection, never an empty ref.
+    if not os.environ.get("GITHUB_EVENT_NAME", "").startswith("pull_request"):
         return None
-    return f"refs/pull/{number}/head"
+    number = _number_from_ref(os.environ.get("GITHUB_REF", ""))
+    if not number:
+        number = _number_from_payload(os.environ.get("GITHUB_EVENT_PATH", ""))
+    return f"refs/pull/{number}/head" if number.isdigit() else None
 
 
 SEVERITY_ORDER = ["note", "low", "warning", "medium", "moderate",
@@ -129,11 +179,24 @@ def _rank(level: str | None) -> int:
         return 0
 
 
-def _get(path: str) -> tuple[list[dict[str, Any]] | None, str]:
+def _http_error_note(code: int, secret_feed: bool) -> str:
+    if code not in (403, 404):
+        return f"HTTP {code}"
+    permission = "secret_scanning_alerts" if secret_feed else "security_events or vulnerability_alerts"
+    return f"HTTP {code} (token may lack {permission}: read)"
+
+
+def _request_json(path: str) -> tuple[Any, str]:
     """Return (alerts, note). `None` means "could not look", not "clean"."""
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    secret_feed = path.startswith("/secret-scanning/")
+    # Keep credential values local to the request; never return them with
+    # diagnostic text, which is propagated to the printed report.
+    token_name = "SECRET_SCANNING_TOKEN" if secret_feed else "GITHUB_TOKEN"
+    token = os.environ.get(token_name)
+    if not secret_feed and not token:
+        token = os.environ.get("GH_TOKEN")
     if not token:
-        return None, "no GITHUB_TOKEN; cannot read security alerts"
+        return None, f"no {token_name}; cannot read security alerts"
     req = urllib.request.Request(
         f"https://api.github.com/repos/{REPO}{path}",
         headers={"Authorization": f"Bearer {token}",
@@ -148,13 +211,21 @@ def _get(path: str) -> tuple[list[dict[str, Any]] | None, str]:
         # nosemgrep: dynamic-urllib-use-detected -- fixed api.github.com host
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected
             data = json.loads(resp.read().decode("utf-8"))
-        return (data, "") if isinstance(data, list) else (None, "unexpected payload")
+        return data, ""
     except urllib.error.HTTPError as exc:
-        if exc.code in (403, 404):
-            return None, f"HTTP {exc.code} (token lacks security_events scope?)"
-        return None, f"HTTP {exc.code}"
+        return None, _http_error_note(exc.code, secret_feed)
     except (urllib.error.URLError, OSError, ValueError) as exc:
         return None, f"unreachable: {exc}"
+
+
+def _get(path: str) -> tuple[list[dict[str, Any]] | None, str]:
+    data, note = _request_json(path)
+    return (data, note) if isinstance(data, list) else (None, note or "unexpected payload")
+
+
+def _get_object(path: str) -> tuple[dict[str, Any] | None, str]:
+    data, note = _request_json(path)
+    return (data, note) if isinstance(data, dict) else (None, note or "unexpected payload")
 
 
 def _scanning_rows(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -193,86 +264,270 @@ def _scanning_rows(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
+def _code_row(alert: dict[str, Any]) -> dict[str, Any]:
+    rule = alert.get("rule", {})
+    location = (alert.get("most_recent_instance", {}) or {}).get("location", {})
+    return {
+        "feed": "code-scanning",
+        "number": alert.get("number"),
+        "severity": rule.get("security_severity_level") or rule.get("severity"),
+        "id": rule.get("id"),
+        "where": f"{location.get('path')}:{location.get('start_line')}",
+    }
+
+
+def _dependabot_row(alert: dict[str, Any]) -> dict[str, Any]:
+    advisory = alert.get("security_advisory", {})
+    vulnerability = alert.get("security_vulnerability", {})
+    dependency = alert.get("dependency", {}) or {}
+    package = dependency.get("package", {}) or {}
+    patched = vulnerability.get("first_patched_version") or {}
+    return {
+        "feed": "dependabot",
+        "number": alert.get("number"),
+        "severity": advisory.get("severity"),
+        "id": advisory.get("summary", "")[:60],
+        "where": package.get("name"),
+        "ecosystem": package.get("ecosystem"),
+        "manifest_path": dependency.get("manifest_path"),
+        "first_patched_version": patched.get("identifier"),
+        "proof_floor": advisory_floor(advisory, str(package.get("name", "")),
+                                      str(package.get("ecosystem", ""))),
+        "fixed_by_pr": False,
+    }
+
+
+def _nonempty_text(value: object) -> TypeGuard[str]:
+    return isinstance(value, str) and bool(value)
+
+
+def _dependabot_fix_identity(
+    row: dict[str, Any],
+) -> tuple[str, str, str] | None:
+    if row.get("ecosystem") != "pip":
+        return None
+    fields = (
+        row.get("manifest_path"),
+        row.get("where"),
+        row.get("proof_floor"),
+    )
+    if not all(map(_nonempty_text, fields)):
+        return None
+    return cast(tuple[str, str, str], fields)
+
+
+def _event_head_sha() -> str:
+    payload = _event_payload() or {}
+    pr = payload.get("pull_request")
+    head = pr.get("head") if isinstance(pr, dict) else None
+    sha = head.get("sha") if isinstance(head, dict) else None
+    return sha if isinstance(sha, str) and re.fullmatch(r"[a-f0-9]{40}", sha) else ""
+
+
+@dataclass
+class _ManifestEvidence:
+    tree: dict[str, Any]
+    changed: dict[str, dict[str, Any]]
+    cache: dict[str, str | None] = field(default_factory=dict)
+    notes: list[str] = field(default_factory=list)
+
+    def content(self, sha: str) -> str | None:
+        if sha not in self.cache:
+            blob, note = _get_object(f"/git/blobs/{sha}")
+            self.cache[sha] = manifest_proof.decode_manifest(blob, sha) if blob else None
+            self._record_blob_problem(sha, note)
+        return self.cache[sha]
+
+    def _record_blob_problem(self, sha: str, note: str) -> None:
+        if note:
+            self.notes.append(f"dependabot manifest blob {sha} unavailable: {note}")
+        elif self.cache[sha] is None:
+            self.notes.append(f"dependabot manifest blob {sha} rejected: invalid or incomplete evidence")
+
+
+def _verified_manifest_fix(row: dict[str, Any], evidence: _ManifestEvidence) -> bool:
+    identity = _dependabot_fix_identity(row)
+    if identity is None:
+        return False
+    path, package, minimum = identity
+    if path not in evidence.changed:
+        return False
+    state, sha = manifest_proof.tree_manifest(evidence.tree, path)
+    if state == "absent":
+        return evidence.changed[path].get("status") == "removed"
+    if state != "file":
+        return False
+    text = evidence.content(sha)
+    return text is not None and manifest_proof.manifest_fixes(path, text, package, minimum)
+
+
+def _changed_manifest_files(files: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {item["filename"]: item for item in files if isinstance(item.get("filename"), str)}
+
+
+def _fixed_dependabot_alerts_by_pr(
+    rows: list[dict[str, Any]],
+) -> tuple[set[str], str]:
+    """Prove fixes using full blobs from the event's exact head, never a diff."""
+    number = _pull_request_number()
+    if not number or not rows:
+        return set(), ""
+    sha = _event_head_sha()
+    if not sha:
+        return set(), "dependabot PR comparison unavailable: no exact event head SHA"
+    files, note = _get(f"/pulls/{number}/files?per_page=100")
+    if files is None:
+        return set(), f"dependabot PR comparison unavailable: {note}"
+    tree, note = _get_object(f"/git/trees/{sha}?recursive=1")
+    if tree is None:
+        return set(), f"dependabot PR comparison unavailable: {note}"
+    evidence = _ManifestEvidence(tree, _changed_manifest_files(files))
+    fixed = {str(row.get("number")) for row in rows if _verified_manifest_fix(row, evidence)}
+    summary = f"dependabot PR fixes checked: {len(fixed)} alert(s) match patched lock entries"
+    return fixed, "; ".join([summary, *evidence.notes])
+
+
+def _read_feed(
+    path: str, label: str, row_builder: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+) -> tuple[list[dict[str, Any]], str]:
+    alerts, note = _get(path)
+    if alerts is None:
+        return [], f"{label}: {note}"
+    return row_builder(alerts), ""
+
+
+def _mark_dependabot_fixes(rows: list[dict[str, Any]]) -> str:
+    fixed, note = _fixed_dependabot_alerts_by_pr(rows)
+    for row in rows:
+        row["fixed_by_pr"] = str(row.get("number")) in fixed
+    return note
+
+
 def collect() -> tuple[list[dict[str, Any]], list[str]]:
     findings: list[dict[str, Any]] = []
     notes: list[str] = []
-
     ref = code_scanning_ref()
-    query = "/code-scanning/alerts?state=open&per_page=100"
+    code_path = "/code-scanning/alerts?state=open&per_page=100"
     if ref:
-        query += f"&ref={urllib.parse.quote(ref, safe='/')}"
+        code_path += f"&ref={urllib.parse.quote(ref, safe='/')}"
         notes.append(f"code scanning scoped to {ref}")
-    alerts, note = _get(query)
-    if alerts is None:
-        notes.append(f"code scanning: {note}")
-    else:
-        for a in alerts:
-            rule = a.get("rule", {})
-            loc = (a.get("most_recent_instance", {}) or {}).get("location", {})
-            findings.append({
-                "feed": "code-scanning",
-                "number": a.get("number"),
-                "severity": rule.get("security_severity_level") or rule.get("severity"),
-                "id": rule.get("id"),
-                "where": f"{loc.get('path')}:{loc.get('start_line')}",
-            })
-
-    alerts, note = _get("/dependabot/alerts?state=open&per_page=100")
-    if alerts is None:
-        notes.append(f"dependabot: {note}")
-    else:
-        for a in alerts:
-            adv = a.get("security_advisory", {})
-            dep = (a.get("dependency", {}) or {}).get("package", {})
-            findings.append({
-                "feed": "dependabot",
-                "number": a.get("number"),
-                "severity": adv.get("severity"),
-                "id": adv.get("summary", "")[:60],
-                "where": dep.get("name"),
-            })
-
-    alerts, note = _get("/secret-scanning/alerts?state=open&per_page=100")
-    if alerts is None:
-        notes.append(f"secret scanning: {note}")
-    else:
-        findings.extend(_scanning_rows(alerts))
+    feeds = (
+        (code_path, "code scanning", lambda rows: [_code_row(row) for row in rows]),
+        ("/dependabot/alerts?state=open&per_page=100", "dependabot",
+         lambda rows: [_dependabot_row(row) for row in rows]),
+        ("/secret-scanning/alerts?state=open&per_page=100", "secret scanning",
+         _scanning_rows),
+    )
+    for path, label, row_builder in feeds:
+        rows, note = _read_feed(path, label, row_builder)
+        if label == "dependabot" and not note:
+            comparison_note = _mark_dependabot_fixes(rows)
+            if comparison_note:
+                notes.append(comparison_note)
+        findings.extend(rows)
+        if note:
+            notes.append(note)
     return findings, notes
 
 
-def main(argv: list[str]) -> int:
+def _note_is_missing(note: str) -> bool:
+    return ("no GITHUB_TOKEN" in note or "no SECRET_SCANNING_TOKEN" in note)
+
+
+def _note_is_read_failure(note: str, strict: bool) -> bool:
+    """PR scope is metadata; missing fork secrets are an explicit skip."""
+    if note.startswith(("code scanning scoped to ",
+                        "dependabot PR fixes checked: ",
+                        "dependabot PR comparison unavailable: ")):
+        return False
+    if "no SECRET_SCANNING_TOKEN" in note and _is_fork_pull_request():
+        return False
+    return strict if _note_is_missing(note) else True
+
+
+def _feed_read_failed(notes: list[str], strict: bool) -> bool:
+    """Distinguish informational PR scope from unreadable feeds."""
+    return any(_note_is_read_failure(note, strict) for note in notes)
+
+
+def _note_kind(note: str) -> str:
+    """Classify scope, local credential skips, and actual feed errors."""
+    if note.startswith(("code scanning scoped to ",
+                        "dependabot PR fixes checked: ",
+                        "dependabot PR comparison unavailable: ")):
+        return "INFO"
+    if _note_is_missing(note):
+        return "SKIPPED"
+    return "ERROR"
+
+
+def _print_notes(notes: list[str]) -> None:
+    """Keep read-scope information distinct from missing/unreadable feeds."""
+    for note in notes:
+        print(f"security alerts: {_note_kind(note)} -- {note}")
+
+
+def _parse_args(argv: list[str]) -> tuple[str | None, bool]:
     threshold = None
     for i, arg in enumerate(argv):
         if arg == "--max-severity" and i + 1 < len(argv):
             threshold = argv[i + 1]
         elif arg.startswith("--max-severity="):
             threshold = arg.split("=", 1)[1]
+    return threshold, "--require-readable-feeds" in argv
 
-    findings, notes = collect()
 
-    for note in notes:
-        print(f"security alerts: SKIPPED -- {note}")
-    if notes and not findings:
-        # Could not look. Say so; do not report a clean repository.
+def _print_findings(findings: list[dict[str, Any]]) -> None:
+    by_feed: dict[str, int] = {}
+    for finding in findings:
+        by_feed[finding["feed"]] = by_feed.get(finding["feed"], 0) + 1
+    summary = ", ".join(f"{count} {feed}" for feed, count in sorted(by_feed.items()))
+    print(f"security alerts: {len(findings)} open ({summary})")
+    ordered = sorted(findings, key=lambda item: -_rank(item["severity"]))
+    for finding in ordered:
+        print(f"  #{finding['number']} [{finding['severity']}] "
+              f"{finding['id']}  {finding['where']}")
+
+
+def _is_proven_pr_fix(item: dict[str, Any], scoped_pr: bool) -> bool:
+    return bool(scoped_pr and item["feed"] == "dependabot" and item.get("fixed_by_pr"))
+
+
+def _threshold_exit(
+    findings: list[dict[str, Any]], threshold: str | None, *, scoped_pr: bool,
+) -> int:
+    if not threshold:
         return 0
+    # Dependabot's repository endpoint reports the default-branch manifest,
+    # not the PR's proposed lock. Ignore only an alert whose exact manifest
+    # and package this PR updates to the first patched version; unrelated or
+    # ambiguous findings continue to block. Push runs always check every feed.
+    candidates = [item for item in findings
+                  if not _is_proven_pr_fix(item, scoped_pr)]
+    over = [item for item in candidates
+            if _rank(item["severity"]) >= _rank(threshold)]
+    if not over:
+        print(f"  none at or above '{threshold}'.")
+        return 0
+    print()
+    print(f"  {len(over)} at or above '{threshold}' -- these block the build.")
+    return 1
 
+
+def main(argv: list[str]) -> int:
+    threshold, strict = _parse_args(argv)
+    findings, notes = collect()
+    _print_notes(notes)
+    if _feed_read_failed(notes, strict):
+        # Partial visibility must never be mistaken for a clean result.
+        print("security alerts: ERROR -- one or more feeds could not be read")
+        return 2
+    if any(_note_is_missing(note) for note in notes) and not findings:
+        # Local invocation without a token: explicit skip, not a clean claim.
+        return 0
     if not findings:
         print("security alerts: OK (no open alerts in any feed)")
         return 0
-
-    by_feed: dict[str, int] = {}
-    for f in findings:
-        by_feed[f["feed"]] = by_feed.get(f["feed"], 0) + 1
-    summary = ", ".join(f"{v} {k}" for k, v in sorted(by_feed.items()))
-    print(f"security alerts: {len(findings)} open ({summary})")
-    for f in sorted(findings, key=lambda x: -_rank(x["severity"])):
-        print(f"  #{f['number']} [{f['severity']}] {f['id']}  {f['where']}")
-
-    if threshold:
-        over = [f for f in findings if _rank(f["severity"]) >= _rank(threshold)]
-        if over:
-            print()
-            print(f"  {len(over)} at or above '{threshold}' -- these block the build.")
-            return 1
-        print(f"  none at or above '{threshold}'.")
-    return 0
+    _print_findings(findings)
+    scoped_pr = code_scanning_ref() is not None
+    return _threshold_exit(findings, threshold, scoped_pr=scoped_pr)

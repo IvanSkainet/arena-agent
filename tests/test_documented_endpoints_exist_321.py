@@ -26,6 +26,8 @@ Only that a documented path is a path the server actually serves. That is the
 part a machine can settle. A wrong method, an invented description of what an
 endpoint does, or a claim like "the default timeout is 60 s" all pass this
 gate untouched -- documentation is not verified because this is green.
+The narrow filesystem tables in the two READMEs additionally enforce methods
+and completeness, including upload/download, with per-row negative controls.
 
 The reverse direction is deliberately not checked. The registry holds
 several hundred routes; demanding prose for every one of them produces a
@@ -37,8 +39,10 @@ stale and then contradicts the parser twenty lines below it.
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
+from unittest import TestCase
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -52,6 +56,8 @@ DOC_GLOBS = (
     ".cubic/wiki/**/*.md",
     "docs/**/*.md",
     "README.md",
+    "README.ru.md",
+    "SECURITY.md",
     "AGENTS.md",
 )
 
@@ -63,6 +69,7 @@ DOC_GLOBS = (
 DOC_EXCLUDE = (
     "docs/audits/",
     "docs/STRATEGIC_POSITION_AND_CANONICAL_ROADMAP",
+    "docs/CHAT_BRIDGE_EXTENSION_PLAN.md",  # proposed routes, not current API claims
 )
 
 # `add_get("/v1/status", ...)` and the `('GET', '/v1/status', ...)` rows in
@@ -83,7 +90,8 @@ _ROW = re.compile(r"""\(\s*['"][A-Z/]+['"]\s*,\s*['"](/[^'"]+)['"]""")
 # documented route ending in `{path:.*}` did not match at all, so an invented
 # one would have been skipped rather than caught.
 _DOC_PATH = re.compile(
-    r"`(/v1(?:/(?:[A-Za-z0-9_-]+|\{[^}`]+\}))*)`")
+    r"`(?:(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+)?"
+    r"(/v1(?:/(?:[A-Za-z0-9_-]+|\{[^}`]+\}))*)`")
 
 # CDP handlers are registered once per prefix through an f-string:
 #   _register_cdp_prefix(app, h, "/v1/browser/cdp")
@@ -165,6 +173,22 @@ def _documented_paths() -> dict[str, list[str]]:
     return found
 
 
+def _filesystem_paths(text: str) -> set[str]:
+    """Filesystem route claims in one README, normalized like registry paths."""
+    return {
+        _placeholders_normalised(path)
+        for path in _DOC_PATH.findall(text)
+        if path.startswith("/v1/fs/")
+    }
+
+
+def _filesystem_parity_errors(
+    documented: set[str], registered: set[str],
+) -> tuple[set[str], set[str]]:
+    """Return omitted registry routes and invented documentation routes."""
+    return registered - documented, documented - registered
+
+
 def test_the_wiki_glob_is_not_dead_weight() -> None:
     """`.cubic/wiki` is absent today, and that has to stay visible.
 
@@ -231,3 +255,93 @@ def test_documented_endpoints_are_real() -> None:
         + "\nEither the route was removed and the docs are stale, or the "
         "text was generated rather than checked."
     )
+
+
+def test_method_prefixed_documented_paths_are_detected() -> None:
+    """HTTP verbs must not hide a route from documentation validation."""
+    found = _DOC_PATH.findall("Rotation: (`POST /v1/token/regenerate`)")
+    if found != ["/v1/token/regenerate"]:
+        raise AssertionError(f"method-prefixed route was not extracted: {found}")
+
+
+def _filesystem_route(path: str) -> bool:
+    return path.startswith("/v1/fs/") or path in ("/v1/upload", "/v1/download")
+
+
+def _registered_filesystem_methods() -> set[tuple[str, str]]:
+    # Canonical declarative rows, not methods copied from the documentation.
+    text = (REGISTRY_DIR / "registry.py").read_text(encoding="utf-8")
+    rows = re.findall(r"\(\s*['\"]([A-Z]+)['\"]\s*,\s*['\"](/[^'\"]+)['\"]", text)
+    return {(method, path) for method, path in rows if _filesystem_route(path)}
+
+
+def _documented_filesystem_methods(text: str) -> set[tuple[str, str]]:
+    # Deliberately require a table row: a prose mention cannot hide a missing
+    # public table entry (upload/download used to escape the path-only gate).
+    rows = re.findall(r"^\| `([A-Z]+)` \| `([^`]+)` \|", text, re.MULTILINE)
+    return {(method, path) for method, path in rows if _filesystem_route(path)}
+
+
+def test_readme_filesystem_routes_match_the_registry() -> None:
+    """The public filesystem table must neither omit nor mislabel routes."""
+    registered = _registered_filesystem_methods()
+    check = TestCase()
+    check.assertGreaterEqual(len(registered), 7)
+    check.assertIn(("POST", "/v1/upload"), registered)
+    check.assertIn(("GET", "/v1/download"), registered)
+    for name in ("README.md", "README.ru.md"):
+        text = (REPO_ROOT / name).read_text(encoding="utf-8")
+        check.assertEqual(_documented_filesystem_methods(text), registered, name)
+
+
+def test_filesystem_method_gate_detects_actual_readme_sabotage() -> None:
+    check = TestCase()
+    registered = _registered_filesystem_methods()
+    for name in ("README.md", "README.ru.md"):
+        text = (REPO_ROOT / name).read_text(encoding="utf-8")
+        check.assertEqual(_documented_filesystem_methods(text), registered)
+        for method, path in registered:
+            row = f"| `{method}` | `{path}` |"
+            check.assertEqual(text.count(row), 1, (name, row))
+            removed = "\n".join(line for line in text.splitlines() if not line.startswith(row))
+            check.assertNotEqual(_documented_filesystem_methods(removed), registered, (name, row))
+            wrong = text.replace(row, f"| `WRONG` | `{path}` |")
+            check.assertNotEqual(_documented_filesystem_methods(wrong), registered, (name, row))
+
+
+def test_filesystem_parity_gate_detects_both_omissions_and_inventions() -> None:
+    """Bilateral sabotage: both missing and made-up routes must be caught."""
+    expected = {"/v1/fs/view", "/v1/fs/edit"}
+    cases = (
+        (expected, (set(), set())),
+        ({"/v1/fs/view"}, ({"/v1/fs/edit"}, set())),
+        ({"/v1/fs/view", "/v1/fs/imaginary"},
+         ({"/v1/fs/edit"}, {"/v1/fs/imaginary"})),
+    )
+    for documented, expected_errors in cases:
+        actual_errors = _filesystem_parity_errors(documented, expected)
+        if actual_errors != expected_errors:
+            raise AssertionError(
+                f"parity check returned {actual_errors}, expected {expected_errors}"
+            )
+
+
+
+def test_readme_mcp_examples_dispatch_a_tool(monkeypatch) -> None:
+    from arena.mcp import standalone_rpc
+
+    check = TestCase()
+    calls = []
+    monkeypatch.setattr(standalone_rpc, "call_tool",
+                        lambda name, arguments: calls.append((name, arguments)) or {"ok": True})
+    for name in ("README.md", "README.ru.md"):
+        text = (REPO_ROOT / name).read_text(encoding="utf-8")
+        example = next(line for line in text.splitlines() if "`POST /mcp`" in line)
+        bodies = re.findall(r"`(\{[^`]+\})`", example)
+        check.assertEqual(len(bodies), 1, (name, example))
+        message = json.loads(bodies[0])
+        before = len(calls)
+        result = standalone_rpc.handle_rpc(message)
+        check.assertEqual(len(calls), before + 1, (name, result))
+        check.assertEqual(calls[-1], ("<tool>", {}))
+        check.assertEqual(result, {"jsonrpc": "2.0", "id": 1, "result": {"ok": True}})

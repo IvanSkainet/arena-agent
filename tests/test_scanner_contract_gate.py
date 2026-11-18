@@ -130,9 +130,12 @@ def test_existing_security_gate_rejects_non_object_and_missing_arrays(tmp_path: 
     )
     assert result.returncode == 2
     missing = _report(tmp_path, {}, "missing-array.json")
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("dep==1", encoding="utf-8")
     for tool in ("bandit", "semgrep", "pip-audit"):
         checked = subprocess.run(
-            [sys.executable, str(SECURITY_GATE), tool, str(missing)],
+            [sys.executable, str(SECURITY_GATE), tool, str(missing),
+             *(("--requirements", str(requirements)) if tool == "pip-audit" else ())],
             cwd=REPO,
             check=False,
             capture_output=True,
@@ -147,10 +150,13 @@ def test_existing_security_gate_rejects_incomplete_nested_findings(tmp_path: Pat
         "semgrep": {"results": [{"check_id": "rule"}], "errors": []},
         "pip-audit": {"dependencies": [{"name": "dep", "version": "1", "vulns": [None]}]},
     }
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("dep==1", encoding="utf-8")
     for tool, report in reports.items():
         path = _report(tmp_path, report, f"{tool}.json")
         checked = subprocess.run(
-            [sys.executable, str(SECURITY_GATE), tool, str(path)],
+            [sys.executable, str(SECURITY_GATE), tool, str(path),
+             *(("--requirements", str(requirements)) if tool == "pip-audit" else ())],
             cwd=REPO,
             check=False,
             capture_output=True,

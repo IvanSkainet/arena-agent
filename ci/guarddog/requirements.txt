@@ -1,62 +1,9 @@
 # Fully locked toolchain for the GuardDog job (.github/workflows/guarddog.yml).
-#
-# A scanner that exists to catch supply-chain attacks must not itself
-# float. `guarddog>=3.2,<4` would install any future 3.x release
-# unreviewed, and every transitive dependency at whatever version
-# resolved that morning -- Sonar S8544 flagged exactly that on PR #228.
-#
-# Regenerate the pair together, with the hash-locked uv this repository
-# already uses for every other lock (plain `pip-compile` is neither pinned
-# nor installed here, so a command naming it is not reproducible in a
-# clean checkout):
-#
-#     python -m pip install --require-hashes -r requirements-relock.lock
-#     uv pip compile --universal --generate-hashes --strip-extras \
-#       --python-version 3.12 \
-#       -o ci/guarddog/requirements.txt ci/guarddog/requirements.in
-#
-# 3.12 is the interpreter .github/workflows/guarddog.yml runs the scanner
-# on. Unlike the CI locks this toolchain never lands on the 3.10 matrix
-# cell, so resolving for 3.10 would pin backports the scanner never uses.
-# Keep the two compile commands identical to the ones in requirements.in:
-# two headers giving different commands is how a non-reproducible lock gets
-# committed. Editing the version happens in requirements.in, which is the
-# file that carries it.
-#
-# It lives here, and not in the repository root as
-# `requirements-guarddog.txt`, because it is not one of this project's
-# manifests: it is guarddog's OWN transitive closure, and it may only be
-# regenerated whole. While it sat in the root, Dependabot's pip ecosystem
-# read it as an ordinary requirements file and proposed bumps one package
-# at a time. guarddog 3.2.0 constrains `tarsafe >=0.0.5,<0.0.6` and
-# `disposable-email-domains >=0.0.237,<0.0.238`, so every isolated bump
-# made `pip install --require-hashes` die with ResolutionImpossible
-# BEFORE the scanner ran: the required GuardDog check went red while no
-# malware scan happened at all (#285, twice in one PR; #307). Name-by-name
-# `ignore` entries were the first patch and do not scale -- guarddog's
-# transitive set changes with every release, and the next name announces
-# itself as another red required check.
-#
-# What actually stops that is `exclude-paths: ["ci/guarddog/**"]` in
-# `.github/dependabot.yml`: it supports globs and individual files, and it
-# applies before manifest parsing, so nothing here is listed, parsed, or
-# turned into a pull request. The relocation is what makes ONE exclusion
-# prefix enough, and it is also load-bearing on its own account:
-# `directory: "/"` does not confine that ecosystem to the root -- it scans
-# below it too (dependabot-core#11360 asked for the opposite and the change
-# was reverted), so the move without the exclusion would not have helped
-# either. Both halves, or neither.
-#
-# Consequence: this file is regenerated WHOLE, and only together with a
-# bump of guarddog itself, which is how upstream intends its pins to
-# travel. Out of Dependabot's reach is not out of every gate's reach --
-# `scripts/check_lock_freshness.py` carries this pair in EXTRA_PAIRS, so a
-# hand-edited pin still fails a check.
-#
-# The 3.x floor is deliberate: 2.7.0 and below carry GHSA-xg9w-vg3g-6m68,
-# a path traversal in safe_extract() that gives a scanned package
-# arbitrary file write on the scanner host.
-#
+# Regenerate from the paired input; do not edit transitive pins by hand.
+# First install the exact resolver used by the repository:
+#    python -m pip install --require-hashes -r requirements-relock.lock
+# Then compile this input to this lock:
+#    uv pip compile --universal --generate-hashes --strip-extras --python-version 3.12 -o ci/guarddog/requirements.txt ci/guarddog/requirements.in
 annotated-types==0.8.0 \
     --hash=sha256:13b2beaad985e05e2d6407ee4c4f35590b11f8d693a258a561055cac8f64cab7 \
     --hash=sha256:f072f4d804ea359e4eaf198b1af7a8b0943881a87f31bb764f8bf219bb9419e0
@@ -71,9 +18,9 @@ botocore==1.43.84 \
     # via
     #   boto3
     #   s3transfer
-certifi==2026.7.22 \
-    --hash=sha256:62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775 \
-    --hash=sha256:741e2c3b351ddf169a738da9f2c048608ff7f2c5cc02f1ebc6b118bb090d5d55
+certifi==2026.10.23 \
+    --hash=sha256:a9895e6e2758b371e0545e321a3a8fd1fcfd9829ada8824a936dfb16aaaf36cd \
+    --hash=sha256:e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1
     # via requests
 cffi==2.1.1 \
     --hash=sha256:046bfc24911b37851ee1b51aab8bffe713d89c68c6a057b09484ce9fd5f69b4e \
@@ -458,7 +405,7 @@ prettytable==3.18.0 \
     --hash=sha256:439217116152244369caf3d9f1caf2f9fe29b03bd79e88d2928c8e718c95d680 \
     --hash=sha256:b3346e0e6f79180833aebaac088ae926340586cf6d7d991b9eb125b65f72313a
     # via guarddog
-pycparser==3.0 \
+pycparser==3.0 ; implementation_name != 'PyPy' \
     --hash=sha256:600f49d217304a5902ac3c37e1281c9fe94e4d0489de643a9504c5cdfdfc6b29 \
     --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
     # via cffi
@@ -749,9 +696,9 @@ typing-inspection==0.4.4 \
     --hash=sha256:547274fa6b0a561ccf549cc9524b999a578e737d015d8709d021f9d0d13bea47 \
     --hash=sha256:65b8397ba37ccbce054456aaccddfc91e6e3083c92824df348d96ca832f3f147
     # via pydantic
-urllib3==2.7.0 \
-    --hash=sha256:231e0ec3b63ceb14667c67be60f2f2c40a518cb38b03af60abc813da26505f4c \
-    --hash=sha256:9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897
+urllib3==2.8.0 \
+    --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3 \
+    --hash=sha256:63bf2ead4c879426ebf22ef2a781eeb4aa3b4ae798a0435506f8687fd5bb9b63
     # via
     #   botocore
     #   guarddog

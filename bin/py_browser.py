@@ -9,7 +9,7 @@
   py_browser.py search QUERY [--n 5]   -> DuckDuckGo HTML результаты JSON
   py_browser.py head URL               -> заголовки HTTP
 
-Никаких внешних бинарей — только stdlib + requests + bs4 + readability-lxml.
+Никаких внешних бинарей — только stdlib + requests; readability-lxml опционален.
 Хорошо подходит как failover в нашем "ИБП" пути.
 """
 from __future__ import annotations
@@ -17,18 +17,22 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 import requests
-from bs4 import BeautifulSoup, FeatureNotFound
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 
 UA = "Mozilla/5.0 (X11; Linux x86_64) ArenaAgent/0.5 PyBrowser/1.0"
 H  = {"User-Agent": UA, "Accept-Language": "en,ru;q=0.8"}
 
-def _soup(markup: str):
-    try:
-        return BeautifulSoup(markup, "lxml")
-    except FeatureNotFound:
-        return BeautifulSoup(markup, "html.parser")
+def _extract(markup: str):
+    # Load only for HTML commands, after the standalone entrypoint bootstrap.
+    from arena.browser.html_extract import ExtractedPage
+    return ExtractedPage(markup)
 
 def _get(url: str, timeout: int = 20) -> requests.Response:
     return requests.get(url, headers=H, timeout=timeout, allow_redirects=True)
@@ -49,23 +53,22 @@ def cmd_read(url: str) -> int:
     try:
         from readability import Document
         doc = Document(r.text)
-        soup = _soup(doc.summary())
+        soup = _extract(doc.summary())
         title = doc.short_title()
     except Exception:
-        soup = _soup(r.text)
-        title = (soup.title.string.strip() if soup.title and soup.title.string else "")
+        soup = _extract(r.text)
+        title = soup.title
     print(json.dumps({"url": r.url, "title": title,
-                      "text": soup.get_text("\n", strip=True)},
+                      "text": soup.text()},
                      ensure_ascii=False, indent=2))
     return 0
 
 def cmd_dump(url: str, save: str|None) -> int:
     r = _get(url)
-    s = _soup(r.text)
-    title = (s.title.string.strip() if s.title and s.title.string else "")
-    text = s.get_text("\n", strip=True)
-    links = [{"text": a.get_text(strip=True)[:120], "href": a.get("href","")}
-             for a in s.find_all("a", href=True)][:200]
+    s = _extract(r.text)
+    title = s.title
+    text = s.text()
+    links = s.links()
     out = {"url": r.url, "status": r.status_code, "title": title,
            "text": text[:50000], "links": links}
     data = json.dumps(out, ensure_ascii=False, indent=2)
@@ -81,14 +84,8 @@ def cmd_search(q: str, n: int) -> int:
     # DuckDuckGo HTML endpoint — без JS, дружелюбен к scraper'ам
     r = requests.post("https://html.duckduckgo.com/html/",
                       data={"q": q}, headers=H, timeout=20)
-    s = _soup(r.text)
-    res = []
-    for a in s.select("a.result__a")[:n]:
-        href = a.get("href","")
-        title = a.get_text(strip=True)
-        snippet_el = a.find_parent("div", class_="result").select_one(".result__snippet") if a.find_parent("div", class_="result") else None
-        snippet = snippet_el.get_text(" ", strip=True) if snippet_el else ""
-        res.append({"title": title, "url": href, "snippet": snippet[:300]})
+    s = _extract(r.text)
+    res = s.search_results(n)
     print(json.dumps({"query": q, "results": res}, ensure_ascii=False, indent=2))
     return 0
 
