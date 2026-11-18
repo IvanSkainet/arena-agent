@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import importlib.util
-from xml.etree import ElementTree
 from pathlib import Path
 from unittest import TestCase
+from xml.etree import ElementTree
 
 import pytest
 

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import sys
-from xml.etree import ElementTree  # nosec B405 -- custom parser below rejects every DTD before entity use
 from pathlib import Path
+from xml.etree import ElementTree  # nosec B405 -- custom parser below rejects every DTD before entity use
 
 REQUIRED_TESTS = frozenset({
     "Helper_CompleteBoeTurnWritesCorrelatedTerminalSignal",
