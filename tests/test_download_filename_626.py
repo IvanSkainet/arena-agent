@@ -1,4 +1,4 @@
-"""A file whose name would break a header must still download (fuzz regression).
+r"""A file whose name would break a header must still download (fuzz regression).
 
 Found by the #258 fuzzing gate on `GET /v1/download`, in the same run that
 found the watch-jail 500. The name is not ours -- `gE<U+00D7>\\x06` is a legal

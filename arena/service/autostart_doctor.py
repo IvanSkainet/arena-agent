@@ -84,8 +84,8 @@ def write_windows_launchers(root: Path, *, port: int = 8765,
                 f'cd /d "{root}"',
                 f"set ARENA_AGENT_HOME={root}",
                 f"set ARENA_TOKEN_FILE={token_file}",
-                f'{python} -u "{code_root() / "unified_bridge.py"}" serve --profile {profile} '
-                f"--port {port}",
+                (f'{python} -u "{code_root() / "unified_bridge.py"}" serve --profile {profile} '
+                 f"--port {port}"),
             ]) + "\r\n").encode("utf-8"))
         created.append(bat.name)
 

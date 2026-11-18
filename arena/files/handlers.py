@@ -35,7 +35,7 @@ class FileHandlers:
 
 
 def content_disposition(name: str) -> str:
-    """A `Content-Disposition` for a file whose name came from the filesystem.
+    r"""A `Content-Disposition` for a file whose name came from the filesystem.
 
     The name is not ours: a file called `gE\u00d7\x06` is a legal filename on POSIX
     filesystems, and putting it into a header verbatim makes

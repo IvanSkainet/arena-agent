@@ -206,7 +206,7 @@ def test_the_token_file_stays_blocked_inside_the_state_directory(monkeypatch, tm
 
     from arena.files.sandbox import resolve_home_path
 
-    resolved, err, status = resolve_home_path(
+    resolved, _err, status = resolve_home_path(
         str(home / "token.txt"), root=home, home=home
     )
     # The jail accepts it; the sensitive-basename blocklist is what must refuse.

@@ -301,7 +301,7 @@ def _import_complete_records(conn: sqlite3.Connection, payload: bytes) -> None:
     for raw_line in payload.split(b"\n"):
         try:
             _import_jsonl_line(conn, raw_line.decode("utf-8"))
-        except (UnicodeError, OverflowError, RecursionError, ValueError):
+        except (OverflowError, RecursionError, ValueError):
             # Bad individual data does not strand following valid records;
             # SQLite failures propagate to roll back data AND checkpoint.
             continue

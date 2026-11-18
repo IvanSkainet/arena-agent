@@ -184,7 +184,7 @@ def _load_reclaim_candidate(path: Path, alive: Callable[[int], bool],
                             now_epoch: float, grace_seconds: int) -> dict[str, Any] | None:
     try:
         task = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, ValueError):
+    except (OSError, ValueError):
         # A claimant may still be writing; ambiguous records stay in place.
         return None
     if not isinstance(task, dict):
