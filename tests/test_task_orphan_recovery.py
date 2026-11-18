@@ -298,16 +298,7 @@ def test_two_processes_cannot_overwrite_the_same_recovery_result(tmp_path):
                  for _ in range(2)]
     for process in processes:
         process.start()
-    try:
-        for process in processes:
-            process.join(25)
-            assert process.exitcode == 0
-        outputs = [results.get(timeout=5) for _ in processes]
-    finally:
-        for process in processes:
-            if process.is_alive():
-                process.terminate()
-                process.join()
+    outputs = _join_sweepers(processes, results)
     assert all(result.get("ok") for result in outputs), outputs
     assert sorted(len(result["reclaimed"]) for result in outputs) == [0, 1]
     assert not (running / "racing.json").exists()
@@ -330,3 +321,16 @@ def test_terminal_results_remove_only_dead_owners_running_copy(tmp_path):
         reclaim_interrupted_tasks(running=running, failed=failed, done=done, now_fn=lambda: NOW, alive=lambda _: False)
         assert not path.exists()
         assert target.read_bytes() == final
+
+
+def _join_sweepers(processes, results):
+    try:
+        for process in processes:
+            process.join(25)
+            assert process.exitcode == 0
+        return [results.get(timeout=5) for _ in processes]
+    finally:
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+                process.join()

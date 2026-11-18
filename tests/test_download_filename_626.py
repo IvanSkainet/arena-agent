@@ -81,7 +81,7 @@ def test_a_hostile_name_downloads_with_a_status(tmp_path, name: str, why: str) -
     response never started, and the client saw an empty reply rather than a
     code it could act on.
     """
-    if os.name == "nt" and any(ord(ch) < 32 or ch == '"' for ch in name):
+    if _invalid_windows_filename(name):
         pytest.skip("Windows does not permit this filename")
     status, body, headers = asyncio.run(_download(tmp_path, name))
 
@@ -90,3 +90,9 @@ def test_a_hostile_name_downloads_with_a_status(tmp_path, name: str, why: str) -
     disposition = headers["Content-Disposition"]
     assert disposition.startswith("attachment; filename=")
     assert "\r" not in disposition and "\n" not in disposition
+
+
+def _invalid_windows_filename(name: str) -> bool:
+    if os.name != "nt":
+        return False
+    return any(ch in name for ch in ['"', *(chr(value) for value in range(32))])

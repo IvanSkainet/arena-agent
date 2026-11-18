@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import shlex
+from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 
 
@@ -50,25 +51,11 @@ def _dependencies(inputs: dict[str, Path]) -> dict[str, set[str]]:
 
 
 def _topological_order(dependencies: dict[str, set[str]]) -> list[str]:
-    ordered: list[str] = []
-    visiting: set[str] = set()
-    visited: set[str] = set()
-
-    def visit(name: str) -> None:
-        if name in visiting:
-            raise ValueError(f"constraint dependency cycle at {name}")
-        if name in visited:
-            return
-        visiting.add(name)
-        for dependency in sorted(dependencies[name]):
-            visit(dependency)
-        visiting.remove(name)
-        visited.add(name)
-        ordered.append(name)
-
-    for name in sorted(dependencies):
-        visit(name)
-    return ordered
+    graph = {name: sorted(dependencies[name]) for name in sorted(dependencies)}
+    try:
+        return list(TopologicalSorter(graph).static_order())
+    except CycleError as exc:
+        raise ValueError("constraint dependency cycle") from exc
 
 
 def regeneration_order(root: Path) -> list[str]:

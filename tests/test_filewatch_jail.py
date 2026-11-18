@@ -164,9 +164,9 @@ def test_snapshot_rechecks_watch_root_after_symlink_is_retargeted(tmp_path, monk
     except (OSError, NotImplementedError) as exc:
         pytest.skip(f"symlink unavailable: {exc}")
     monkeypatch.setenv("ARENA_AGENT_HOME", str(home))
-    first, _ = _snapshot(alias, True, [], 50, root=home, home=home)
+    first, _ = _snapshot(alias, True, [], 50, jail=(home, home))
     assert str(alias / "safe.txt") in first
     alias.unlink()
     alias.symlink_to(outside, target_is_directory=True)
-    second, _ = _snapshot(alias, True, [], 50, root=home, home=home)
+    second, _ = _snapshot(alias, True, [], 50, jail=(home, home))
     assert second == {}

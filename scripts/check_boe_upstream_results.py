@@ -29,12 +29,20 @@ def check_results(path: Path) -> None:
     names: set[str] = set()
     for node in results:
         name = node.get("testName", "").rsplit(".", 1)[-1]
-        if name not in REQUIRED_TESTS or name in names or node.get("outcome") != "Passed":
-            raise ValueError(f"unexpected, duplicated, or non-passing upstream result: {name}")
+        _validate_result(name, names, node.get("outcome"))
         names.add(name)
     missing = REQUIRED_TESTS - names
     if missing:
         raise ValueError(f"missing upstream contract results: {', '.join(sorted(missing))}")
+
+
+def _validate_result(name: str, names: set[str], outcome: str | None) -> None:
+    if name not in REQUIRED_TESTS:
+        raise ValueError(f"unexpected upstream result: {name}")
+    if name in names:
+        raise ValueError(f"duplicated upstream result: {name}")
+    if outcome != "Passed":
+        raise ValueError(f"non-passing upstream result: {name}")
 
 
 if __name__ == "__main__":

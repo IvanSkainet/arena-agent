@@ -42,7 +42,8 @@ def _matches(path: Path, patterns: list[str]) -> bool:
 
 
 def _snapshot(path: Path, recursive: bool, patterns: list[str], max_files: int, *,
-              root: Path, home: Path) -> tuple[dict[str, tuple[int, int]], bool]:
+              jail: tuple[Path, Path]) -> tuple[dict[str, tuple[int, int]], bool]:
+    root, home = jail
     files: dict[str, tuple[int, int]] = {}
     truncated = False
     if _resolve_target(str(path), root=root, home=home) is None:
@@ -114,7 +115,7 @@ def make_file_watch_runtime(ctx: FileWatchRuntimeContext) -> FileWatchRuntime:
         clean_patterns = [str(p).strip() for p in (patterns or []) if str(p).strip()][:20]
         snapshot, truncated = _snapshot(
             resolved, bool(recursive), clean_patterns, ctx.max_files_per_watch,
-            root=root_path, home=ctx.home,
+            jail=(root_path, ctx.home),
         )
         wid = uuid.uuid4().hex[:10]
         meta = {
@@ -156,41 +157,50 @@ def make_file_watch_runtime(ctx: FileWatchRuntimeContext) -> FileWatchRuntime:
             with state["lock"]:
                 current = [(wid, dict(meta)) for wid, meta in state["watchers"].items()]
             for wid, meta in current:
-                path = Path(meta["path"])
-                try:
-                    snapshot, truncated = _snapshot(
-                        path, meta["recursive"], list(meta["patterns"]), ctx.max_files_per_watch,
-                        root=Path(meta["root"]), home=ctx.home,
-                    )
-                except FileNotFoundError:
-                    snapshot, truncated = {}, False
-                previous = meta.get("snapshot", {})
-                events = []
-                for changed in sorted(snapshot.keys() - previous.keys()):
-                    events.append(("added", changed))
-                for changed in sorted(previous.keys() - snapshot.keys()):
-                    events.append(("deleted", changed))
-                for changed in sorted(snapshot.keys() & previous.keys()):
-                    if snapshot[changed] != previous[changed]:
-                        events.append(("modified", changed))
-                with state["lock"]:
-                    if wid in state["watchers"]:
-                        state["watchers"][wid]["snapshot"] = snapshot
-                        state["watchers"][wid]["truncated"] = truncated
-                        state["watchers"][wid]["last_scan_ts"] = ctx.utc_now()
-                for event_name, changed_path in events[:100]:
-                    await ctx.emit_event(
-                        "file_watch_change",
-                        {
-                            "watch_id": wid,
-                            "watch_path": meta["path"],
-                            "label": meta["label"],
-                            "event": event_name,
-                            "path": changed_path,
-                        },
-                    )
-                if truncated:
-                    ctx.log_warning("[FileWatch] %s hit max file scan limit (%d)", meta["path"], ctx.max_files_per_watch)
+                await _poll_watch(ctx, wid, meta, state)
             await asyncio.sleep(ctx.poll_interval_s)
 
     return FileWatchRuntime(list_sync=list_sync, add_sync=add_sync, remove_sync=remove_sync, loop=loop, state=state)
+
+
+async def _poll_watch(ctx: FileWatchRuntimeContext, wid: str, meta: dict, state: dict) -> None:
+    path = Path(meta["path"])
+    try:
+        snapshot, truncated = _snapshot(
+            path, meta["recursive"], list(meta["patterns"]), ctx.max_files_per_watch,
+            jail=(Path(meta["root"]), ctx.home),
+        )
+    except FileNotFoundError:
+        snapshot, truncated = {}, False
+    previous = meta.get("snapshot", {})
+    events = _changes(previous, snapshot)
+    with state["lock"]:
+        if wid in state["watchers"]:
+            state["watchers"][wid]["snapshot"] = snapshot
+            state["watchers"][wid]["truncated"] = truncated
+            state["watchers"][wid]["last_scan_ts"] = ctx.utc_now()
+    for event_name, changed_path in events[:100]:
+        await ctx.emit_event(
+            "file_watch_change",
+            {
+                "watch_id": wid,
+                "watch_path": meta["path"],
+                "label": meta["label"],
+                "event": event_name,
+                "path": changed_path,
+            },
+        )
+    if truncated:
+        ctx.log_warning("[FileWatch] %s hit max file scan limit (%d)", meta["path"], ctx.max_files_per_watch)
+
+
+def _changes(previous: dict, snapshot: dict) -> list[tuple[str, str]]:
+    events = []
+    for changed in sorted(snapshot.keys() - previous.keys()):
+        events.append(("added", changed))
+    for changed in sorted(previous.keys() - snapshot.keys()):
+        events.append(("deleted", changed))
+    for changed in sorted(snapshot.keys() & previous.keys()):
+        if snapshot[changed] != previous[changed]:
+            events.append(("modified", changed))
+    return events

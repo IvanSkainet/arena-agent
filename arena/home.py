@@ -142,16 +142,18 @@ def token_path(explicit: str | Path | None = None, *, for_write: bool = False) -
     env_file = os.environ.get("ARENA_TOKEN_FILE", "").strip()
     if env_file:
         return _normalise(env_file)
-    root = agent_home()
-    if not os.environ.get("ARENA_AGENT_HOME", "").strip() and root == code_root():
-        root = default_home()
-    primary = root / "token.txt"
+    primary = _default_token_root() / "token.txt"
     if for_write or primary.exists():
         return primary
     legacy = code_root() / "token.txt"
-    if legacy.exists():
-        return legacy
-    return primary
+    return legacy if legacy.exists() else primary
+
+
+def _default_token_root() -> Path:
+    root = agent_home()
+    if not os.environ.get("ARENA_AGENT_HOME", "").strip() and root == code_root():
+        return default_home()
+    return root
 
 
 def sandbox_home() -> Path:
