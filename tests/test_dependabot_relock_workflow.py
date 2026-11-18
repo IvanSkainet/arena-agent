@@ -21,7 +21,7 @@ def test_relock_uses_untrusted_pr_event_with_narrow_bot_gate() -> None:
 
 def test_old_hash_locked_uv_regenerates_every_pair_including_itself() -> None:
     text = source()
-    install = "pip install --require-hashes -r requirements-relock.lock"
+    install = "pip install --only-binary :all: --require-hashes -r requirements-relock.lock"
     loop = "for in_file in requirements-*.in; do"
     compile_call = 'uv pip compile --universal --generate-hashes --strip-extras'
     assert text.index(install) < text.index(loop) < text.index(compile_call)
