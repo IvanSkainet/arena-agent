@@ -67,8 +67,9 @@ class AuditCoverageTests(TestCase):
             check_coverage(dependencies, text, environment)
 
     def test_prerelease_versions_still_obey_requested_bounds(self):
+        dependencies = [_dependency(version="3rc1")]
         with self.assertRaises(ValueError):
-            check_coverage([_dependency(version="3rc1")], "demo>=3")
+            check_coverage(dependencies, "demo>=3")
         check_coverage([_dependency(version="3rc1")], "demo==3rc1")
 
     def _gate(self, directory, report, requirements="demo>=2", *, omit_input=False):

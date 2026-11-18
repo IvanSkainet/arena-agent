@@ -203,7 +203,33 @@ def test_bound_parser_rejects_oversized_suffix_before_regex(monkeypatch, token):
     (" --hash=sha256:" + "a" * 65, False),
     (" --hash=sha256:" + "a" * 64 + "junk", False),
     ("--hash=sha256:" + "a" * 64, False),
-])
-def test_hash_option_tokenization_preserves_fail_closed_manifest_proof(suffix, expected):
+], ids=["long-space", "long-space-valid-hash", "short-hash", "long-hash",
+        "hash-junk-suffix", "missing-hash-separator"])
+def test_hash_option_tokenization_preserves_fail_closed_manifest_proof(suffix, expected, request):
+    # pytest exports the node ID on Windows, which caps each env var at32767.
+    CHECK.assertLess(len(request.node.nodeid), 1000)
     CHECK.assertEqual(proof.manifest_fixes(PATH, "aiohttp>=3.14.4" + suffix,
                                          "aiohttp", "3.14.4"), expected)
+
+
+@pytest.mark.parametrize("declaration,expected", [
+    ("aiohttp[extra, other]>=3.14.4", True),
+    ("aiohttp[extra]>=3.14.4", True),
+    ("aiohttp[extra>=3.14.4", False),
+    ("aiohttp[]>=3.14.4", False),
+    ("aiohttp[extra][other]>=3.14.4", False),
+    ("@aiohttp>=3.14.4", False),
+])
+def test_manifest_name_and_extras_are_parsed_without_suffix_backtracking(declaration, expected):
+    CHECK.assertEqual(proof.manifest_fixes(PATH, declaration, "aiohttp", "3.14.4"), expected)
+
+
+def test_large_manifest_cases_keep_explicit_short_pytest_ids():
+    marks = getattr(test_hash_option_tokenization_preserves_fail_closed_manifest_proof,
+                    "pytestmark")
+    parameter_marks = [mark for mark in marks if mark.name == "parametrize"]
+    CHECK.assertEqual(len(parameter_marks), 1)
+    ids = parameter_marks[0].kwargs.get("ids")
+    CHECK.assertIsNotNone(ids)
+    CHECK.assertEqual(len(ids), 6)
+    CHECK.assertTrue(all(len(identifier) < 100 for identifier in ids))

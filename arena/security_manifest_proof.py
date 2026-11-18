@@ -8,7 +8,8 @@ import re
 from typing import Any
 
 MAX_MANIFEST_BYTES = 512 * 1024
-_NAME = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_.-]*)(?:\[[A-Za-z0-9_., -]+\])?\s*(.*)$")
+_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+_EXTRAS = re.compile(r"\[[A-Za-z0-9_., -]+\]")
 _BOUND = re.compile(
     r"(==|~=|>=|<=|!=|>|<)\s*(\d+(?:\.\d+)*"
     r"(?:(?:a|b|rc)\d+)?(?:\.post\d+)?(?:\.dev\d+)?"
@@ -92,6 +93,21 @@ def _requirement_lines(path: str, text: str) -> list[str] | None:
     return [line for line in lines if line]
 
 
+def _split_requirement(requirement: str) -> tuple[str, str] | None:
+    # Parse name and extras separately so a failing suffix cannot backtrack
+    # across the package name. Prefix matches each scan their input once.
+    match = _NAME.match(requirement)
+    if match is None:
+        return None
+    suffix = requirement[match.end():]
+    if suffix.startswith("["):
+        extras = _EXTRAS.match(suffix)
+        if extras is None:
+            return None
+        suffix = suffix[extras.end():]
+    return match[0], suffix.strip()
+
+
 def _declaration(line: str) -> tuple[str, list[tuple[str, str]]] | None:
     # Check EVERY marker variant, not just the runner's environment. An older
     # supported Python/platform must not retain a vulnerable declaration.
@@ -100,10 +116,10 @@ def _declaration(line: str) -> tuple[str, list[tuple[str, str]]] | None:
     # quadratically when no hash follows. Only complete SHA256 options vanish.
     requirement = " ".join(token for token in requirement.split()
                            if not re.fullmatch(r"--hash=sha256:[a-fA-F0-9]{64}", token))
-    match = _NAME.fullmatch(requirement)
-    if match is None:
+    declaration = _split_requirement(requirement)
+    if declaration is None:
         return None
-    name, specifier = match.groups()
+    name, specifier = declaration
     bounds = []
     if not specifier:
         return normalise(name), bounds
