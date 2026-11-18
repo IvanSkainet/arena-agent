@@ -49,7 +49,7 @@ def build_observability_runtimes(g: MutableMapping[str, Any]) -> dict[str, Any]:
 
     max_log_size = 10 * 1024 * 1024
     max_log_backups = 3
-    log_files_to_rotate = [env.APP_DIR / "bridge.log", env.APP_DIR / "requests.jsonl", env.APP_DIR / "audit.jsonl"]
+    log_files_to_rotate = [env.APP_DIR / "bridge.log", env.APP_DIR / "requests.jsonl", env.AUDIT]
     log_cleanup_ctx = env.LogCleanupContext(
         app_dir=env.APP_DIR,
         log_files=log_files_to_rotate,

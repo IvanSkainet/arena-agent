@@ -24,8 +24,10 @@ traceback about ``~/arena-bridge/bin/mcp_marketplace.py``.
 Three distinct notions were being conflated:
 
 ``agent_home()``
-    where state lives: ``ARENA_AGENT_HOME`` or ``~/arena-bridge``. Never the
-    directory the code was installed into, and never the workspace.
+    where state lives: an explicit ``ARENA_AGENT_HOME`` or ``~/arena-bridge``
+    for fresh installs. Existing checkout state retains its legacy location
+    until the operator explicitly chooses/migrates it; never silently choose
+    between two nonempty stores. This is distinct from the workspace.
 ``code_root()``
     where the code lives: the directory containing the ``arena`` package. Its
     ``bin/`` holds the scripts the CLI runs, so it must not depend on the data

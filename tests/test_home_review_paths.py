@@ -98,3 +98,32 @@ def test_mission_recording_uses_code_helper_and_state_output(tmp_path, monkeypat
     result = common._start_recording("example")
     assert result["out"] == str(home / "reports" / "recordings" / "mission-example.mp4")
     assert seen[0][0] == str(code / "bin" / "sd-exec")
+
+
+def test_startup_cleanup_rotates_the_active_relocated_audit(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    import unified_bridge as ub
+    from arena.observability.log_cleanup import make_log_cleanup_runtime
+    from arena.wiring.observability_runtime import build_observability_runtimes
+
+    code, state, user = tmp_path / "code", tmp_path / "state", tmp_path / "user"
+    for directory in (code, state, user):
+        directory.mkdir()
+    monkeypatch.setenv("HOME", str(user))
+    monkeypatch.setenv("USERPROFILE", str(user))
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(state))
+    audit = state / "audit.jsonl"
+    audit.write_bytes(b"oversized private audit")
+    decoy = code / "audit.jsonl"
+    decoy.write_bytes(b"unrelated checkout file")
+    values = dict(vars(ub))
+    values.update(APP_DIR=code, AUDIT=audit,
+                  make_log_cleanup_runtime=lambda ctx: make_log_cleanup_runtime(
+                      replace(ctx, max_log_size=8)))
+    runtime = build_observability_runtimes(values)
+    runtime["_rotate_all_logs_on_startup"]()
+    assert not audit.exists()
+    assert (state / "audit.jsonl.1").read_bytes() == b"oversized private audit"
+    assert decoy.read_bytes() == b"unrelated checkout file"
+    assert not (code / "audit.jsonl.1").exists()
