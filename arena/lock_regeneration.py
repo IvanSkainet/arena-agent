@@ -9,43 +9,47 @@ def _constraint_target(line: str) -> str | None:
     tokens = shlex.split(line, comments=True)
     if not tokens:
         return None
-    if tokens[0] in ("-c", "--constraint"):
-        if len(tokens) != 2:
-            raise ValueError(f"invalid constraint directive: {line}")
-        return tokens[1]
-    if tokens[0].startswith("--constraint="):
-        if len(tokens) != 1 or not tokens[0].split("=", 1)[1]:
-            raise ValueError(f"invalid constraint directive: {line}")
-        return tokens[0].split("=", 1)[1]
-    if tokens[0].startswith("-c"):
-        if len(tokens) != 1:
-            raise ValueError(f"invalid constraint directive: {line}")
-        return tokens[0][2:]
+    first = tokens[0]
+    if first in ("-c", "--constraint"):
+        return _separate_constraint(tokens, line)
+    if first.startswith("--constraint="):
+        return _attached_constraint(tokens, first.split("=", 1)[1], line)
+    if first.startswith("-c"):
+        return _attached_constraint(tokens, first[2:], line)
     return None
 
 
-def regeneration_order(root: Path) -> list[str]:
-    """Fail closed on missing generators, nonlocal constraints, and cycles.
+def _separate_constraint(tokens: list[str], line: str) -> str:
+    if len(tokens) != 2:
+        raise ValueError(f"invalid constraint directive: {line}")
+    return tokens[1]
 
-    Only root requirements-*.in / .lock pairs participate. All prerequisites
-    are visited before their consumers, independent of alphabetical order.
-    No resolver, network request, or repository-supplied program is executed.
-    """
-    inputs = {path.name: path for path in root.glob("requirements-*.in")}
+
+def _attached_constraint(tokens: list[str], target: str, line: str) -> str:
+    if len(tokens) != 1 or not target:
+        raise ValueError(f"invalid constraint directive: {line}")
+    return target
+
+
+def _producer(name: str, target: str, inputs: dict[str, Path]) -> str:
+    constraint = Path(target)
+    if constraint.name != target or constraint.suffix not in (".lock", ".txt"):
+        raise ValueError(f"{name}: unsupported constraint path {target!r}")
+    producer = constraint.with_suffix(".in").name
+    if producer not in inputs:
+        raise ValueError(f"{name}: no generator for {target}")
+    return producer
+
+
+def _dependencies(inputs: dict[str, Path]) -> dict[str, set[str]]:
     dependencies: dict[str, set[str]] = {}
     for name, path in sorted(inputs.items()):
-        dependencies[name] = set()
-        for line in path.read_text(encoding="utf-8").splitlines():
-            target = _constraint_target(line)
-            if target is None:
-                continue
-            constraint = Path(target)
-            if constraint.name != target or constraint.suffix not in (".lock", ".txt"):
-                raise ValueError(f"{name}: unsupported constraint path {target!r}")
-            producer = constraint.with_suffix(".in").name
-            if producer not in inputs:
-                raise ValueError(f"{name}: no generator for {target}")
-            dependencies[name].add(producer)
+        targets = (_constraint_target(line) for line in path.read_text(encoding="utf-8").splitlines())
+        dependencies[name] = {_producer(name, target, inputs) for target in targets if target is not None}
+    return dependencies
+
+
+def _topological_order(dependencies: dict[str, set[str]]) -> list[str]:
     ordered: list[str] = []
     visiting: set[str] = set()
     visited: set[str] = set()
@@ -62,6 +66,17 @@ def regeneration_order(root: Path) -> list[str]:
         visited.add(name)
         ordered.append(name)
 
-    for name in sorted(inputs):
+    for name in sorted(dependencies):
         visit(name)
     return ordered
+
+
+def regeneration_order(root: Path) -> list[str]:
+    """Fail closed on missing generators, nonlocal constraints, and cycles.
+
+    Only root requirements-*.in / .lock pairs participate. All prerequisites
+    are visited before their consumers, independent of alphabetical order.
+    No resolver, network request, or repository-supplied program is executed.
+    """
+    inputs = {path.name: path for path in root.glob("requirements-*.in")}
+    return _topological_order(_dependencies(inputs))
