@@ -335,12 +335,15 @@ def test_remote_signing_set_is_complete_and_cryptographically_verified(sign_job)
     step = next(s for s in steps if s["name"] == "Verify complete attached signature set")
     script = step["run"]
     assert '"arena-agent-${TAG}.zip" arena-agent.zip arena-bridge.apk "SHA256SUMS-${TAG}.txt"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
+    assert "--pattern '*.zip'" in script  # nosec B101 -- fetch current attached ZIPs.
+    assert "--pattern 'arena-bridge.apk'" in script  # nosec B101 -- fetch current attached APK.
+    assert 'cmp "dist/$f" "verified-signatures/$f"' in script  # nosec B101 -- compare attached bytes.
     assert 'test -s "verified-signatures/${f}.sig"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
     assert 'test -s "verified-signatures/${f}.pem"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
-    assert 'cosign verify-blob "dist/$f"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
+    assert 'cosign verify-blob "verified-signatures/$f"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
     assert '--signature "verified-signatures/${f}.sig"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
     assert '--certificate "verified-signatures/${f}.pem"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
-    assert '"https://token.actions.githubusercontent.com"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
+    assert re.search(r'--certificate-oidc-issuer\s+"https://token\.actions\.githubusercontent\.com"(?!\w)', script)  # nosec B101 -- pytest contract, not a runtime access guard.
     assert "sign-release\\.yml@" in script  # nosec B101 -- pytest contract, not a runtime access guard.
     assert 'cmp "dist/SHA256SUMS-${TAG}.txt" "verified-signatures/SHA256SUMS-${TAG}.txt"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
     assert steps.index(step) > next(i for i, s in enumerate(steps) if s["name"] == "Attach signatures to the release")  # nosec B101 -- pytest contract, not a runtime access guard.

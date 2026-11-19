@@ -49,30 +49,45 @@ def current_version() -> str:
     return match.group(1)
 
 
-def _api(path: str) -> dict | list | None:
-    url = f"https://api.github.com/repos/{REPO}{path}"
-    headers = {"Accept": "application/vnd.github+json",
-               "User-Agent": "arena-release-check"}
+def _request_headers() -> dict[str, str]:
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "arena-release-check"}
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _decode_response(payload: bytes) -> dict | list | None:
+    value = json.loads(payload.decode("utf-8"))
+    return value if isinstance(value, (dict, list)) else None
+
+
+def _http_error(exc: urllib.error.HTTPError, authenticated: bool) -> dict:
+    if exc.code == 404:
+        return {}
+    if exc.code == 403 and not authenticated:
+        raise RuntimeError(
+            "GitHub rate-limited this anonymous request; set GITHUB_TOKEN "
+            "so the check can actually see releases/latest"
+        ) from exc
+    raise exc
+
+
+def _api(path: str) -> dict | list | None:
+    url = f"https://api.github.com/repos/{REPO}{path}"
+    headers = _request_headers()
     req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:  # nosec B310 -- fixed api.github.com host
-            data = json.loads(resp.read().decode("utf-8"))
-            return data if isinstance(data, (dict, list)) else None
+            return _decode_response(resp.read())
     except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return {}
-        # An anonymous 403 is a rate limit, not an answer, and it looks
-        # exactly like being offline. Say which one it is -- a check that
-        # cannot tell "no data" from "no problem" reports OK forever.
-        if exc.code == 403 and not token:
-            raise RuntimeError(
-                "GitHub rate-limited this anonymous request; set GITHUB_TOKEN "
-                "so the check can actually see releases/latest") from exc
-        raise
-    return None
+        return _http_error(exc, "Authorization" in headers)
+
+
+def _unavailable(tag: str, reason: str, strict: bool) -> int:
+    print(f"release check: SKIPPED ({reason})")
+    print(f"  tree is at {tag}; verify it is published before calling the release done")
+    return 1 if strict else 0
 
 
 def tags_without_releases() -> list[str]:
@@ -182,14 +197,11 @@ def main(argv: list[str]) -> int:
 
     try:
         latest = _api("/releases/latest")
-    except Exception as exc:  # noqa: BLE001 -- offline is not a failure here
-        print(f"release check: SKIPPED (GitHub unreachable: {exc})")
-        print(f"  tree is at {tag}; verify it is published before calling the release done")
-        return 1 if strict else 0
+    except Exception as exc:  # noqa: BLE001 -- offline preflight semantics are unchanged
+        return _unavailable(tag, f"GitHub unreachable: {exc}", strict)
 
     if not isinstance(latest, dict):
-        print("release check: SKIPPED (no usable answer from GitHub)")
-        return 1 if strict else 0
+        return _unavailable(tag, "no usable answer from GitHub", strict)
 
     latest_tag = str(latest.get("tag_name") or "")
     names = {a.get("name") for a in (latest.get("assets") or [])}

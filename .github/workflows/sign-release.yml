@@ -300,12 +300,13 @@ jobs:
           mkdir -p verified-signatures
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
             --dir verified-signatures --pattern '*.sig' --pattern '*.pem' \
-            --pattern "SHA256SUMS-${TAG}.txt"
+            --pattern "SHA256SUMS-${TAG}.txt" --pattern '*.zip' --pattern 'arena-bridge.apk'
           cmp "dist/SHA256SUMS-${TAG}.txt" "verified-signatures/SHA256SUMS-${TAG}.txt"
           for f in "arena-agent-${TAG}.zip" arena-agent.zip arena-bridge.apk "SHA256SUMS-${TAG}.txt"; do
+            cmp "dist/$f" "verified-signatures/$f"
             test -s "verified-signatures/${f}.sig"
             test -s "verified-signatures/${f}.pem"
-            cosign verify-blob "dist/$f" \
+            cosign verify-blob "verified-signatures/$f" \
               --signature "verified-signatures/${f}.sig" \
               --certificate "verified-signatures/${f}.pem" \
               --certificate-identity-regexp \
