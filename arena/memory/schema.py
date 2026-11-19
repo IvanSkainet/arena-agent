@@ -340,6 +340,13 @@ def _stable_jsonl_read(jsonl_path: Path, start: int, expected_hash: str) -> tupl
         if signature(before) != signature(after) or signature(after) != signature(current):
             return None
     cut = data.rfind(b"\n") + 1
+    if cut < len(data):
+        try:
+            json.loads(data[cut:].decode("utf-8"))
+        except (ValueError, RecursionError):
+            pass  # A genuinely torn final record remains pending.
+        else:
+            cut = len(data)
     payload = data[:cut]
     hasher.update(payload)
     return payload, start + cut, hasher.hexdigest()

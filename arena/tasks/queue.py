@@ -191,6 +191,22 @@ def reclaim_interrupted_tasks(
     return result
 
 
+def _owner_is_alive(task: dict[str, Any], pid: int, alive: Callable[[int], bool]) -> bool:
+    if not alive(pid):
+        return False
+    identity = task.get("owner_created_at")
+    if identity is None:
+        return True  # Older records do not establish a process-start identity.
+    import psutil
+
+    try:
+        return abs(psutil.Process(pid).create_time() - float(identity)) < .01
+    except psutil.NoSuchProcess:
+        return False
+    except (psutil.AccessDenied, TypeError, ValueError, OverflowError):
+        return True
+
+
 def _load_reclaim_candidate(path: Path, recovery: RecoveryContext) -> dict[str, Any] | None:
     try:
         task = json.loads(path.read_text(encoding="utf-8"))
@@ -206,7 +222,7 @@ def _load_reclaim_candidate(path: Path, recovery: RecoveryContext) -> dict[str, 
         return None
     if pid <= 0:
         return None
-    return None if recovery.alive(pid) else task
+    return None if _owner_is_alive(task, pid, recovery.alive) else task
 
 
 def _reclaim_one(path: Path, recovery: RecoveryContext) -> str | None:

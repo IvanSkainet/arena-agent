@@ -338,3 +338,16 @@ def _join_sweepers(processes, results):
 
 def test_oversized_pid_is_conservatively_alive_not_a_sweep_crash():
     assert pid_is_alive(2**200) is True
+
+
+def test_process_start_identity_prevents_reused_pid_from_hiding_a_dead_owner():
+    import os
+
+    import psutil
+
+    from arena.tasks.queue import _owner_is_alive
+
+    created = psutil.Process().create_time()
+    assert _owner_is_alive({"owner_created_at": created}, os.getpid(), lambda pid: True)
+    assert not _owner_is_alive({"owner_created_at": created - 1000}, os.getpid(), lambda pid: True)
+    assert not pid_is_alive(True)

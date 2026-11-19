@@ -135,3 +135,13 @@ def test_deeply_nested_json_does_not_strand_later_records(tmp_path):
     source.write_text('[' * 1100 + '0' + ']' * 1100 + '\n' + _fact("good", "yes"), encoding="utf-8")
     init_memory_db(db_path=db, jsonl_path=source)
     assert _value(db, "good") == "yes"
+
+
+def test_valid_final_fact_without_a_newline_is_imported_and_checkpointed(tmp_path):
+    db, source = tmp_path / "facts.db", tmp_path / "facts.jsonl"
+    source.write_text(_fact("last", "present").rstrip("\n"), encoding="utf-8")
+    init_memory_db(db_path=db, jsonl_path=source)
+    assert _value(db, "last") == "present"
+    with sqlite3.connect(db) as conn:
+        row = conn.execute("SELECT offset FROM memory_jsonl_checkpoint").fetchone()
+    assert row[0] == source.stat().st_size

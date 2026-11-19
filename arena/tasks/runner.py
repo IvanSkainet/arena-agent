@@ -140,9 +140,12 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
         # Who claimed it, so a later start can tell "still running elsewhere"
         # from "left behind by a process that no longer exists" (#B-032).
         task["pid"] = os.getpid()
+        import psutil
+
         t0 = time.time()
         max_output = 2_000_000
         try:
+            task["owner_created_at"] = psutil.Process().create_time()
             cwd = Path(task.get("cwd") or str(Path.home())).expanduser().resolve()
             task["cwd"] = str(cwd)
             write_private_json(rp, task)
