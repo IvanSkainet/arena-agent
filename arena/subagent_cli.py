@@ -35,6 +35,7 @@ ROOT = agent_home()
 SUB_DIR = ROOT / "subagents"
 private_directory(ROOT)
 private_directory(SUB_DIR)
+META_FILE = "meta.json"
 
 
 def now_utc() -> str:
@@ -87,7 +88,7 @@ def spawn(args) -> int:
             "created": now_utc(), "timeout": args.timeout, "wait": args.wait,
             "status": "running" if args.wait else "spawned", "cwd": str(ROOT.resolve()),
             "max_out": args.max_out}
-    write_private_json(sd / "meta.json", meta)
+    write_private_json(sd / META_FILE, meta)
     env = _subagent_env(sid, meta["name"])
     if args.wait:
         summary = _run_waiting(sd, env)
@@ -105,7 +106,7 @@ def spawn(args) -> int:
             summary.update(status="fail", error=str(exc))
             meta.update(status="fail", error=str(exc))
             write_private_json(sd / "summary.json", summary)
-            write_private_json(sd / "meta.json", meta)
+            write_private_json(sd / META_FILE, meta)
             print(json.dumps(summary, ensure_ascii=False, indent=2))
             return 1
         write_private_json(sd / "pid", process.pid)
@@ -116,7 +117,7 @@ def spawn(args) -> int:
 def list_cmd(_args) -> int:
     items = []
     for sd in sorted(SUB_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)[:20]:
-        meta_p = sd / "meta.json"
+        meta_p = sd / META_FILE
         if not meta_p.exists():
             continue
         try:
@@ -150,7 +151,7 @@ def _contained_run(run_id: str) -> Path | None:
 
 def _active_run(directory: Path) -> bool:
     try:
-        meta = json.loads((directory / "meta.json").read_text())
+        meta = json.loads((directory / META_FILE).read_text())
         return meta.get("status") in {"running", "spawned"}
     except (OSError, ValueError, AttributeError):
         return True  # Unknown state is not permission to delete a live workspace.

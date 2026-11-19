@@ -20,8 +20,11 @@ def cfg_get_max_timeout(request: web.Request) -> int:
 def tls_ready(tls_config: dict[str, Any]) -> bool:
     cert_path = tls_config.get("cert_path")
     key_path = tls_config.get("key_path")
-    return bool(tls_config.get("enabled") and cert_path and key_path
-                and Path(cert_path).is_file() and Path(key_path).is_file())
+    if not tls_config.get("enabled"):
+        return False
+    if not cert_path or not key_path:
+        return False
+    return all(Path(path).is_file() for path in (cert_path, key_path))
 
 
 def auth_and_record(ctx, request: web.Request):

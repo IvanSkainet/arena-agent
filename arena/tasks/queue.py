@@ -218,13 +218,20 @@ def _usable_owner_pid(pid) -> bool:
     return type(pid) is int and pid > 0
 
 
-def _load_reclaim_candidate(path: Path, recovery: RecoveryContext) -> dict[str, Any] | None:
+def _read_recovery_record(path: Path) -> dict[str, Any] | None:
     try:
         task = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         # A claimant may still be writing; ambiguous records stay in place.
         return None
     if not isinstance(task, dict):
+        return None
+    return task
+
+
+def _load_reclaim_candidate(path: Path, recovery: RecoveryContext) -> dict[str, Any] | None:
+    task = _read_recovery_record(path)
+    if task is None:
         return None
     pid = task.get("pid")
     if pid is None:
@@ -236,18 +243,26 @@ def _load_reclaim_candidate(path: Path, recovery: RecoveryContext) -> dict[str, 
     return None if _owner_is_alive(task, pid, recovery.alive) else task
 
 
+def _mark_interrupted(task: dict[str, Any], fallback_id: str, now_fn: Callable[[], str]) -> None:
+    task["reason"] = "interrupted"
+    task["state"] = "failed"
+    if not isinstance(task.get("id"), str) or not task["id"]:
+        task["id"] = fallback_id
+    task["finished_at"] = now_fn()
+
+
+def _terminal_result_exists(name: str, recovery: RecoveryContext) -> bool:
+    return (recovery.done / name).exists() or (recovery.failed / name).exists()
+
+
 def _reclaim_one(path: Path, recovery: RecoveryContext) -> str | None:
     task = _load_reclaim_candidate(path, recovery)
     if task is None:
         return None
-    if (recovery.done / path.name).exists() or (recovery.failed / path.name).exists():
+    if _terminal_result_exists(path.name, recovery):
         path.unlink(missing_ok=True)
         return None
-    task["reason"] = "interrupted"
-    task["state"] = "failed"
-    if not isinstance(task.get("id"), str) or not task["id"]:
-        task["id"] = path.stem
-    task["finished_at"] = recovery.now_fn()
+    _mark_interrupted(task, path.stem, recovery.now_fn)
     if not _publish_failed_task(recovery.failed / path.name, task):
         return None  # an existing failed result or another sweeper won
     path.unlink()

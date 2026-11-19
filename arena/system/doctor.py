@@ -126,6 +126,10 @@ def summarize_checks(checks: list[dict[str, Any]]) -> dict[str, Any]:
     passed = sum(1 for check in checks if check["ok"])
     failed = sum(1 for check in checks if not check["ok"] and check.get("critical", True))
     degraded = len(checks) - passed - failed
-    status = "unhealthy" if failed else "degraded" if degraded else "healthy"
+    status = "healthy"
+    if degraded:
+        status = "degraded"
+    if failed:
+        status = "unhealthy"
     return {"ok": failed == 0, "status": status, "passed": passed, "failed": failed,
             "degraded": degraded, "total": len(checks), "checks": checks}

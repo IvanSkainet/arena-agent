@@ -137,7 +137,7 @@ def resolve_home_path(
         resolved = target_path.resolve()
         inside = inside_any(resolved, jail_roots(home, root, extra_roots))
     except ValueError:
-        return None, "path outside allowed filesystem roots", 403
+        return None, OUTSIDE_ROOTS_ERROR, 403
     except (OSError, RuntimeError) as exc:
         # `resolve()` is a syscall too: an over-long component is
         # `OSError: [Errno 36]` and a broken mount is an OSError as well,
@@ -145,7 +145,7 @@ def resolve_home_path(
         # (cubic). Same refusal as the expansion above, same reason.
         return None, f"path is not a usable path ({type(exc).__name__})", 400
     if not inside:
-        return None, "path outside allowed filesystem roots", 403
+        return None, OUTSIDE_ROOTS_ERROR, 403
     return target_path, None, 200
 
 
@@ -157,6 +157,8 @@ def resolve_home_path(
 # that has a plausible bare-basename form (many credential files are only
 # meaningful inside a specific subdirectory, so they are covered by
 # ``SENSITIVE_DIR_PREFIXES`` below rather than duplicated here).
+OUTSIDE_ROOTS_ERROR = "path outside allowed filesystem roots"
+
 SENSITIVE_FILE_BASENAMES = frozenset({
     # Bridge itself
     "token.txt", "users.json",

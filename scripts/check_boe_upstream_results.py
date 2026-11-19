@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.boe_upstream_results import (  # noqa: F401 -- compatibility for existing report consumers
+from arena.boe_upstream_results import (  # noqa: E402, F401 -- compatibility for existing report consumers
     REQUIRED_TESTS,
     check_results,
 )

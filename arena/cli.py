@@ -44,6 +44,20 @@ def serve(args: argparse.Namespace, ctx: CliContext) -> None:
             os.environ["ARENA_TOKEN_FILE"] = previous
 
 
+def _apply_file_config(args: argparse.Namespace, ctx: CliContext, file_cfg: dict) -> None:
+    conversions = {"port": int, "profile": str, "timeout": int, "max_concurrent": int, "bind": str}
+    for name, convert in conversions.items():
+        if file_cfg.get(name):
+            setattr(args, name, convert(file_cfg[name]))
+    cdp_cfg = file_cfg.get("cdp", {})
+    if cdp_cfg.get("port"):
+        ctx.cdp_state["port"] = int(cdp_cfg["port"])
+    if cdp_cfg.get("headless") is not None:
+        ctx.cdp_state["headless"] = bool(cdp_cfg["headless"])
+    if file_cfg.get("rate_limit"):
+        ctx.set_rate_limit_config(file_cfg["rate_limit"])
+
+
 def _serve_runtime(args: argparse.Namespace, ctx: CliContext) -> None:
     if getattr(args, "background", False) and os.name != "nt":
         ctx.daemonize()
@@ -59,25 +73,7 @@ def _serve_runtime(args: argparse.Namespace, ctx: CliContext) -> None:
         ctx.log_info("[mcp] startup orphan-reap skipped: %s", e)
 
     file_cfg = ctx.load_config_file()
-    if file_cfg.get("port"):
-        args.port = int(file_cfg["port"])
-    if file_cfg.get("profile"):
-        args.profile = file_cfg["profile"]
-    if file_cfg.get("timeout"):
-        args.timeout = int(file_cfg["timeout"])
-    if file_cfg.get("max_concurrent"):
-        args.max_concurrent = int(file_cfg["max_concurrent"])
-    if file_cfg.get("bind"):
-        args.bind = file_cfg["bind"]
-
-    cdp_cfg = file_cfg.get("cdp", {})
-    if cdp_cfg.get("port"):
-        ctx.cdp_state["port"] = int(cdp_cfg["port"])
-    if cdp_cfg.get("headless") is not None:
-        ctx.cdp_state["headless"] = bool(cdp_cfg["headless"])
-
-    if file_cfg.get("rate_limit"):
-        ctx.set_rate_limit_config(file_cfg["rate_limit"])
+    _apply_file_config(args, ctx, file_cfg)
 
     tf = getattr(args, "token_file", "") or ""
     if tf:
