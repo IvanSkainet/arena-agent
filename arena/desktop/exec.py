@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 
+from arena.exec.runner import _kill_process_tree, _process_group_kwargs
+
 
 async def _desktop_exec(cmd: str, timeout: float = 10) -> dict:
     """Run a desktop automation command and return result dict.
@@ -29,6 +31,7 @@ async def _desktop_exec(cmd: str, timeout: float = 10) -> dict:
             cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            **_process_group_kwargs(),
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         return {
@@ -40,12 +43,17 @@ async def _desktop_exec(cmd: str, timeout: float = 10) -> dict:
     except asyncio.TimeoutError:
         if proc is not None:
             try:
-                proc.kill()
+                await asyncio.to_thread(_kill_process_tree, proc)
                 # Reap it. A killed child that is never awaited stays a
                 # zombie and asyncio complains about a pending task.
                 await proc.wait()
             except ProcessLookupError:
                 pass  # already gone between the timeout and the kill
         return {"ok": False, "error": f"Command timed out ({timeout}s)"}
+    except asyncio.CancelledError:
+        if proc is not None:
+            await asyncio.to_thread(_kill_process_tree, proc)
+            await proc.wait()
+        raise
     except Exception as e:
         return {"ok": False, "error": str(e)}

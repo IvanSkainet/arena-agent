@@ -43,7 +43,8 @@ def test_a_normal_command_still_works():
 
 def test_a_real_timeout_returns_the_error_dict():
     argv = [sys.executable, "-c", "import time; time.sleep(5)"]
-    command = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
+    command = (f'"{sys.executable}" {subprocess.list2cmdline(argv[1:])}'
+               if os.name == "nt" else shlex.join(argv))
     result = asyncio.run(_desktop_exec(command, timeout=0.3))
     assert result["ok"] is False
     assert "timed out" in result["error"]
@@ -145,3 +146,46 @@ def test_a_process_that_dies_between_timeout_and_kill_is_tolerated():
 
     assert result["ok"] is False
     assert "timed out" in result["error"]
+
+
+def test_timeout_promptly_removes_command_and_descendant(tmp_path):
+    """An inherited stdout pipe must not keep the loop alive until child exit."""
+    import json
+    import time
+
+    import psutil
+
+    marker = tmp_path / "process-identities.json"
+    script = tmp_path / "sleeping child.py"
+    script.write_text(
+        "import subprocess,sys,os,json,time,psutil\nfrom pathlib import Path\n"
+        "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'])\n"
+        f"Path({str(marker)!r}).write_text(json.dumps([[p,psutil.Process(p).create_time()] "
+        "for p in [os.getpid(),child.pid]]))\n"
+        "time.sleep(60)\n")
+    argv = [sys.executable, str(script)]
+    # cmd metacharacters must be quoted even when an executable has no spaces.
+    command = ('"' + sys.executable + '" ' + subprocess.list2cmdline(argv[1:])
+               if os.name == "nt" else shlex.join(argv))
+    try:
+        started = time.monotonic()
+        result = asyncio.run(_desktop_exec(command, timeout=1))
+        elapsed = time.monotonic() - started
+        assert not result["ok"] and "timed out" in result["error"]
+        assert elapsed < 10, f"timeout cleanup took {elapsed:.2f}s"
+        identities = json.loads(marker.read_text())
+        deadline = time.monotonic() + 5
+        while any(psutil.pid_exists(pid) for pid, _created in identities) and time.monotonic() < deadline:
+            time.sleep(.02)
+        assert not any(psutil.pid_exists(pid) for pid, _created in identities)
+    finally:
+        # Never signal a recycled numeric PID if an assertion failed.
+        if marker.exists():
+            for pid, created in json.loads(marker.read_text()):
+                try:
+                    process = psutil.Process(pid)
+                    if process.create_time() == created:
+                        process.kill()
+                        process.wait(timeout=5)
+                except psutil.NoSuchProcess:
+                    pass

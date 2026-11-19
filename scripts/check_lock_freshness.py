@@ -3,7 +3,8 @@
 
 Why this exists
 ---------------
-CI installs exclusively from generated `.lock` files (or `requirements-ci.txt`) (`pip install --require-hashes
+CI installs exclusively from generated `.lock` files, `requirements-ci.txt`,
+or `ci/guarddog/requirements.txt` (`pip install --require-hashes
 -r requirements-ci.txt`). The `.in` files are inputs to the generator and are
 never installed, so editing one without regenerating its lock is invisible:
 the new dependency simply is not there, CI stays green, and the failure
@@ -17,7 +18,8 @@ This is the same class of check as `uv lock --check` / `cargo`'s lockfile
 verification, adapted to the pip-compile pair layout this repo uses.
 
 What is checked, for each `<name>.in` / `<name>.lock` pair (with the
-`requirements-ci.in` / `requirements-ci.txt` exception):
+`requirements-ci.in` / `requirements-ci.txt` and
+`ci/guarddog/requirements.in` / `ci/guarddog/requirements.txt` exceptions):
   1. every requirement declared in the `.in` appears as a `==` pin in the lock;
   2. the pinned VERSION matches the version the `.in` demands (a stale lock
      that pins an older release is just as broken as a missing entry);

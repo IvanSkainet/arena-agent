@@ -53,9 +53,9 @@ def test_subagent_timeout_finishes_metadata_and_reaps_command_tree(cli, tmp_path
     marker = tmp_path / "pids.json"
     script = tmp_path / "child.py"
     script.write_text(
-        "import subprocess,sys,os,json,time\nfrom pathlib import Path\n"
+        "import subprocess,sys,os,json,time,psutil\nfrom pathlib import Path\n"
         "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'])\n"
-        f"Path({str(marker)!r}).write_text(json.dumps([os.getpid(),child.pid]))\n"
+        f"Path({str(marker)!r}).write_text(json.dumps([[pid,psutil.Process(pid).create_time()] for pid in [os.getpid(),child.pid]]))\n"
         "time.sleep(60)\n")
     argv = [sys.executable, str(script)]
     command = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
@@ -68,7 +68,7 @@ def test_subagent_timeout_finishes_metadata_and_reaps_command_tree(cli, tmp_path
         assert meta["status"] == "timeout", (run / "stderr.log").read_text(errors="replace")
         assert json.loads((run / "summary.json").read_text())["status"] == "timeout"
         pids = json.loads(marker.read_text())
-        assert not any(psutil.pid_exists(pid) for pid in pids)
+        assert not any(psutil.pid_exists(pid) for pid, _created in pids)
     finally:
         _cleanup_owned_subagents(cli.SUB_DIR, marker)
 
@@ -87,8 +87,7 @@ def _wait_for_terminal_metadata(run) -> dict:
 
 def _cleanup_owned_subagents(directory, marker):
     pids = json.loads(marker.read_text()) if marker.exists() else []
-    for pid_file in directory.glob("*/pid"):
-        pids.append(int(pid_file.read_text()))
+    # Numeric monitor PID files are not sufficient ownership evidence.
     processes = _owned_processes(pids)
     _kill_and_wait(processes)
 
@@ -97,9 +96,11 @@ def _owned_processes(pids):
     import psutil
 
     processes = []
-    for pid in pids:
+    for pid, created in pids:
         try:
             process = psutil.Process(pid)
+            if process.create_time() != created:
+                continue
             processes.extend(process.children(recursive=True))
             processes.append(process)
         except psutil.NoSuchProcess:
@@ -181,3 +182,17 @@ def test_normal_command_exit_124_is_failure_not_timeout(cli, tmp_path, monkeypat
     result = json.loads((run / "summary.json").read_text())
     assert result["status"] == "fail"
     assert result["exit"] == 124
+
+
+def test_cleanup_does_not_adopt_a_recycled_pid(monkeypatch):
+    import psutil
+
+    class ReusedProcess:
+        def create_time(self):
+            return 222.0
+
+        def children(self, recursive):
+            raise AssertionError("must not adopt children of an unrelated process")
+
+    monkeypatch.setattr(psutil, "Process", lambda _pid: ReusedProcess())
+    assert _owned_processes([(12345, 111.0)]) == []
