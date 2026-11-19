@@ -20,6 +20,7 @@ from typing import Any
 from aiohttp import web
 
 from arena.app_keys import APP_CFG
+from arena.files.path_context import file_home
 from arena.files.sandbox import validate_create_target, validate_view_target
 from arena.handler_context import FileHandlerContext
 from arena.handler_helpers import authed, err_json, parse_json_body
@@ -53,7 +54,7 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
         target_path, err, status = validate_view_target(
             target,
             root=request.app[APP_CFG]["root"],
-            home=ctx.home,
+            home=file_home(ctx),
         )
         if err:
             return _err(ctx, err, status)
@@ -127,7 +128,7 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
         target_path, err, status = validate_create_target(
             target,
             root=request.app[APP_CFG]["root"],
-            home=ctx.home,
+            home=file_home(ctx),
             bridge_py=ctx.bridge_py,
         )
         if err:

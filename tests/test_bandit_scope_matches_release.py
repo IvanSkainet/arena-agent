@@ -52,7 +52,7 @@ def _shipped_python_trees() -> set[str]:
         timeout=git_timeout()).stdout
     trees = set()
     for rel in tracked.splitlines():
-        if not rel.endswith(".py") or "/" not in rel:
+        if not rel.endswith(".py"):
             continue
         if module.should_exclude(rel):
             continue
@@ -83,7 +83,9 @@ def _scanned_targets(command: str) -> set[str]:
     match = re.search(r"bandit -r ([^\n|]+?)(?:--|\n|$)", command)
     assert match, f"could not parse bandit targets from: {command!r}"
     targets = {t.strip().rstrip("/") for t in match.group(1).split() if t.strip()}
-    return targets - _excluded_paths(command)
+    exclusions = _excluded_paths(command)
+    assert exclusions <= targets, "non-target exclusions can hide shipped files: " + str(exclusions - targets)
+    return targets - exclusions
 
 
 def _excluded_paths(command: str) -> set[str]:
@@ -112,8 +114,8 @@ def test_the_shipped_trees_exist_and_contain_python():
     """A tree that vanished would make the check above vacuous."""
     for tree in _shipped_python_trees():
         path = REPO_ROOT / tree
-        assert path.is_dir(), f"{tree}/ is missing; update _shipped_python_trees()"
-        assert any(path.rglob("*.py")), f"{tree}/ contains no Python to scan"
+        assert path.is_file() or path.is_dir(), f"{tree} is missing"
+        assert path.suffix == ".py" if path.is_file() else any(path.rglob("*.py"))
 
 
 def test_the_scope_gate_rejects_a_narrowed_scan():
@@ -191,3 +193,8 @@ def test_local_bandit_scans_the_same_release_trees_as_hosted_ci():
     scanned = _scanned_targets(command)
     assert _shipped_python_trees() <= scanned
     assert scanned == _scanned_targets(_bandit_command())
+
+
+def test_a_nested_file_exclusion_cannot_hide_behind_a_whole_tree_target():
+    with pytest.raises(AssertionError, match="non-target exclusions"):
+        _scanned_targets("bandit -r arena/ scripts/ --exclude arena/tasks/runner.py --skip B101")

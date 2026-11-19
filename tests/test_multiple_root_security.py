@@ -73,10 +73,16 @@ def test_http_file_endpoints_enforce_the_policy_outside_home(roots):
     secret.parent.mkdir(parents=True)
     secret.write_text("not for an agent")
     hook = state / "bin" / "hooks_runner.py"
+    ordinary = state / "ordinary.txt"
+    ordinary.write_text("allowed state data")
 
     async def probe():
         async with running_client(workspace, "security-regression") as client:
             headers = auth_header("security-regression")
+            ordinary_view = await client.post("/v1/fs/view", json={"path": str(ordinary)}, headers=headers)
+            ordinary_download = await client.get("/v1/download?path=" + quote(str(ordinary)), headers=headers)
+            assert ordinary_view.status == 200
+            assert ordinary_download.status == 200
             view = await client.post("/v1/fs/view", json={"path": str(secret)}, headers=headers)
             download = await client.get("/v1/download?path=" + quote(str(secret)), headers=headers)
             upload = await client.post("/v1/upload?path=" + quote(str(hook)),

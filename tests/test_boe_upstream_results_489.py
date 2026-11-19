@@ -7,6 +7,7 @@ from unittest import TestCase
 from xml.etree import ElementTree
 
 import pytest
+import yaml
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_boe_upstream_results.py"
 spec = importlib.util.spec_from_file_location("check_boe_upstream_results", SCRIPT)
@@ -55,10 +56,18 @@ def test_bad_selection_or_result_is_never_green(tmp_path, mutation):
 
 def test_workflow_checks_the_actual_trx_after_dotnet():
     text = (SCRIPT.parents[1] / ".github/workflows/boe-contract.yml").read_text()
-    CHECK.assertIn("python scripts/check_boe_upstream_results.py", text)
-    CHECK.assertIn("boe-upstream-contract.trx", text)
-    CHECK.assertIn("upstream dotnet contracts failed", text)
-    CHECK.assertIn("DaemonAutomaticDispatch_DoesNotSendBootstrapAsSeparateGmRequest", text)
+    workflow = yaml.safe_load(text)
+    steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
+    run = next(step["run"] for step in steps if "python scripts/check_boe_upstream_results.py" in step.get("run", ""))
+    logger = '--logger "trx;LogFileName=boe-upstream-contract.trx"'
+    results = '--results-directory "$env:RUNNER_TEMP/boe-evidence"'
+    failure = "if ($LASTEXITCODE -ne 0) { throw 'upstream dotnet contracts failed' }"
+    checker_command = 'python scripts/check_boe_upstream_results.py "$env:RUNNER_TEMP/boe-evidence/boe-upstream-contract.trx"'
+    CHECK.assertLess(run.index("dotnet test"), run.index(logger))
+    CHECK.assertLess(run.index(logger), run.index(results))
+    CHECK.assertLess(run.index(results), run.index(failure))
+    CHECK.assertLess(run.index(failure), run.index(checker_command))
+
 
 
 @pytest.mark.parametrize("encoding", ["utf-8", "utf-16"])
