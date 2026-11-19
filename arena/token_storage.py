@@ -263,7 +263,7 @@ def _replace_and_settle(staged: _StagedToken, target: Path) -> None:
         os.replace(staged.path, target)
     else:
         os.replace(staged.path.name, target.name,
-                   src_dir_fd=staged.parent_fd, dst_dir_fd=staged.parent_fd)
+                    src_dir_fd=staged.parent_fd, dst_dir_fd=staged.parent_fd)
     if staged.fd >= 0:
         _settle_by_descriptor(target, staged.fd, staged.parent_fd)
     else:

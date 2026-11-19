@@ -40,7 +40,7 @@ def test_windows_queue_replaces_broad_explicit_and_inherited_grants(tmp_path):
     queue.parent.mkdir()
     queue.write_text("preserve queued event\n")
     subprocess.run(["icacls.exe", str(queue), "/grant", "*S-1-1-0:(F)"],
-                   check=True, capture_output=True)
+                    check=True, capture_output=True)
     _prepare_notify_queue(queue)
     script = (
         "$a=Get-Acl -LiteralPath $env:ARENA_ACL_TEST;"

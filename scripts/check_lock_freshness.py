@@ -72,7 +72,7 @@ EXTRA_PAIRS: tuple[tuple[Path, Path], ...] = (
     # the generator's job and is deliberately out of scope (see the module
     # docstring).
     (ROOT / "ci" / "guarddog" / "requirements.in",
-     ROOT / "ci" / "guarddog" / "requirements.txt"),
+        ROOT / "ci" / "guarddog" / "requirements.txt"),
 )
 
 # Requirement line in a `.in`: name==version, optional extras/marker.
@@ -215,7 +215,7 @@ def main() -> int:
     stems = sorted(p.with_suffix("").name for p in ROOT.glob("requirements-*.in"))
     if not stems:
         print("no requirements-*.in files found — guard is looking in the "
-              "wrong place, fix it before trusting it", file=sys.stderr)
+                "wrong place, fix it before trusting it", file=sys.stderr)
         return 2
 
     all_problems: list[str] = []
@@ -231,7 +231,7 @@ def main() -> int:
 
     names = stems + [p.relative_to(ROOT).as_posix() for p, _ in EXTRA_PAIRS]
     print(f"OK: {len(names)} .in/.lock pair(s) agree, every pin is hashed "
-          f"({', '.join(names)})")
+            f"({', '.join(names)})")
     return 0
 
 

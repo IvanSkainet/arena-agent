@@ -3,16 +3,16 @@
 ### Stabilization baseline
 
 - Consolidate the reviewed state-home, task-owner recovery, incremental memory
-  import, corrupt SQLite recovery and detached inventory-cache work in one
-  integration; preserve existing operator data and explicit state-home choices.
+    import, corrupt SQLite recovery and detached inventory-cache work in one
+    integration; preserve existing operator data and explicit state-home choices.
 - Bind task/subagent descendants to their owner's lifetime, publish private
-  terminal metadata, and distinguish a normal command exit 124 from a timeout.
+    terminal metadata, and distinguish a normal command exit 124 from a timeout.
 - Fix streaming cleanup under output backpressure and preserve the original
-  client connection when aiohttp detaches its request transport on disconnect.
+    client connection when aiohttp detaches its request transport on disconnect.
 - Harden filesystem/watch boundaries, private atomic state publication, UTF-8
-  filename/header handling and restart/token-path quoting across platforms.
+    filename/header handling and restart/token-path quoting across platforms.
 - Verify packaged helper execution, deterministic release ZIP contents and
-  source-bound release provenance; keep update state separate from code.
+    source-bound release provenance; keep update state separate from code.
 
 ### Optional external game diagnostic
 

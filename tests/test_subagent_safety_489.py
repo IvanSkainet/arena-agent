@@ -61,7 +61,7 @@ def test_subagent_timeout_finishes_metadata_and_reaps_command_tree(cli, tmp_path
     command = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
     try:
         result = cli.spawn(SimpleNamespace(cmd=command, name="timeout-test", timeout=1,
-                                          wait=wait, max_out=10))
+                                            wait=wait, max_out=10))
         assert result == (1 if wait else 0)
         run = next(cli.SUB_DIR.iterdir())
         meta = _wait_for_terminal_metadata(run)
@@ -163,7 +163,7 @@ def test_synchronous_identity_includes_selected_state_home(cli, tmp_path, monkey
 
     monkeypatch.setattr(subagent_lifecycle, "run", run)
     assert cli._run_waiting(tmp_path, {"ARENA_AGENT_HOME": str(tmp_path), "ARENA_SUBAGENT_ID": "id",
-                                      "ARENA_SUBAGENT_NAME": "name"}) == {"status": "ok"}
+                                        "ARENA_SUBAGENT_NAME": "name"}) == {"status": "ok"}
     assert seen == {"ARENA_AGENT_HOME": str(tmp_path), "ARENA_SUBAGENT_ID": "id"}
     assert "ARENA_AGENT_HOME" not in os.environ
 

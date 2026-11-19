@@ -61,7 +61,7 @@ def write_private_json(path: Path, value: Any, *, replace: bool = True) -> None:
             _windows_private_directory(path.parent)
         else:
             os.chmod(".", os.fstat(parent_fd).st_mode & 0o700,
-                     dir_fd=parent_fd, follow_symlinks=False)
+                        dir_fd=parent_fd, follow_symlinks=False)
         fd, staged = create_staged_file(path, parent_fd)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as stream:

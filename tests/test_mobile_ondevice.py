@@ -36,7 +36,7 @@ def on_device(monkeypatch):
             root = os.environ.get(variable)
             if root:
                 candidates.extend(str(Path(root) / "Git" / relative)
-                                  for relative in ("bin/sh.exe", "usr/bin/sh.exe"))
+                                    for relative in ("bin/sh.exe", "usr/bin/sh.exe"))
         shell = next((Path(path) for path in candidates if path and Path(path).is_file()), None)
         if shell is None:
             pytest.fail("Android shell contract tests require a real POSIX shell on Windows")
@@ -150,7 +150,7 @@ def test_a_missing_source_fails_rather_than_reporting_success(on_device, tmp_pat
 # ------------------------------------------------------------ honesty
 
 @pytest.mark.parametrize("verb", ["install", "forward", "tcpip", "connect",
-                                  "root", "remount", "reverse"])
+                                    "root", "remount", "reverse"])
 def test_transport_verbs_fail_loudly_instead_of_pretending(on_device, verb):
     """A no-op that reports success is worse than an error.
 
@@ -186,8 +186,8 @@ def test_the_adb_path_is_untouched_when_not_on_a_phone(tmp_path):
     into the operator's desktop.
     """
     with mock.patch.object(adb, "_on_device", return_value=False), \
-         mock.patch.object(adb, "find_adb", return_value="/usr/bin/adb"), \
-         mock.patch("subprocess.run") as spawned:
+            mock.patch.object(adb, "find_adb", return_value="/usr/bin/adb"), \
+            mock.patch("subprocess.run") as spawned:
         spawned.return_value = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="", stderr="")
         adb.run(["shell", "echo", "hi"], serial="ABC123")

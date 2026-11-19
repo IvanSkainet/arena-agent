@@ -101,9 +101,9 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
 
         selected = "\n".join(lines[start - 1:end])
         ctx.audit({"type": "file_view",
-                   "path": str(target_path),
-                   "start": start, "end": end,
-                   "total_lines": total_lines})
+                    "path": str(target_path),
+                    "start": start, "end": end,
+                    "total_lines": total_lines})
         ctx.record_request()
         return ctx.cors_json_response({
             "ok": True,
@@ -160,8 +160,8 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
                 return _err(ctx, "Internal error", 500)
 
         ctx.audit({"type": "file_create",
-                   "path": str(target_path),
-                   "bytes": bytes_written})
+                    "path": str(target_path),
+                    "bytes": bytes_written})
         ctx.record_request()
         return ctx.cors_json_response(
             {"ok": True, "path": str(target_path), "bytes": bytes_written},

@@ -19,9 +19,9 @@ def _gate():
 
 
 @pytest.mark.parametrize("expression", ['os.environ.get("ARENA_AGENT_HOME", "fallback")',
-                                         "os.environ.get('ARENA_AGENT_HOME')",
-                                         'os.environ["ARENA_AGENT_HOME"]',
-                                         'os.getenv("ARENA_AGENT_HOME")'])
+                                            "os.environ.get('ARENA_AGENT_HOME')",
+                                            'os.environ["ARENA_AGENT_HOME"]',
+                                            'os.getenv("ARENA_AGENT_HOME")'])
 def test_env_scan_rejects_each_supported_access_form(tmp_path, monkeypatch, expression):
     gate = _gate()
     source = tmp_path / "regression.py"

@@ -44,7 +44,7 @@ def test_a_normal_command_still_works():
 def test_a_real_timeout_returns_the_error_dict():
     argv = [sys.executable, "-c", "import time; time.sleep(5)"]
     command = (f'"{sys.executable}" {subprocess.list2cmdline(argv[1:])}'
-               if os.name == "nt" else shlex.join(argv))
+                if os.name == "nt" else shlex.join(argv))
     result = asyncio.run(_desktop_exec(command, timeout=0.3))
     assert result["ok"] is False
     assert "timed out" in result["error"]
@@ -164,7 +164,7 @@ def test_timeout_promptly_removes_command_and_descendant(tmp_path):
     argv = [sys.executable, str(script)]
     # cmd metacharacters must be quoted even when an executable has no spaces.
     command = ('"' + sys.executable + '" ' + subprocess.list2cmdline(argv[1:])
-               if os.name == "nt" else shlex.join(argv))
+                if os.name == "nt" else shlex.join(argv))
     try:
         started = time.monotonic()
         result = asyncio.run(_desktop_exec(command, timeout=1))

@@ -67,7 +67,7 @@ def create_staged_file(target: Path, parent_fd: int | None) -> tuple[int, Path]:
         return fd, Path(name)
     name = f".{target.name}.{secrets.token_hex(16)}.tmp"
     fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                 0o600, dir_fd=parent_fd)
+                    0o600, dir_fd=parent_fd)
     return fd, target.parent / name
 
 

@@ -79,7 +79,7 @@ def _windows_job() -> None:
     class IoCounters(ctypes.Structure):
         _fields_ = [(name, ctypes.c_uint64) for name in
                     ("ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
-                     "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+                        "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
 
     class ExtendedLimits(ctypes.Structure):
         _fields_ = [("BasicLimitInformation", BasicLimits), ("IoInfo", IoCounters),
@@ -157,10 +157,10 @@ def _wait_for_command(process: subprocess.Popen, cancelled: threading.Event, dea
 
 
 def _collect(process: subprocess.Popen, cancelled: threading.Event, timeout: float,
-             max_output: int = 2_000_000, result_path: Path | None = None) -> int:
+                max_output: int = 2_000_000, result_path: Path | None = None) -> int:
     readers = [threading.Thread(target=_drain_pipe, args=(source, target, max_output + 1), daemon=True)
-               for source, target in ((process.stdout, sys.stdout.buffer),
-                                      (process.stderr, sys.stderr.buffer))]
+                for source, target in ((process.stdout, sys.stdout.buffer),
+                                        (process.stderr, sys.stderr.buffer))]
     for reader in readers:
         reader.start()
     deadline = time.monotonic() + timeout
@@ -199,8 +199,8 @@ def main() -> int:
     # Deliberately the same authorized task shell contract as the old runner;
     # the command is not interpolated into an additional launcher shell.
     process = subprocess.Popen(task["cmd"], shell=True, cwd=os.path.expanduser(task.get("cwd") or str(Path.home())),  # nosec B602 -- explicitly authorized task-runner shell command, already checked by the bridge policy  # nosemgrep: subprocess-shell-true, dangerous-subprocess-use-tainted-env-args -- task execution is the authorized shell-command API; private queue input is policy-checked in runner before spawning this isolated worker
-                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               close_fds=True, start_new_session=os.name != "nt")
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                close_fds=True, start_new_session=os.name != "nt")
     try:
         return _collect(process, cancelled, float(task.get("timeout") or 3600),
                         int(task.get("max_output") or 2_000_000),

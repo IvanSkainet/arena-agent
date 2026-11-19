@@ -340,7 +340,7 @@ def test_stream_keeps_original_transport_after_aiohttp_detaches_it() -> None:
             with pytest.raises(ClientDisconnected):
                 await asyncio.wait_for(
                     forward_stream_events(request, stream, emit=emit,
-                                          decode_output=lambda value: value, request_id="detached"),
+                                            decode_output=lambda value: value, request_id="detached"),
                     timeout=0.5,
                 )
             assert cleaned.is_set()

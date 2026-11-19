@@ -73,8 +73,8 @@ def test_public_health_reports_rebuilt_without_leaking_the_quarantine_path():
     CHECK.assertEqual(result["memory"], "rebuilt")
     CHECK.assertEqual(result["status"], "degraded")
     CHECK.assertEqual(result, {"ok": True, "service": "arena-unified-bridge",
-                               "version": "test", "uptime_seconds": 1,
-                               "memory": "rebuilt", "status": "degraded"})
+                                "version": "test", "uptime_seconds": 1,
+                                "memory": "rebuilt", "status": "degraded"})
     CHECK.assertNotIn("quarantine", json.dumps(result))
     healthy = asyncio.run(make_public_handlers(replace(ctx, memory_status=lambda: "ok")).health(None))
     CHECK.assertEqual(json.loads(healthy.text)["status"], "healthy")
@@ -82,10 +82,10 @@ def test_public_health_reports_rebuilt_without_leaking_the_quarantine_path():
 
 def _v2(*, watchdog=True, tls_enabled=False, tls_path="", now=2):
     ctx = SimpleNamespace(record_request=lambda: None, cors_json_response=web.json_response,
-                           cdp_state={"connected": False}, watchdog_state={"last_check": int(watchdog)},
-                           tls_config={"enabled": tls_enabled, "cert_path": tls_path},
-                           cluster_config={"enabled": False}, version="test", now=lambda: now,
-                           metrics={"start_time": 1})
+                            cdp_state={"connected": False}, watchdog_state={"last_check": int(watchdog)},
+                            tls_config={"enabled": tls_enabled, "cert_path": tls_path},
+                            cluster_config={"enabled": False}, version="test", now=lambda: now,
+                            metrics={"start_time": 1})
     return json.loads(asyncio.run(make_v2_health_handler(ctx)(None)).text)
 
 
@@ -182,9 +182,9 @@ def test_public_health_memory_inspection_error_remains_visible_and_path_redacted
         raise PermissionError("private-store-location")
 
     ctx = PublicHandlerContext(record_request=lambda: None, cors_json_response=web.json_response,
-                               metrics={"start_time": 1}, version="test", now=lambda: 2,
-                               hostname=lambda: "host", bridge_port=lambda: 1234,
-                               memory_status=inaccessible)
+                                metrics={"start_time": 1}, version="test", now=lambda: 2,
+                                hostname=lambda: "host", bridge_port=lambda: 1234,
+                                memory_status=inaccessible)
     response = asyncio.run(make_public_handlers(ctx).health(None))
     result = json.loads(response.text)
     assert response.status == 200

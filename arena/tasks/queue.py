@@ -208,6 +208,10 @@ def _owner_is_alive(task: dict[str, Any], pid: int, alive: Callable[[int], bool]
             raise
         return True  # Without an identity probe, never steal a live PID.
 
+    return _owner_identity_matches(psutil, pid, identity)
+
+
+def _owner_identity_matches(psutil, pid: int, identity) -> bool:
     try:
         return abs(psutil.Process(pid).create_time() - float(identity)) < .01
     except psutil.NoSuchProcess:
@@ -294,7 +298,7 @@ def _link_failed_task(temporary: Path, target: Path, parent_fd: int | None) -> b
             _link(temporary, target)
         else:
             _link(temporary.name, target.name, src_dir_fd=parent_fd,
-                  dst_dir_fd=parent_fd, follow_symlinks=False)
+                    dst_dir_fd=parent_fd, follow_symlinks=False)
     except FileExistsError:
         return False
     return True

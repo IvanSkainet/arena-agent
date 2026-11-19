@@ -119,8 +119,8 @@ def test_startup_cleanup_rotates_the_active_relocated_audit(tmp_path, monkeypatc
     decoy.write_bytes(b"unrelated checkout file")
     values = dict(vars(ub))
     values.update(APP_DIR=code, AUDIT=audit,
-                  make_log_cleanup_runtime=lambda ctx: make_log_cleanup_runtime(
-                      replace(ctx, max_log_size=8)))
+                    make_log_cleanup_runtime=lambda ctx: make_log_cleanup_runtime(
+                        replace(ctx, max_log_size=8)))
     runtime = build_observability_runtimes(values)
     runtime["_rotate_all_logs_on_startup"]()
     assert not audit.exists()

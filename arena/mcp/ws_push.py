@@ -36,7 +36,7 @@ def _prepare_notify_queue(path: Path) -> None:
                 raise OSError("refusing a linked notification queue")
         name = path if parent_fd is None else path.name
         fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0),
-                     0o600, dir_fd=parent_fd)
+                        0o600, dir_fd=parent_fd)
         try:
             if parent_fd is not None:
                 os.fchmod(fd, 0o600)
@@ -61,7 +61,7 @@ def _unsubscribe_all(sock):
 
 def _broadcast(topic, payload):
     msg = json.dumps({"jsonrpc": "2.0", "method": "notify",
-                      "params": {"topic": topic, "data": payload}}, ensure_ascii=False)
+                        "params": {"topic": topic, "data": payload}}, ensure_ascii=False)
     with SUBS_LOCK:
         targets = list(SUBS.get(topic, set()))
     dead = []

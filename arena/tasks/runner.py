@@ -182,7 +182,7 @@ async def _execute_worker(task: dict, running_path: Path, cwd: Path, timeout: in
 
 
 def _finish_task(ctx: TaskRunnerContext, task: dict, running_path: Path,
-                 stdout: str, stderr: str, exit_code, duration: float, limit: int) -> None:
+                    stdout: str, stderr: str, exit_code, duration: float, limit: int) -> None:
     stdout, stderr, truncated = _truncate_output(stdout, stderr, limit)
     state = "done" if exit_code == 0 else "failed"
     task.update({
@@ -196,7 +196,7 @@ def _finish_task(ctx: TaskRunnerContext, task: dict, running_path: Path,
     except FileNotFoundError:
         pass
     ctx.log_info("[TaskRunner] %s: %s exit=%s dur=%ss", task.get("id") or running_path.stem,
-                 state, exit_code, duration)
+                    state, exit_code, duration)
 
 
 def _cleanup_sessions(ctx: TaskRunnerContext) -> None:
@@ -248,7 +248,7 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
             exit_code = 125
 
         _finish_task(ctx, task, rp, stdout, stderr, exit_code,
-                     round(time.time() - t0, 3), max_output)
+                        round(time.time() - t0, 3), max_output)
         return True
 
     async def task_runner_loop(app: web.Application):

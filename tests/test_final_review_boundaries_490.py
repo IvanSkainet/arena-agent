@@ -43,7 +43,7 @@ def test_existing_worker_result_is_made_private(tmp_path):
 
 def test_tokenless_windows_restart_does_not_embed_unused_unicode_token():
     ctx = RestartContext(port=1234, sys_name="Windows", bridge_py="bridge.py",
-                         token_file='C:\\токены\\unused"path.txt', task_name="Arena", pid=100)
+                            token_file='C:\\токены\\unused"path.txt', task_name="Arena", pid=100)
     rendered = render_template("@echo off\nnssm restart Arena\n", ctx)
     assert rendered.isascii()
     assert "ARENA_RESTART_TOKEN_FILE" not in rendered

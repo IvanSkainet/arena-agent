@@ -19,7 +19,7 @@ if sys.platform == "win32":
         advapi.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
         advapi.OpenProcessToken.restype = wintypes.BOOL
         advapi.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, pointer, wintypes.DWORD,
-                                              ctypes.POINTER(wintypes.DWORD)]
+                                                ctypes.POINTER(wintypes.DWORD)]
         advapi.GetTokenInformation.restype = wintypes.BOOL
         advapi.ConvertSidToStringSidW.argtypes = [pointer, ctypes.POINTER(wintypes.LPWSTR)]
         advapi.ConvertSidToStringSidW.restype = wintypes.BOOL
