@@ -58,12 +58,7 @@ def _apply_file_config(args: argparse.Namespace, ctx: CliContext, file_cfg: dict
         ctx.set_rate_limit_config(file_cfg["rate_limit"])
 
 
-def _serve_runtime(args: argparse.Namespace, ctx: CliContext) -> None:
-    if getattr(args, "background", False) and os.name != "nt":
-        ctx.daemonize()
-
-    ctx.ensure_session_env()
-
+def _reap_orphan_mcp_servers(ctx: CliContext) -> None:
     # v4.148.0: reap stdio MCP servers orphaned by a previous (crashed /
     # auto-updated) bridge before we start serving. Best-effort.
     try:
@@ -71,6 +66,60 @@ def _serve_runtime(args: argparse.Namespace, ctx: CliContext) -> None:
         _get_mcp_manager().reap_orphans()
     except Exception as e:  # noqa: BLE001
         ctx.log_info("[mcp] startup orphan-reap skipped: %s", e)
+
+
+def _runtime_config(args: argparse.Namespace, token: str, token_file_used: str | Path, root: Path) -> dict:
+    return {
+        "token": token,
+        "token_file": str(token_file_used),
+        "profile": args.profile,
+        "root": root,
+        # v4.168.0: the bind address is part of the runtime config, not
+        # just a socket argument. The profile switch binds its consent
+        # phrase to it, so consent granted for a loopback bridge cannot
+        # silently authorise the same widening after a rebind to a
+        # public interface (bug #70's lesson).
+        "bind": args.bind,
+        "port": args.port,
+        "allow_any_cwd": args.allow_any_cwd,
+        "timeout": args.timeout,
+        "max_timeout": args.max_timeout,
+        "max_output": args.max_output,
+        "max_concurrent": args.max_concurrent,
+        "semaphore": None,
+        "active_exec": 0,
+    }
+
+
+def _join_zerotier(ctx: CliContext) -> None:
+    # v4.1.1: opt-in ZeroTier auto-join. If ARENA_ZEROTIER_NETWORK is
+    # set to a 16-hex network ID, join that network before starting
+    # the HTTP server. Missing / malformed values just log a warning
+    # and continue (bridge still starts on 127.0.0.1 / whatever bind
+    # resolved to). Safe to call repeatedly: ZT itself no-ops when
+    # already a member of the network.
+    _zt_network = (os.environ.get("ARENA_ZEROTIER_NETWORK") or "").strip().lower()
+    if _zt_network:
+        try:
+            from arena.admin.zerotier import zerotier_network_action as _zt_join
+            _res = _zt_join("join", _zt_network)
+            if _res.get("ok"):
+                ctx.log_info("[zerotier-autojoin] joined %s via %s",
+                             _zt_network, _res.get("backend", "?"))
+            else:
+                ctx.log_info("[zerotier-autojoin] join %s failed: %s",
+                             _zt_network, _res.get("error") or _res.get("stderr", "")[:200])
+        except Exception as e:  # noqa: BLE001
+            ctx.log_info("[zerotier-autojoin] exception: %s", e)
+
+
+def _serve_runtime(args: argparse.Namespace, ctx: CliContext) -> None:
+    if getattr(args, "background", False) and os.name != "nt":
+        ctx.daemonize()
+
+    ctx.ensure_session_env()
+
+    _reap_orphan_mcp_servers(ctx)
 
     file_cfg = ctx.load_config_file()
     _apply_file_config(args, ctx, file_cfg)
@@ -110,26 +159,7 @@ def _serve_runtime(args: argparse.Namespace, ctx: CliContext) -> None:
     root = Path(args.root).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
 
-    cfg = {
-        "token": token,
-        "token_file": str(token_file_used),
-        "profile": args.profile,
-        "root": root,
-        # v4.168.0: the bind address is part of the runtime config, not
-        # just a socket argument. The profile switch binds its consent
-        # phrase to it, so consent granted for a loopback bridge cannot
-        # silently authorise the same widening after a rebind to a
-        # public interface (bug #70's lesson).
-        "bind": args.bind,
-        "port": args.port,
-        "allow_any_cwd": args.allow_any_cwd,
-        "timeout": args.timeout,
-        "max_timeout": args.max_timeout,
-        "max_output": args.max_output,
-        "max_concurrent": args.max_concurrent,
-        "semaphore": None,
-        "active_exec": 0,
-    }
+    cfg = _runtime_config(args, token, token_file_used, root)
 
     # v4.169.0: publish the live config so layers without a `request`
     # can read the profile. The mobile allowlist is the reason: it runs
@@ -166,25 +196,7 @@ def _serve_runtime(args: argparse.Namespace, ctx: CliContext) -> None:
     # "auto" would defeat the point.
     cfg["bind"] = effective_bind
 
-    # v4.1.1: opt-in ZeroTier auto-join. If ARENA_ZEROTIER_NETWORK is
-    # set to a 16-hex network ID, join that network before starting
-    # the HTTP server. Missing / malformed values just log a warning
-    # and continue (bridge still starts on 127.0.0.1 / whatever bind
-    # resolved to). Safe to call repeatedly: ZT itself no-ops when
-    # already a member of the network.
-    _zt_network = (os.environ.get("ARENA_ZEROTIER_NETWORK") or "").strip().lower()
-    if _zt_network:
-        try:
-            from arena.admin.zerotier import zerotier_network_action as _zt_join
-            _res = _zt_join("join", _zt_network)
-            if _res.get("ok"):
-                ctx.log_info("[zerotier-autojoin] joined %s via %s",
-                             _zt_network, _res.get("backend", "?"))
-            else:
-                ctx.log_info("[zerotier-autojoin] join %s failed: %s",
-                             _zt_network, _res.get("error") or _res.get("stderr", "")[:200])
-        except Exception as e:  # noqa: BLE001
-            ctx.log_info("[zerotier-autojoin] exception: %s", e)
+    _join_zerotier(ctx)
 
     ctx.log_info("Arena Unified Bridge v%s on http://%s:%s", ctx.version, args.bind, args.port)
     ctx.log_info("profile=%s root=%s audit=%s max_concurrent=%s", args.profile, root, ctx.audit_path, args.max_concurrent)

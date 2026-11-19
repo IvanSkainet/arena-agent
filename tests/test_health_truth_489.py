@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest import TestCase
@@ -171,8 +172,8 @@ def test_database_rollback_journal_is_preserved_with_quarantine(tmp_path):
     db.write_bytes(b"corrupt")
     journal = db.with_name(db.name + "-journal")
     journal.write_bytes(b"original recovery frames")
-    destination = _quarantine_db(db, RuntimeError("corrupt fixture"), log_error=None)
-    CHECK.assertIsNotNone(destination)
+    destination = _quarantine_db(db, sqlite3.DatabaseError("corrupt fixture"), log_error=None)
+    assert destination is not None
     CHECK.assertEqual(destination.with_name(destination.name + "-journal").read_bytes(), b"original recovery frames")
 
 

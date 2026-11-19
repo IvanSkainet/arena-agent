@@ -10,6 +10,7 @@ from types import SimpleNamespace
 def _module():
     loader = importlib.machinery.SourceFileLoader("sd_exec_resource", str(Path(__file__).resolve().parents[1] / "bin/sd-exec"))
     spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     return module

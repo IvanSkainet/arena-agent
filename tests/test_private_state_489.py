@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
+from typing import cast
 from unittest import TestCase
 
 import pytest
@@ -122,7 +124,7 @@ def test_unavailable_self_parenting_root_does_not_loop():
             raise OSError("drive unavailable")
 
     with pytest.raises(OSError, match="drive unavailable"):
-        private_state.private_directory(UnavailableRoot())
+        private_state.private_directory(cast(Path, UnavailableRoot()))
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX directory-descriptor race contract")

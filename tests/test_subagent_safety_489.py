@@ -73,7 +73,7 @@ def test_subagent_timeout_finishes_metadata_and_reaps_command_tree(cli, tmp_path
         _cleanup_owned_subagents(cli.SUB_DIR, marker)
 
 
-def _wait_for_terminal_metadata(run):
+def _wait_for_terminal_metadata(run) -> dict:
     import time
 
     deadline = time.monotonic() + 20
@@ -82,7 +82,7 @@ def _wait_for_terminal_metadata(run):
         if meta["status"] not in {"running", "spawned"}:
             return meta
         time.sleep(.03)
-    pytest.fail("subagent did not reach terminal metadata")
+    raise AssertionError("subagent did not reach terminal metadata")
 
 
 def _cleanup_owned_subagents(directory, marker):

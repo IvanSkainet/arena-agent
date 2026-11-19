@@ -74,6 +74,13 @@ def _marker_pids(marker: Path) -> list[int] | None:
         return None
 
 
+def _require_marker_pids(marker: Path) -> list[int]:
+    pids = _marker_pids(marker)
+    if pids is None:
+        raise AssertionError("fixture did not publish complete child PIDs")
+    return pids
+
+
 def _cleanup(pids: list[int]) -> None:
     # Only PIDs recorded by these temporary fixture processes, never a bridge
     # lookup, executable-name wildcard or fixed service port.
@@ -97,7 +104,7 @@ def test_killing_the_owner_reaps_the_child_and_grandchild(tmp_path):
     pids = []
     try:
         _wait_until(lambda: _marker_pids(marker) is not None)
-        pids = _marker_pids(marker)
+        pids = _require_marker_pids(marker)
         CHECK.assertTrue(all(_alive(pid) for pid in pids))
         recorded_worker = int(worker_pid.read_text())
         pids.append(recorded_worker)
@@ -121,7 +128,7 @@ def test_timeout_reaps_the_child_and_grandchild(tmp_path):
     pids = []
     try:
         _wait_until(lambda: _marker_pids(marker) is not None)
-        pids = _marker_pids(marker)
+        pids = _require_marker_pids(marker)
         CHECK.assertTrue(all(_alive(pid) for pid in pids))
         # wait(), not communicate(): stdin is the lease and must remain open.
         CHECK.assertEqual(process.wait(timeout=15), 124)

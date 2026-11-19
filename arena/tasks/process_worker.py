@@ -141,14 +141,7 @@ def _drain_pipe(source, destination, limit: int) -> None:
     destination.flush()
 
 
-def _collect(process: subprocess.Popen, cancelled: threading.Event, timeout: float,
-             max_output: int = 2_000_000, result_path: Path | None = None) -> int:
-    readers = [threading.Thread(target=_drain_pipe, args=(source, target, max_output + 1), daemon=True)
-               for source, target in ((process.stdout, sys.stdout.buffer),
-                                      (process.stderr, sys.stderr.buffer))]
-    for reader in readers:
-        reader.start()
-    deadline = time.monotonic() + timeout
+def _wait_for_command(process: subprocess.Popen, cancelled: threading.Event, deadline: float) -> int | None:
     result = None
     while process.poll() is None:
         if cancelled.is_set():
@@ -160,13 +153,26 @@ def _collect(process: subprocess.Popen, cancelled: threading.Event, timeout: flo
             result = 124
             break
         time.sleep(.02)
+    return result
+
+
+def _collect(process: subprocess.Popen, cancelled: threading.Event, timeout: float,
+             max_output: int = 2_000_000, result_path: Path | None = None) -> int:
+    readers = [threading.Thread(target=_drain_pipe, args=(source, target, max_output + 1), daemon=True)
+               for source, target in ((process.stdout, sys.stdout.buffer),
+                                      (process.stderr, sys.stderr.buffer))]
+    for reader in readers:
+        reader.start()
+    deadline = time.monotonic() + timeout
+    result = _wait_for_command(process, cancelled, deadline)
     _stop_tree(process)
     _reap_descendants()
     for reader in readers:
         reader.join(timeout=10)
     if result == 124:
         sys.stderr.write("timeout")
-    status = "timeout" if result == 124 else "cancelled" if result == 125 else "exited"
+    statuses: dict[int | None, str] = {124: "timeout", 125: "cancelled"}
+    status = statuses.get(result, "exited")
     if result_path is not None:
         _write_worker_result(result_path, status)
     return process.returncode if result is None else result
