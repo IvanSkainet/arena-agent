@@ -48,7 +48,11 @@ scan severity, permissions, required checks or any runtime boundary.
 ## Explicitly approved withdrawal accounting correction
 
 The operator approved an evidence-checked exception for the unpublished,
-withdrawn intermediate patch v4.170.1. The non-strict limit remains one active
+withdrawn intermediate patch v4.170.1. The explicit Arena choice
+`withdrawn_release_gate` / `fix_with_evidence` is transcribed in the
+[owner decision record](https://github.com/IvanSkainet/arena-agent/pull/491#issuecomment-7020397507).
+The record identifies the original question/selected option; it is not a
+substitute GitHub review. The non-strict limit remains one active
 unpublished patch; strict mode still requires the active version to be published.
 No required check, tag protection or severity threshold is removed.
 

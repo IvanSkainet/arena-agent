@@ -169,7 +169,7 @@ def test_security_alert_jobs_can_read_code_and_dependabot_alerts() -> None:
         "security-events": "read",
         "vulnerability-alerts": "read",
     }
-    assert ci["jobs"]["version-sync"]["permissions"] == expected  # nosec B101 -- pytest assertion
+    assert ci["jobs"]["version-sync"]["permissions"] == {**expected, "actions": "read"}  # nosec B101 -- pytest assertion
     assert security["jobs"]["security-alerts"]["permissions"] == expected  # nosec B101 -- pytest assertion
 
 
