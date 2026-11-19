@@ -259,7 +259,8 @@ It MUST NOT include (excluded automatically by the script):
   run of the #258 job);
 - runtime state: `token.txt`, `audit.jsonl`, `bridge.log`, `requests.jsonl`,
   `queue/{inbox,running,done,failed}/*`, `memory/{facts,history}.jsonl`,
-  `memory/sessions/`, `missions/*`, `reports/*`;
+  `memory/sessions/`, `memory/facts.db*`, `.inventory-cache/`,
+  `code-runs/`, `flight-records/`, `update/`, `missions/*`, `reports/*`;
 - `backups/`, `logs/`, editor config (`.vscode/`, `.idea/`).
 
 ## Where the version lives

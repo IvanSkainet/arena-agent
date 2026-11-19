@@ -6,6 +6,9 @@ means the HTTP process can answer; `ok: true` is not a data-integrity guarantee.
 recorded recovery, or `rebuilt` after corruption was quarantined and a fresh
 database created. Database presence is not a full SQLite integrity check.
 `memory: rebuilt` makes `status: degraded`, while retaining liveness.
+`memory: error` means the store could not be inspected (for example, permission
+denied); it also makes health degraded and the doctor diagnostic critical.
+Neither a denied inspection nor a missing integrity check implies an empty store.
 
 The private `facts.db.recovered.json` marker survives restarts. It records the
 quarantine location for the operator; the public endpoint returns only the
