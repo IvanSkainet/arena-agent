@@ -106,19 +106,42 @@ def test_desktop_cancellation_reaps_a_child_whose_spawn_has_not_returned(monkeyp
     asyncio.run(exercise())
 
 
-def test_deeply_nested_task_is_rejected_without_escaping_the_reader(tmp_path):
-    from arena.tasks.runner import TaskRunnerContext, _read_submission
+def _task_reader_context(tmp_path, errors):
+    from arena.tasks.runner import TaskRunnerContext
 
-    submission = tmp_path / "deep.json"
-    submission.write_text("[" * 10000 + "0" + "]" * 10000)
-    errors = []
-    context = TaskRunnerContext(
+    return TaskRunnerContext(
         inbox=tmp_path, running=tmp_path, done=tmp_path, failed=tmp_path,
         blocked_reason=lambda command: None, cleanup_mcp_sessions=lambda: 0,
         utc_now=lambda: "now", log_info=lambda *args: None,
         log_error=lambda *args: errors.append(args))
-    assert _read_submission(submission, context) is None
+
+
+def test_decoder_recursion_error_is_rejected_without_escaping_the_reader(tmp_path, monkeypatch):
+    from arena.tasks import runner
+
+    submission = tmp_path / "deep.json"
+    submission.write_text("[" * 10000 + "0" + "]" * 10000)
+    errors = []
+
+    def recursion_failure(text):
+        raise RecursionError("decoder nesting limit")
+
+    # Decoder nesting limits differ across CPython versions, and 3.14 may
+    # parse10000levels. Exercise this failure boundary deterministically.
+    monkeypatch.setattr(runner, "json", SimpleNamespace(loads=recursion_failure))
+    assert runner._read_submission(submission, _task_reader_context(tmp_path, errors)) is None
     assert len(errors) == 1
+
+
+def test_real_deeply_nested_non_object_task_never_escapes_the_reader(tmp_path):
+    from arena.tasks.runner import _read_submission
+
+    submission = tmp_path / "deep.json"
+    submission.write_text("[" * 10000 + "0" + "]" * 10000)
+    result = _read_submission(submission, _task_reader_context(tmp_path, []))
+    # A decoder that accepts the nesting still produces the existing invalid
+    # submission marker; a decoder that refuses it is logged/refused above.
+    assert result is None or "invalid_submission" in result
 
 
 def test_recovery_tolerates_a_staging_leaf_already_removed(tmp_path, monkeypatch):

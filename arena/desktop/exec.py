@@ -34,11 +34,12 @@ async def _desktop_exec(cmd: str, timeout: float = 10) -> dict:
             stderr=asyncio.subprocess.PIPE,
             **_process_group_kwargs(),
         ))
-        proc = await asyncio.shield(spawn)
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        running_process = await asyncio.shield(spawn)
+        proc = running_process
+        stdout, stderr = await asyncio.wait_for(running_process.communicate(), timeout=timeout)
         return {
-            "ok": proc.returncode == 0,
-            "exit_code": proc.returncode,
+            "ok": running_process.returncode == 0,
+            "exit_code": running_process.returncode,
             "stdout": stdout.decode("utf-8", errors="replace"),
             "stderr": stderr.decode("utf-8", errors="replace"),
         }

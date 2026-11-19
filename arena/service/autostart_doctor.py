@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.home import agent_home, code_root
+from arena.service.launcher_paths import _has_mkdtemp_suffix
 from arena.util import _subprocess_kwargs
 
 TASK = "ArenaUnifiedBridge"
@@ -271,20 +272,6 @@ def _is_scratch_component(part: str) -> bool:
         return True
     return any(_has_mkdtemp_suffix(part, prefix)
                for prefix in ("mcp-dispatch-", "pytest-tmp-"))
-
-
-def _has_mkdtemp_suffix(part: str, prefix: str) -> bool:
-    """True if `part` is `prefix` followed by a `mkdtemp` suffix.
-
-    `mkdtemp` appends exactly eight characters from `[a-z0-9_]`. A
-    deliberate name such as `mcp-dispatch-production` does not have
-    that shape, which is the distinction that keeps a real install
-    directory out of the refusal (review).
-    """
-    if not part.startswith(prefix):
-        return False
-    suffix = part[len(prefix):]
-    return len(suffix) == 8 and all(c.isalnum() or c == "_" for c in suffix)
 
 
 def _launcher_refusal(root: Path, vbs: Path, written: dict[str, Any],

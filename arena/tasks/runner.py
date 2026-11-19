@@ -223,44 +223,48 @@ def _cleanup_sessions(ctx: TaskRunnerContext) -> None:
         pass
 
 
+async def _run_one(ctx: TaskRunnerContext, task_path: Path) -> bool:
+    """Process a single task JSON file asynchronously."""
+    task = _read_submission(task_path, ctx)
+    if task is None:
+        return False
+    rp = ctx.running / task_path.name
+    try:
+        task_path.rename(rp)
+    except FileNotFoundError:
+        return False
+
+    task["started_at"] = ctx.utc_now()
+    task["state"] = "running"
+    # Who claimed it, so a later start can tell "still running elsewhere"
+    # from "left behind by a process that no longer exists" (#B-032).
+    task["pid"] = os.getpid()
+    t0 = time.time()
+    max_output = 2_000_000
+    try:
+        cwd, timeout, max_output = _prepare_task(task, rp)
+        blk = ctx.blocked_reason(task["cmd"])
+        if blk:
+            _record_blocked_task(ctx, task, rp, blk)
+            return True
+
+        stdout, stderr, exit_code = await _execute_worker(task, rp, cwd, timeout)
+    except Exception as e:
+        stdout, stderr = "", repr(e)
+        exit_code = 125
+
+    outcome = _TaskOutcome(stdout, stderr, exit_code, round(time.time() - t0, 3), max_output)
+    _finish_task(ctx, task, rp, outcome)
+    return True
+
+
 def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
     def task_ensure_dirs() -> None:
         for p in [ctx.inbox, ctx.running, ctx.done, ctx.failed]:
             private_directory(p)
 
     async def task_run_one(task_path: Path) -> bool:
-        """Process a single task JSON file asynchronously."""
-        task = _read_submission(task_path, ctx)
-        if task is None:
-            return False
-        rp = ctx.running / task_path.name
-        try:
-            task_path.rename(rp)
-        except FileNotFoundError:
-            return False
-
-        task["started_at"] = ctx.utc_now()
-        task["state"] = "running"
-        # Who claimed it, so a later start can tell "still running elsewhere"
-        # from "left behind by a process that no longer exists" (#B-032).
-        task["pid"] = os.getpid()
-        t0 = time.time()
-        max_output = 2_000_000
-        try:
-            cwd, timeout, max_output = _prepare_task(task, rp)
-            blk = ctx.blocked_reason(task["cmd"])
-            if blk:
-                _record_blocked_task(ctx, task, rp, blk)
-                return True
-
-            stdout, stderr, exit_code = await _execute_worker(task, rp, cwd, timeout)
-        except Exception as e:
-            stdout, stderr = "", repr(e)
-            exit_code = 125
-
-        outcome = _TaskOutcome(stdout, stderr, exit_code, round(time.time() - t0, 3), max_output)
-        _finish_task(ctx, task, rp, outcome)
-        return True
+        return await _run_one(ctx, task_path)
 
     async def task_runner_loop(app: web.Application):
         """Background task: watches INBOX for new tasks every 5 seconds."""

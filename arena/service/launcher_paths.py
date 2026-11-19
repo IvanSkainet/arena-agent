@@ -14,3 +14,18 @@ def windows_launcher_root(install_root: Path | str) -> Path:
     if all((state / name).is_file() for name in ("start_hidden.vbs", "start_bridge.bat")):
         return state
     return install
+
+
+
+def _has_mkdtemp_suffix(part: str, prefix: str) -> bool:
+    """True if `part` is `prefix` followed by a `mkdtemp` suffix.
+
+    `mkdtemp` appends exactly eight characters from `[a-z0-9_]`. A
+    deliberate name such as `mcp-dispatch-production` does not have
+    that shape, which is the distinction that keeps a real install
+    directory out of the refusal (review).
+    """
+    if not part.startswith(prefix):
+        return False
+    suffix = part[len(prefix):]
+    return len(suffix) == 8 and all(c.isalnum() or c == "_" for c in suffix)
