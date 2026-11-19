@@ -124,6 +124,9 @@ def bridge(tmp_path_factory):
     # State goes to the agent home, not the checkout (#B-019): point it at a
     # temp dir so the token this test rotates is not the developer's own.
     agent_home = tmp_path_factory.mktemp("agent-home")
+    # First-choice config prevents any developer-wide fallback configuration.
+    (agent_home / "bridge.yml").write_text("{}", encoding="utf-8")
+    (agent_home / "bridge.json").write_text("{}", encoding="utf-8")
     env = {**os.environ, "ARENA_AGENT_HOME": str(agent_home),
            "ARENA_TOKEN_FILE": str(agent_home / "token.txt")}
     proc = subprocess.Popen(

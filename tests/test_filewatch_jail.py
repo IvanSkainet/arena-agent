@@ -101,7 +101,8 @@ def test_a_non_string_path_is_refused_and_never_raises(tmp_path, target):
     runtime = _runtime(home=home, root=workspace)
     result = _add(runtime, str(target), workspace)
     assert result["ok"] is False
-    assert result["status"] in (400, 403, 404), result
+    assert result["status"] == 404, result
+    assert result["error"] == "path not found"
 
 
 def test_the_two_jails_agree_on_what_is_inside(tmp_path):
@@ -128,8 +129,6 @@ def test_the_two_jails_agree_on_what_is_inside(tmp_path):
 
 def test_watcher_rejects_secret_target_and_skips_secret_entries(tmp_path, monkeypatch):
     import os
-    if os.name == "nt":
-        pytest.skip("symlink creation may require Windows privileges")
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("ARENA_AGENT_HOME", str(home))
@@ -137,10 +136,11 @@ def test_watcher_rejects_secret_target_and_skips_secret_entries(tmp_path, monkey
     (home / ".ssh" / "hidden").write_text("secret")
     (home / "token.txt").write_text("secret")
     (home / "visible.txt").write_text("ok")
-    (home / "alias.txt").symlink_to(home / "token.txt")
-    outside = tmp_path / "outside.txt"
-    outside.write_text("external")
-    (home / "outside-alias.txt").symlink_to(outside)
+    if os.name != "nt":
+        (home / "alias.txt").symlink_to(home / "token.txt")
+        outside = tmp_path / "outside.txt"
+        outside.write_text("external")
+        (home / "outside-alias.txt").symlink_to(outside)
     runtime = _runtime(home=home, root=home)
     assert _add(runtime, str(home / "token.txt"), home)["status"] == 403
     result = runtime.add_sync(path=str(home), root=home, recursive=True, patterns=[], label="", created_at="now")

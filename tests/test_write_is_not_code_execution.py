@@ -31,6 +31,7 @@ not.
 """
 from __future__ import annotations
 
+import inspect
 import sys
 from pathlib import Path
 
@@ -139,6 +140,6 @@ def test_the_rule_is_write_only_by_construction():
     for verb in ("uploading", "editing", "creating"):
         assert f'_execution_on_write_error(target_path, _policy_base(target_path), action="{verb}")' in src, (
             f"the {verb} validator no longer consults the execution-on-write list")
-    for verb in ("downloading", "viewing"):
-        assert f'_execution_on_write_error(target_path, _policy_base(target_path), action="{verb}")' not in src, (
-            f"{verb} must not be blocked: reading shell config is legitimate")
+    for validator in (S.validate_download_target, S.validate_view_target):
+        assert "_execution_on_write_error" not in inspect.getsource(validator), (
+            f"{validator.__name__} must remain read-only policy")

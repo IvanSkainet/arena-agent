@@ -59,7 +59,7 @@ _PIP_INSTALL = re.compile(r"\bpip\s+install\b")
 # A lock file is the only requirements file that may be installed
 # without --require-hashes being suspicious, and even then we demand the
 # flag; this just recognises the filename for a clearer message.
-_LOCK_FILE = re.compile(r"requirements[\w.-]*\.lock")
+_LOCK_FILE = re.compile(r"requirements(?:[\w.-]*\.lock|-ci\.txt)")
 
 
 def _is_allowed(line: str) -> bool:

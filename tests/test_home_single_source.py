@@ -290,9 +290,13 @@ def test_standalone_scripts_do_not_grow_new_home_copies():
     """
     bases = [REPO_ROOT / "scripts", REPO_ROOT / "bin"]
     sources = [p for base in bases for p in sorted(base.rglob("*.py")) if "__pycache__" not in p.parts]
-    offenders = [
-        hit for hit in _scan(sources, STANDALONE_HOME) if hit.split(":")[0] not in STANDALONE_HOME_COPIES
-    ]
+    expected_counts = {name: 1 for name in STANDALONE_HOME_COPIES}
+    expected_counts.update({"bin/agents_md.py": 2, "bin/web_gateway.py": 2})
+    counts = {}
+    for hit in _scan(sources, STANDALONE_HOME):
+        filename = hit.split(":")[0]
+        counts[filename] = counts.get(filename, 0) + 1
+    offenders = [name for name, count in counts.items() if count != expected_counts.get(name, 0)]
     assert not offenders, (
         "новые копии резолвера в standalone-скриптах: "
         + ", ".join(offenders)

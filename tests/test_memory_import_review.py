@@ -34,3 +34,5 @@ def test_null_key_does_not_poison_later_records_or_checkpoint(tmp_path):
     init_memory_db(db_path=db, jsonl_path=source)
     with sqlite3.connect(db) as conn:
         assert conn.execute("select key from memory_facts order by key").fetchall() == [("later",), ("valid",)]
+        assert conn.execute("SELECT source, offset FROM memory_jsonl_checkpoint").fetchall() == [
+            (str(source.resolve()), source.stat().st_size)]

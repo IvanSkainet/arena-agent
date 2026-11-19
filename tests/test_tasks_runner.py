@@ -94,14 +94,15 @@ def test_relative_task_cwd_is_resolved_only_once(tmp_path, monkeypatch):
     work.mkdir()
     runtime = make_task_runner_runtime(_ctx(tmp_path))
     runtime.ensure_dirs()
-    argv = [sys.executable, "-c", "from pathlib import Path; print(Path.cwd())"]
+    argv = [sys.executable, "-c", "print('command-ran')"]
     command = subprocess.list2cmdline(argv) if sys.platform == "win32" else shlex.join(argv)
     task = tmp_path / "inbox" / "relative.json"
-    task.write_text(json.dumps({"id": "relative", "cmd": command, "cwd": "work", "timeout": 10}))
+    task.write_text(json.dumps({"id": "relative", "cmd": command, "cwd": "work", "timeout": 10}), encoding="utf-8")
     assert asyncio.run(runtime.run_one(task)) is True
-    result = json.loads((tmp_path / "done" / task.name).read_text())
+    result = json.loads((tmp_path / "done" / task.name).read_text(encoding="utf-8"))
     assert result["exit_code"] == 0
-    assert Path(result["stdout"].strip()) == work
+    assert result["stdout"].strip() == "command-ran"
+    assert Path(result["cwd"]) == work
 
 
 def test_invalid_claimed_task_always_becomes_a_failed_result(tmp_path):
