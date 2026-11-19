@@ -158,6 +158,23 @@ async def run_shell_command(
         ACTIVE_PROCESSES.pop(request_id, None)
 
 
+async def _pump_stream_output(stream: asyncio.StreamReader, tag: str, queue: asyncio.Queue) -> None:
+    try:
+        while True:
+            chunk = await stream.read(4096)
+            if not chunk:
+                break
+            await queue.put((tag, chunk))
+    except asyncio.CancelledError:
+        # Cleanup has stopped consuming the bounded queue. Waiting to
+        # enqueue an EOF marker here can deadlock aclose() forever.
+        raise
+    except Exception:
+        await queue.put((tag, None))
+        raise
+    await queue.put((tag, None))
+
+
 async def run_shell_command_stream(
     *,
     request_id: str,
@@ -210,26 +227,8 @@ async def run_shell_command_stream(
         # per stream signals EOF. This lets us interleave stdout+stderr in the
         # order the OS produced them without one blocking the other.
         queue: asyncio.Queue = asyncio.Queue(maxsize=64)
-        _CHUNK = 4096
-
-        async def _pump(stream: asyncio.StreamReader, tag: str) -> None:
-            try:
-                while True:
-                    chunk = await stream.read(_CHUNK)
-                    if not chunk:
-                        break
-                    await queue.put((tag, chunk))
-            except asyncio.CancelledError:
-                # Cleanup has stopped consuming the bounded queue. Waiting to
-                # enqueue an EOF marker here can deadlock aclose() forever.
-                raise
-            except Exception:
-                await queue.put((tag, None))
-                raise
-            await queue.put((tag, None))
-
-        stdout_task = asyncio.create_task(_pump(proc.stdout, "stdout"))  # type: ignore[arg-type]
-        stderr_task = asyncio.create_task(_pump(proc.stderr, "stderr"))  # type: ignore[arg-type]
+        stdout_task = asyncio.create_task(_pump_stream_output(proc.stdout, "stdout", queue))  # type: ignore[arg-type]
+        stderr_task = asyncio.create_task(_pump_stream_output(proc.stderr, "stderr", queue))  # type: ignore[arg-type]
 
         deadline = t0 + max(timeout, 1)
         eofs_seen = 0

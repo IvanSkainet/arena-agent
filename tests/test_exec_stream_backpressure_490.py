@@ -7,23 +7,32 @@ import shlex
 import subprocess
 import sys
 
+import psutil
+
 from arena.exec import runner
 
 
 def test_close_reaps_stream_with_full_output_queue(tmp_path, monkeypatch):
     async def scenario():
-        full = asyncio.Event()
-        original = asyncio.Queue
+        queues = []
+        original = runner._pump_stream_output
 
-        class ObservedQueue(original):
-            async def put(self, item):
-                if self.full():
-                    full.set()
-                await super().put(item)
+        async def observed_pump(stream, tag, queue):
+            queues.append(queue)
+            await original(stream, tag, queue)
 
-        monkeypatch.setattr(runner.asyncio, "Queue", ObservedQueue)
+        async def wait_for_full_queue():
+            while not any(queue.full() for queue in queues):
+                await asyncio.sleep(0.01)
+
+        monkeypatch.setattr(runner, "_pump_stream_output", observed_pump)
+        marker = tmp_path / "pid.txt"
         script = tmp_path / "flood.py"
-        script.write_text("import sys,time\nsys.stdout.buffer.write(b'x'*2000000)\nsys.stdout.flush()\ntime.sleep(60)\n")
+        script.write_text(
+            "import os,sys,time\nfrom pathlib import Path\n"
+            f"Path({str(marker)!r}).write_text(str(os.getpid()))\n"
+            "sys.stdout.buffer.write(b'x'*2000000)\nsys.stdout.flush()\ntime.sleep(60)\n"
+        )
         argv = [sys.executable, str(script)]
         command = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
         stream = runner.run_shell_command_stream(
@@ -35,8 +44,15 @@ def test_close_reaps_stream_with_full_output_queue(tmp_path, monkeypatch):
             assert event["type"] == "start"
             output = await anext(stream)
             assert output["type"] == "stdout"
-            await asyncio.wait_for(full.wait(), timeout=15)
+            await asyncio.wait_for(wait_for_full_queue(), timeout=15)
             await asyncio.wait_for(stream.aclose(), timeout=15)
+            owned_pids = (event["pid"], int(marker.read_text()))
+
+            async def wait_for_reaping():
+                while any(psutil.pid_exists(pid) for pid in owned_pids):
+                    await asyncio.sleep(0.01)
+
+            await asyncio.wait_for(wait_for_reaping(), timeout=15)
             assert "backpressure-close-490" not in runner.ACTIVE_PROCESSES
         finally:
             await stream.aclose()
