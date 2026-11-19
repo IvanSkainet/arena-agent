@@ -334,7 +334,8 @@ def test_remote_signing_set_is_complete_and_cryptographically_verified(sign_job)
     steps = sign_job["steps"]
     step = next(s for s in steps if s["name"] == "Verify complete attached signature set")
     script = step["run"]
-    assert '"arena-agent-${TAG}.zip" arena-agent.zip arena-bridge.apk "SHA256SUMS-${TAG}.txt"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
+    expected_assets = '"arena-agent-${TAG}.zip" arena-agent.zip arena-bridge.apk "SHA256SUMS-${TAG}.txt"'
+    assert expected_assets in script  # nosec B101 -- pytest contract, not a runtime access guard.
     assert "--pattern '*.zip'" in script  # nosec B101 -- fetch current attached ZIPs.
     assert "--pattern 'arena-bridge.apk'" in script  # nosec B101 -- fetch current attached APK.
     assert 'cmp "dist/$f" "verified-signatures/$f"' in script  # nosec B101 -- compare attached bytes.
