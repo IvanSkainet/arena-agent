@@ -22,6 +22,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -145,8 +146,31 @@ def show_cmd(args) -> int:
     return 0
 
 
+def _contained_run(run_id: str) -> Path | None:
+    if not re.fullmatch(r"[0-9a-f]{10}", run_id):
+        return None
+    candidate = SUB_DIR / run_id
+    if candidate.is_symlink() or not candidate.resolve().is_relative_to(SUB_DIR.resolve()):
+        return None
+    return candidate
+
+
+def _active_run(directory: Path) -> bool:
+    try:
+        meta = json.loads((directory / "meta.json").read_text())
+        return meta.get("status") in {"running", "spawned"}
+    except (OSError, ValueError, AttributeError):
+        return True  # Unknown state is not permission to delete a live workspace.
+
+
 def rm_cmd(args) -> int:
-    sd = SUB_DIR / args.id
+    sd = _contained_run(args.id)
+    if sd is None:
+        print("invalid subagent id", file=sys.stderr)
+        return 1
+    if _active_run(sd):
+        print("refusing to remove an active or unreadable subagent", file=sys.stderr)
+        return 1
     if not sd.exists():
         print(f"no such subagent: {args.id}", file=sys.stderr)
         return 1
@@ -157,12 +181,18 @@ def rm_cmd(args) -> int:
 
 
 def prune_cmd(args) -> int:
-    items = sorted(SUB_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
-    to_delete = items[args.keep:]
     import shutil
-    for sd in to_delete:
-        shutil.rmtree(sd, ignore_errors=True)
-    print(f"kept={min(len(items), args.keep)} removed={len(to_delete)}")
+
+    if args.keep < 0:
+        print("keep must be nonnegative", file=sys.stderr)
+        return 1
+    items = sorted(SUB_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+    removed = 0
+    for sd in items[args.keep:]:
+        if _contained_run(sd.name) is not None and not _active_run(sd):
+            shutil.rmtree(sd)
+            removed += 1
+    print(f"kept={len(items) - removed} removed={removed}")
     return 0
 
 
