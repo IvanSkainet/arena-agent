@@ -8,7 +8,6 @@ from arena.files.sandbox import SENSITIVE_FILE_BASENAMES as _BLOCKED_BASENAMES
 from arena.home import agent_home
 from arena.mcp.standalone_common import (
     BIN,
-    HOME,
     json,
     os,
     run_local,
