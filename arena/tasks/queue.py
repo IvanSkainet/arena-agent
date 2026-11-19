@@ -43,7 +43,7 @@ def list_tasks(
     """List task JSON files across queue directories."""
     tasks: list[dict[str, Any]] = []
     dirs = {"inbox": inbox, "running": running, "done": done, "failed": failed}
-    if status and status in dirs:
+    if status in dirs:
         scan_dirs = [(status, dirs[status])]
     else:
         scan_dirs = [("inbox", inbox), ("running", running), ("done", done), ("failed", failed)]
@@ -117,7 +117,7 @@ def pid_is_alive(pid: int) -> bool:
     see, while the cost of a wrong "dead" is killing a task that is still
     running under another bridge.
     """
-    if type(pid) is not int or pid <= 0:
+    if not _usable_owner_pid(pid):
         return False
     if os.name == "nt":
         return _windows_pid_is_alive(pid)
@@ -125,8 +125,6 @@ def pid_is_alive(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    except PermissionError:
-        return True
     except (OSError, OverflowError):
         return True
     return True
