@@ -5,6 +5,7 @@ from pathlib import Path as _Path
 
 from arena.browser.navigation_policy import NavigationRejected, check_navigation
 from arena.files.sandbox import SENSITIVE_FILE_BASENAMES as _BLOCKED_BASENAMES
+from arena.home import agent_home
 from arena.mcp.standalone_common import (
     BIN,
     HOME,
@@ -124,7 +125,7 @@ def call_tool(name: str, args: dict) -> dict:
                 return text_content(json.dumps({"ok": False, "error": str(exc)}))
             import platform
             import tempfile
-            shots = os.path.join(HOME, "arena-bridge", "reports", "shots")
+            shots = str(agent_home() / "reports" / "shots")
             os.makedirs(shots, exist_ok=True)
             png = os.path.join(shots, f"mcp-{int(time.time())}.png")
             ud = os.path.join(tempfile.gettempdir(), f"cr-mcp-{os.getpid()}")
