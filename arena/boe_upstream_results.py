@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from xml.etree import (
+from xml.etree import (  # nosemgrep: use-defused-xml -- _NoDtdBuilder rejects every DTD including UTF-16; entity attack fixtures verify rejection
     ElementTree,  # nosec B405 -- DTD-rejecting builder below  # nosemgrep: use-defused-xml -- _NoDtdBuilder rejects DTDs at parser level, including UTF-16; adversarial fixtures verify entity rejection
 )
 
