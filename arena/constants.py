@@ -13,7 +13,7 @@ from pathlib import Path
 
 from arena.home import agent_home, token_path
 
-VERSION = "4.170.0"
+VERSION = "4.170.1"
 AUDIT_CMD_LIMIT = 4000
 
 # Directory containing unified_bridge.py (the install/repo root).

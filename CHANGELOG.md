@@ -1,4 +1,18 @@
-## v4.170.0 — 2026-09-03
+## v4.170.1 — 2026-09-05
+
+### Stabilization baseline
+
+- Consolidate the reviewed state-home, task-owner recovery, incremental memory
+  import, corrupt SQLite recovery and detached inventory-cache work in one
+  integration; preserve existing operator data and explicit state-home choices.
+- Bind task/subagent descendants to their owner's lifetime, publish private
+  terminal metadata, and distinguish a normal command exit 124 from a timeout.
+- Fix streaming cleanup under output backpressure and preserve the original
+  client connection when aiohttp detaches its request transport on disconnect.
+- Harden filesystem/watch boundaries, private atomic state publication, UTF-8
+  filename/header handling and restart/token-path quoting across platforms.
+- Verify packaged helper execution, deterministic release ZIP contents and
+  source-bound release provenance; keep update state separate from code.
 
 ### Optional external game diagnostic
 
@@ -8,6 +22,12 @@ attestation dependency. Real diagnostic failures remain visible. Upstream
 drift is informational; the declared pin is not silently advanced. Arena relay
 and security tests remain required.
 
+This patch is the intended post-stabilization upgrade baseline. Publication
+requires exact-release-source tests, normal protected integration, post-merge
+verification and attested release artifacts; this changelog entry is not proof
+that those release gates have completed.
+
+## v4.170.0 — 2026-09-03
 
 48 commits since v4.169.50. The theme is not new features: it is that
 several gates and one live code path were reporting success when they
