@@ -89,7 +89,7 @@ def spawn(args) -> int:
                    "paths": {"stdout": str(sd / "stdout.log"), "stderr": str(sd / "stderr.log"),
                              "dir": str(sd)}}
         write_private_json(sd / "summary.json", summary)
-        process = subprocess.Popen([sys.executable, "-m", "arena.subagent_lifecycle", str(sd)],
+        process = subprocess.Popen([sys.executable, "-m", "arena.subagent_lifecycle", str(sd)],  # nosec B603 -- fixed interpreter and literal package module; generated private run directory is only data
                                    env=env, cwd=str(code_root()), stdin=subprocess.DEVNULL,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                    start_new_session=True)

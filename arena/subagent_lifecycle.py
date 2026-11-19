@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
+import subprocess  # nosec B404 -- fixed interpreter launches the private owned task worker
 import sys
 import time
 from pathlib import Path
@@ -27,7 +27,7 @@ def run(directory: Path) -> dict:
                               "timeout": meta["timeout"], "max_output": 2_000_000})
     worker = Path(__file__).with_name("tasks") / "process_worker.py"
     with out_path.open("wb") as stdout, err_path.open("wb") as stderr:
-        process = subprocess.Popen([sys.executable, "-I", str(worker), str(task)],
+        process = subprocess.Popen([sys.executable, "-I", str(worker), str(task)],  # nosec B603 -- fixed interpreter and package-owned worker; task is private operator input, never an executable path
                                    stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
                                    env=os.environ.copy(), close_fds=True)
         try:

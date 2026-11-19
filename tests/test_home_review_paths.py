@@ -27,8 +27,8 @@ def test_mission_and_skills_execute_hooks_only_from_code_root(tmp_path, monkeypa
         (root / "bin").mkdir(parents=True)
         (root / "bin" / "hooks_runner.py").touch()
     monkeypatch.setenv("ARENA_AGENT_HOME", str(home))
-    monkeypatch.setattr(missions, "code_root", lambda: code, raising=False)
-    monkeypatch.setattr(skills, "code_root", lambda: code, raising=False)
+    monkeypatch.setattr(missions, "executable_root", lambda: code, raising=False)
+    monkeypatch.setattr(skills, "executable_root", lambda: code, raising=False)
     monkeypatch.setattr(skills, "ROOT", home)
     calls = []
     monkeypatch.setattr("subprocess.run", lambda args, **kw: calls.append(args))
@@ -84,7 +84,7 @@ def test_mission_recording_uses_code_helper_and_state_output(tmp_path, monkeypat
     home, code = tmp_path / "state", tmp_path / "code"
     monkeypatch.setenv("ARENA_REC", "1")
     monkeypatch.setenv("ARENA_AGENT_HOME", str(home))
-    monkeypatch.setattr(common, "code_root", lambda: code)
+    monkeypatch.setattr(common, "executable_root", lambda: code)
     seen = []
 
     class Process:

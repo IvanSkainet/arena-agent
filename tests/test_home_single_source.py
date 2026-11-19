@@ -86,6 +86,8 @@ def _python_sources():
 
 
 STANDALONE_HOME = re.compile(r"(?:Path\.home\(\)[\s/]*[,'\"]\s*arena-bridge|expanduser\(['\"]~/arena-bridge)")
+HOME_JOIN = re.compile(r"os\.path\.join\([^,\n]+,\s*['\"]arena-bridge['\"]")
+
 HOME_LITERAL = re.compile(r"Path\.home\(\)\s*/\s*[\"']arena-bridge[\"']")
 HOME_ENV = re.compile(r"(?:environ\.get\(|environ\[|getenv\()\s*[\"']ARENA_AGENT_HOME[\"']")
 
@@ -308,3 +310,8 @@ def test_the_standalone_debt_list_has_no_stale_entries():
         elif not STANDALONE_HOME.search(path.read_text(encoding="utf-8")):
             stale.append(f"{rel} (копии больше нет)")
     assert not stale, "STANDALONE_HOME_COPIES устарел: " + ", ".join(stale)
+
+
+def test_no_join_based_home_reimplementation():
+    assert HOME_JOIN.search('os.path.join(HOME, "arena-bridge", "bin")')
+    assert not _scan(_python_sources(), HOME_JOIN)

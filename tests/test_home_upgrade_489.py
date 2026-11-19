@@ -125,7 +125,7 @@ def test_cli_run_bin_uses_real_code_path(monkeypatch):
     calls = []
     monkeypatch.setattr(cli.subprocess, "run", lambda argv, **kwargs: calls.append(argv))
     cli.run_bin("mcp_marketplace.py", ["list"])
-    CHECK.assertEqual(calls, [[sys.executable, str(cli.code_root() / "bin/mcp_marketplace.py"), "list"]])
+    CHECK.assertEqual(calls, [[sys.executable, str(cli.executable_root() / "bin/mcp_marketplace.py"), "list"]])
 
 
 def test_missing_source_scripts_dispatch_to_packaged_modules(tmp_path, monkeypatch):
@@ -234,3 +234,14 @@ def test_legacy_jsonl_reader_skips_invalid_utf8_tail_and_keeps_later_fact(tmp_pa
     source.write_bytes(b'{"key":"torn","value":"\xff"}\n{"key":"valid","value":"kept"}\n')
     monkeypatch.setattr(runtime, "FACTS", source)
     CHECK.assertEqual(runtime.load_facts(), [{"key": "valid", "value": "kept"}])
+
+
+def test_crlf_shipped_configuration_is_not_legacy_state(tmp_path):
+    from arena.home import _SHIPPED_CONFIGURATION, _has_state
+
+    source = Path(__file__).resolve().parents[1]
+    for relative in _SHIPPED_CONFIGURATION:
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((source / relative).read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+    CHECK.assertFalse(_has_state(tmp_path))

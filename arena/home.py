@@ -100,7 +100,7 @@ def _state_file(root: Path, relative: str) -> bool:
         if not path.is_file():
             return False
         digest = _SHIPPED_CONFIGURATION.get(relative)
-        return digest is None or hashlib.sha256(path.read_bytes()).hexdigest() != digest
+        return digest is None or hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest() != digest
     except OSError:
         return True  # unreadable state must never be silently abandoned
 

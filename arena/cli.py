@@ -34,6 +34,17 @@ class CliContext:
 
 
 def serve(args: argparse.Namespace, ctx: CliContext) -> None:
+    previous = os.environ.get("ARENA_TOKEN_FILE")
+    try:
+        _serve_runtime(args, ctx)
+    finally:
+        if previous is None:
+            os.environ.pop("ARENA_TOKEN_FILE", None)
+        else:
+            os.environ["ARENA_TOKEN_FILE"] = previous
+
+
+def _serve_runtime(args: argparse.Namespace, ctx: CliContext) -> None:
     if getattr(args, "background", False) and os.name != "nt":
         ctx.daemonize()
 
