@@ -181,9 +181,19 @@ async def _execute_worker(task: dict, running_path: Path, cwd: Path, timeout: in
         return "", "timeout", 124
 
 
+@dataclass(frozen=True)
+class _TaskOutcome:
+    stdout: str
+    stderr: str
+    exit_code: int | None
+    duration: float
+    limit: int
+
+
 def _finish_task(ctx: TaskRunnerContext, task: dict, running_path: Path,
-                    stdout: str, stderr: str, exit_code, duration: float, limit: int) -> None:
-    stdout, stderr, truncated = _truncate_output(stdout, stderr, limit)
+                    outcome: _TaskOutcome) -> None:
+    stdout, stderr, truncated = _truncate_output(outcome.stdout, outcome.stderr, outcome.limit)
+    exit_code, duration = outcome.exit_code, outcome.duration
     state = "done" if exit_code == 0 else "failed"
     task.update({
         "finished_at": ctx.utc_now(), "duration_sec": duration,
@@ -197,6 +207,12 @@ def _finish_task(ctx: TaskRunnerContext, task: dict, running_path: Path,
         pass
     ctx.log_info("[TaskRunner] %s: %s exit=%s dur=%ss", task.get("id") or running_path.stem,
                     state, exit_code, duration)
+
+
+def _record_blocked_task(ctx: TaskRunnerContext, task: dict, running_path: Path, reason: str) -> None:
+    task.update(state="failed", exit_code=-1, stderr=f"blocked: {reason}")
+    write_private_json(running_path, task)
+    move_atomic(running_path, ctx.failed / running_path.name)
 
 
 def _cleanup_sessions(ctx: TaskRunnerContext) -> None:
@@ -235,11 +251,7 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
             cwd, timeout, max_output = _prepare_task(task, rp)
             blk = ctx.blocked_reason(task["cmd"])
             if blk:
-                task["state"] = "failed"
-                task["exit_code"] = -1
-                task["stderr"] = f"blocked: {blk}"
-                write_private_json(rp, task)
-                move_atomic(rp, ctx.failed / rp.name)
+                _record_blocked_task(ctx, task, rp, blk)
                 return True
 
             stdout, stderr, exit_code = await _execute_worker(task, rp, cwd, timeout)
@@ -247,8 +259,8 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
             stdout, stderr = "", repr(e)
             exit_code = 125
 
-        _finish_task(ctx, task, rp, stdout, stderr, exit_code,
-                        round(time.time() - t0, 3), max_output)
+        outcome = _TaskOutcome(stdout, stderr, exit_code, round(time.time() - t0, 3), max_output)
+        _finish_task(ctx, task, rp, outcome)
         return True
 
     async def task_runner_loop(app: web.Application):

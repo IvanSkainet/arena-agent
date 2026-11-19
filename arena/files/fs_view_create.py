@@ -49,16 +49,21 @@ def _line_number(value) -> int:
     return int(value)
 
 
-def _view_bounds(view_range, total_lines: int) -> tuple[int, int]:
-    """Validate the optional inclusive one-based range independently of HTTP."""
-    if view_range is None:
-        return 1, total_lines
+def _parse_view_range(view_range) -> tuple[int, int]:
     if not isinstance(view_range, list) or len(view_range) != 2:
         raise ValueError("view_range must be [start, end] line numbers (1-indexed)")
     try:
         start, end = (_line_number(value) for value in view_range)
     except (ValueError, TypeError, OverflowError) as exc:
         raise ValueError("view_range values must be integers") from exc
+    return start, end
+
+
+def _view_bounds(view_range, total_lines: int) -> tuple[int, int]:
+    """Validate the optional inclusive one-based range independently of HTTP."""
+    if view_range is None:
+        return 1, total_lines
+    start, end = _parse_view_range(view_range)
     if not 1 <= start <= end:
         raise ValueError(f"invalid view_range [{start}, {end}] — must be 1-indexed with start <= end")
     if start > total_lines:
