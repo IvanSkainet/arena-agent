@@ -232,7 +232,15 @@ jobs:
           #   release: published          -> verify the public download
           # so the state is resolved once here and each half is gated on
           # it, rather than failing the run for being in the wrong phase.
-          json=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}")
+          # REST's by-tag endpoint excludes drafts. gh release view resolves
+          # both public releases and drafts; fetch flags by its numeric ID.
+          release_id=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json databaseId --jq '.databaseId')
+          if [[ ! "$release_id" =~ ^[0-9]+$ ]]; then
+            echo "::error::could not resolve a numeric release ID for $TAG"
+            exit 1
+          fi
+          json=$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}")
           draft=$(printf '%s' "$json" | jq -r '.draft // false')
           immutable=$(printf '%s' "$json" | jq -r '.immutable // false')
           writable=false

@@ -261,3 +261,61 @@ def test_release_docs_state_the_real_asset_count():
     """
     doc = (REPO / "RELEASE.md").read_text(encoding="utf-8")
     assert "12 assets" in doc, "the expected asset count is missing or wrong"
+
+
+@pytest.mark.parametrize(
+    "release_id,draft,immutable,expected_code",
+    [("451763650", True, False, 0), ("451763650", False, True, 0),
+     ("", True, False, 1), ("null", True, False, 1),
+     ("1/../../tags/v4.170.1", True, False, 1)],
+)
+def test_release_state_resolves_drafts_by_numeric_id(
+    sign_job, tmp_path, release_id, draft, immutable, expected_code,
+):
+    """Execute the real shell step; REST by-tag returns 404 for draft releases."""
+    import json
+    import os
+    import shutil
+    import subprocess
+
+    bash = shutil.which("bash")
+    if not bash or not shutil.which("jq"):
+        pytest.skip("release shell step requires bash and jq")
+    step = next(s for s in sign_job["steps"] if s.get("id") == "state")
+    output = tmp_path / "outputs.txt"
+    env = os.environ.copy()
+    env.update({
+        "GITHUB_REPOSITORY": "IvanSkainet/arena-agent", "TAG": "v4.170.1",
+        "GITHUB_OUTPUT": str(output), "FAKE_RELEASE_ID": release_id,
+        "FAKE_RELEASE_JSON": json.dumps({"draft": draft, "immutable": immutable}),
+    })
+    # Only these two invocations work. In particular, any REST by-tag
+    # lookup fails, exactly like the real draft observed in signing run
+    # 44590187961. A malformed ID must never be passed to the API.
+    stub = r'''
+gh() {
+  if [ "$*" = "release view v4.170.1 --repo IvanSkainet/arena-agent --json databaseId --jq .databaseId" ]; then
+    printf '%s\n' "$FAKE_RELEASE_ID"
+  elif [ "$*" = "api repos/IvanSkainet/arena-agent/releases/451763650" ]; then
+    printf '%s\n' "$FAKE_RELEASE_JSON"
+  else
+    echo "unexpected gh invocation: $*" >&2
+    return 97
+  fi
+}
+'''
+    result = subprocess.run(
+        [bash, "-c", stub + step["run"]], env=env,
+        capture_output=True, text=True, timeout=15, check=False,
+    )
+    assert result.returncode == expected_code, result.stdout + result.stderr
+    if expected_code:
+        assert not output.exists()
+        assert "could not resolve a numeric release ID" in result.stdout
+    else:
+        expected = (
+            f"draft={str(draft).lower()}\n"
+            f"immutable={str(immutable).lower()}\n"
+            f"writable={str(not immutable).lower()}\n"
+        )
+        assert output.read_text(encoding="utf-8") == expected
