@@ -17,6 +17,7 @@ from arena.mcp.ws_frames import (  # noqa: F401  # kept: re-export/dynamic (AGEN
     threading,
     time,
 )
+from arena.private_paths import pinned_directory
 from arena.private_state import private_directory
 
 SUBS: dict = {}
@@ -26,12 +27,23 @@ NOTIFY_QUEUE = agent_home() / "logs" / "ws_notify.queue"
 
 def _prepare_notify_queue(path: Path) -> None:
     private_directory(path.parent)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0), 0o600)
-    try:
-        if os.name != "nt":
-            os.fchmod(fd, 0o600)
-    finally:
-        os.close(fd)
+    with pinned_directory(path.parent) as parent_fd:
+        if parent_fd is None:
+            from arena.windows_privacy import restrict_to_current_user
+
+            restrict_to_current_user(path.parent)
+            if path.is_symlink() or getattr(path, "is_junction", lambda: False)():
+                raise OSError("refusing a linked notification queue")
+        name = path if parent_fd is None else path.name
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0),
+                     0o600, dir_fd=parent_fd)
+        try:
+            if parent_fd is not None:
+                os.fchmod(fd, 0o600)
+            else:
+                restrict_to_current_user(path)
+        finally:
+            os.close(fd)
 
 
 _prepare_notify_queue(NOTIFY_QUEUE)
