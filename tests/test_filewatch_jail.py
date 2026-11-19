@@ -177,7 +177,7 @@ def test_watch_runtime_preserves_validator_diagnostics(tmp_path, monkeypatch):
 
     monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path / "state"))
     runtime = _runtime(home=tmp_path, root=tmp_path)
-    for candidate in ("bad\x00path", str(tmp_path / "token.txt"), {"not": "a path"}):
+    for candidate in ("bad\x00path", str(tmp_path / "token.txt"), "../escape"):
         _resolved, error, status = validate_watch_target(candidate, root=tmp_path, home=tmp_path)
         result = _add(runtime, candidate, tmp_path)
         assert result == {"ok": False, "error": error, "status": status}
