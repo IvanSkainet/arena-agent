@@ -17,3 +17,5 @@ class BuildWithTools(build_py):
                     target = destination / name / source.name
                     target.parent.mkdir(parents=True, exist_ok=True)
                     self.copy_file(str(source), str(target))
+                    if name == "bin" and source.name == "sd-exec":
+                        target.chmod(target.stat().st_mode | 0o111)

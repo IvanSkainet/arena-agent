@@ -65,7 +65,7 @@ def _run_waiting(sd: Path, env: dict[str, str]) -> dict:
     from arena.subagent_lifecycle import run
 
     # Apply the same identity environment as a detached monitor.
-    previous = {key: os.environ.get(key) for key in ("ARENA_SUBAGENT_ID", "ARENA_SUBAGENT_NAME")}
+    previous = {key: os.environ.get(key) for key in ("ARENA_SUBAGENT_ID", "ARENA_SUBAGENT_NAME", "ARENA_AGENT_HOME")}
     try:
         os.environ.update({key: env[key] for key in previous})
         return run(sd)
@@ -96,10 +96,18 @@ def spawn(args) -> int:
                    "paths": {"stdout": str(sd / "stdout.log"), "stderr": str(sd / "stderr.log"),
                              "dir": str(sd)}}
         write_private_json(sd / "summary.json", summary)
-        process = subprocess.Popen([sys.executable, "-m", "arena.subagent_lifecycle", str(sd)],  # nosec B603 -- fixed interpreter and literal package module; generated private run directory is only data
-                                   env=env, cwd=str(code_root()), stdin=subprocess.DEVNULL,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                   start_new_session=True)
+        try:
+            process = subprocess.Popen([sys.executable, "-m", "arena.subagent_lifecycle", str(sd)],  # nosec B603 -- fixed interpreter and literal package module; generated private run directory is only data
+                                       env=env, cwd=str(code_root()), stdin=subprocess.DEVNULL,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                       start_new_session=True)
+        except OSError as exc:
+            summary.update(status="fail", error=str(exc))
+            meta.update(status="fail", error=str(exc))
+            write_private_json(sd / "summary.json", summary)
+            write_private_json(sd / "meta.json", meta)
+            print(json.dumps(summary, ensure_ascii=False, indent=2))
+            return 1
         write_private_json(sd / "pid", process.pid)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0 if summary["status"] in ("ok", "spawned") else 1

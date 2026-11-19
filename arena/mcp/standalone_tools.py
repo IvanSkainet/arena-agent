@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path as _Path
 
 from arena.browser.navigation_policy import NavigationRejected, check_navigation
-from arena.files.sandbox import SENSITIVE_FILE_BASENAMES as _BLOCKED_BASENAMES
+from arena.files.sandbox import SENSITIVE_FILE_BASENAMES as _BLOCKED_BASENAMES, _sensitivity_error
 from arena.home import agent_home
 from arena.mcp.standalone_common import (
     BIN,
@@ -29,7 +29,7 @@ class PathJailError(Exception):
 
 
 def _jail(raw: str) -> str:
-    """Resolve a caller-supplied path, refusing anything outside $HOME.
+    """Resolve a caller-supplied path, refusing anything outside $HOME or the selected state home.
 
     This dispatcher backs the standalone HTTP/WebSocket MCP servers, which do
     not go through ``arena/mcp/tool_fs.py`` and therefore never inherited its
@@ -49,20 +49,19 @@ def _jail(raw: str) -> str:
     if _Path(expanded).name in _BLOCKED_BASENAMES:
         raise PathJailError(f"accessing {_Path(expanded).name} is not allowed")
     resolved = _Path(expanded).resolve()
-    home = _Path.home().resolve()
-    # Two equivalent checks, deliberately. `under_root` is the shared helper
-    # and stays authoritative; the explicit `relative_to` below expresses the
-    # same containment locally so a reader -- and a taint analyser that cannot
-    # see into arena.util -- can confirm the value is constrained right here.
-    # Neither is redundant to the other in intent: if they ever disagree, that
-    # is a bug worth crashing on, not a difference to paper over.
-    if not _under_root(resolved, home):
-        raise PathJailError("path outside home directory")
-    try:
-        resolved.relative_to(home)
-    except ValueError:
-        raise PathJailError("path outside home directory") from None
-    return str(resolved)
+    roots = (_Path.home().resolve(), agent_home().resolve())
+    for home in roots:
+        if not _under_root(resolved, home):
+            continue
+        try:
+            resolved.relative_to(home)
+        except ValueError:
+            continue
+        error = _sensitivity_error(_Path(expanded), home, action="accessing")
+        if error is not None:
+            raise PathJailError(error[0])
+        return str(resolved)
+    raise PathJailError("path outside home directory")
 
 # v4.75.0: bare-name warnings removed. The v4.69.0
 # deprecation window has expired; the bare names

@@ -25,7 +25,12 @@ def check_results(path: Path) -> None:
     # checks miss encodings. No entity declaration can reach the tree builder.
     parser = ElementTree.XMLParser(target=_NoDtdBuilder())  # nosec B314 -- _NoDtdBuilder rejects DTDs for every encoding
     root = ElementTree.parse(path, parser=parser).getroot()  # nosec B314 -- DTD rejected above  # nosemgrep: use-defused-xml-parse -- parser uses _NoDtdBuilder, which refuses every document type before entity expansion
-    results = [node for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "UnitTestResult"]
+    if root.tag.rsplit("}", 1)[-1] != "TestRun":
+        raise ValueError("upstream report root must be TestRun")
+    groups = [node for node in root if node.tag.rsplit("}", 1)[-1] == "Results"]
+    if len(groups) != 1:
+        raise ValueError("upstream TestRun must contain exactly one Results element")
+    results = [node for node in groups[0] if node.tag.rsplit("}", 1)[-1] == "UnitTestResult"]
     names: set[str] = set()
     for node in results:
         name = node.get("testName", "").rsplit(".", 1)[-1]

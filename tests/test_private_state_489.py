@@ -102,3 +102,44 @@ def test_new_intermediate_private_directories_are_not_umask_exposed(tmp_path):
         os.umask(previous)
     for path in (tmp_path / "new", parent, target):
         CHECK.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o700)
+
+
+def test_unavailable_self_parenting_root_does_not_loop():
+    class UnavailableRoot:
+        name = "unavailable"
+
+        @property
+        def parent(self):
+            return self
+
+        def absolute(self):
+            return self
+
+        def exists(self):
+            return False
+
+        def mkdir(self, **_kwargs):
+            raise OSError("drive unavailable")
+
+    with pytest.raises(OSError, match="drive unavailable"):
+        private_state.private_directory(UnavailableRoot())
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX directory-descriptor race contract")
+def test_private_directory_never_chmods_a_substituted_symlink(tmp_path, monkeypatch):
+    outside = tmp_path / "outside"
+    outside.mkdir(mode=0o755)
+    outside.chmod(0o755)
+    target = tmp_path / "new"
+    original = os.mkdir
+
+    def substitute(path, mode=0o777, *, dir_fd=None):
+        if path == "new" and dir_fd is not None:
+            os.symlink(outside, path, dir_fd=dir_fd)
+            return
+        original(path, mode=mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "mkdir", substitute)
+    with pytest.raises(OSError):
+        private_state.private_directory(target)
+    assert outside.stat().st_mode & 0o777 == 0o755

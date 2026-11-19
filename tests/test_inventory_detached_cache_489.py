@@ -139,4 +139,4 @@ def test_cache_data_and_lease_are_private(tmp_path):
     with cache_lease(directory / "git_repos.lease"):
         CHECK.assertEqual((directory / "git_repos.lease").stat().st_mode & 0o777, 0o600)
     CHECK.assertEqual((directory / "git_repos.json").stat().st_mode & 0o777, 0o600)
-    CHECK.assertEqual(directory.stat().st_mode & 0o777, 0o700)
+    CHECK.assertEqual(directory.stat().st_mode & 0o777, 0o755)  # A lease cannot chmod an existing shared parent.

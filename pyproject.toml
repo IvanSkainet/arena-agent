@@ -17,15 +17,15 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 
-# Core runtime dependency. Everything else is optional and degrades gracefully.
+# Core runtime dependencies: task ownership and cleanup require psutil.
 dependencies = [
     "aiohttp>=3.14.4",
+    "psutil>=5.9",
 ]
 
 [project.optional-dependencies]
 # Recommended extras for the complete local bridge experience.
 full = [
-    "psutil>=5.9",
     "websockets>=12.0",
     "requests>=2.32",
     "certifi>=2026.10.19",

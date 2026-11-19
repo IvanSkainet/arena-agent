@@ -174,3 +174,20 @@ def test_database_rollback_journal_is_preserved_with_quarantine(tmp_path):
     destination = _quarantine_db(db, RuntimeError("corrupt fixture"), log_error=None)
     CHECK.assertIsNotNone(destination)
     CHECK.assertEqual(destination.with_name(destination.name + "-journal").read_bytes(), b"original recovery frames")
+
+
+def test_public_health_memory_inspection_error_remains_visible_and_path_redacted():
+    def inaccessible():
+        raise PermissionError("private-store-location")
+
+    ctx = PublicHandlerContext(record_request=lambda: None, cors_json_response=web.json_response,
+                               metrics={"start_time": 1}, version="test", now=lambda: 2,
+                               hostname=lambda: "host", bridge_port=lambda: 1234,
+                               memory_status=inaccessible)
+    response = asyncio.run(make_public_handlers(ctx).health(None))
+    result = json.loads(response.text)
+    assert response.status == 200
+    assert result["ok"] is True
+    assert result["memory"] == "error"
+    assert result["status"] == "degraded"
+    assert "private-store-location" not in response.text

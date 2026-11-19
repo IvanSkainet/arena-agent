@@ -7,8 +7,6 @@ import os
 from collections.abc import Iterator
 from pathlib import Path
 
-from arena.private_state import private_directory
-
 
 def _lock(fd: int) -> None:
     if os.name == "nt":
@@ -42,7 +40,9 @@ def cache_lease(path: Path) -> Iterator[bool]:
     ownership merely because a wall-clock TTL elapsed. Failure to open the
     private directory is propagated rather than scanning without single-flight.
     """
-    private_directory(path.parent)
+    # A general lease must not chmod an unrelated existing parent. Cache
+    # owners harden their managed directories when publishing cache data.
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
     held = False
     try:

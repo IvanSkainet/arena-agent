@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest import TestCase
 
 import psutil
+import pytest
 
 from arena.tasks import process_worker
 
@@ -21,7 +22,7 @@ WORKER = Path(process_worker.__file__).resolve()
 def _alive(pid: int) -> bool:
     try:
         process = psutil.Process(pid)
-        return process.is_running()
+        return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
     except psutil.NoSuchProcess:
         return False
 
@@ -86,7 +87,7 @@ def test_killing_the_owner_reaps_the_child_and_grandchild(tmp_path):
         CHECK.assertTrue(all(_alive(pid) for pid in pids))
         process.kill()
         process.wait(timeout=5)
-        _wait_until(lambda: not any(_alive(pid) for pid in pids[:2]))
+        _wait_until(lambda: not any(_alive(pid) for pid in pids))
     finally:
         if process.poll() is None:
             process.kill()
@@ -140,3 +141,33 @@ def test_worker_drains_large_output_but_retains_only_budget_plus_sentinel(tmp_pa
         if process.poll() is None:
             process.kill()
         process.communicate(timeout=5)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux subreaper and setsid containment")
+def test_successful_shell_reaps_descendant_that_escapes_its_process_group(tmp_path):
+    marker = tmp_path / "escaped.pid"
+    script = tmp_path / "escape.py"
+    script.write_text(
+        "import subprocess,sys\nfrom pathlib import Path\n"
+        "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(90)'],start_new_session=True)\n"
+        f"Path({str(marker)!r}).write_text(str(child.pid))\n", encoding="utf-8")
+    task = tmp_path / "escape-task.json"
+    task.write_text(json.dumps({"cmd": shlex.join([sys.executable, str(script)]),
+                                "cwd": str(tmp_path), "timeout": 10}), encoding="utf-8")
+    worker = subprocess.Popen([sys.executable, "-I", str(WORKER), str(task)],
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    pids = []
+    try:
+        _wait_until(marker.exists)
+        pids = [int(marker.read_text())]
+        CHECK.assertEqual(worker.wait(timeout=15), 0)
+        _wait_until(lambda: not any(_alive(pid) for pid in pids))
+    finally:
+        if worker.stdin is not None:
+            worker.stdin.close()
+        if worker.poll() is None:
+            worker.kill()
+        worker.wait(timeout=10)
+        if marker.exists():
+            pids = [int(marker.read_text())]
+        _cleanup(pids)

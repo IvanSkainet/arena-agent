@@ -52,13 +52,18 @@ _POST_REPLACE_CALL = "fchmod" if os.name == "posix" else "chmod"
 def _is_the_post_replace_call(first_argument, target: Path) -> bool:
     """Is this the mode change that happens after the rename?
 
-    On POSIX the call takes the descriptor, and there is exactly one
-    `os.fchmod` in the write, so any call qualifies. On the path-based
+    On POSIX compare descriptor identity with the installed token, not
+    unrelated directory-hardening fchmod calls. On the path-based
     side both the temporary file and the target go through `os.chmod`, so
     only a call naming the target counts.
     """
     if _POST_REPLACE_CALL == "fchmod":
-        return True
+        try:
+            actual = os.fstat(first_argument)
+            expected = target.stat()
+        except OSError:
+            return False
+        return (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino)
     return Path(first_argument) == target
 
 
@@ -562,3 +567,13 @@ def test_every_mode_change_uses_the_one_constant(tmp_path: Path) -> None:
     assert token_storage.TOKEN_FILE_MODE == 0o600
     assert source.count("0o600") == source.count(definition) == 1, (
         "a mode literal escaped the constant")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shared-directory permission contract")
+def test_custom_token_parent_is_not_chmodded(tmp_path):
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o755)
+    shared.chmod(0o755)
+    token_storage.write_owner_token(shared / "token.txt", "private")
+    assert shared.stat().st_mode & 0o777 == 0o755
+    assert (shared / "token.txt").stat().st_mode & 0o777 == 0o600

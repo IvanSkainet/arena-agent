@@ -15,17 +15,38 @@ _replace = os.replace
 
 
 def private_directory(path: Path) -> None:
+    """Create private components without path-based chmod after creation."""
     missing = []
-    parent = path
+    parent = path.absolute()
     while not parent.exists():
-        missing.append(parent)
+        missing.append(parent.name)
+        if parent == parent.parent:
+            # Unavailable Windows drive/share: let mkdir raise, never spin.
+            path.mkdir(mode=0o700, parents=True, exist_ok=True)
+            return
         parent = parent.parent
-    path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    for created in reversed(missing):
-        created.chmod(0o700)
-    # Tighten existing permissions without granting an owner permission that
-    # the operator deliberately removed (e.g. a read-only token directory).
-    path.chmod(0o700 if os.name == "nt" else path.stat().st_mode & 0o700)
+    if os.name == "nt":
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if path.is_symlink():
+            raise OSError("refusing a symlink private directory")
+        path.chmod(0o700)  # Deployment ACLs remain authoritative on Windows.
+        return
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    fd = os.open(parent, flags)
+    try:
+        for name in reversed(missing):
+            try:
+                os.mkdir(name, mode=0o700, dir_fd=fd)
+            except FileExistsError:
+                pass  # Verify through O_NOFOLLOW before touching its mode.
+            child = os.open(name, flags, dir_fd=fd)
+            os.close(fd)
+            fd = child
+            os.fchmod(fd, os.fstat(fd).st_mode & 0o700)
+        # Preserve deliberately removed owner bits; never grant new access.
+        os.fchmod(fd, os.fstat(fd).st_mode & 0o700)
+    finally:
+        os.close(fd)
 
 
 def write_private_json(path: Path, value: Any, *, replace: bool = True) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import platform
+import shlex
 import subprocess as sp
 import tempfile
 from dataclasses import dataclass
@@ -54,11 +55,21 @@ def launch_detached_shell_script(path: Path) -> None:
 
 
 def render_template(template: str, ctx: RestartContext) -> str:
-    return (
+    """Keep custom token paths as quoted data, never shell source."""
+    if ctx.sys_name == "Windows":
+        if any(char in ctx.token_file for char in ('"', "\r", "\n", "\0")):
+            raise ValueError("invalid Windows token-file path")
+        token = ctx.token_file.replace("%", "%%")
+        prefix = '@echo off\nsetlocal DisableDelayedExpansion\nset "ARENA_RESTART_TOKEN_FILE=' + token + '"\n'
+        template = template.replace("__TOKEN_FILE__", "%ARENA_RESTART_TOKEN_FILE%")
+    else:
+        prefix = "ARENA_RESTART_TOKEN_FILE=" + shlex.quote(ctx.token_file) + "\n"
+        template = template.replace("'__TOKEN_FILE__'", '"${ARENA_RESTART_TOKEN_FILE}"')
+        template = template.replace("__TOKEN_FILE__", "${ARENA_RESTART_TOKEN_FILE}")
+    return prefix + (
         template
         .replace("__TASK__", ctx.task_name)
         .replace("__PID__", str(ctx.pid))
         .replace("__PORT__", str(ctx.port))
         .replace("__BRIDGE__", ctx.bridge_py)
-        .replace("__TOKEN_FILE__", ctx.token_file)
     )

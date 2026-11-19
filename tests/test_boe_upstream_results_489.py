@@ -81,3 +81,19 @@ def test_upstream_report_rejects_all_dtds(tmp_path, encoding, declaration):
                         + declaration + '<TestRun/>').encode(encoding))
     with pytest.raises(ValueError, match="DTD declarations are forbidden"):
         checker.check_results(report)
+
+
+@pytest.mark.parametrize("shape", ["wrong-root", "nested-results", "outside-results", "duplicate-results"])
+def test_fabricated_results_outside_trx_structure_are_rejected(tmp_path, shape):
+    root = ElementTree.Element("NotTestRun" if shape == "wrong-root" else "TestRun")
+    parent = ElementTree.SubElement(root, "Wrapper") if shape == "nested-results" else root
+    results = ElementTree.SubElement(parent, "Results")
+    if shape == "duplicate-results":
+        ElementTree.SubElement(root, "Results")
+    target = root if shape == "outside-results" else results
+    for name in checker.REQUIRED_TESTS:
+        ElementTree.SubElement(target, "UnitTestResult", testName=name, outcome="Passed")
+    path = tmp_path / "fabricated.trx"
+    ElementTree.ElementTree(root).write(path)
+    with pytest.raises(ValueError):
+        checker.check_results(path)

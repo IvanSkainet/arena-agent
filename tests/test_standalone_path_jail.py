@@ -215,3 +215,20 @@ def test_every_fs_tool_routes_through_the_jail():
         assert "os.path.expanduser(args" not in branch, (
             f"{tool} went back to raw expanduser -- that is the original bug"
         )
+
+
+def test_custom_state_root_is_retrievable_but_sensitive_paths_stay_blocked(tmp_path, monkeypatch):
+    from arena.mcp import standalone_tools
+
+    home = tmp_path / "user"
+    _fake_home(monkeypatch, home)
+    state = tmp_path / "external-state"
+    state.mkdir()
+    monkeypatch.setattr(standalone_tools, "agent_home", lambda: state)
+    image = state / "screenshots" / "capture.png"
+    image.parent.mkdir()
+    image.write_bytes(b"ordinary capture")
+    assert standalone_tools._jail(str(image)) == str(image.resolve())
+    for target in (state / "token.txt", state / ".ssh" / "private-key"):
+        with pytest.raises(standalone_tools.PathJailError):
+            standalone_tools._jail(str(target))

@@ -36,6 +36,18 @@ def _reap_descendants() -> None:
         return
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
+        # A subreaper also owns children that escaped the original process
+        # group with setsid(). They must be stopped, not merely waited for.
+        for children in Path(f"/proc/{os.getpid()}/task").glob("*/children"):
+            try:
+                adopted = children.read_text().split()
+            except FileNotFoundError:
+                continue
+            for child in adopted:
+                try:
+                    os.kill(int(child), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
         try:
             pid, _status = os.waitpid(-1, os.WNOHANG)
         except ChildProcessError:
@@ -121,7 +133,7 @@ def _drain_pipe(source, destination, limit: int) -> None:
 
 
 def _collect(process: subprocess.Popen, cancelled: threading.Event, timeout: float,
-             max_output: int = 2_000_000) -> int:
+             max_output: int = 2_000_000, result_path: Path | None = None) -> int:
     readers = [threading.Thread(target=_drain_pipe, args=(source, target, max_output + 1), daemon=True)
                for source, target in ((process.stdout, sys.stdout.buffer),
                                       (process.stderr, sys.stderr.buffer))]
@@ -139,11 +151,23 @@ def _collect(process: subprocess.Popen, cancelled: threading.Event, timeout: flo
             result = 124
             break
         time.sleep(.02)
+    _stop_tree(process)
+    _reap_descendants()
     for reader in readers:
         reader.join(timeout=10)
     if result == 124:
         sys.stderr.write("timeout")
+    status = "timeout" if result == 124 else "cancelled" if result == 125 else "exited"
+    if result_path is not None:
+        _write_worker_result(result_path, status)
     return process.returncode if result is None else result
+
+
+def _write_worker_result(path: Path, status: str) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        json.dump({"status": status}, stream)
 
 
 def main() -> int:
@@ -162,7 +186,8 @@ def main() -> int:
                                close_fds=True, start_new_session=os.name != "nt")
     try:
         return _collect(process, cancelled, float(task.get("timeout") or 3600),
-                        int(task.get("max_output") or 2_000_000))
+                        int(task.get("max_output") or 2_000_000),
+                        Path(sys.argv[1]).with_suffix(".result.json") if task.get("record_result") else None)
     finally:
         _stop_tree(process)
         _reap_descendants()

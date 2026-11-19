@@ -73,12 +73,12 @@ def make_log_cleanup_runtime(ctx: LogCleanupContext) -> LogCleanupRuntime:
             if _rotate_file_if_oversized(lf):
                 rotated.append(lf.name)
         for name in ("ArenaUnifiedBridge.log", "bridge_err.log"):
-            for parent in (
+            for parent in dict.fromkeys((
                 Path.home() / "arena-agent" / "logs",
                 agent_home() / "logs",
                 default_home() / "logs",
                 ctx.app_dir / "logs",
-            ):
+            )):
                 lf = parent / name
                 if _rotate_file_if_oversized(lf, max_bytes=ctx.max_log_size, backups=2):
                     rotated.append(f"{parent.name}/{name}")

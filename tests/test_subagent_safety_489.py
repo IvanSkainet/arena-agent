@@ -46,7 +46,6 @@ def test_subagent_timeout_finishes_metadata_and_reaps_command_tree(cli, tmp_path
     import shlex
     import subprocess
     import sys
-    import time
 
     import psutil
 
@@ -60,30 +59,52 @@ def test_subagent_timeout_finishes_metadata_and_reaps_command_tree(cli, tmp_path
         "time.sleep(60)\n")
     argv = [sys.executable, str(script)]
     command = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
-    result = cli.spawn(SimpleNamespace(cmd=command, name="timeout-test", timeout=1,
-                                      wait=wait, max_out=10))
-    assert result == (1 if wait else 0)
-    run = next(cli.SUB_DIR.iterdir())
-    deadline = time.monotonic() + 20
-    pids = []
     try:
-        while time.monotonic() < deadline:
-            meta = json.loads((run / "meta.json").read_text())
-            if meta["status"] == "timeout":
-                break
-            time.sleep(.03)
+        result = cli.spawn(SimpleNamespace(cmd=command, name="timeout-test", timeout=1,
+                                          wait=wait, max_out=10))
+        assert result == (1 if wait else 0)
+        run = next(cli.SUB_DIR.iterdir())
+        meta = _wait_for_terminal_metadata(run)
         assert meta["status"] == "timeout"
         assert json.loads((run / "summary.json").read_text())["status"] == "timeout"
         pids = json.loads(marker.read_text())
         assert not any(psutil.pid_exists(pid) for pid in pids)
     finally:
-        if marker.exists():
-            pids = json.loads(marker.read_text())
-        for pid in pids:
-            try:
-                psutil.Process(pid).kill()
-            except psutil.NoSuchProcess:
-                pass
+        _cleanup_owned_subagents(cli.SUB_DIR, marker)
+
+
+def _wait_for_terminal_metadata(run):
+    import time
+
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        meta = json.loads((run / "meta.json").read_text())
+        if meta["status"] not in {"running", "spawned"}:
+            return meta
+        time.sleep(.03)
+    pytest.fail("subagent did not reach terminal metadata")
+
+
+def _cleanup_owned_subagents(directory, marker):
+    import psutil
+
+    pids = json.loads(marker.read_text()) if marker.exists() else []
+    for pid_file in directory.glob("*/pid"):
+        pids.append(int(pid_file.read_text()))
+    processes = []
+    for pid in pids:
+        try:
+            process = psutil.Process(pid)
+            processes.extend(process.children(recursive=True))
+            processes.append(process)
+        except psutil.NoSuchProcess:
+            continue
+    for process in reversed(processes):
+        try:
+            process.kill()
+        except psutil.NoSuchProcess:
+            pass
+    psutil.wait_procs(processes, timeout=10)
 
 
 def test_subagent_output_is_private_even_with_a_permissive_umask(tmp_path):
@@ -102,3 +123,50 @@ def test_subagent_output_is_private_even_with_a_permissive_umask(tmp_path):
     if os.name != "nt":
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert output_tail(path, 0) == ""
+
+
+def test_detached_launch_error_is_terminal_and_can_be_removed(cli, monkeypatch):
+    def fail(*_args, **_kwargs):
+        raise OSError("monitor unavailable")
+
+    monkeypatch.setattr(cli.subprocess, "Popen", fail)
+    assert cli.spawn(SimpleNamespace(cmd="unused", name="failure", timeout=1, wait=False, max_out=5)) == 1
+    run = next(cli.SUB_DIR.iterdir())
+    assert json.loads((run / "meta.json").read_text())["status"] == "fail"
+    assert json.loads((run / "summary.json").read_text())["status"] == "fail"
+    assert cli.rm_cmd(SimpleNamespace(id=run.name)) == 0
+
+
+def test_synchronous_identity_includes_selected_state_home(cli, tmp_path, monkeypatch):
+    import os
+
+    from arena import subagent_lifecycle
+
+    monkeypatch.delenv("ARENA_AGENT_HOME", raising=False)
+    seen = {}
+
+    def run(_directory):
+        seen.update({key: os.environ[key] for key in ("ARENA_AGENT_HOME", "ARENA_SUBAGENT_ID")})
+        return {"status": "ok"}
+
+    monkeypatch.setattr(subagent_lifecycle, "run", run)
+    assert cli._run_waiting(tmp_path, {"ARENA_AGENT_HOME": str(tmp_path), "ARENA_SUBAGENT_ID": "id",
+                                      "ARENA_SUBAGENT_NAME": "name"}) == {"status": "ok"}
+    assert seen == {"ARENA_AGENT_HOME": str(tmp_path), "ARENA_SUBAGENT_ID": "id"}
+    assert "ARENA_AGENT_HOME" not in os.environ
+
+
+def test_normal_command_exit_124_is_failure_not_timeout(cli, tmp_path, monkeypatch):
+    import os
+    import shlex
+    import subprocess
+    import sys
+
+    monkeypatch.setattr(cli, "ROOT", tmp_path)
+    argv = [sys.executable, "-c", "import sys;sys.exit(124)"]
+    command = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
+    assert cli.spawn(SimpleNamespace(cmd=command, name="exit124", timeout=10, wait=True, max_out=5)) == 1
+    run = next(cli.SUB_DIR.iterdir())
+    result = json.loads((run / "summary.json").read_text())
+    assert result["status"] == "fail"
+    assert result["exit"] == 124

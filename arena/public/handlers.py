@@ -36,13 +36,16 @@ def make_public_handlers(ctx: PublicHandlerContext) -> PublicHandlers:
     async def handle_health(request: web.Request) -> web.Response:
         try:
             ctx.record_request()
-            memory = ctx.memory_status()
+            try:
+                memory = ctx.memory_status()
+            except OSError:
+                memory = "error"
             return ctx.cors_json_response({
                 "ok": True,
                 "service": "arena-unified-bridge",
                 "version": ctx.version,
                 "memory": memory,
-                "status": "degraded" if memory == "rebuilt" else "healthy",
+                "status": "degraded" if memory in {"rebuilt", "error"} else "healthy",
                 "uptime_seconds": round(ctx.now() - ctx.metrics["start_time"], 1),
             })
         except Exception:
