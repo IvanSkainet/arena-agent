@@ -35,7 +35,7 @@ def _fire_hook(event: str, target: str, args=None, exit_code: int = 0) -> None:
                  "--target", target or "",
                  "--args", _j.dumps(args or {}),
                  "--exit", str(exit_code)],
-                timeout=70, check=False)
+                timeout=70, check=False, env={**os.environ, "ARENA_AGENT_HOME": str(ROOT)})
     except Exception:
         pass
 

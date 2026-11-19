@@ -21,6 +21,7 @@ def _fire_mission_hook(event, target, args=None, exit_code=0):
     """Запустить хуки события через hooks_runner. Тихо игнорирует если его нет."""
     try:
         import json as _j
+        import os as _os
         import subprocess as _sp
         import sys as _sys
         runner = executable_root() / "bin" / "hooks_runner.py"
@@ -30,7 +31,7 @@ def _fire_mission_hook(event, target, args=None, exit_code=0):
                  "--target", target or "",
                  "--args", _j.dumps(args or {}),
                  "--exit", str(exit_code)],
-                timeout=70, check=False)
+                timeout=70, check=False, env={**_os.environ, "ARENA_AGENT_HOME": str(ROOT)})
     except Exception:
         pass
 

@@ -94,7 +94,7 @@ def build_observability_registries(g: MutableMapping[str, Any]) -> dict[str, Cal
             "record_request": env._record_request,
             "cors_json_response": env._cors_json_response,
             "audit": env.audit,
-            "home": env.Path(arena_home.sandbox_home()),
+            "home": arena_home.sandbox_home,
             "bridge_py": env.Path(__file__).resolve(),
             "create_edit_preview": create_preview,
             "apply_edit_preview": apply_preview,
@@ -118,7 +118,7 @@ def build_observability_registries(g: MutableMapping[str, Any]) -> dict[str, Cal
             "record_request": env._record_request,
             "cors_json_response": env._cors_json_response,
             "audit": env.audit,
-            "home": env.Path(arena_home.sandbox_home()),
+            "home": arena_home.sandbox_home,
             "bridge_py": env.Path(__file__).resolve(),
         },
         {

@@ -18,18 +18,16 @@ def _windows_pid_is_alive(pid: int) -> bool:
         kernel = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
         kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
         kernel.OpenProcess.restype = wintypes.HANDLE
-        kernel.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
-        kernel.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel.WaitForSingleObject.restype = wintypes.DWORD
         kernel.CloseHandle.argtypes = [wintypes.HANDLE]
         kernel.CloseHandle.restype = wintypes.BOOL
-        handle = kernel.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        handle = kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE: query wait state, never signal it
         if not handle:
             return getattr(ctypes, "get_last_error")() != 87  # ERROR_INVALID_PARAMETER: no such PID
         try:
-            exit_code = wintypes.DWORD()
-            if not kernel.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
-                return True
-            return exit_code.value == 259  # STILL_ACTIVE
+            result = kernel.WaitForSingleObject(handle, 0)
+            return result != 0  # WAIT_OBJECT_0 means terminated, even with exit code259
         finally:
             kernel.CloseHandle(handle)
     except (AttributeError, OSError, ValueError, OverflowError):

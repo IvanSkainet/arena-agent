@@ -16,7 +16,9 @@ without reproducing the quoting would reopen the RCE on the phone.
 """
 from __future__ import annotations
 
+import os
 import subprocess
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -25,8 +27,13 @@ from arena.mobile import adb, ondevice
 
 
 @pytest.fixture
-def on_device():
+def on_device(monkeypatch):
     """Force the Android dispatch path regardless of the real host."""
+    if os.name == "nt":
+        shell = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")) / "Git/bin/sh.exe"
+        if not shell.is_file():
+            pytest.fail("Android shell contract tests require a real POSIX shell on Windows")
+        monkeypatch.setattr(ondevice, "_shell_binary", lambda: str(shell))
     with mock.patch.object(adb, "_on_device", return_value=True):
         yield
 

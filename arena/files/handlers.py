@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 from urllib.parse import parse_qs, quote
 
 from aiohttp import web
@@ -79,6 +80,10 @@ class EditHooks:
     rollback: Callable[..., dict[str, Any]]
 
 
+def _file_home(ctx: FileHandlerContext) -> Path:
+    return cast(Path, ctx.home() if callable(ctx.home) else ctx.home)
+
+
 def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
     @authed(ctx, auto_record=False)
     async def handle_v1_upload(request: web.Request) -> web.Response:
@@ -87,7 +92,7 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
         target_path, err, status = validate_upload_target(
             target,
             root=request.app[APP_CFG]["root"],
-            home=ctx.home,
+            home=_file_home(ctx),
             bridge_py=ctx.bridge_py,
         )
         if err:
@@ -117,7 +122,7 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
         target_path, err, status = validate_download_target(
             target,
             root=request.app[APP_CFG]["root"],
-            home=ctx.home,
+            home=_file_home(ctx),
         )
         if err:
             return _json_error(ctx, err, status)
@@ -179,7 +184,7 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
         target_path, err, status = validate_edit_target(
             target,
             root=request.app[APP_CFG]["root"],
-            home=ctx.home,
+            home=_file_home(ctx),
             bridge_py=ctx.bridge_py,
         )
         if err:

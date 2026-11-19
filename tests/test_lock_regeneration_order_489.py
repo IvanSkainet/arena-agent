@@ -70,3 +70,12 @@ def test_unconstrained_inputs_are_deterministic_and_empty_is_empty(tmp_path: Pat
     _input(tmp_path, "requirements-z.in", "# -c ignored.lock\ndep==1\n")
     _input(tmp_path, "requirements-a.in", "dep==2\n")
     CHECK.assertEqual(regeneration_order(tmp_path), ["requirements-a.in", "requirements-z.in"])
+
+
+@pytest.mark.parametrize("target", ["requirements-ci.lock", "requirements-runtime.txt"])
+def test_existing_input_does_not_make_a_noncanonical_output_valid(tmp_path, target):
+    _input(tmp_path, "requirements-ci.in", "dep==1")
+    _input(tmp_path, "requirements-runtime.in", "dep==1")
+    _input(tmp_path, "requirements-consumer.in", "-c " + target)
+    with pytest.raises(ValueError, match="noncanonical"):
+        regeneration_order(tmp_path)

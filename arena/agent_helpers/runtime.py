@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 
 from arena.agent_helpers.files import FACTS, Path, json, now_iso, subprocess
+from arena.file_lock import journal_lock
 
 
 def run_local(cmd: str | list[str], timeout: int = 60,
@@ -51,17 +52,18 @@ def put_fact(key: str, value: str, tags: list[str] | None = None) -> None:
     # Preserve an unfinished tail but separate it from the new record. Without
     # this newline, one interrupted writer causes the next successful `put`
     # to be concatenated with invalid JSON and silently skipped by the importer.
-    fd = os.open(FACTS, os.O_CREAT | os.O_RDWR | os.O_APPEND, 0o600)
-    with os.fdopen(fd, "a+b") as f:
-        f.seek(0, 2)
-        size = f.tell()
-        separator = b""
-        if size:
-            f.seek(-1, 2)
-            if f.read(1) != b"\n":
-                separator = b"\n"
-        encoded = (json.dumps(rec, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
-        f.write(separator + encoded)
+    with journal_lock(FACTS.with_name(FACTS.name + ".append-lock")):
+        fd = os.open(FACTS, os.O_CREAT | os.O_RDWR | os.O_APPEND, 0o600)
+        with os.fdopen(fd, "a+b") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            separator = b""
+            if size:
+                f.seek(-1, 2)
+                if f.read(1) != b"\n":
+                    separator = b"\n"
+            encoded = (json.dumps(rec, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+            f.write(separator + encoded)
     try:
         FACTS.chmod(0o600)
     except OSError:

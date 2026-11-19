@@ -162,3 +162,15 @@ def test_tls_requires_both_certificate_and_private_key(tmp_path):
     CHECK.assertTrue(tls_ready(config))
     result = _v2()
     CHECK.assertEqual(set(result["required_checks"]) | set(result["optional_checks"]), set(result["checks"]))
+
+
+def test_database_rollback_journal_is_preserved_with_quarantine(tmp_path):
+    from arena.memory.schema import _quarantine_db
+
+    db = tmp_path / "facts.db"
+    db.write_bytes(b"corrupt")
+    journal = db.with_name(db.name + "-journal")
+    journal.write_bytes(b"original recovery frames")
+    destination = _quarantine_db(db, RuntimeError("corrupt fixture"), log_error=None)
+    CHECK.assertIsNotNone(destination)
+    CHECK.assertEqual(destination.with_name(destination.name + "-journal").read_bytes(), b"original recovery frames")

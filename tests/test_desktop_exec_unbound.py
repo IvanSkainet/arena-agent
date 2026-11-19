@@ -24,6 +24,10 @@ local variable 'proc'`.
 from __future__ import annotations
 
 import asyncio
+import os
+import shlex
+import subprocess
+import sys
 from unittest import mock
 
 import pytest
@@ -38,7 +42,9 @@ def test_a_normal_command_still_works():
 
 
 def test_a_real_timeout_returns_the_error_dict():
-    result = asyncio.run(_desktop_exec("sleep 5", timeout=0.3))
+    argv = [sys.executable, "-c", "import time; time.sleep(5)"]
+    command = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
+    result = asyncio.run(_desktop_exec(command, timeout=0.3))
     assert result["ok"] is False
     assert "timed out" in result["error"]
 
