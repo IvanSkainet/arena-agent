@@ -254,10 +254,10 @@ _TOOL_HANDLERS = {
 }
 
 
-def call_tool(name: str, args: dict) -> dict:
+def call_tool(name: object, args: dict) -> dict:
     """Dispatch namespaced tools with one shared MCP error boundary."""
     try:
-        handler = _TOOL_HANDLERS.get(name)
+        handler = _TOOL_HANDLERS.get(name) if isinstance(name, str) else None
         if handler is not None:
             return handler(args)
     except Exception as e:

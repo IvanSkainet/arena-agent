@@ -158,3 +158,73 @@ def test_recovery_tolerates_a_staging_leaf_already_removed(tmp_path, monkeypatch
     target = tmp_path / "failed.json"
     assert queue._publish_failed_task(target, {"id": "owned"}) is True
     assert json.loads(target.read_text()) == {"id": "owned"}
+
+
+@pytest.mark.parametrize("content", ["!!!!", "Zm9v!", "AA=A"])
+def test_new_file_content_rejects_malformed_base64_before_creating_a_file(tmp_path, content):
+    from arena.files.content_operations import _write_new_content
+
+    target = tmp_path / "new.bin"
+    written, error, status = _write_new_content(target, content, "base64")
+    assert (written, error, status) == (0, "invalid base64 content", 400)
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("name", [[], {}, ["fs.read"], 7, None])
+def test_malformed_mcp_tool_name_retains_unknown_tool_response(name):
+    from arena.mcp.standalone_tools import call_tool
+
+    result = call_tool(name, {})
+    assert result["isError"] is True
+    assert result["content"][0]["text"].startswith("Unknown tool:")
+
+
+def test_snapshot_stats_the_canonical_file_after_entry_symlink_retarget(tmp_path, monkeypatch):
+    from arena.filewatch import snapshots
+
+    home = tmp_path / "home"
+    home.mkdir()
+    safe = home / "safe.txt"
+    safe.write_bytes(b"safe")
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(b"private" * 100)
+    alias = home / "alias.txt"
+    alias.symlink_to(safe)
+    real_resolve = snapshots._resolve_target
+
+    def retarget(target, *, root, home):
+        resolved = real_resolve(target, root=root, home=home)
+        if target == str(alias):
+            alias.unlink()
+            alias.symlink_to(outside)
+        return resolved
+
+    monkeypatch.setattr(snapshots, "_resolve_target", retarget)
+    result, _ = snapshots._snapshot(home, snapshots.SnapshotPolicy(True, [], 50, (home, home)))
+    assert result[str(alias)][1] == len(b"safe")
+
+
+def test_snapshot_walks_canonical_root_after_root_symlink_retarget(tmp_path, monkeypatch):
+    from arena.filewatch import snapshots
+
+    home = tmp_path / "home"
+    safe = home / "safe"
+    safe.mkdir(parents=True)
+    (safe / "kept.txt").write_bytes(b"safe")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "private.txt").write_bytes(b"private")
+    alias = home / "alias"
+    alias.symlink_to(safe, target_is_directory=True)
+    real_resolve = snapshots._resolve_target
+
+    def retarget(target, *, root, home):
+        resolved = real_resolve(target, root=root, home=home)
+        if target == str(alias):
+            alias.unlink()
+            alias.symlink_to(outside, target_is_directory=True)
+        return resolved
+
+    monkeypatch.setattr(snapshots, "_resolve_target", retarget)
+    result, _ = snapshots._snapshot(alias, snapshots.SnapshotPolicy(True, [], 50, (home, home)))
+    assert set(result) == {str(alias / "kept.txt")}
