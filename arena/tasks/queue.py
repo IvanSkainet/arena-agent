@@ -171,6 +171,7 @@ def reclaim_interrupted_tasks(
     timing metadata, are left in place for inspection: they may be observed
     during a live claim or write and cannot safely be declared interrupted.
     """
+    del grace_seconds  # Compatibility-only argument; never evidence of owner death.
     reclaimed: list[str] = []
     errors: list[str] = []
     done = done if done is not None else running.parent / "done"
