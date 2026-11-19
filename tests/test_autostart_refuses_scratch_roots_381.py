@@ -208,3 +208,16 @@ def test_repair_refuses_when_the_launcher_is_missing(
     assert ran == [], (
         f"repair ran {ran} before noticing the launcher was missing; any "
         "scheduler call here replaces the operator's working task")
+
+
+@pytest.mark.parametrize("suffix", ["абвгдежз", "é2345678", "Ａ2345678", "A2345678"])
+def test_mkdtemp_suffix_does_not_classify_non_generator_characters_as_scratch(suffix):
+    from arena.service.launcher_paths import _has_mkdtemp_suffix
+
+    assert not _has_mkdtemp_suffix("mcp-dispatch-" + suffix, "mcp-dispatch-")
+
+
+def test_mkdtemp_suffix_accepts_exact_ascii_generator_alphabet():
+    from arena.service.launcher_paths import _has_mkdtemp_suffix
+
+    assert _has_mkdtemp_suffix("mcp-dispatch-a0_z1234", "mcp-dispatch-")

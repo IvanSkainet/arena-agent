@@ -101,8 +101,9 @@ class WatchRegistration:
     created_at: str
 
 
-def _add_sync(ctx: FileWatchRuntimeContext, state: dict,
-                registration: WatchRegistration) -> dict[str, Any]:
+def _add_sync(
+    ctx: FileWatchRuntimeContext, state: dict, registration: WatchRegistration,
+) -> dict[str, Any]:
     path, root = registration.path, registration.root
     recursive, patterns = registration.recursive, registration.patterns
     label, created_at = registration.label, registration.created_at

@@ -195,7 +195,10 @@ def test_snapshot_keeps_canonical_metadata_after_symlink_retarget(tmp_path, monk
     safe_leaf.write_bytes(b"safe")
     outside_leaf.write_bytes(b"private" * 100)
     alias = home / "alias"
-    alias.symlink_to(safe, target_is_directory=directory)
+    try:
+        alias.symlink_to(safe, target_is_directory=directory)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink unavailable: {exc}")
     real_resolve = snapshots._resolve_target
 
     def retarget(target, *, root, home):
