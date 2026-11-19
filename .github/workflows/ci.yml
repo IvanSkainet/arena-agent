@@ -386,6 +386,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read  # verify the recorded failed signer for withdrawn patch credit
       pull-requests: read
       security-events: read
       vulnerability-alerts: read

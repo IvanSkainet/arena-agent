@@ -20,6 +20,7 @@ where the network is present) an unpublished tag is an error.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import re
@@ -30,6 +31,7 @@ import urllib.request
 from pathlib import Path
 
 from release_version_contract import release_tag_parts, source_parts
+from release_withdrawals import withdrawal_credit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REPO = os.environ.get("ARENA_RELEASE_REPO", "IvanSkainet/arena-agent")
@@ -48,30 +50,45 @@ def current_version() -> str:
     return match.group(1)
 
 
-def _api(path: str) -> dict | None:
-    url = f"https://api.github.com/repos/{REPO}{path}"
-    headers = {"Accept": "application/vnd.github+json",
-               "User-Agent": "arena-release-check"}
+def _request_headers() -> dict[str, str]:
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "arena-release-check"}
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _decode_response(payload: bytes) -> dict | list | None:
+    value = json.loads(payload.decode("utf-8"))
+    return value if isinstance(value, (dict, list)) else None
+
+
+def _http_error(exc: urllib.error.HTTPError, authenticated: bool) -> dict:
+    if exc.code == 404:
+        return {}
+    if exc.code == 403 and not authenticated:
+        raise RuntimeError(
+            "GitHub rate-limited this anonymous request; set GITHUB_TOKEN "
+            "so the check can actually see releases/latest"
+        ) from exc
+    raise exc
+
+
+def _api(path: str) -> dict | list | None:
+    url = f"https://api.github.com/repos/{REPO}{path}"
+    headers = _request_headers()
     req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:  # nosec B310 -- fixed api.github.com host
-            data = json.loads(resp.read().decode("utf-8"))
-            return data if isinstance(data, dict) else None
+            return _decode_response(resp.read())
     except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return {}
-        # An anonymous 403 is a rate limit, not an answer, and it looks
-        # exactly like being offline. Say which one it is -- a check that
-        # cannot tell "no data" from "no problem" reports OK forever.
-        if exc.code == 403 and not token:
-            raise RuntimeError(
-                "GitHub rate-limited this anonymous request; set GITHUB_TOKEN "
-                "so the check can actually see releases/latest") from exc
-        raise
-    return None
+        return _http_error(exc, "Authorization" in headers)
+
+
+def _unavailable(tag: str, reason: str, strict: bool) -> int:
+    print(f"release check: SKIPPED ({reason})")
+    print(f"  tree is at {tag}; verify it is published before calling the release done")
+    return 1 if strict else 0
 
 
 def tags_without_releases() -> list[str]:
@@ -127,55 +144,71 @@ def _gap(tree: tuple[int, ...], published: tuple[int, ...]) -> int:
     return _FAR_AHEAD
 
 
+
+def _checked_gap(tree: tuple, latest: tuple, strict: bool) -> int:
+    gap = _gap(tree, latest)
+    if strict or gap <= 1:
+        return gap
+    return gap - withdrawal_credit(tree, latest, _api, REPO)
+
+
+def _debt_problem(version: str, latest_tag: str, gap: int) -> str:
+    pile = f"{gap} unpublished releases have piled up; " if gap > 1 else ""
+    return (
+        f"{pile}the tree is at v{version} but releases/latest is "
+        f"{latest_tag or '(none)'} -- auto_update.py reads releases/latest, "
+        "so every install is stuck there"
+    )
+
+
+def _publication_debt(version: str, latest_tag: str, strict: bool) -> list[str]:
+    try:
+        gap = _checked_gap(source_parts(version), release_tag_parts(latest_tag), strict)
+    except (ValueError, OSError, RuntimeError) as exc:
+        return [f"withdrawal evidence could not be verified: {exc}"]
+    allowed = 0 if strict else 1
+    return [_debt_problem(version, latest_tag, gap)] if gap > allowed else []
+
+
+def _version_problems(version: str, latest_tag: str, strict: bool) -> list[str]:
+    tree = source_parts(version)
+    latest = release_tag_parts(latest_tag)
+    if not tree:
+        return [f"the source VERSION {version!r} must match the strict X.Y.Z contract"]
+    if not latest:
+        return [f"releases/latest tag {latest_tag!r} must match the strict vX.Y.Z contract"]
+    if latest > tree:
+        message = (
+            f"releases/latest {latest_tag} is ahead of the source tree v{version}; "
+            "published metadata cannot advertise code that master does not contain"
+        )
+        return [message]
+    if latest < tree:
+        return _publication_debt(version, latest_tag, strict)
+    return []
+
+
 def main(argv: list[str]) -> int:
     strict = "--strict" in argv
     # Locally the tree is legitimately one release ahead: the bump is
     # committed before the release is cut. What is NOT legitimate is the
     # gap growing -- v4.169.5..9 piled up five deep before anyone noticed.
     # `--strict` (CI, tags only) demands the release actually exists.
-    allowed_gap = 0 if strict else 1
     version = current_version()
     tag = f"v{version}"
 
     try:
         latest = _api("/releases/latest")
-    except Exception as exc:  # noqa: BLE001 -- offline is not a failure here
-        print(f"release check: SKIPPED (GitHub unreachable: {exc})")
-        print(f"  tree is at {tag}; verify it is published before calling the release done")
-        return 1 if strict else 0
+    except (OSError, ValueError, RuntimeError, http.client.HTTPException) as exc:
+        return _unavailable(tag, f"GitHub unreachable: {exc}", strict)
 
-    if latest is None:
-        print("release check: SKIPPED (no usable answer from GitHub)")
-        return 1 if strict else 0
+    if not isinstance(latest, dict):
+        return _unavailable(tag, "no usable answer from GitHub", strict)
 
     latest_tag = str(latest.get("tag_name") or "")
     names = {a.get("name") for a in (latest.get("assets") or [])}
 
-    problems = []
-    tree_parts = source_parts(version)
-    latest_parts = release_tag_parts(latest_tag)
-    if not tree_parts:
-        problems.append(
-            f"the source VERSION {version!r} must match the strict X.Y.Z contract"
-        )
-    if not latest_parts:
-        problems.append(
-            f"releases/latest tag {latest_tag!r} must match the strict vX.Y.Z contract"
-        )
-    elif tree_parts and latest_parts > tree_parts:
-        problems.append(
-            f"releases/latest {latest_tag} is ahead of the source tree {tag}; "
-            "published metadata cannot advertise code that master does not contain"
-        )
-    elif tree_parts and latest_parts < tree_parts:
-        gap = _gap(tree_parts, latest_parts)
-        if gap > allowed_gap:
-            pile = f"{gap} unpublished releases have piled up; " if gap > 1 else ""
-            problems.append(
-                f"{pile}the tree is at {tag} but releases/latest is "
-                f"{latest_tag or '(none)'} -- auto_update.py reads releases/latest, "
-                f"so every install is stuck there"
-            )
+    problems = _version_problems(version, latest_tag, strict)
     for required in REQUIRED_ASSETS:
         if latest_tag == tag and required not in names:
             problems.append(

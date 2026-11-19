@@ -30,6 +30,12 @@ on:
         required: true
         type: string
 
+# Keep each tag's signature/certificate pairs from different runs from mixing.
+# Never cancel a signer while it is attaching a verified asset set.
+concurrency:
+  group: sign-release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
 # Scorecard Token-Permissions: nothing at the top level; the single job
 # declares exactly what it needs.
 permissions: {}
@@ -232,7 +238,15 @@ jobs:
           #   release: published          -> verify the public download
           # so the state is resolved once here and each half is gated on
           # it, rather than failing the run for being in the wrong phase.
-          json=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}")
+          # REST's by-tag endpoint excludes drafts. gh release view resolves
+          # both public releases and drafts; fetch flags by its numeric ID.
+          release_id=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json databaseId --jq '.databaseId')
+          if [[ ! "$release_id" =~ ^[0-9]+$ ]]; then
+            echo "::error::could not resolve a numeric release ID for $TAG"
+            exit 1
+          fi
+          json=$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}")
           draft=$(printf '%s' "$json" | jq -r '.draft // false')
           immutable=$(printf '%s' "$json" | jq -r '.immutable // false')
           writable=false
@@ -267,15 +281,39 @@ jobs:
           # signatures here means the ordering was skipped, and that
           # cannot be repaired on this release -- say which it is.
           have=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" \
-            --jq '[.assets[].name | select(endswith(".sig"))] | length')
-          if [ "$have" -eq 0 ]; then
+            --jq '[.assets[].name | select(endswith(".sig") or endswith(".pem"))] | length')
+          if [ "$have" -ne 8 ]; then
             echo "::error::release $TAG is immutable and carries no" \
-                 "signatures. They cannot be attached after publication;" \
+                "an incomplete signing set ($have of 8 files). They cannot be attached after publication;" \
                  "signatures cannot be attached after publication." \
                  "Sign the draft before publishing -- RELEASE.md step 9."
             exit 1
           fi
-          echo "release $TAG already carries $have signature files"
+          echo "release $TAG already carries $have signing files"
+
+      - name: Verify complete attached signature set
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p verified-signatures
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir verified-signatures --pattern '*.sig' --pattern '*.pem' \
+            --pattern "SHA256SUMS-${TAG}.txt" --pattern '*.zip' --pattern 'arena-bridge.apk'
+          cmp "dist/SHA256SUMS-${TAG}.txt" "verified-signatures/SHA256SUMS-${TAG}.txt"
+          for f in "arena-agent-${TAG}.zip" arena-agent.zip arena-bridge.apk "SHA256SUMS-${TAG}.txt"; do
+            cmp "dist/$f" "verified-signatures/$f"
+            test -s "verified-signatures/${f}.sig"
+            test -s "verified-signatures/${f}.pem"
+            cosign verify-blob "verified-signatures/$f" \
+              --signature "verified-signatures/${f}.sig" \
+              --certificate "verified-signatures/${f}.pem" \
+              --certificate-identity-regexp \
+                "^https://github\.com/${GITHUB_REPOSITORY}/\.github/workflows/sign-release\.yml@" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+          done
+          echo "all four attached signature/certificate pairs verified"
 
       - name: Anonymous end-to-end download & smoke verification
         # A draft has no public download URL, so this cannot run before

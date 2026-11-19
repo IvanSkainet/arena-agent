@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "withdrawals": [
+    {
+      "tag": "v4.170.1",
+      "repository": "IvanSkainet/arena-agent",
+      "tag_object": "e7b6c2adde52732746d8da49157ed8309f4f49bb",
+      "source_commit": "575ecb88b26768767eb6285d2db35bc5ae021a46",
+      "deleted_draft_id": 451763650,
+      "failed_signing_run": 44590187961,
+      "was_draft": true,
+      "reason": "Withdrawn before publication: draft signing state lookup failed; shipped relock-tool uv 0.12.7 is affected by GHSA-hq85-5cpj-mr62 and GHSA-2cv4-cqwr-gwf7. The protected tag cannot be deleted and must not be rewritten. A fresh 4.170.2 candidate is required.",
+      "review_record": "docs/audits/release-491-readiness.md"
+    }
+  ]
+}
