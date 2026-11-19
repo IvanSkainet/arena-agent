@@ -7,6 +7,8 @@ import os
 from collections.abc import Iterator
 from pathlib import Path
 
+from arena.private_paths import pinned_directory
+
 
 def _lock(fd: int) -> None:
     if os.name == "nt":
@@ -40,10 +42,19 @@ def cache_lease(path: Path) -> Iterator[bool]:
     ownership merely because a wall-clock TTL elapsed. Failure to open the
     private directory is propagated rather than scanning without single-flight.
     """
-    # A general lease must not chmod an unrelated existing parent. Cache
-    # owners harden their managed directories when publishing cache data.
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    with pinned_directory(path.parent) as parent_fd:
+        name = path if parent_fd is None else path.name
+        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(name, flags, 0o600, dir_fd=parent_fd)
+        try:
+            with _held_lease(fd) as acquired:
+                yield acquired
+        finally:
+            os.close(fd)
+
+
+@contextlib.contextmanager
+def _held_lease(fd: int) -> Iterator[bool]:
     held = False
     try:
         if os.fstat(fd).st_size == 0:
@@ -58,8 +69,5 @@ def cache_lease(path: Path) -> Iterator[bool]:
         held = True
         yield True
     finally:
-        try:
-            if held:
-                _unlock(fd)
-        finally:
-            os.close(fd)
+        if held:
+            _unlock(fd)

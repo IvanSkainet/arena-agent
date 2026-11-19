@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from pathlib import Path
 from typing import Any
+
+from arena.private_paths import create_staged_file, directory_matches, pinned_directory, unlink_staged
 
 _replace = os.replace
 
@@ -44,38 +45,45 @@ def _windows_private_directory(path: Path) -> None:
 
 
 def _posix_private_components(parent: Path, missing: list[str]) -> None:
-    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-    fd = os.open(parent, flags)
-    try:
-        for name in reversed(missing):
-            try:
-                os.mkdir(name, mode=0o700, dir_fd=fd)
-            except FileExistsError:
-                pass  # Verify through O_NOFOLLOW before touching its mode.
-            child = os.open(name, flags, dir_fd=fd)
-            os.close(fd)
-            fd = child
-            os.fchmod(fd, os.fstat(fd).st_mode & 0o700)
-        # Preserve deliberately removed owner bits; never grant new access.
-        os.fchmod(fd, os.fstat(fd).st_mode & 0o700)
-    finally:
-        os.close(fd)
+    target = parent.joinpath(*reversed(missing))
+    with pinned_directory(target) as fd:
+        if fd is None:
+            raise OSError("directory descriptors unavailable for POSIX private state")
+        # The descriptor pins '.', even if a shared ancestor is renamed.
+        # Preserve removed owner bits and do not require directory read access.
+        mode = os.fstat(fd).st_mode & 0o700
+        os.chmod(".", mode, dir_fd=fd, follow_symlinks=False)
 
 
 def write_private_json(path: Path, value: Any, *, replace: bool = True) -> None:
-    private_directory(path.parent)
-    fd, name = tempfile.mkstemp(dir=path.parent, prefix="." + path.name, suffix=".tmp")
-    staged = Path(name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            json.dump(value, stream, ensure_ascii=False, indent=2)
-            stream.write("\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        if replace:
-            _replace(staged, path)
+    with pinned_directory(path.parent) as parent_fd:
+        if parent_fd is None:
+            _windows_private_directory(path.parent)
         else:
-            os.link(staged, path)
-        path.chmod(0o600)
-    finally:
-        staged.unlink(missing_ok=True)
+            os.chmod(".", os.fstat(parent_fd).st_mode & 0o700,
+                     dir_fd=parent_fd, follow_symlinks=False)
+        fd, staged = create_staged_file(path, parent_fd)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(value, stream, ensure_ascii=False, indent=2)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            _publish(staged, path, replace, parent_fd)
+            if not directory_matches(path.parent, parent_fd):
+                raise OSError("private publication parent changed")
+        finally:
+            try:
+                unlink_staged(staged, parent_fd)
+            except FileNotFoundError:
+                pass
+
+
+def _publish(staged: Path, target: Path, replace: bool, parent_fd: int | None) -> None:
+    source = staged if parent_fd is None else staged.name
+    destination = target if parent_fd is None else target.name
+    kwargs = {} if parent_fd is None else {"src_dir_fd": parent_fd, "dst_dir_fd": parent_fd}
+    if replace:
+        _replace(source, destination, **kwargs)
+    else:
+        os.link(source, destination, follow_symlinks=False, **kwargs)

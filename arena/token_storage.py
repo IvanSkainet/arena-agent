@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import logging
 import os
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
+
+from arena.private_paths import create_staged_file, directory_matches, pinned_directory, unlink_staged
 
 _LOG = logging.getLogger("arena-bridge")
 
@@ -72,7 +73,7 @@ def _classify_post_replace(
         raise TokenFileModeWarning(target, mode_error) from mode_error
 
 
-def _settle_by_descriptor(target: Path, fd: int) -> None:
+def _settle_by_descriptor(target: Path, fd: int, parent_fd: int | None = None) -> None:
     """Re-apply the mode through the descriptor we replaced into place.
 
     CodeRabbit, #211: resolving `target` by path a second time reopens the
@@ -84,9 +85,10 @@ def _settle_by_descriptor(target: Path, fd: int) -> None:
     disagree, which is exactly the signal wanted.
     """
     mode_error = _attempt(lambda: os.fchmod(fd, TOKEN_FILE_MODE))
-    at_path = _inode_of(target)
+    at_path = _inode_of(target, parent_fd)
+    parent_matches = directory_matches(target.parent, parent_fd)
     _classify_post_replace(
-        target, mode_error, at_path is not None and at_path == os.fstat(fd).st_ino)
+        target, mode_error, parent_matches and at_path is not None and at_path == os.fstat(fd).st_ino)
 
 
 def _settle_by_path(target: Path, installed: int | None) -> None:
@@ -119,22 +121,30 @@ def _attempt(action: Callable[[], None]) -> OSError | None:
     return None
 
 
-def _inode_of(target: Path) -> int | None:
+def _inode_of(target: Path, parent_fd: int | None = None) -> int | None:
     """`target`'s inode, or `None` if it cannot be stat'd at all."""
     try:
-        return os.stat(target).st_ino
+        name = target if parent_fd is None else target.name
+        return os.stat(name, dir_fd=parent_fd, follow_symlinks=False).st_ino
     except OSError:
         return None
 
 
-def _write_temp_beside(target: Path, token: str) -> tuple[Path, int]:
+def _create_staged_file(target: Path, parent_fd: int | None) -> tuple[int, Path]:
+    return create_staged_file(target, parent_fd)
+
+
+def _unlink_staged(path: Path, parent_fd: int | None) -> None:
+    unlink_staged(path, parent_fd)
+
+
+def _write_temp_beside(target: Path, token: str, parent_fd: int | None = None) -> tuple[Path, int]:
     """Write `token` to a fresh file next to `target`, returning its fd too.
 
     The descriptor stays open on purpose: it is what lets the caller act on
     the file it wrote rather than on whatever the path resolves to later.
     """
-    fd, name = tempfile.mkstemp(
-        prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
+    fd, name = _create_staged_file(target, parent_fd)
     try:
         with os.fdopen(os.dup(fd), "w", encoding="utf-8") as handle:
             handle.write(token)
@@ -148,7 +158,7 @@ def _write_temp_beside(target: Path, token: str) -> tuple[Path, int]:
         # generated token on disk.
         os.close(fd)
         try:
-            Path(name).unlink()
+            _unlink_staged(Path(name), parent_fd)
         except OSError:
             # Corgea: swallowing this silently is how a file holding the
             # generated token sits on disk with nobody aware of it. The
@@ -184,17 +194,20 @@ def write_owner_token(target: Path, token: str) -> None:
     if target.is_symlink():
         raise OSError("refusing to replace a symlink token path")
 
-    # Custom token parents may be shared or the caller's working directory.
-    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # Keep the directory descriptor through staging, replace and settlement.
+    # A later ancestor rename must not redirect token contents or chmod.
+    with pinned_directory(target.parent) as parent_fd:
+        _write_in_directory(target, token, parent_fd)
+
+
+def _write_in_directory(target: Path, token: str, parent_fd: int | None) -> None:
     staged: _StagedToken | None = None
     try:
-        staged = _StagedToken(*_write_temp_beside(target, token))
-        # By path, deliberately: the pre-replace chmod is the one callers
-        # and tests exercise as "the write failed and nothing was
-        # installed", and the temporary name is ours alone, so there is no
-        # swap window to close here. The descriptor matters only after the
-        # rename, where the path stops being a reliable handle.
-        os.chmod(staged.path, TOKEN_FILE_MODE)
+        staged = _StagedToken(*_write_temp_beside(target, token, parent_fd), parent_fd=parent_fd)
+        if parent_fd is None:
+            os.chmod(staged.path, TOKEN_FILE_MODE)
+        else:
+            os.fchmod(staged.fd, TOKEN_FILE_MODE)
         _replace_and_settle(staged, target)
     finally:
         if staged is not None:
@@ -213,9 +226,10 @@ class _StagedToken:
     intact" reported an EBADF instead, on Windows only.
     """
 
-    def __init__(self, path: Path, fd: int) -> None:
+    def __init__(self, path: Path, fd: int, *, parent_fd: int | None = None) -> None:
         self.path = path
         self.fd = fd
+        self.parent_fd = parent_fd
 
     def close_descriptor(self) -> None:
         if self.fd >= 0:
@@ -230,14 +244,14 @@ class _StagedToken:
         """
         self.close_descriptor()
         try:
-            self.path.unlink()
+            _unlink_staged(self.path, self.parent_fd)
         except FileNotFoundError:
             pass
 
 
 def _replace_and_settle(staged: _StagedToken, target: Path) -> None:
     """Install the staged file at `target` and re-apply the mode."""
-    installed = os.stat(staged.path).st_ino if os.name == "posix" else None
+    installed = os.fstat(staged.fd).st_ino if os.name == "posix" else None
     if os.name != "posix":
         # Windows refuses to rename a file that is still open (WinError 32),
         # and its st_ino is not a stable identity anyway, so the descriptor
@@ -245,8 +259,12 @@ def _replace_and_settle(staged: _StagedToken, target: Path) -> None:
         # fail on all five windows-latest jobs. `os.fchmod` exists on 3.14
         # for Windows, so its presence is the wrong thing to test.
         staged.close_descriptor()
-    os.replace(staged.path, target)
+    if staged.parent_fd is None:
+        os.replace(staged.path, target)
+    else:
+        os.replace(staged.path.name, target.name,
+                   src_dir_fd=staged.parent_fd, dst_dir_fd=staged.parent_fd)
     if staged.fd >= 0:
-        _settle_by_descriptor(target, staged.fd)
+        _settle_by_descriptor(target, staged.fd, staged.parent_fd)
     else:
         _settle_by_path(target, installed)

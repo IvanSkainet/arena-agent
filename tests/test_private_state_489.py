@@ -19,7 +19,7 @@ def test_failed_publication_preserves_old_state_and_cleans_staging(tmp_path, mon
     target = tmp_path / "task.json"
     target.write_text('{"old": true}\n')
 
-    def denied(*args):
+    def denied(*args, **kwargs):
         raise PermissionError("publication denied")
 
     original_bytes = target.read_bytes()
