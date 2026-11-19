@@ -140,6 +140,10 @@ def test_the_generated_block_excludes_itself(renderer, tmp_path, monkeypatch):
     isolated = tmp_path / "README.md"
     isolated.write_bytes(original)
     monkeypatch.setattr(renderer, "README", isolated)
+    monkeypatch.setattr(renderer, "REPO_ROOT", tmp_path)
+    # A real temporary source tree keeps collection and rewriting co-located.
+    (tmp_path / "arena").mkdir()
+    (tmp_path / "arena" / "sample.py").write_text("value = 1\n")
     m1 = renderer.collect()
     renderer.main([])           # rewrite only the isolated copy
     m2 = renderer.collect()

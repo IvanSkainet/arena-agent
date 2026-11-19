@@ -56,3 +56,11 @@ def test_main_token_command():
     events = []
     main(_ctx(events), ["token"])
     assert any("generated-token" in str(event) for event in events)
+
+
+def test_restart_context_follows_the_resolved_token_environment(tmp_path, monkeypatch):
+    from arena.service.restart_common import build_restart_context
+
+    migrated = tmp_path / "state" / "token.txt"
+    monkeypatch.setenv("ARENA_TOKEN_FILE", str(migrated))
+    assert build_restart_context(8765).token_file == str(migrated)

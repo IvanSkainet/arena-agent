@@ -26,7 +26,7 @@ def build_restart_context(port: int) -> RestartContext:
         port=port,
         sys_name=platform.system(),
         bridge_py=str(BRIDGE_DIR / "unified_bridge.py"),
-        token_file=str(TOKEN_FILE),
+        token_file=str(Path(os.environ.get("ARENA_TOKEN_FILE", str(TOKEN_FILE))).expanduser()),
         task_name=os.environ.get("ARENA_TASK_NAME", "ArenaUnifiedBridge"),
         pid=os.getpid(),
     )

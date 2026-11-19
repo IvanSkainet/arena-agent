@@ -74,12 +74,19 @@ def test_parallel_processes_serialize_and_do_not_replay(tmp_path):
     code = ("import sys; from pathlib import Path; from arena.memory.schema import migrate_jsonl_facts; "
             "migrate_jsonl_facts(db_path=Path(sys.argv[1]), jsonl_path=Path(sys.argv[2]), "
             "log_error=lambda f,*a: (_ for _ in ()).throw(RuntimeError(f % a)))")
-    processes = [subprocess.Popen([sys.executable, "-c", code, str(db), str(source)],
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                 for _ in range(4)]
-    for process in processes:
-        stdout, stderr = process.communicate(timeout=60)
-        assert process.returncode == 0, (stdout, stderr)
+    processes = []
+    try:
+        for _ in range(4):
+            processes.append(subprocess.Popen([sys.executable, "-c", code, str(db), str(source)],
+                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE))
+        for process in processes:
+            stdout, stderr = process.communicate(timeout=60)
+            assert process.returncode == 0, (stdout, stderr)
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+            process.communicate(timeout=10)
     with sqlite3.connect(db) as conn:
         assert conn.execute("SELECT count(*) FROM memory_facts").fetchone()[0] == 50
         conn.execute("UPDATE memory_facts SET value='api edit' WHERE key='k0'")

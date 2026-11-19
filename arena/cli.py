@@ -73,6 +73,8 @@ def serve(args: argparse.Namespace, ctx: CliContext) -> None:
         os.environ["ARENA_TOKEN_FILE"] = tf
 
     token, token_file_used = ctx.resolve_token(args.token)
+    # Consumers created before token migration must use the same resolved store.
+    os.environ["ARENA_TOKEN_FILE"] = str(token_file_used)
 
     # v4.170.0 (#132): teach the redactor this bridge's own bearer the
     # moment the process learns it. The token is unstructured base62, so

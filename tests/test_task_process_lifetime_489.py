@@ -50,6 +50,13 @@ def _task(tmp_path: Path, timeout: int) -> tuple[Path, Path]:
     return task, marker
 
 
+def _marker_pids(marker: Path) -> list[int] | None:
+    try:
+        return json.loads(marker.read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def _cleanup(pids: list[int]) -> None:
     # Only PIDs recorded by these temporary fixture processes, never a bridge
     # lookup, executable-name wildcard or fixed service port.
@@ -72,8 +79,9 @@ def test_killing_the_owner_reaps_the_child_and_grandchild(tmp_path):
                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     pids = []
     try:
-        _wait_until(marker.exists)
-        pids = json.loads(marker.read_text())
+        _wait_until(lambda: _marker_pids(marker) is not None)
+        pids = _marker_pids(marker)
+        CHECK.assertTrue(all(_alive(pid) for pid in pids))
         pids.append(int(worker_pid.read_text()))
         CHECK.assertTrue(all(_alive(pid) for pid in pids))
         process.kill()
@@ -94,8 +102,9 @@ def test_timeout_reaps_the_child_and_grandchild(tmp_path):
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     pids = []
     try:
-        _wait_until(marker.exists)
-        pids = json.loads(marker.read_text())
+        _wait_until(lambda: _marker_pids(marker) is not None)
+        pids = _marker_pids(marker)
+        CHECK.assertTrue(all(_alive(pid) for pid in pids))
         # wait(), not communicate(): stdin is the lease and must remain open.
         CHECK.assertEqual(process.wait(timeout=15), 124)
         stdout, stderr = process.communicate(timeout=3)
