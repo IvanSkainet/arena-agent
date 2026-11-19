@@ -21,7 +21,7 @@ def _diagnostic(text: str) -> str:
 
 def run(*args: str, env: dict[str, str] | None = None) -> str:
     # All callers below construct argv locally. No shell or downloaded commands.
-    result = subprocess.run(args, cwd=ROOT, env=env, capture_output=True, text=True)  # nosec B603 -- fixed trusted callers.
+    result = subprocess.run(args, cwd=ROOT, env=env, capture_output=True, text=True, check=False)  # nosec B603 -- fixed trusted callers.
     if result.returncode:
         print(_diagnostic(result.stderr), file=sys.stderr)
         print(_diagnostic(result.stdout), file=sys.stderr)
@@ -42,11 +42,17 @@ def _pending_review(repo: str) -> bool:
     # gh handles API pagination up to this explicit fail-closed bound.
     rows = json.loads(run(
         "gh", "pr", "list", "--repo", repo, "--state", "open", "--base", BASE,
-        "--limit", "1000", "--json", "number,headRefName",
+        "--limit", "1000", "--json", "number,headRefName,isCrossRepository",
     ))
     if len(rows) >= 1000:
         raise SystemExit("PR listing may be incomplete; refusing a duplicate refresh")
-    return any(row["headRefName"].startswith(BRANCH_PREFIX) for row in rows)
+    return any(_own_refresh(row) for row in rows)
+
+
+def _own_refresh(row: dict) -> bool:
+    if row["isCrossRepository"]:
+        return False
+    return row["headRefName"].startswith(BRANCH_PREFIX)
 
 
 def _git_environment() -> dict[str, str]:

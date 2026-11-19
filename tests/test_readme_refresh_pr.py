@@ -38,7 +38,7 @@ def test_pending_review_is_not_invalidated(publisher, monkeypatch):
 
     def fake_run(*args, **kwargs):
         calls.append(args)
-        return '[{"number":123,"headRefName":"automation/readme-metrics-existing"}]' if args[0] == "gh" else ""
+        return '[{"number":123,"headRefName":"automation/readme-metrics-existing","isCrossRepository":false}]' if args[0] == "gh" else ""
 
     monkeypatch.setattr(publisher, "run", fake_run)
     publisher.main()
@@ -52,6 +52,8 @@ def test_pr_base_head_and_push_target_are_exact(publisher, monkeypatch):
     def fake_run(*args, env=None):
         calls.append(args)
         if "push" in args:
+            if env is None:
+                pytest.fail("Push lost its credential environment")
             assert env["GH_TOKEN"] == "test-only-placeholder"  # nosec B101 -- credential propagation.
             assert "GIT_ASKPASS" in env  # nosec B101 -- helper contract.
         return ""
@@ -112,3 +114,9 @@ def test_real_git_askpass_with_placeholder_only(publisher):
     )
     assert "username=x-access-token" in result.stdout  # nosec B101 -- placeholder identity.
     assert "password=test-only-placeholder" in result.stdout  # nosec B101 -- helper propagation, never real secret.
+
+
+def test_fork_cannot_suppress_own_refresh(publisher, monkeypatch):
+    payload = '[{"headRefName":"automation/readme-metrics-fork","isCrossRepository":true}]'
+    monkeypatch.setattr(publisher, "run", lambda *a, **k: payload)
+    assert not publisher._pending_review("IvanSkainet/arena-agent")  # nosec B101 -- fork is not an owned review.

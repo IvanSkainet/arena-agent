@@ -40,6 +40,7 @@ REPO = os.environ.get("GITHUB_REPOSITORY", "IvanSkainet/arena-agent")
 
 BEGIN = "<!-- BEGIN TRAFFIC BADGE -->"
 END = "<!-- END TRAFFIC BADGE -->"
+BLOCK = re.compile(re.escape(BEGIN) + r".*?" + re.escape(END), re.S)
 
 
 def _token() -> str | None:
@@ -97,7 +98,7 @@ def parse_counts(data: object) -> tuple[int, int]:
 
 def badge_markup(uniques: int, total: int, measured: str) -> str:
     """Static shields.io badge plus the caveat that makes it honest."""
-    colour = "brightgreen" if uniques >= 100 else "blue" if uniques >= 20 else "lightgrey"
+    colour = "blue"  # Traffic volume is not a popularity or human-user rating.
     label = "unique%20clones%20(14d)"
     return (
         f"{BEGIN}\n"
@@ -117,7 +118,7 @@ def badge_markup(uniques: int, total: int, measured: str) -> str:
 
 
 def render(readme: str, block: str) -> str:
-    if BEGIN in readme and END in readme:
+    if BLOCK.search(readme):
         return re.sub(
             re.escape(BEGIN) + r".*?" + re.escape(END),
             lambda _: block,
@@ -146,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     readme = README.read_text(encoding="utf-8")
 
     if args.check:
-        missing = BEGIN not in readme or END not in readme
+        missing = BLOCK.search(readme) is None
         if missing:
             print("traffic badge: README.md has no badge block")
             return 1
