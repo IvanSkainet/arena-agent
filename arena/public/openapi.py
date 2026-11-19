@@ -418,6 +418,103 @@ def _apply_universal_responses(spec: dict) -> dict:
     return spec
 
 
+def _watch_file_operations() -> dict:
+    return {
+        "get": {
+            "summary": "List active file watchers",
+            "tags": [
+                "Watchers"
+            ],
+            "responses": {
+                "200": {
+                    "description": "Watcher list"
+                }
+            }
+        },
+        "post": {
+            "summary": "Add a file watcher",
+            "tags": [
+                "Watchers"
+            ],
+            "requestBody": {
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string"
+                                },
+                                "recursive": {
+                                    "type": "boolean",
+                                    "default": True
+                                },
+                                "patterns": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "label": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "path"
+                            ]
+                        }
+                    }
+                }
+            },
+            "responses": {
+                "200": {
+                    "description": "Watcher added"
+                },
+                "400": {
+                    "description": "Invalid JSON option types, missing path, or unusable watch path"
+                },
+                "403": {
+                    "description": "Outside an allowed filesystem root or refused by the sensitive-path policy"
+                },
+                "404": {
+                    "description": "No such path"
+                }
+            }
+        },
+        "delete": {
+            "summary": "Remove a file watcher",
+            "tags": [
+                "Watchers"
+            ],
+            "requestBody": {
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "id": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "id"
+                            ]
+                        }
+                    }
+                }
+            },
+            "responses": {
+                "200": {
+                    "description": "Watcher removed"
+                },
+                "404": {
+                    "description": "No such watch"
+                }
+            }
+        }
+    }
+
+
 def build_openapi_spec(ctx) -> dict:
     plan_schema, react_schema, reflect_schema = _cognitive_request_schemas()
     spec: dict = {
@@ -457,26 +554,7 @@ def build_openapi_spec(ctx) -> dict:
             "/v1/plan": {"post": {"summary": "Create a structured execution plan for a goal", "tags": ["Planner"], "requestBody": {"content": {"application/json": {"schema": plan_schema}}}, "responses": {"200": {"description": "Planner output"}}}},
             "/v1/react": {"post": {"summary": "Run a bounded reason-act-observe loop", "tags": ["Agentic"], "requestBody": {"content": {"application/json": {"schema": react_schema}}}, "responses": {"200": {"description": "ReAct run output"}}}},
             "/v1/reflect": {"post": {"summary": "Reflect on a prior run", "tags": ["Agentic"], "requestBody": {"content": {"application/json": {"schema": reflect_schema}}}, "responses": {"200": {"description": "Reflection output"}}}},
-            "/v1/watch/files": {
-                "get": {"summary": "List active file watchers", "tags": ["Watchers"], "responses": {"200": {"description": "Watcher list"}}},
-                "post": {   'summary': 'Add a file watcher',
-                    'tags': ['Watchers'],
-                    'requestBody': {   'content': {   'application/json': {   'schema': {   'type': 'object',
-                                                                                            'properties': {   'path': {   'type': 'string'},
-                                                                                                              'recursive': {   'type': 'boolean',
-                                                                                                                               'default': True},
-                                                                                                              'patterns': {   'type': 'array',
-                                                                                                                              'items': {   'type': 'string'}},
-                                                                                                              'label': {   'type': 'string'}},
-                                                                                            'required': [   'path']}}}},
-                    'responses': {   '200': {'description': 'Watcher added'},
-                                     '400': {   'description': 'Invalid JSON option types, missing path, or '
-                                                               'unusable watch path'},
-                                     '403': {   'description': 'Outside an allowed filesystem root or refused by '
-                                                               'the sensitive-path policy'},
-                                     '404': {'description': 'No such path'}}},
-                "delete": {"summary": "Remove a file watcher", "tags": ["Watchers"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}}}}, "responses": {"200": {"description": "Watcher removed"}, "404": {"description": "No such watch"}}},
-            },
+            "/v1/watch/files": _watch_file_operations(),
             "/v1/desktop/screenshot": {"get": {"summary": "Take desktop screenshot", "tags": ["Desktop"], "parameters": [{"name": "format", "in": "query", "schema": {"type": "string", "enum": ["base64", "png", "jpeg", "jpg", "webp"], "default": "base64"}}, {"name": "display", "in": "query", "schema": {"type": "string"}}, {"name": "region_x", "in": "query", "schema": {"type": "integer"}}, {"name": "region_y", "in": "query", "schema": {"type": "integer"}}, {"name": "region_width", "in": "query", "schema": {"type": "integer"}}, {"name": "region_height", "in": "query", "schema": {"type": "integer"}}, {"name": "scale", "in": "query", "schema": {"type": "number"}}, {"name": "max_width", "in": "query", "schema": {"type": "integer"}}, {"name": "quality", "in": "query", "schema": {"type": "integer", "default": 80}}], "responses": {"200": {"description": "Screenshot data"}, "404": {"description": "Unknown display; the response lists the displays that do exist"}}}},
             "/v1/desktop/displays": {"get": {"summary": "List desktop displays/outputs", "tags": ["Desktop"], "responses": {"200": {"description": "Display geometry and output metadata"}}}},
             "/v1/desktop/windows": {"get": {"summary": "List desktop windows", "tags": ["Desktop"], "parameters": [{"name": "title", "in": "query", "schema": {"type": "string"}}, {"name": "class", "in": "query", "schema": {"type": "string"}}, {"name": "desktop_file", "in": "query", "schema": {"type": "string"}}, {"name": "resource_name", "in": "query", "schema": {"type": "string"}}, {"name": "pid", "in": "query", "schema": {"type": "integer"}}, {"name": "display", "in": "query", "schema": {"type": "string"}}, {"name": "active_only", "in": "query", "schema": {"type": "boolean"}}, {"name": "include_displays", "in": "query", "schema": {"type": "boolean"}}], "responses": {"200": {"description": "Window list"}}}},

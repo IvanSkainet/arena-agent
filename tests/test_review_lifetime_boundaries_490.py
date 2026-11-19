@@ -179,52 +179,35 @@ def test_malformed_mcp_tool_name_retains_unknown_tool_response(name):
     assert result["content"][0]["text"].startswith("Unknown tool:")
 
 
-def test_snapshot_stats_the_canonical_file_after_entry_symlink_retarget(tmp_path, monkeypatch):
+@pytest.mark.parametrize("directory", [False, True], ids=["entry-file", "watch-root"])
+def test_snapshot_keeps_canonical_metadata_after_symlink_retarget(tmp_path, monkeypatch, directory):
     from arena.filewatch import snapshots
 
     home = tmp_path / "home"
     home.mkdir()
-    safe = home / "safe.txt"
-    safe.write_bytes(b"safe")
-    outside = tmp_path / "outside.txt"
-    outside.write_bytes(b"private" * 100)
-    alias = home / "alias.txt"
-    alias.symlink_to(safe)
-    real_resolve = snapshots._resolve_target
-
-    def retarget(target, *, root, home):
-        resolved = real_resolve(target, root=root, home=home)
-        if target == str(alias):
-            alias.unlink()
-            alias.symlink_to(outside)
-        return resolved
-
-    monkeypatch.setattr(snapshots, "_resolve_target", retarget)
-    result, _ = snapshots._snapshot(home, snapshots.SnapshotPolicy(True, [], 50, (home, home)))
-    assert result[str(alias)][1] == len(b"safe")
-
-
-def test_snapshot_walks_canonical_root_after_root_symlink_retarget(tmp_path, monkeypatch):
-    from arena.filewatch import snapshots
-
-    home = tmp_path / "home"
-    safe = home / "safe"
-    safe.mkdir(parents=True)
-    (safe / "kept.txt").write_bytes(b"safe")
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (outside / "private.txt").write_bytes(b"private")
+    safe, outside = home / "safe", tmp_path / "outside"
+    if directory:
+        safe.mkdir()
+        outside.mkdir()
+        safe_leaf, outside_leaf = safe / "kept.txt", outside / "private.txt"
+    else:
+        safe_leaf, outside_leaf = safe, outside
+    safe_leaf.write_bytes(b"safe")
+    outside_leaf.write_bytes(b"private" * 100)
     alias = home / "alias"
-    alias.symlink_to(safe, target_is_directory=True)
+    alias.symlink_to(safe, target_is_directory=directory)
     real_resolve = snapshots._resolve_target
 
     def retarget(target, *, root, home):
         resolved = real_resolve(target, root=root, home=home)
         if target == str(alias):
             alias.unlink()
-            alias.symlink_to(outside, target_is_directory=True)
+            alias.symlink_to(outside, target_is_directory=directory)
         return resolved
 
     monkeypatch.setattr(snapshots, "_resolve_target", retarget)
-    result, _ = snapshots._snapshot(alias, snapshots.SnapshotPolicy(True, [], 50, (home, home)))
-    assert set(result) == {str(alias / "kept.txt")}
+    watch = alias if directory else home
+    result, _ = snapshots._snapshot(watch, snapshots.SnapshotPolicy(True, [], 50, (home, home)))
+    expected = str(alias / "kept.txt") if directory else str(alias)
+    assert result[expected][1] == len(b"safe")
+    assert str(alias / "private.txt") not in result
