@@ -31,23 +31,32 @@ def _adopt_descendants() -> None:
         raise OSError(ctypes.get_errno(), "cannot supervise adopted descendants")
 
 
+def _adopted_child_ids() -> list[int]:
+    children_ids = []
+    for children in Path(f"/proc/{os.getpid()}/task").glob("*/children"):
+        try:
+            children_ids.extend(int(child) for child in children.read_text().split())
+        except FileNotFoundError:
+            continue
+    return children_ids
+
+
+def _kill_adopted_children() -> None:
+    # A subreaper also owns children that escaped with setsid(). No wait in
+    # this thread can reap them between reading their PID and signalling it.
+    for child in _adopted_child_ids():
+        try:
+            os.kill(child, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
 def _reap_descendants() -> None:
     if sys.platform != "linux":
         return
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
-        # A subreaper also owns children that escaped the original process
-        # group with setsid(). They must be stopped, not merely waited for.
-        for children in Path(f"/proc/{os.getpid()}/task").glob("*/children"):
-            try:
-                adopted = children.read_text().split()
-            except FileNotFoundError:
-                continue
-            for child in adopted:
-                try:
-                    os.kill(int(child), signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+        _kill_adopted_children()
         try:
             pid, _status = os.waitpid(-1, os.WNOHANG)
         except ChildProcessError:

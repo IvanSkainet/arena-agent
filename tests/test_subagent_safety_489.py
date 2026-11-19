@@ -86,11 +86,16 @@ def _wait_for_terminal_metadata(run):
 
 
 def _cleanup_owned_subagents(directory, marker):
-    import psutil
-
     pids = json.loads(marker.read_text()) if marker.exists() else []
     for pid_file in directory.glob("*/pid"):
         pids.append(int(pid_file.read_text()))
+    processes = _owned_processes(pids)
+    _kill_and_wait(processes)
+
+
+def _owned_processes(pids):
+    import psutil
+
     processes = []
     for pid in pids:
         try:
@@ -99,6 +104,12 @@ def _cleanup_owned_subagents(directory, marker):
             processes.append(process)
         except psutil.NoSuchProcess:
             continue
+    return processes
+
+
+def _kill_and_wait(processes):
+    import psutil
+
     for process in reversed(processes):
         try:
             process.kill()

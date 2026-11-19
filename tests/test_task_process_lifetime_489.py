@@ -22,9 +22,25 @@ WORKER = Path(process_worker.__file__).resolve()
 def _alive(pid: int) -> bool:
     try:
         process = psutil.Process(pid)
-        return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+        return process.is_running()
     except psutil.NoSuchProcess:
         return False
+
+
+def _owned_tree_finished(pids: list[int], worker_pid: int) -> bool:
+    for pid in pids:
+        try:
+            process = psutil.Process(pid)
+            # After its parent is killed, only the OS init/subreaper can reap
+            # this worker. A zombie proves it honored EOF and exited; command
+            # descendants must still disappear entirely (no zombie allowance).
+            if pid == worker_pid and process.status() == psutil.STATUS_ZOMBIE:
+                continue
+            if process.is_running():
+                return False
+        except psutil.NoSuchProcess:
+            continue
+    return True
 
 
 def _wait_until(predicate, timeout: float = 15) -> None:
@@ -83,11 +99,12 @@ def test_killing_the_owner_reaps_the_child_and_grandchild(tmp_path):
         _wait_until(lambda: _marker_pids(marker) is not None)
         pids = _marker_pids(marker)
         CHECK.assertTrue(all(_alive(pid) for pid in pids))
-        pids.append(int(worker_pid.read_text()))
+        recorded_worker = int(worker_pid.read_text())
+        pids.append(recorded_worker)
         CHECK.assertTrue(all(_alive(pid) for pid in pids))
         process.kill()
         process.wait(timeout=5)
-        _wait_until(lambda: not any(_alive(pid) for pid in pids))
+        _wait_until(lambda: _owned_tree_finished(pids, recorded_worker))
     finally:
         if process.poll() is None:
             process.kill()

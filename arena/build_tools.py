@@ -12,10 +12,14 @@ class BuildWithTools(build_py):
         root = Path(__file__).resolve().parent.parent
         destination = Path(self.build_lib) / "arena" / "_executables"
         for name in ("bin", "scripts"):
-            for source in sorted((root / name).iterdir()):
-                if source.is_file() and not source.is_symlink():
-                    target = destination / name / source.name
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    self.copy_file(str(source), str(target))
-                    if name == "bin" and source.name == "sd-exec":
-                        target.chmod(target.stat().st_mode | 0o111)
+            self._copy_tools(root / name, destination / name)
+
+    def _copy_tools(self, source_directory: Path, destination: Path) -> None:
+        for source in sorted(source_directory.iterdir()):
+            if not source.is_file() or source.is_symlink():
+                continue
+            destination.mkdir(parents=True, exist_ok=True)
+            target = destination / source.name
+            self.copy_file(str(source), str(target))
+            if source_directory.name == "bin" and source.name == "sd-exec":
+                target.chmod(target.stat().st_mode | 0o111)

@@ -49,18 +49,22 @@ def _jail(raw: str) -> str:
     if _Path(expanded).name in _BLOCKED_BASENAMES:
         raise PathJailError(f"accessing {_Path(expanded).name} is not allowed")
     resolved = _Path(expanded).resolve()
-    roots = (_Path.home().resolve(), agent_home().resolve())
-    for home in roots:
+    home = _allowed_root(resolved)
+    error = _sensitivity_error(_Path(expanded), home, action="accessing")
+    if error is not None:
+        raise PathJailError(error[0])
+    return str(resolved)
+
+
+def _allowed_root(resolved: _Path) -> _Path:
+    for home in (_Path.home().resolve(), agent_home().resolve()):
         if not _under_root(resolved, home):
             continue
         try:
             resolved.relative_to(home)
         except ValueError:
             continue
-        error = _sensitivity_error(_Path(expanded), home, action="accessing")
-        if error is not None:
-            raise PathJailError(error[0])
-        return str(resolved)
+        return home
     raise PathJailError("path outside home directory")
 
 # v4.75.0: bare-name warnings removed. The v4.69.0

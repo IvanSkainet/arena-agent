@@ -16,21 +16,34 @@ _replace = os.replace
 
 def private_directory(path: Path) -> None:
     """Create private components without path-based chmod after creation."""
+    parent, missing = _missing_components(path)
+    if os.name == "nt":
+        _windows_private_directory(path)
+        return
+    _posix_private_components(parent, missing)
+
+
+def _missing_components(path: Path) -> tuple[Path, list[str]]:
     missing = []
     parent = path.absolute()
     while not parent.exists():
         missing.append(parent.name)
         if parent == parent.parent:
-            # Unavailable Windows drive/share: let mkdir raise, never spin.
+            # Let an unavailable Windows drive/share produce its normal error.
             path.mkdir(mode=0o700, parents=True, exist_ok=True)
-            return
+            return path, []
         parent = parent.parent
-    if os.name == "nt":
-        path.mkdir(mode=0o700, parents=True, exist_ok=True)
-        if path.is_symlink():
-            raise OSError("refusing a symlink private directory")
-        path.chmod(0o700)  # Deployment ACLs remain authoritative on Windows.
-        return
+    return parent, missing
+
+
+def _windows_private_directory(path: Path) -> None:
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if path.is_symlink():
+        raise OSError("refusing a symlink private directory")
+    path.chmod(0o700)  # Deployment ACLs remain authoritative on Windows.
+
+
+def _posix_private_components(parent: Path, missing: list[str]) -> None:
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     fd = os.open(parent, flags)
     try:
