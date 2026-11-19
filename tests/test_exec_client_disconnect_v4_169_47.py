@@ -34,8 +34,9 @@ class _Transport:
 
 
 class _Request:
-    def __init__(self, transport) -> None:
+    def __init__(self, transport: _Transport | None) -> None:
         self.transport = transport
+        self.remote: str | None = None
 
 
 def test_disconnect_watcher_cancels_and_awaits_work() -> None:
