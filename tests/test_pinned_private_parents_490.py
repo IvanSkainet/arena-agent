@@ -65,8 +65,16 @@ def test_search_write_only_private_state_does_not_gain_read_permission(tmp_path)
     directory.mkdir()
     directory.chmod(0o300)
     try:
-        private_state.private_directory(directory)
-        private_state.write_private_json(directory / "known.json", {"kept": True})
+        if hasattr(os, "O_PATH") or hasattr(os, "O_SEARCH"):
+            private_state.private_directory(directory)
+            private_state.write_private_json(directory / "known.json", {"kept": True})
+            assert (directory / "known.json").is_file()
+        else:
+            # Without search-only descriptors, refusing the operation is the
+            # safe contract: never chmod 0300 to 0700 to make opening succeed.
+            with pytest.raises(PermissionError):
+                private_state.write_private_json(directory / "known.json", {"kept": True})
+            assert not (directory / "known.json").exists()
         assert stat.S_IMODE(directory.stat().st_mode) == 0o300
     finally:
         directory.chmod(0o700)

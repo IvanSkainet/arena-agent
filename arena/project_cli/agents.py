@@ -32,20 +32,24 @@ def agents_md_command(args):
     sub = args[0] if args else "show"
     target = proj_dir / "AGENTS.md"
     if sub == "init":
-        tmpl = agent_home() / "docs" / "AGENTS.md.template"
-        if not tmpl.exists():
-            print("template missing:", tmpl)
-            return 1
-        if target.exists():
-            print("already exists:", target)
-            return 1
-        text = tmpl.read_text().replace("{name}", proj_dir.name)
-        target.write_text(text)
-        print("created:", target)
-        return 0
+        return _initialize_agents_file(proj_dir, target)
     # show
     if not target.exists():
         print(f"no AGENTS.md at {target}\nrun: agentctl proj agents init")
         return 1
     print(target.read_text())
+    return 0
+
+
+def _initialize_agents_file(proj_dir, target) -> int:
+    tmpl = agent_home() / "docs" / "AGENTS.md.template"
+    if not tmpl.exists():
+        print("template missing:", tmpl)
+        return 1
+    if target.exists():
+        print("already exists:", target)
+        return 1
+    text = tmpl.read_text().replace("{name}", proj_dir.name)
+    target.write_text(text)
+    print("created:", target)
     return 0

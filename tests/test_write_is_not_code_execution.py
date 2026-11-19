@@ -138,8 +138,9 @@ def test_the_rule_is_write_only_by_construction():
     """Guard the design, not just today's behaviour."""
     src = (REPO / "arena" / "files" / "sandbox.py").read_text(encoding="utf-8")
     for verb in ("uploading", "editing", "creating"):
-        assert f'_execution_on_write_error(target_path, _policy_base(target_path), action="{verb}")' in src, (
+        assert f'_write_policy_error(target_path, "{verb}")' in src, (
             f"the {verb} validator no longer consults the execution-on-write list")
+    assert "_execution_on_write_error(target_path, base, action=action)" in inspect.getsource(S._write_policy_error)
     for validator in (S.validate_download_target, S.validate_view_target):
         assert "_execution_on_write_error" not in inspect.getsource(validator), (
             f"{validator.__name__} must remain read-only policy")

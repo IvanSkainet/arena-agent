@@ -12,6 +12,7 @@ concurrency rather than from a write error.
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from pathlib import Path
 
@@ -207,10 +208,26 @@ async def _cancellation_does_not_release_the_lock(
 
     real = token_rotation.token_regenerate
     order: list[str] = []
+    started = threading.Event()
+    release = threading.Event()
+    second_at_lock = asyncio.Event()
+    original_lock_for = token_rotation._rotation_lock_for
+    lock_requests = 0
+
+    def observed_lock(app):
+        nonlocal lock_requests
+        lock_requests += 1
+        if lock_requests == 2:
+            second_at_lock.set()
+        return original_lock_for(app)
+
+    monkeypatch.setattr(token_rotation, "_rotation_lock_for", observed_lock)
 
     def slow(*args, **kwargs):
         order.append("A-start")
-        time.sleep(0.6)
+        started.set()
+        if not release.wait(timeout=10):
+            raise TimeoutError("test did not release the first token writer")
         result = real(*args, **kwargs)
         order.append("A-written")
         return result
@@ -221,19 +238,29 @@ async def _cancellation_does_not_release_the_lock(
 
         first = asyncio.create_task(
             client.post("/v1/token/regenerate", headers=auth_header(TOKEN)))
-        await asyncio.sleep(0.2)
-        first.cancel()
         try:
-            await first
-        except asyncio.CancelledError:
-            order.append("req-cancelled")
+            # Handshake with the actual writer: wall-clock sleeps can cancel
+            # the HTTP request before it reaches the server on a busy host.
+            assert await asyncio.to_thread(started.wait, 10), "first writer never started"
+            first.cancel()
+            try:
+                await first
+            except asyncio.CancelledError:
+                order.append("req-cancelled")
 
-        monkeypatch.setattr(token_rotation, "token_regenerate", real)
-        second = await client.post(
-            "/v1/token/regenerate", headers=auth_header(TOKEN))
-        payload = await json_payload(second)
-        order.append("B-done")
-        await asyncio.sleep(1.0)
+            monkeypatch.setattr(token_rotation, "token_regenerate", real)
+            second_request = asyncio.create_task(client.post(
+                "/v1/token/regenerate", headers=auth_header(TOKEN)))
+            await asyncio.wait_for(second_at_lock.wait(), timeout=10)
+            release.set()
+            second = await second_request
+            payload = await json_payload(second)
+            order.append("B-done")
+        finally:
+            release.set()
+            if not first.done():
+                first.cancel()
+            await asyncio.gather(first, return_exceptions=True)
 
         on_disk = (tmp_path / "token.txt").read_text(encoding="utf-8").strip()
         in_memory = client.app[APP_CFG]["token"]

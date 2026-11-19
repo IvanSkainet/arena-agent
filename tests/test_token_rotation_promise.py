@@ -50,7 +50,7 @@ _FALSE_PROMISES = (
 
 
 def _regenerate() -> dict:
-    target = pathlib.Path(tempfile.mkdtemp()) / "token.txt"
+    target = pathlib.Path(tempfile.mkdtemp()).resolve() / "token.txt"
     result = token_regenerate("", default_token_file=target)
     assert result["ok"] is True, result
     return result
@@ -91,7 +91,7 @@ def test_a_failed_rotation_makes_no_promises_at_all():
 
     if os.name == "nt":
         pytest.skip("POSIX mode bits do not deny writes on Windows")
-    locked = pathlib.Path(tempfile.mkdtemp())
+    locked = pathlib.Path(tempfile.mkdtemp()).resolve()
     os.chmod(locked, stat.S_IRUSR | stat.S_IXUSR)
     try:
         result = token_regenerate(

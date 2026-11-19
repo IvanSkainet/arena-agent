@@ -382,12 +382,18 @@ def validate_watch_target(target: str, *, root: Path, home: Path) -> tuple[Path 
     return path, None, 200
 
 
+def _write_policy_error(target_path: Path, action: str) -> tuple[str, int] | None:
+    """Keep sensitivity ahead of execution-on-write checks for every writer."""
+    base = _policy_base(target_path)
+    return (_sensitivity_error(target_path, base, action=action)
+            or _execution_on_write_error(target_path, base, action=action))
+
+
 def validate_upload_target(target: str, *, root: Path, home: Path, bridge_py: Path) -> tuple[Path | None, str | None, int]:
     target_path, err, status = resolve_home_path(target, root=root, home=home)
     if err:
-        if err == "path outside allowed filesystem roots":
-            return None, "upload path must be inside an allowed filesystem root", status
-        return None, err, status
+        message = "upload path must be inside an allowed filesystem root" if err == OUTSIDE_ROOTS_ERROR else err
+        return None, message, status
     assert target_path is not None  # the guard above already proved this
     if target_path.resolve() == bridge_py.resolve():
         return None, "cannot overwrite the bridge itself", 403
@@ -395,12 +401,9 @@ def validate_upload_target(target: str, *, root: Path, home: Path, bridge_py: Pa
     # view/edit. Previously an authed caller could upload a
     # replacement ``token.txt`` or ``.ssh/authorized_keys``,
     # which would be a straight escalation path.
-    sens = _sensitivity_error(target_path, _policy_base(target_path), action="uploading")
-    if sens is not None:
-        return None, sens[0], sens[1]
-    execw = _execution_on_write_error(target_path, _policy_base(target_path), action="uploading")
-    if execw is not None:
-        return None, execw[0], execw[1]
+    policy_error = _write_policy_error(target_path, "uploading")
+    if policy_error is not None:
+        return None, policy_error[0], policy_error[1]
     shape = _writable_shape_error(target_path, action="upload")
     if shape is not None:
         return None, shape[0], shape[1]
@@ -487,12 +490,9 @@ def validate_edit_target(target: str, *, root: Path, home: Path, bridge_py: Path
     if err:
         return None, err, status
     assert target_path is not None  # the guard above already proved this
-    sens = _sensitivity_error(target_path, _policy_base(target_path), action="editing")
-    if sens is not None:
-        return None, sens[0], sens[1]
-    execw = _execution_on_write_error(target_path, _policy_base(target_path), action="editing")
-    if execw is not None:
-        return None, execw[0], execw[1]
+    policy_error = _write_policy_error(target_path, "editing")
+    if policy_error is not None:
+        return None, policy_error[0], policy_error[1]
     if target_path.resolve() == bridge_py.resolve():
         return None, "cannot edit the bridge itself", 403
     if not target_path.exists() or not target_path.is_file():
@@ -518,16 +518,12 @@ def validate_create_target(target: str, *, root: Path, home: Path, bridge_py: Pa
     """Validate target for fs.create: must not exist, be inside home, not be sensitive/bridge."""
     target_path, err, status = resolve_home_path(target, root=root, home=home)
     if err:
-        if err == "path outside allowed filesystem roots":
-            return None, "create path must be inside an allowed filesystem root", status
-        return None, err, status
+        message = "create path must be inside an allowed filesystem root" if err == OUTSIDE_ROOTS_ERROR else err
+        return None, message, status
     assert target_path is not None  # the guard above already proved this
-    sens = _sensitivity_error(target_path, _policy_base(target_path), action="creating")
-    if sens is not None:
-        return None, sens[0], sens[1]
-    execw = _execution_on_write_error(target_path, _policy_base(target_path), action="creating")
-    if execw is not None:
-        return None, execw[0], execw[1]
+    policy_error = _write_policy_error(target_path, "creating")
+    if policy_error is not None:
+        return None, policy_error[0], policy_error[1]
     if target_path.resolve() == bridge_py.resolve():
         return None, "cannot overwrite the bridge itself", 403
     if target_path.exists():

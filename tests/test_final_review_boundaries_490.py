@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import os
 import stat
+import subprocess
+import sys
 
 import pytest
 
@@ -50,18 +52,24 @@ def test_tokenless_windows_restart_does_not_embed_unused_unicode_token():
 
 
 def test_executable_copy_dry_run_does_not_stat_a_missing_output(tmp_path, monkeypatch):
-    from setuptools.dist import Distribution
-
-    from arena.build_tools import BuildWithTools
-
-    source = tmp_path / "bin"
-    source.mkdir()
-    (source / "sd-exec").write_text("fixture")
-    distribution = Distribution()
-    distribution.dry_run = True
-    command = BuildWithTools(distribution)
-    command.dry_run = True
-    monkeypatch.setattr(command, "copy_file", lambda *args: None)
-    destination = tmp_path / "generated"
-    command._copy_tools(source, destination)
-    assert not (destination / "sd-exec").exists()
+    # Build dependencies have process-global import hooks. Run in a clean
+    # interpreter, like the build frontend, independent of tests importing pip
+    # (which deliberately selects stdlib distutils on Python <= 3.11).
+    program = """
+import sys
+from pathlib import Path
+from setuptools.dist import Distribution
+from arena.build_tools import BuildWithTools
+source = Path(sys.argv[1]) / "bin"
+source.mkdir()
+(source / "sd-exec").write_text("fixture")
+distribution = Distribution()
+distribution.dry_run = True
+command = BuildWithTools(distribution)
+command.dry_run = True
+command.copy_file = lambda *args: None
+destination = Path(sys.argv[1]) / "generated"
+command._copy_tools(source, destination)
+assert not (destination / "sd-exec").exists()
+"""
+    subprocess.run([sys.executable, "-c", program, str(tmp_path)], check=True)

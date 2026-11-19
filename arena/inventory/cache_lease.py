@@ -44,8 +44,15 @@ def cache_lease(path: Path) -> Iterator[bool]:
     """
     with pinned_directory(path.parent) as parent_fd:
         name = path if parent_fd is None else path.name
-        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
-        fd = os.open(name, flags, 0o600, dir_fd=parent_fd)
+        flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            # Separate first publication from opening the stable lock inode.
+            # Only the winner publishes; losers open the existing inode without
+            # O_CREAT. This also avoids concurrent non-exclusive creation on
+            # APFS (the hosted multiprocess test exercises that platform).
+            fd = os.open(name, flags | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=parent_fd)
+        except FileExistsError:
+            fd = os.open(name, flags, dir_fd=parent_fd)
         try:
             with _held_lease(fd) as acquired:
                 yield acquired

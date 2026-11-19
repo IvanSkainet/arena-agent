@@ -43,9 +43,8 @@ def _err(ctx, msg: str, status: int) -> web.Response:
 def _line_number(value) -> int:
     if isinstance(value, bool):
         raise ValueError("boolean is not a line number")
-    if isinstance(value, float):
-        if not value.is_integer():
-            raise ValueError("fractional or nonfinite line number")
+    if isinstance(value, float) and not value.is_integer():
+        raise ValueError("fractional or nonfinite line number")
     return int(value)
 
 
@@ -71,6 +70,100 @@ def _view_bounds(view_range, total_lines: int) -> tuple[int, int]:
     return start, min(end, total_lines)
 
 
+def _view_file(ctx: FileHandlerContext, request: web.Request, data: dict) -> web.Response:
+    target = str(data.get("path", ""))
+    view_range = data.get("view_range")
+    target_path, err, status = validate_view_target(
+        target,
+        root=request.app[APP_CFG]["root"],
+        home=file_home(ctx),
+    )
+    if err:
+        return _err(ctx, err, status)
+    assert target_path is not None  # pyrefly 1.2: no union-of-tuple narrowing
+    try:
+        content = target_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return _err(ctx, "file is not valid utf-8 (binary file)", 400)
+    except Exception:
+        return _err(ctx, "Internal error", 500)
+
+    lines = content.split("\n")
+    total_lines = len(lines)
+    try:
+        start, end = _view_bounds(view_range, total_lines)
+    except ValueError as exc:
+        return _err(ctx, str(exc), 400)
+
+    selected = "\n".join(lines[start - 1:end])
+    ctx.audit({"type": "file_view",
+                "path": str(target_path),
+                "start": start, "end": end,
+                "total_lines": total_lines})
+    ctx.record_request()
+    return ctx.cors_json_response({
+        "ok": True,
+        "path": str(target_path),
+        "content": selected,
+        "start": start,
+        "end": end,
+        "total_lines": total_lines,
+    })
+
+
+def _create_file(ctx: FileHandlerContext, request: web.Request, data: dict) -> web.Response:
+    target = str(data.get("path", ""))
+    content = data.get("content", "")
+    if not isinstance(content, str):
+        return _err(ctx, "content must be a string", 400)
+    if not content:
+        return _err(ctx, "missing or empty 'content'", 400)
+    target_path, err, status = validate_create_target(
+        target,
+        root=request.app[APP_CFG]["root"],
+        home=file_home(ctx),
+        bridge_py=ctx.bridge_py,
+    )
+    if err:
+        return _err(ctx, err, status)
+    assert target_path is not None  # pyrefly 1.2: no union-of-tuple narrowing
+
+    encoding = str(data.get("encoding", "")).strip().lower()
+    bytes_written, problem, status = _write_new_content(target_path, content, encoding)
+    if problem is not None:
+        return _err(ctx, problem, status)
+
+    ctx.audit({"type": "file_create",
+                "path": str(target_path),
+                "bytes": bytes_written})
+    ctx.record_request()
+    return ctx.cors_json_response(
+        {"ok": True, "path": str(target_path), "bytes": bytes_written},
+    )
+
+
+def _write_new_content(target_path, content: str, encoding: str) -> tuple[int, str | None, int]:
+    if encoding == "base64":
+        import base64
+
+        try:
+            binary_content = base64.b64decode(content.strip())
+        except Exception:
+            return 0, "invalid base64 content", 400
+        try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_bytes(binary_content)
+            return len(binary_content), None, 200
+        except Exception:
+            return 0, "Internal error writing binary file", 500
+    try:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_text(content, encoding="utf-8")
+        return len(content.encode("utf-8")), None, 200
+    except Exception:
+        return 0, "Internal error", 500
+
+
 def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandlers:
     @authed(ctx, auto_record=False)
     async def handle_v1_fs_view(request: web.Request) -> web.Response:
@@ -80,44 +173,7 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
             ctx.record_request(is_error=True, count_request=False)
             return jerr
         assert data is not None  # the guard above already proved this
-        target = str(data.get("path", ""))
-        view_range = data.get("view_range")
-        target_path, err, status = validate_view_target(
-            target,
-            root=request.app[APP_CFG]["root"],
-            home=file_home(ctx),
-        )
-        if err:
-            return _err(ctx, err, status)
-        assert target_path is not None  # pyrefly 1.2: no union-of-tuple narrowing
-        try:
-            content = target_path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            return _err(ctx, "file is not valid utf-8 (binary file)", 400)
-        except Exception:
-            return _err(ctx, "Internal error", 500)
-
-        lines = content.split("\n")
-        total_lines = len(lines)
-        try:
-            start, end = _view_bounds(view_range, total_lines)
-        except ValueError as exc:
-            return _err(ctx, str(exc), 400)
-
-        selected = "\n".join(lines[start - 1:end])
-        ctx.audit({"type": "file_view",
-                    "path": str(target_path),
-                    "start": start, "end": end,
-                    "total_lines": total_lines})
-        ctx.record_request()
-        return ctx.cors_json_response({
-            "ok": True,
-            "path": str(target_path),
-            "content": selected,
-            "start": start,
-            "end": end,
-            "total_lines": total_lines,
-        })
+        return _view_file(ctx, request, data)
 
     @authed(ctx, auto_record=False)
     async def handle_v1_fs_create(request: web.Request) -> web.Response:
@@ -127,50 +183,7 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
             ctx.record_request(is_error=True, count_request=False)
             return jerr
         assert data is not None  # the guard above already proved this
-        target = str(data.get("path", ""))
-        content = data.get("content", "")
-        if not isinstance(content, str):
-            return _err(ctx, "content must be a string", 400)
-        if not content:
-            return _err(ctx, "missing or empty 'content'", 400)
-        target_path, err, status = validate_create_target(
-            target,
-            root=request.app[APP_CFG]["root"],
-            home=file_home(ctx),
-            bridge_py=ctx.bridge_py,
-        )
-        if err:
-            return _err(ctx, err, status)
-        assert target_path is not None  # pyrefly 1.2: no union-of-tuple narrowing
-
-        encoding = str(data.get("encoding", "")).strip().lower()
-        if encoding == "base64":
-            import base64
-            try:
-                binary_content = base64.b64decode(content.strip())
-            except Exception:
-                return _err(ctx, "invalid base64 content", 400)
-            try:
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                target_path.write_bytes(binary_content)
-                bytes_written = len(binary_content)
-            except Exception:
-                return _err(ctx, "Internal error writing binary file", 500)
-        else:
-            try:
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                target_path.write_text(content, encoding="utf-8")
-                bytes_written = len(content.encode("utf-8"))
-            except Exception:
-                return _err(ctx, "Internal error", 500)
-
-        ctx.audit({"type": "file_create",
-                    "path": str(target_path),
-                    "bytes": bytes_written})
-        ctx.record_request()
-        return ctx.cors_json_response(
-            {"ok": True, "path": str(target_path), "bytes": bytes_written},
-        )
+        return _create_file(ctx, request, data)
 
     return FsViewCreateHandlers(
         view=handle_v1_fs_view, create=handle_v1_fs_create,
