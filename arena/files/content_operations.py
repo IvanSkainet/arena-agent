@@ -38,7 +38,7 @@ def _write_new_content(target_path, content: str, encoding: str) -> tuple[int, s
 
         try:
             binary_content = base64.b64decode(content.strip())
-        except Exception:
+        except ValueError:
             return 0, "invalid base64 content", 400
         return _write_binary_content(target_path, binary_content)
     try:
