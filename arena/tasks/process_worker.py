@@ -16,11 +16,19 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from weakref import WeakSet
 
 _JOB: Any = None
-_STOPPED_GROUPS: WeakSet[subprocess.Popen] = WeakSet()
+
+
+class OwnedGroupProcess(Protocol):
+    pid: int
+
+    def wait(self, timeout: float | None = None) -> int: ...
+
+
+_STOPPED_GROUPS: WeakSet[OwnedGroupProcess] = WeakSet()
 
 
 def _adopt_descendants() -> None:
@@ -114,7 +122,11 @@ def _windows_job() -> None:
     _JOB = job  # OS closes it at process exit, after the selected exit status.
 
 
-def _stop_tree(process: subprocess.Popen) -> None:
+def _signal_process_group(pid: int) -> None:
+    os.killpg(pid, signal.SIGKILL)
+
+
+def _stop_tree(process: OwnedGroupProcess) -> None:
     if os.name == "nt":
         # The process-lifetime Job Object remains the final backstop, including
         # when the command shell has already exited before its descendants.
@@ -122,7 +134,7 @@ def _stop_tree(process: subprocess.Popen) -> None:
         subprocess.run(cleanup, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False)  # nosec B603 -- fixed Windows cleanup utility + owned child PID, never caller input
     elif process not in _STOPPED_GROUPS:
         try:
-            os.killpg(process.pid, signal.SIGKILL)
+            _signal_process_group(process.pid)
         except ProcessLookupError:
             pass
         # Cleanup runs from timeout, collection and finally. Once SIGKILL

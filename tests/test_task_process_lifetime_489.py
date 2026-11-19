@@ -205,15 +205,16 @@ def test_successful_group_kill_is_not_repeated_during_finally(monkeypatch):
     class OwnedProcess:
         pid = 123
 
-        def wait(self, timeout):
+        def wait(self, timeout=None):
             calls.append("wait")
+            return 0
 
-    def kill_group(pid, sig):
+    def kill_group(pid):
         if "kill" in calls:
             raise PermissionError("Darwin zombie group")
         calls.append("kill")
 
-    monkeypatch.setattr(process_worker.os, "killpg", kill_group)
+    monkeypatch.setattr(process_worker, "_signal_process_group", kill_group)
     process = OwnedProcess()
     process_worker._stop_tree(process)
     process_worker._stop_tree(process)
@@ -225,13 +226,13 @@ def test_first_group_kill_permission_failure_is_not_masked(monkeypatch):
     class OwnedProcess:
         pid = 123
 
-        def wait(self, timeout):
+        def wait(self, timeout=None) -> int:
             raise AssertionError("must not claim an unperformed kill completed")
 
-    def denied(pid, sig):
+    def denied(pid):
         raise PermissionError("live group denied")
 
-    monkeypatch.setattr(process_worker.os, "killpg", denied)
+    monkeypatch.setattr(process_worker, "_signal_process_group", denied)
     process = OwnedProcess()
     with pytest.raises(PermissionError, match="live group denied"):
         process_worker._stop_tree(process)
