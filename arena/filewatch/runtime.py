@@ -117,13 +117,16 @@ def make_file_watch_runtime(ctx: FileWatchRuntimeContext) -> FileWatchRuntime:
         resolved, error, status = validate_watch_target(path, root=root_path, home=ctx.home)
         if resolved is None:
             return {"ok": False, "error": error, "status": status}
-        if not resolved.exists():
-            return {"ok": False, "error": "path not found", "status": 404}
         clean_patterns = [str(p).strip() for p in (patterns or []) if str(p).strip()][:20]
-        snapshot, truncated = _snapshot(
-            resolved, SnapshotPolicy(bool(recursive), clean_patterns, ctx.max_files_per_watch,
-                                     (root_path, ctx.home)),
-        )
+        try:
+            if not resolved.exists():
+                return {"ok": False, "error": "path not found", "status": 404}
+            snapshot, truncated = _snapshot(
+                resolved, SnapshotPolicy(bool(recursive), clean_patterns, ctx.max_files_per_watch,
+                    (root_path, ctx.home)),
+            )
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "error": f"watch path is not usable ({type(exc).__name__})", "status": 400}
         wid = uuid.uuid4().hex[:10]
         meta = {
             "path": str(resolved),

@@ -53,9 +53,10 @@ def test_windows_tree_kill_uses_taskkill_t_and_f(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(R.subprocess, "run", fake_run)
     monkeypatch.setattr(R.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
 
+    monkeypatch.setenv("SystemRoot", r"C:\Windows")
     R._kill_process_tree(proc)
 
-    assert calls[0][0] == ["taskkill.exe", "/PID", "15300", "/T", "/F"]
+    assert calls[0][0] == [r"C:\Windows\System32\taskkill.exe", "/PID", "15300", "/T", "/F"]
     assert calls[0][1]["check"] is False
     assert calls[0][1]["timeout"] == 10
     assert calls[0][1]["creationflags"] == 0x08000000
@@ -239,3 +240,11 @@ def test_live_windows_timeout_kills_nested_child(tmp_path: Path) -> None:
                 check=False,
                 capture_output=True,
             )
+
+
+def test_windows_tree_killer_never_resolves_from_cwd_or_relative_system_root(monkeypatch):
+    monkeypatch.setenv("SystemRoot", r"D:\Windows")
+    assert R._windows_taskkill() == r"D:\Windows\System32\taskkill.exe"
+    monkeypatch.setenv("SystemRoot", "relative-directory")
+    with pytest.raises(OSError, match="absolute"):
+        R._windows_taskkill()

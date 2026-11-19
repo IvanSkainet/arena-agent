@@ -138,7 +138,7 @@ def _truncate_output(stdout: str, stderr: str, limit: int) -> tuple[str, str, bo
 def _read_submission(path: Path, ctx: TaskRunnerContext) -> dict | None:
     try:
         task = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (OSError, ValueError) as exc:
         ctx.log_error("[TaskRunner] Failed to read %s: %s", path, exc)
         return None
     return task if isinstance(task, dict) else {"invalid_submission": task}

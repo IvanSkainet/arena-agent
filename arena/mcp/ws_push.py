@@ -19,6 +19,7 @@ from arena.mcp.ws_frames import (  # noqa: F401  # kept: re-export/dynamic (AGEN
 )
 from arena.private_paths import pinned_directory
 from arena.private_state import private_directory
+from arena.windows_privacy import restrict_to_current_user
 
 SUBS: dict = {}
 SUBS_LOCK = threading.Lock()
@@ -29,8 +30,6 @@ def _prepare_notify_queue(path: Path) -> None:
     private_directory(path.parent)
     with pinned_directory(path.parent) as parent_fd:
         if parent_fd is None:
-            from arena.windows_privacy import restrict_to_current_user
-
             restrict_to_current_user(path.parent)
             if path.is_symlink() or getattr(path, "is_junction", lambda: False)():
                 raise OSError("refusing a linked notification queue")

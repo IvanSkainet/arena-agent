@@ -181,3 +181,21 @@ def test_watch_runtime_preserves_validator_diagnostics(tmp_path, monkeypatch):
         _resolved, error, status = validate_watch_target(candidate, root=tmp_path, home=tmp_path)
         result = _add(runtime, candidate, tmp_path)
         assert result == {"ok": False, "error": error, "status": status}
+
+
+def test_initial_watch_stat_failure_is_a_refusal_without_registering(tmp_path, monkeypatch):
+    runtime = _runtime(home=tmp_path, root=tmp_path)
+    target = tmp_path / "watched"
+    target.mkdir()
+    original = Path.exists
+
+    def fails_only_for_target(path):
+        if path == target:
+            raise OSError(36, "File name too long")
+        return original(path)
+
+    monkeypatch.setattr(Path, "exists", fails_only_for_target)
+    result = _add(runtime, str(target), tmp_path)
+    assert result["ok"] is False
+    assert result["status"] == 400
+    assert runtime.list_sync()["count"] == 0

@@ -10,6 +10,7 @@ same truncation contract as :func:`run_shell_command`.
 from __future__ import annotations
 
 import asyncio
+import ntpath
 import os
 import signal
 import subprocess
@@ -54,10 +55,18 @@ def _kill_process_tree(proc: Any) -> None:
         pass
 
 
+def _windows_taskkill() -> str:
+    """Do not search a command's working directory for a privileged utility."""
+    root = os.environ.get("SystemRoot", r"C:\Windows")
+    if not ntpath.isabs(root):
+        raise OSError("SystemRoot must be an absolute Windows path")
+    return ntpath.join(root, "System32", "taskkill.exe")
+
+
 def _kill_windows_tree(pid: int) -> bool:
     try:
         killed = subprocess.run(  # nosec B603 -- fixed argv, no shell
-            ["taskkill.exe", "/PID", str(pid), "/T", "/F"],
+            [_windows_taskkill(), "/PID", str(pid), "/T", "/F"],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=10, check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))

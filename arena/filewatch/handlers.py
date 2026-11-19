@@ -19,6 +19,19 @@ class FileWatchHandlers:
 
 
 
+def _watch_options_error(data: dict) -> str | None:
+    if not isinstance(data.get("path", ""), str):
+        return "path must be a string"
+    if not isinstance(data.get("recursive", True), bool):
+        return "recursive must be a boolean"
+    patterns = data.get("patterns", [])
+    if not isinstance(patterns, list):
+        return "patterns must be a list of strings"
+    if not all(isinstance(pattern, str) for pattern in patterns):
+        return "patterns must be a list of strings"
+    return None
+
+
 def make_file_watch_handlers(ctx: FileWatchHandlerContext) -> FileWatchHandlers:
     @authed(ctx)
     async def handle_v1_watch_files(request: web.Request) -> web.Response:
@@ -35,7 +48,10 @@ def make_file_watch_handlers(ctx: FileWatchHandlerContext) -> FileWatchHandlers:
             status = int(result.pop("status", 200))
             return ctx.cors_json_response(result, status=status)
 
-        target = str(data.get("path", "")).strip()
+        problem = _watch_options_error(data)
+        if problem is not None:
+            return ctx.cors_json_response({"ok": False, "error": problem}, status=400)
+        target = data.get("path", "").strip()
         if not target:
             return ctx.cors_json_response({"ok": False, "error": "missing path"}, status=400)
         root = Path(request.app[ctx.app_cfg_key]["root"])
