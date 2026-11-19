@@ -42,7 +42,9 @@ def _err(ctx, msg: str, status: int) -> web.Response:
 
 
 def _view_file(ctx: FileHandlerContext, request: web.Request, data: dict) -> web.Response:
-    target = str(data.get("path", ""))
+    target = data.get("path", "")
+    if not isinstance(target, str):
+        return _err(ctx, "path must be a string", 400)
     view_range = data.get("view_range")
     target_path, err, status = validate_view_target(
         target,
@@ -83,10 +85,12 @@ def _view_file(ctx: FileHandlerContext, request: web.Request, data: dict) -> web
 
 
 def _create_file(ctx: FileHandlerContext, request: web.Request, data: dict) -> web.Response:
-    target = str(data.get("path", ""))
+    target = data.get("path", "")
     content = data.get("content", "")
     if not isinstance(content, str):
         return _err(ctx, "content must be a string", 400)
+    if not isinstance(target, str):
+        return _err(ctx, "path must be a string", 400)
     if not content:
         return _err(ctx, "missing or empty 'content'", 400)
     target_path, err, status = validate_create_target(

@@ -180,3 +180,15 @@ def test_only_master_can_enter_the_credential_job():
     assert job["if"] == "github.ref == 'refs/heads/master'"  # nosec B101 -- dispatch boundary.
     checkout = next(step for step in job["steps"] if step.get("name") == "Checkout")
     assert checkout["with"]["ref"] == "${{ github.sha }}"  # nosec B101 -- immutable trusted source.
+
+
+@pytest.mark.parametrize("markers", [
+    "<!-- END TRAFFIC BADGE -->\n<!-- BEGIN TRAFFIC BADGE -->",
+    "<!-- END TRAFFIC BADGE -->",
+    "<!-- BEGIN TRAFFIC BADGE -->",
+    "<!-- BEGIN TRAFFIC BADGE --><!-- END TRAFFIC BADGE --><!-- END TRAFFIC BADGE -->",
+])
+def test_malformed_markers_fail_without_inserting_another_block(badge, markers):
+    readme = "<!-- END GENERATED METRICS -->\n" + markers
+    with pytest.raises(SystemExit, match="malformed marker"):
+        badge.render(readme, "replacement")

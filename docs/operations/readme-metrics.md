@@ -16,7 +16,7 @@ Create a fine-grained PAT scoped only to this repository with:
 Store it as the Actions secret `README_TRAFFIC_TOKEN`, with an expiry and a
 rotation reminder. Never reuse secret-scanning or Android-signing credentials.
 The default job token has only contents:read; checkout does not persist it.
-The PAT is passed only to the trusted refresh step. Git uses an checked-in executable
+The PAT is passed only to the trusted refresh step. Git uses a checked-in executable
 askpass helper containing no credential material: the token is not in remote URLs, command arguments, or git config.
 
 ## Operation

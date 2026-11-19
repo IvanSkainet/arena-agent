@@ -117,8 +117,19 @@ def badge_markup(uniques: int, total: int, measured: str) -> str:
     )
 
 
+def traffic_block_present(readme: str) -> bool:
+    counts = (readme.count(BEGIN), readme.count(END))
+    if counts == (0, 0):
+        return False
+    if counts != (1, 1):
+        raise SystemExit("traffic badge: malformed marker counts")
+    if BLOCK.search(readme) is None:
+        raise SystemExit("traffic badge: malformed marker order")
+    return True
+
+
 def render(readme: str, block: str) -> str:
-    if BLOCK.search(readme):
+    if traffic_block_present(readme):
         return re.sub(
             re.escape(BEGIN) + r".*?" + re.escape(END),
             lambda _: block,
@@ -148,33 +159,34 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.check:
         return check_block(readme)
-    return refresh_snapshot(readme, write=args.write)
+    refresh_snapshot(readme, write=args.write)
+    return 0
 
 
 def check_block(readme: str) -> int:
-    if BLOCK.search(readme) is None:
+    if not traffic_block_present(readme):
         print("traffic badge: README.md has no badge block")
         return 1
     print("traffic badge: block present")
     return 0
 
 
-def refresh_snapshot(readme: str, *, write: bool) -> int:
+def refresh_snapshot(readme: str, *, write: bool) -> None:
     uniques, total = fetch_uniques()
     measured = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     updated = render(readme, badge_markup(uniques, total, measured))
 
     if updated == readme:
         print(f"traffic badge: unchanged ({uniques} uniques)")
-        return 0
+        return
 
     if not write:
         print(f"traffic badge: would set {uniques} uniques / {total} clones")
-        return 0
+        return
 
     README.write_text(updated, encoding="utf-8")
     print(f"traffic badge: {uniques} uniques, {total} clones, measured {measured}")
-    return 0
+    return
 
 
 if __name__ == "__main__":
