@@ -147,13 +147,19 @@ def main(argv: list[str] | None = None) -> int:
     readme = README.read_text(encoding="utf-8")
 
     if args.check:
-        missing = BLOCK.search(readme) is None
-        if missing:
-            print("traffic badge: README.md has no badge block")
-            return 1
-        print("traffic badge: block present")
-        return 0
+        return check_block(readme)
+    return refresh_snapshot(readme, write=args.write)
 
+
+def check_block(readme: str) -> int:
+    if BLOCK.search(readme) is None:
+        print("traffic badge: README.md has no badge block")
+        return 1
+    print("traffic badge: block present")
+    return 0
+
+
+def refresh_snapshot(readme: str, *, write: bool) -> int:
     uniques, total = fetch_uniques()
     measured = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     updated = render(readme, badge_markup(uniques, total, measured))
@@ -162,14 +168,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"traffic badge: unchanged ({uniques} uniques)")
         return 0
 
-    if not args.write:
+    if not write:
         print(f"traffic badge: would set {uniques} uniques / {total} clones")
         return 0
 
     README.write_text(updated, encoding="utf-8")
     print(f"traffic badge: {uniques} uniques, {total} clones, measured {measured}")
-
-
     return 0
 
 

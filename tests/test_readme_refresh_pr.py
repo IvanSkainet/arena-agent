@@ -53,7 +53,7 @@ def test_pr_base_head_and_push_target_are_exact(publisher, monkeypatch):
         calls.append(args)
         if "push" in args:
             if env is None:
-                pytest.fail("Push lost its credential environment")
+                raise RuntimeError("Push lost its credential environment")
             assert env["GH_TOKEN"] == "test-only-placeholder"  # nosec B101 -- credential propagation.
             assert "GIT_ASKPASS" in env  # nosec B101 -- helper contract.
         return ""
