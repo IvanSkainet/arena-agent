@@ -131,8 +131,9 @@ def test_timeout_reaps_the_child_and_grandchild(tmp_path):
         pids = _require_marker_pids(marker)
         CHECK.assertTrue(all(_alive(pid) for pid in pids))
         # wait(), not communicate(): stdin is the lease and must remain open.
-        CHECK.assertEqual(process.wait(timeout=15), 124)
+        returncode = process.wait(timeout=15)
         stdout, stderr = process.communicate(timeout=3)
+        CHECK.assertEqual(returncode, 124, stderr.decode(errors="replace"))
         CHECK.assertEqual(stdout, b"")
         CHECK.assertIn(b"timeout", stderr)
         _wait_until(lambda: not any(_alive(pid) for pid in pids))

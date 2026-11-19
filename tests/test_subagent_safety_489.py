@@ -65,7 +65,7 @@ def test_subagent_timeout_finishes_metadata_and_reaps_command_tree(cli, tmp_path
         assert result == (1 if wait else 0)
         run = next(cli.SUB_DIR.iterdir())
         meta = _wait_for_terminal_metadata(run)
-        assert meta["status"] == "timeout"
+        assert meta["status"] == "timeout", (run / "stderr.log").read_text(errors="replace")
         assert json.loads((run / "summary.json").read_text())["status"] == "timeout"
         pids = json.loads(marker.read_text())
         assert not any(psutil.pid_exists(pid) for pid in pids)
