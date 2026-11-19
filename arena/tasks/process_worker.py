@@ -17,8 +17,10 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
+from weakref import WeakSet
 
 _JOB: Any = None
+_STOPPED_GROUPS: WeakSet[subprocess.Popen] = WeakSet()
 
 
 def _adopt_descendants() -> None:
@@ -118,11 +120,15 @@ def _stop_tree(process: subprocess.Popen) -> None:
         # when the command shell has already exited before its descendants.
         cleanup = ["taskkill", "/PID", str(process.pid), "/T", "/F"]
         subprocess.run(cleanup, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False)  # nosec B603 -- fixed Windows cleanup utility + owned child PID, never caller input
-    else:
+    elif process not in _STOPPED_GROUPS:
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+        # Cleanup runs from timeout, collection and finally. Once SIGKILL
+        # succeeded, repeating it can hit Darwin zombie-group EPERM (or a
+        # reused numeric group). Keep identity on the Popen object, not PID.
+        _STOPPED_GROUPS.add(process)
     process.wait(timeout=10)
 
 

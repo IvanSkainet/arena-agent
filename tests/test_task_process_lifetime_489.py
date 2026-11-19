@@ -196,3 +196,43 @@ def test_successful_shell_reaps_descendant_that_escapes_its_process_group(tmp_pa
         if marker.exists():
             pids = [int(marker.read_text())]
         _cleanup(pids)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process-group signal contract")
+def test_successful_group_kill_is_not_repeated_during_finally(monkeypatch):
+    calls = []
+
+    class OwnedProcess:
+        pid = 123
+
+        def wait(self, timeout):
+            calls.append("wait")
+
+    def kill_group(pid, sig):
+        if "kill" in calls:
+            raise PermissionError("Darwin zombie group")
+        calls.append("kill")
+
+    monkeypatch.setattr(process_worker.os, "killpg", kill_group)
+    process = OwnedProcess()
+    process_worker._stop_tree(process)
+    process_worker._stop_tree(process)
+    assert calls == ["kill", "wait", "wait"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process-group signal contract")
+def test_first_group_kill_permission_failure_is_not_masked(monkeypatch):
+    class OwnedProcess:
+        pid = 123
+
+        def wait(self, timeout):
+            raise AssertionError("must not claim an unperformed kill completed")
+
+    def denied(pid, sig):
+        raise PermissionError("live group denied")
+
+    monkeypatch.setattr(process_worker.os, "killpg", denied)
+    process = OwnedProcess()
+    with pytest.raises(PermissionError, match="live group denied"):
+        process_worker._stop_tree(process)
+    assert process not in process_worker._STOPPED_GROUPS
