@@ -421,97 +421,32 @@ def _apply_universal_responses(spec: dict) -> dict:
 def _watch_file_operations() -> dict:
     return {
         "get": {
-            "summary": "List active file watchers",
-            "tags": [
-                "Watchers"
-            ],
-            "responses": {
-                "200": {
-                    "description": "Watcher list"
-                }
-            }
+            "summary": "List active file watchers", "tags": ["Watchers"],
+            "responses": {"200": {"description": "Watcher list"}},
         },
         "post": {
-            "summary": "Add a file watcher",
-            "tags": [
-                "Watchers"
-            ],
-            "requestBody": {
-                "content": {
-                    "application/json": {
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "path": {
-                                    "type": "string"
-                                },
-                                "recursive": {
-                                    "type": "boolean",
-                                    "default": True
-                                },
-                                "patterns": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string"
-                                    }
-                                },
-                                "label": {
-                                    "type": "string"
-                                }
-                            },
-                            "required": [
-                                "path"
-                            ]
-                        }
-                    }
-                }
-            },
+            "summary": "Add a file watcher", "tags": ["Watchers"],
+            "requestBody": _json_schema({
+                "path": {"type": "string"},
+                "recursive": {"type": "boolean", "default": True},
+                "patterns": {"type": "array", "items": {"type": "string"}},
+                "label": {"type": "string"},
+            }, ["path"]),
             "responses": {
-                "200": {
-                    "description": "Watcher added"
-                },
-                "400": {
-                    "description": "Invalid JSON option types, missing path, or unusable watch path"
-                },
-                "403": {
-                    "description": "Outside an allowed filesystem root or refused by the sensitive-path policy"
-                },
-                "404": {
-                    "description": "No such path"
-                }
-            }
+                "200": {"description": "Watcher added"},
+                "400": {"description": "Invalid JSON option types, missing path, or unusable watch path"},
+                "403": {"description": "Outside an allowed filesystem root or refused by the sensitive-path policy"},
+                "404": {"description": "No such path"},
+            },
         },
         "delete": {
-            "summary": "Remove a file watcher",
-            "tags": [
-                "Watchers"
-            ],
-            "requestBody": {
-                "content": {
-                    "application/json": {
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "id": {
-                                    "type": "string"
-                                }
-                            },
-                            "required": [
-                                "id"
-                            ]
-                        }
-                    }
-                }
-            },
+            "summary": "Remove a file watcher", "tags": ["Watchers"],
+            "requestBody": _json_schema({"id": {"type": "string"}}, ["id"]),
             "responses": {
-                "200": {
-                    "description": "Watcher removed"
-                },
-                "404": {
-                    "description": "No such watch"
-                }
-            }
-        }
+                "200": {"description": "Watcher removed"},
+                "404": {"description": "No such watch"},
+            },
+        },
     }
 
 
