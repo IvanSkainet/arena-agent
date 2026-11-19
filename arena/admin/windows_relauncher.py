@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import subprocess  # nosec B404 -- fixed local launcher argv, no shell
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -28,41 +29,51 @@ def _bridge_port() -> int:
         return 8765
 
 
-def _relauncher_lines(parent_pid: int, log: str, hidden: str, bat: str, task_name: str, probe: str) -> list[str]:
+@dataclass(frozen=True)
+class _RelaunchPlan:
+    parent_pid: int
+    log: str
+    hidden: str
+    bat: str
+    task_name: str
+    probe: str
+
+
+def _relauncher_lines(plan: _RelaunchPlan) -> list[str]:
     return [
         "@echo off",
         "setlocal disableDelayedExpansion",
-        f'echo [%DATE% %TIME%] restart-helper waiting for pid {parent_pid} > "{log}"',
+        f'echo [%DATE% %TIME%] restart-helper waiting for pid {plan.parent_pid} > "{plan.log}"',
         ":wait_parent",
-        f'tasklist /FI "PID eq {parent_pid}" | find "{parent_pid}" >NUL',
+        f'tasklist /FI "PID eq {plan.parent_pid}" | find "{plan.parent_pid}" >NUL',
         "if errorlevel 1 goto :try_hidden",
         "timeout /t 1 /nobreak >NUL",
         "goto :wait_parent",
         ":try_hidden",
-        f'if not exist "{hidden}" goto :try_bat',
-        f'wscript.exe "{hidden}"',
-        f'echo [%DATE% %TIME%] fired start_hidden.vbs >> "{log}"',
+        f'if not exist "{plan.hidden}" goto :try_bat',
+        f'wscript.exe "{plan.hidden}"',
+        f'echo [%DATE% %TIME%] fired start_hidden.vbs >> "{plan.log}"',
         "call :waitport",
         "if errorlevel 1 goto :try_bat",
-        f'echo [%DATE% %TIME%] ready via start_hidden.vbs >> "{log}"',
+        f'echo [%DATE% %TIME%] ready via start_hidden.vbs >> "{plan.log}"',
         "goto :done",
         ":try_bat",
-        f'if not exist "{bat}" goto :try_task',
-        f'start "" /B "{bat}"',
-        f'echo [%DATE% %TIME%] fired start_bridge.bat >> "{log}"',
+        f'if not exist "{plan.bat}" goto :try_task',
+        f'start "" /B "{plan.bat}"',
+        f'echo [%DATE% %TIME%] fired start_bridge.bat >> "{plan.log}"',
         "call :waitport",
         "if errorlevel 1 goto :try_task",
-        f'echo [%DATE% %TIME%] ready via start_bridge.bat >> "{log}"',
+        f'echo [%DATE% %TIME%] ready via start_bridge.bat >> "{plan.log}"',
         "goto :done",
         ":try_task",
-        f'schtasks /Run /TN "{task_name}" >NUL 2>&1',
-        f'echo [%DATE% %TIME%] fired scheduled task {task_name} >> "{log}"',
+        f'schtasks /Run /TN "{plan.task_name}" >NUL 2>&1',
+        f'echo [%DATE% %TIME%] fired scheduled task {plan.task_name} >> "{plan.log}"',
         "call :waitport",
         "if errorlevel 1 goto :failed",
-        f'echo [%DATE% %TIME%] ready via scheduled task >> "{log}"',
+        f'echo [%DATE% %TIME%] ready via scheduled task >> "{plan.log}"',
         "goto :done",
         ":failed",
-        f'echo [%DATE% %TIME%] ERROR all relaunch mechanisms failed >> "{log}"',
+        f'echo [%DATE% %TIME%] ERROR all relaunch mechanisms failed >> "{plan.log}"',
         ":done",
         "endlocal",
         "exit /b 0",
@@ -70,7 +81,7 @@ def _relauncher_lines(parent_pid: int, log: str, hidden: str, bat: str, task_nam
         ":waitport",
         "set /a _tries=0",
         ":waitport_loop",
-        probe,
+        plan.probe,
         "if not errorlevel 1 exit /b 0",
         "set /a _tries+=1",
         "if %_tries% GEQ 15 exit /b 1",
@@ -101,7 +112,7 @@ def write_relauncher(
         f"$c.Connect('127.0.0.1',{port}); $ok=$c.Connected }} catch {{ "  # DevSkim: ignore DS162092
         '$ok=$false }; $c.Close(); if ($ok) { exit 0 } else { exit 1 }"'
     )
-    lines = _relauncher_lines(parent_pid, log, hidden, bat, task_name, probe)
+    lines = _relauncher_lines(_RelaunchPlan(parent_pid, log, hidden, bat, task_name, probe))
     cmd.write_bytes(("\r\n".join(lines) + "\r\n").encode("utf-8"))
     escaped = str(cmd).replace('"', '""')
     shim.write_bytes((
