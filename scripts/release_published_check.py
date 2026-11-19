@@ -30,6 +30,7 @@ import urllib.request
 from pathlib import Path
 
 from release_version_contract import release_tag_parts, source_parts
+from release_withdrawals import withdrawal_credit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REPO = os.environ.get("ARENA_RELEASE_REPO", "IvanSkainet/arena-agent")
@@ -48,7 +49,7 @@ def current_version() -> str:
     return match.group(1)
 
 
-def _api(path: str) -> dict | None:
+def _api(path: str) -> dict | list | None:
     url = f"https://api.github.com/repos/{REPO}{path}"
     headers = {"Accept": "application/vnd.github+json",
                "User-Agent": "arena-release-check"}
@@ -59,7 +60,7 @@ def _api(path: str) -> dict | None:
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:  # nosec B310 -- fixed api.github.com host
             data = json.loads(resp.read().decode("utf-8"))
-            return data if isinstance(data, dict) else None
+            return data if isinstance(data, (dict, list)) else None
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             return {}
@@ -144,7 +145,7 @@ def main(argv: list[str]) -> int:
         print(f"  tree is at {tag}; verify it is published before calling the release done")
         return 1 if strict else 0
 
-    if latest is None:
+    if not isinstance(latest, dict):
         print("release check: SKIPPED (no usable answer from GitHub)")
         return 1 if strict else 0
 
@@ -169,6 +170,11 @@ def main(argv: list[str]) -> int:
         )
     elif tree_parts and latest_parts < tree_parts:
         gap = _gap(tree_parts, latest_parts)
+        if not strict and gap > allowed_gap:
+            try:
+                gap -= withdrawal_credit(tree_parts, latest_parts, _api, REPO)
+            except (ValueError, OSError, RuntimeError) as exc:
+                problems.append(f"withdrawal evidence could not be verified: {exc}")
         if gap > allowed_gap:
             pile = f"{gap} unpublished releases have piled up; " if gap > 1 else ""
             problems.append(

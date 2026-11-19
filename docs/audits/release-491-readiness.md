@@ -44,3 +44,25 @@ traversal/symlinks and malformed paths. The current sink and boundary are
 reviewed again for this ledger entry. This records the existing decision in
 the repository as the dismissal gate explicitly requires; it does not relax
 scan severity, permissions, required checks or any runtime boundary.
+
+## Explicitly approved withdrawal accounting correction
+
+The operator approved an evidence-checked exception for the unpublished,
+withdrawn intermediate patch v4.170.1. The non-strict limit remains one active
+unpublished patch; strict mode still requires the active version to be published.
+No required check, tag protection or severity threshold is removed.
+
+The checked-in withdrawal ledger pins the annotated tag object, source commit,
+deleted draft ID and failed signing run. Before deducting one intermediate patch,
+CI verifies those immutable identities against GitHub, confirms the failed signer
+belongs to this repository/source/workflow, verifies the recorded draft is gone,
+and enumerates releases (including visible drafts) to reject a recreated release.
+Malformed/missing evidence and network failures during verification fail closed.
+Only intermediate patches in the same minor line can count: neither the active
+version nor a published predecessor nor a cross-minor gap receives credit.
+Duplicate ledger tags are rejected; real remaining debt above one still fails.
+The version-sync job receives only actions:read to verify historical signer data.
+
+Live owner-API validation: non-strict passes for 4.170.2 above published 4.170.0
+with the verified 4.170.1 withdrawal; --strict still fails until publication.
+Targeted withdrawal/release-gap/version/signing/JSON-contract suites pass.
