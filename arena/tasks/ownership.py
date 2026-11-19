@@ -1,8 +1,5 @@
-"""Platform process inspection and conservative legacy task deadlines."""
+"""Conservative platform process inspection for task ownership."""
 from __future__ import annotations
-
-from datetime import datetime
-from typing import Any
 
 
 def _windows_pid_is_alive(pid: int) -> bool:
@@ -34,19 +31,3 @@ def _windows_pid_is_alive(pid: int) -> bool:
             kernel.CloseHandle(handle)
     except (AttributeError, OSError, ValueError, OverflowError):
         return True
-
-
-def _past_its_deadline(task: dict[str, Any], now_epoch: float, grace_seconds: int) -> bool:
-    """True when a pid-less record is old enough that nobody can be running it."""
-    try:
-        started = datetime.fromisoformat(str(task.get("started_at", ""))).timestamp()
-    except (TypeError, ValueError, OverflowError, OSError):
-        # Missing metadata can be the window between claim and metadata write.
-        return False
-    try:
-        timeout = int(task.get("timeout") or 3600)
-    except (TypeError, ValueError, OverflowError):
-        return False
-    if timeout <= 0:
-        return False
-    return now_epoch - started > timeout + grace_seconds

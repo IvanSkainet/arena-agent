@@ -91,15 +91,25 @@ def test_a_pid_less_record_is_left_alone_while_it_could_still_be_running(tmp_pat
     assert (running / "t3.json").exists()
 
 
-def test_a_pid_less_record_is_reclaimed_once_its_own_timeout_has_passed(tmp_path):
+def test_expired_legacy_record_is_not_stolen_from_an_unidentifiable_runner(tmp_path):
     running, failed = _queue(tmp_path)
     ancient = (datetime.now(timezone.utc) - timedelta(seconds=7200)).isoformat(timespec="seconds")
     _write(running, "t4", started_at=ancient, timeout=60)
 
     result = _sweep(running, failed)
 
-    assert result["reclaimed"] == ["t4"]
-    assert json.loads((failed / "t4.json").read_text(encoding="utf-8"))["reason"] == "interrupted"
+    assert result["reclaimed"] == []
+    assert (running / "t4.json").exists()
+    assert not (failed / "t4.json").exists()
+    # Simulate the old runner completing immediately after a sweep. There
+    # must be no competing interrupted result in the failed directory.
+    done = running.parent / "done"
+    done.mkdir(exist_ok=True)
+    (done / "t4.json").write_text('{"state":"done","exit_code":0}', encoding="utf-8")
+    (running / "t4.json").unlink()
+    assert _sweep(running, failed)["reclaimed"] == []
+    assert not (failed / "t4.json").exists()
+    assert json.loads((done / "t4.json").read_text(encoding="utf-8"))["exit_code"] == 0
 
 
 def test_unreadable_record_is_left_alone_during_possible_concurrent_write(tmp_path):

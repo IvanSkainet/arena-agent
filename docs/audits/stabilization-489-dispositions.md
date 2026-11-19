@@ -82,3 +82,15 @@ failures remain visible and upload available evidence. The unvalidated latest
 upstream pin was not adopted. Local Arena relay/security tests stay required.
 No game readiness, security guard or failed test is forced green to satisfy this
 policy. Coordination with the external game's owner is not a T73 prerequisite.
+
+### Legacy task ownership safety
+
+Automatic orphan recovery requires a recorded owner PID (and compares its
+creation identity when available). PID-less legacy/partially claimed records
+are retained even past their timeout: an old runner cannot participate in a
+new lock protocol and could still finalize success. This deliberately avoids
+publishing a contradictory `failed/interrupted` result. Stop old runners and
+inspect/archive such records manually; a deadline alone is not proof of death.
+The recovery API retains `grace_seconds` for caller compatibility, not as a
+permission to steal unidentifiable work. The regression simulates late legacy
+success after a sweep and verifies there is no conflicting failed result.

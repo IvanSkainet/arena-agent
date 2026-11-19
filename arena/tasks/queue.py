@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from arena.private_state import write_private_json
-from arena.tasks.ownership import _past_its_deadline, _windows_pid_is_alive
+from arena.tasks.ownership import _windows_pid_is_alive
 
 # Narrow seam for deterministic concurrency and failure tests.
 _link = os.link
@@ -134,8 +134,6 @@ class RecoveryContext:
     done: Path
     now_fn: Callable[[], str]
     alive: Callable[[int], bool]
-    now_epoch: float
-    grace_seconds: int
 
 
 def reclaim_interrupted_tasks(
@@ -161,9 +159,13 @@ def reclaim_interrupted_tasks(
     * pid alive  -> leave it alone (a second bridge on the same home is the
       normal case, and killing its work would be worse than a stale entry);
     * pid dead   -> `failed` with ``reason: interrupted``;
-    * no pid     -> a record from an older version; reclaim only once it is
-      older than its own timeout plus ``grace_seconds``, so a slow task from a
-      previous release is not stolen mid-run.
+    * no pid     -> legacy or partially claimed record; retain for inspection.
+      Even an expired timeout does not prove the old runner finished: an old
+      version does not participate in our locking/finalization protocol.
+
+    ``grace_seconds`` remains accepted for API compatibility; no deadline is
+    used as a substitute for ownership proof. To clean a legacy record,
+    stop all old runners, inspect terminal results, then archive it manually.
 
     Unreadable or malformed records, and records with unusable ownership or
     timing metadata, are left in place for inspection: they may be observed
@@ -176,7 +178,7 @@ def reclaim_interrupted_tasks(
         return {"ok": True, "reclaimed": reclaimed}
     failed.mkdir(parents=True, exist_ok=True, mode=0o700)
     failed.chmod(0o700)
-    recovery = RecoveryContext(failed, done, now_fn, alive, time.time(), grace_seconds)
+    recovery = RecoveryContext(failed, done, now_fn, alive)
     for path in sorted(running.glob("*.json")):
         try:
             task_id = _reclaim_one(path, recovery)
@@ -217,7 +219,9 @@ def _load_reclaim_candidate(path: Path, recovery: RecoveryContext) -> dict[str, 
         return None
     pid = task.get("pid")
     if pid is None:
-        return task if _past_its_deadline(task, recovery.now_epoch, recovery.grace_seconds) else None
+        # Deadline expiry is not ownership proof. An older runner may still
+        # publish success after our check and does not honor a new lock.
+        return None
     if type(pid) is not int:
         return None
     if pid <= 0:
