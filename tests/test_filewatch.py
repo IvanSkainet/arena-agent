@@ -73,6 +73,7 @@ def test_file_watch_runtime_add_list_remove_and_detect_change(tmp_path):
 async def _json_request(method: str, path: str, body: dict):
     req = make_mocked_request(method, path, headers={"Authorization": "Bearer t"})
     req.app[APP_CFG] = {"root": str(Path(path).parent if path.startswith("/") else Path("/tmp"))}
+
     async def _json(*, loads=json.loads):
         return body
     req.json = _json
@@ -99,6 +100,7 @@ def test_file_watch_handler_add_list_delete(tmp_path):
     )
     add_req = make_mocked_request("POST", "/v1/watch/files", headers={"Authorization": "Bearer t"})
     add_req.app[APP_CFG] = {"root": tmp_path}
+
     async def _json_add(*, loads=json.loads):
         return {"path": str(watched), "recursive": True, "patterns": ["*.txt"]}
     add_req.json = _json_add
@@ -114,6 +116,7 @@ def test_file_watch_handler_add_list_delete(tmp_path):
 
     del_req = make_mocked_request("DELETE", "/v1/watch/files", headers={"Authorization": "Bearer t"})
     del_req.app[APP_CFG] = {"root": tmp_path}
+
     async def _json_del(*, loads=json.loads):
         return {"id": add_data["id"]}
     del_req.json = _json_del
