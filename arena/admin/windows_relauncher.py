@@ -28,29 +28,8 @@ def _bridge_port() -> int:
         return 8765
 
 
-def write_relauncher(
-    install_root: Path,
-    *,
-    parent_pid: int,
-    port: int | None = None,
-    task_name: str = "ArenaUnifiedBridge",
-) -> tuple[Path, Path]:
-    """Write the wait/relaunch CMD and its detached WSH shim."""
-    port = _bridge_port() if port is None else int(port)
-    root = str(install_root).replace("/", "\\")
-    cmd = install_root / ".arena-restart.cmd"
-    shim = install_root / ".arena-restart.vbs"
-    log = f"{root}\\.arena-restart.log"
-    launchers = windows_launcher_root(root)
-    hidden = str(launchers / "start_hidden.vbs")
-    bat = str(launchers / "start_bridge.bat")
-    probe = (
-        'powershell -NoProfile -Command "$ErrorActionPreference='
-        "'SilentlyContinue'; $c=New-Object Net.Sockets.TcpClient; try { "
-        f"$c.Connect('127.0.0.1',{port}); $ok=$c.Connected }} catch {{ "  # DevSkim: ignore DS162092
-        '$ok=$false }; $c.Close(); if ($ok) { exit 0 } else { exit 1 }"'
-    )
-    lines = [
+def _relauncher_lines(parent_pid: int, log: str, hidden: str, bat: str, task_name: str, probe: str) -> list[str]:
+    return [
         "@echo off",
         "setlocal disableDelayedExpansion",
         f'echo [%DATE% %TIME%] restart-helper waiting for pid {parent_pid} > "{log}"',
@@ -98,6 +77,31 @@ def write_relauncher(
         "timeout /t 2 /nobreak >NUL",
         "goto :waitport_loop",
     ]
+
+
+def write_relauncher(
+    install_root: Path,
+    *,
+    parent_pid: int,
+    port: int | None = None,
+    task_name: str = "ArenaUnifiedBridge",
+) -> tuple[Path, Path]:
+    """Write the wait/relaunch CMD and its detached WSH shim."""
+    port = _bridge_port() if port is None else int(port)
+    root = str(install_root).replace("/", "\\")
+    cmd = install_root / ".arena-restart.cmd"
+    shim = install_root / ".arena-restart.vbs"
+    log = f"{root}\\.arena-restart.log"
+    launchers = windows_launcher_root(root)
+    hidden = str(launchers / "start_hidden.vbs")
+    bat = str(launchers / "start_bridge.bat")
+    probe = (
+        'powershell -NoProfile -Command "$ErrorActionPreference='
+        "'SilentlyContinue'; $c=New-Object Net.Sockets.TcpClient; try { "
+        f"$c.Connect('127.0.0.1',{port}); $ok=$c.Connected }} catch {{ "  # DevSkim: ignore DS162092
+        '$ok=$false }; $c.Close(); if ($ok) { exit 0 } else { exit 1 }"'
+    )
+    lines = _relauncher_lines(parent_pid, log, hidden, bat, task_name, probe)
     cmd.write_bytes(("\r\n".join(lines) + "\r\n").encode("utf-8"))
     escaped = str(cmd).replace('"', '""')
     shim.write_bytes((

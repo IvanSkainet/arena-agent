@@ -315,18 +315,40 @@ def _checkpoint_matches(start: int, size: int, actual_hash: str, expected_hash: 
     return start == 0 or actual_hash == expected_hash
 
 
+def _hash_prefix(handle, start: int, size: int):
+    hasher = hashlib.sha256()
+    remaining = start if 0 <= start <= size else 0
+    while remaining:
+        chunk = handle.read(min(remaining, 1024 * 1024))
+        if not chunk:
+            return None
+        hasher.update(chunk)
+        remaining -= len(chunk)
+    return hasher
+
+
+def _file_signature(st):
+    return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns
+
+
+def _complete_jsonl_end(data: bytes) -> int:
+    cut = data.rfind(b"\n") + 1
+    if cut == len(data):
+        return cut
+    try:
+        json.loads(data[cut:].decode("utf-8"))
+    except (ValueError, RecursionError):
+        return cut  # Only a genuinely torn final record remains pending.
+    return len(data)
+
+
 def _stable_jsonl_read(jsonl_path: Path, start: int, expected_hash: str) -> tuple[bytes, int, str] | None:
     """Read complete records from a consistent snapshot, validating its prefix."""
     with jsonl_path.open("rb") as handle:
         before = os.fstat(handle.fileno())
-        hasher = hashlib.sha256()
-        remaining = start if 0 <= start <= before.st_size else 0
-        while remaining:
-            chunk = handle.read(min(remaining, 1024 * 1024))
-            if not chunk:
-                return None
-            hasher.update(chunk)
-            remaining -= len(chunk)
+        hasher = _hash_prefix(handle, start, before.st_size)
+        if hasher is None:
+            return None
         if not _checkpoint_matches(start, before.st_size, hasher.hexdigest(), expected_hash):
             start = 0
             handle.seek(0)
@@ -335,18 +357,9 @@ def _stable_jsonl_read(jsonl_path: Path, start: int, expected_hash: str) -> tupl
         after = os.fstat(handle.fileno())
         current = jsonl_path.stat()
 
-        def signature(st):
-            return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns
-        if signature(before) != signature(after) or signature(after) != signature(current):
+        if _file_signature(before) != _file_signature(after) or _file_signature(after) != _file_signature(current):
             return None
-    cut = data.rfind(b"\n") + 1
-    if cut < len(data):
-        try:
-            json.loads(data[cut:].decode("utf-8"))
-        except (ValueError, RecursionError):
-            pass  # A genuinely torn final record remains pending.
-        else:
-            cut = len(data)
+    cut = _complete_jsonl_end(data)
     payload = data[:cut]
     hasher.update(payload)
     return payload, start + cut, hasher.hexdigest()

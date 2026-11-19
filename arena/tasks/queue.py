@@ -21,6 +21,16 @@ from arena.tasks.ownership import _windows_pid_is_alive
 _link = os.link
 
 
+def _task_summary(path: Path, state_name: str) -> dict[str, Any]:
+    task = json.loads(path.read_text(encoding="utf-8"))
+    task["id"] = task.get("id", path.stem)
+    task["state"] = state_name
+    task["file"] = str(path)
+    task.pop("stdout", None)
+    task.pop("stderr", None)
+    return task
+
+
 def list_tasks(
     *,
     inbox: Path,
@@ -43,13 +53,7 @@ def list_tasks(
             continue
         for path in sorted(scan_dir.glob("*.json"))[:limit]:
             try:
-                task = json.loads(path.read_text(encoding="utf-8"))
-                task["id"] = task.get("id", path.stem)
-                task["state"] = state_name
-                task["file"] = str(path)
-                task.pop("stdout", None)
-                task.pop("stderr", None)
-                tasks.append(task)
+                tasks.append(_task_summary(path, state_name))
             except Exception:
                 tasks.append({"id": path.stem, "state": state_name, "file": str(path), "error": "unreadable"})
             if len(tasks) >= limit:
@@ -210,6 +214,10 @@ def _owner_is_alive(task: dict[str, Any], pid: int, alive: Callable[[int], bool]
         return True
 
 
+def _usable_owner_pid(pid) -> bool:
+    return type(pid) is int and pid > 0
+
+
 def _load_reclaim_candidate(path: Path, recovery: RecoveryContext) -> dict[str, Any] | None:
     try:
         task = json.loads(path.read_text(encoding="utf-8"))
@@ -223,9 +231,7 @@ def _load_reclaim_candidate(path: Path, recovery: RecoveryContext) -> dict[str, 
         # Deadline expiry is not ownership proof. An older runner may still
         # publish success after our check and does not honor a new lock.
         return None
-    if type(pid) is not int:
-        return None
-    if pid <= 0:
+    if not _usable_owner_pid(pid):
         return None
     return None if _owner_is_alive(task, pid, recovery.alive) else task
 

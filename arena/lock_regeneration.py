@@ -32,6 +32,12 @@ def _attached_constraint(tokens: list[str], target: str, line: str) -> str:
     return target
 
 
+def _canonical_output(producer: str) -> str:
+    if producer == "requirements-ci.in":
+        return "requirements-ci.txt"
+    return Path(producer).with_suffix(".lock").name
+
+
 def _producer(name: str, target: str, inputs: dict[str, Path]) -> str:
     constraint = Path(target)
     if constraint.name != target or constraint.suffix not in (".lock", ".txt"):
@@ -39,17 +45,21 @@ def _producer(name: str, target: str, inputs: dict[str, Path]) -> str:
     producer = constraint.with_suffix(".in").name
     if producer not in inputs:
         raise ValueError(f"{name}: no generator for {target}")
-    canonical = "requirements-ci.txt" if producer == "requirements-ci.in" else Path(producer).with_suffix(".lock").name
+    canonical = _canonical_output(producer)
     if target != canonical:
         raise ValueError(f"{name}: noncanonical generated constraint {target!r}; expected {canonical}")
     return producer
 
 
+def _input_dependencies(name: str, path: Path, inputs: dict[str, Path]) -> set[str]:
+    targets = (_constraint_target(line) for line in path.read_text(encoding="utf-8").splitlines())
+    return {_producer(name, target, inputs) for target in targets if target is not None}
+
+
 def _dependencies(inputs: dict[str, Path]) -> dict[str, set[str]]:
     dependencies: dict[str, set[str]] = {}
     for name, path in sorted(inputs.items()):
-        targets = (_constraint_target(line) for line in path.read_text(encoding="utf-8").splitlines())
-        dependencies[name] = {_producer(name, target, inputs) for target in targets if target is not None}
+        dependencies[name] = _input_dependencies(name, path, inputs)
     return dependencies
 
 

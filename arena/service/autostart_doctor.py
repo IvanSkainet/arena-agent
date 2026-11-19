@@ -56,6 +56,16 @@ def _python_for_scheduler() -> str:
     return "py -3"
 
 
+def _quoted_windows_python() -> str:
+    python = os.environ.get("ARENA_PYTHON", "").strip() or _python_for_scheduler()
+    if python.startswith('"'):
+        return python
+    path = Path(python)
+    if path.suffix.lower() in {".exe", ".com"} or path.is_file():
+        return f'"{python}"'
+    return python  # Command-style fallback, e.g. py -3.
+
+
 def write_windows_launchers(root: Path, *, port: int = 8765,
                             profile: str = "owner-shell") -> dict[str, Any]:
     """Create `start_bridge.bat` and `start_hidden.vbs` if they are missing.
@@ -75,9 +85,7 @@ def write_windows_launchers(root: Path, *, port: int = 8765,
     bat = root / "start_bridge.bat"
     vbs = root / "start_hidden.vbs"
     token_file = os.environ.get("ARENA_TOKEN_FILE") or str(root / "token.txt")
-    python = os.environ.get("ARENA_PYTHON", "").strip() or _python_for_scheduler()
-    if not python.startswith('"') and (Path(python).suffix.lower() in {".exe", ".com"} or Path(python).is_file()):
-        python = f'"{python}"'
+    python = _quoted_windows_python()
 
     if not bat.exists():
         bat.write_bytes((

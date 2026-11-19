@@ -27,14 +27,9 @@ for index in range(40):
                 cwd=Path(__file__).resolve().parents[1], env=env,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             ))
-        for process in processes:
-            stdout, stderr = process.communicate(timeout=60)
-            assert process.returncode == 0, (stdout, stderr)
+        _wait_for_writers(processes)
     finally:
-        for process in processes:
-            if process.poll() is None:
-                process.kill()
-                process.wait(timeout=10)
+        _stop_writers(processes)
     lines = journal.read_bytes().splitlines()
     assert lines[0] == b'{"torn":'
     records = [json.loads(line) for line in lines[1:]]
@@ -43,3 +38,16 @@ for index in range(40):
         f"{worker}-{index}" for worker in range(4) for index in range(40)
     }
     assert all(record["value"] == "value-" + "x" * 8192 for record in records)
+
+
+def _wait_for_writers(processes):
+    for process in processes:
+        stdout, stderr = process.communicate(timeout=60)
+        assert process.returncode == 0, (stdout, stderr)
+
+
+def _stop_writers(processes):
+    for process in processes:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=10)

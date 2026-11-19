@@ -108,6 +108,42 @@ def spawn_detached_mover(script: Path) -> Path:
     return vbs_shim
 
 
+def _snapshot_target_lines(targets: tuple[str, ...], dst: str, backup: str | None,
+                           provenance_path: Path | None) -> list[str]:
+    """Build the complete rollback snapshot before any replacement starts."""
+    lines: list[str] = []
+    if backup is not None:
+        for idx, name in enumerate(targets):
+            d = f"{dst}\\{name}"
+            b = f"{backup}\\{name}"
+            backup_file = f"backup_file_{idx}"
+            backup_done = f"backup_done_{idx}"
+            lines.extend([
+                f'rem ---- backup target {idx}: {name} ----',
+                f'if not exist "{d}" goto :{backup_done}',
+                f'if not exist "{d}\\*" goto :{backup_file}',
+                f'robocopy "{d}" "{b}" /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 >NUL',
+                'if errorlevel 8 goto :copy_failed',
+                f'echo dir>"{backup}\\.arena-target-{idx}-dir"',
+                f'goto :{backup_done}',
+                f':{backup_file}',
+                f'copy /Y "{d}" "{b}" >NUL',
+                'if errorlevel 1 goto :copy_failed',
+                f'echo file>"{backup}\\.arena-target-{idx}-file"',
+                f':{backup_done}',
+            ])
+        if provenance_path is not None:
+            provenance_dst = f"{dst}\\{DEPLOYED_PROVENANCE}"
+            backup_provenance = f"{backup}\\{DEPLOYED_PROVENANCE}"
+            lines.extend([
+                f'copy /Y "{provenance_dst}" "{backup_provenance}" >NUL',
+                'if errorlevel 1 goto :copy_failed',
+                f'echo file>"{backup}\\.arena-provenance-present"',
+            ])
+
+    return lines
+
+
 def _write_windows_installer(payload_root: Path, install_root: Path,
                              done_marker: Path, *, port: int | None = None,
                              backup_root: Path | None = None,
@@ -229,34 +265,7 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
     # Snapshot every old target before replacing any of them. Interleaving
     # backup and install leaves a half-updated tree when a later backup fails.
     targets = tuple(replace_targets(payload_root))
-    if backup is not None:
-        for idx, name in enumerate(targets):
-            d = f"{dst}\\{name}"
-            b = f"{backup}\\{name}"
-            backup_file = f"backup_file_{idx}"
-            backup_done = f"backup_done_{idx}"
-            lines.extend([
-                f'rem ---- backup target {idx}: {name} ----',
-                f'if not exist "{d}" goto :{backup_done}',
-                f'if not exist "{d}\\*" goto :{backup_file}',
-                f'robocopy "{d}" "{b}" /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 >NUL',
-                'if errorlevel 8 goto :copy_failed',
-                f'echo dir>"{backup}\\.arena-target-{idx}-dir"',
-                f'goto :{backup_done}',
-                f':{backup_file}',
-                f'copy /Y "{d}" "{b}" >NUL',
-                'if errorlevel 1 goto :copy_failed',
-                f'echo file>"{backup}\\.arena-target-{idx}-file"',
-                f':{backup_done}',
-            ])
-        if provenance_path is not None:
-            provenance_dst = f"{dst}\\{DEPLOYED_PROVENANCE}"
-            backup_provenance = f"{backup}\\{DEPLOYED_PROVENANCE}"
-            lines.extend([
-                f'copy /Y "{provenance_dst}" "{backup_provenance}" >NUL',
-                'if errorlevel 1 goto :copy_failed',
-                f'echo file>"{backup}\\.arena-provenance-present"',
-            ])
+    lines.extend(_snapshot_target_lines(targets, dst, backup, provenance_path))
 
     # Only after the complete rollback snapshot exists may replacement begin.
     lines.append("set _install_started=1")
