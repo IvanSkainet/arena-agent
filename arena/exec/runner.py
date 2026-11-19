@@ -219,8 +219,14 @@ async def run_shell_command_stream(
                     if not chunk:
                         break
                     await queue.put((tag, chunk))
-            finally:
+            except asyncio.CancelledError:
+                # Cleanup has stopped consuming the bounded queue. Waiting to
+                # enqueue an EOF marker here can deadlock aclose() forever.
+                raise
+            except Exception:
                 await queue.put((tag, None))
+                raise
+            await queue.put((tag, None))
 
         stdout_task = asyncio.create_task(_pump(proc.stdout, "stdout"))  # type: ignore[arg-type]
         stderr_task = asyncio.create_task(_pump(proc.stderr, "stderr"))  # type: ignore[arg-type]
