@@ -17,6 +17,8 @@ import subprocess  # nosec B404 -- fixed local launcher argv, no shell
 from pathlib import Path
 from typing import Any
 
+from arena.service.launcher_paths import windows_launcher_root
+
 
 def _bridge_port() -> int:
     raw = (os.environ.get("ARENA_PORT") or os.environ.get("PORT") or "8765").strip()
@@ -39,8 +41,9 @@ def write_relauncher(
     cmd = install_root / ".arena-restart.cmd"
     shim = install_root / ".arena-restart.vbs"
     log = f"{root}\\.arena-restart.log"
-    hidden = f"{root}\\start_hidden.vbs"
-    bat = f"{root}\\start_bridge.bat"
+    launchers = windows_launcher_root(root)
+    hidden = str(launchers / "start_hidden.vbs")
+    bat = str(launchers / "start_bridge.bat")
     probe = (
         'powershell -NoProfile -Command "$ErrorActionPreference='
         "'SilentlyContinue'; $c=New-Object Net.Sockets.TcpClient; try { "

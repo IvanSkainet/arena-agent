@@ -127,3 +127,24 @@ def test_startup_cleanup_rotates_the_active_relocated_audit(tmp_path, monkeypatc
     assert (state / "audit.jsonl.1").read_bytes() == b"oversized private audit"
     assert decoy.read_bytes() == b"unrelated checkout file"
     assert not (code / "audit.jsonl.1").exists()
+
+
+def test_windows_relaunchers_find_the_repaired_state_launcher(tmp_path, monkeypatch):
+    from arena.service.launcher_paths import windows_launcher_root
+
+    code, state = tmp_path / "code", tmp_path / "state"
+    code.mkdir()
+    state.mkdir()
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(state))
+    (state / "start_bridge.bat").write_text("state launcher")
+    assert windows_launcher_root(code) == state
+    (code / "start_hidden.vbs").write_text("custom legacy launcher")
+    assert windows_launcher_root(code) == code
+
+
+def test_windows_launcher_quotes_an_explicit_python_executable(tmp_path, monkeypatch):
+    from arena.service.autostart_doctor import write_windows_launchers
+
+    monkeypatch.setenv("ARENA_PYTHON", r"C:\Program Files\Python\python.exe")
+    write_windows_launchers(tmp_path)
+    assert '"C:\\Program Files\\Python\\python.exe" -u' in (tmp_path / "start_bridge.bat").read_text()

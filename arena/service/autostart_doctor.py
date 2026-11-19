@@ -75,7 +75,9 @@ def write_windows_launchers(root: Path, *, port: int = 8765,
     bat = root / "start_bridge.bat"
     vbs = root / "start_hidden.vbs"
     token_file = os.environ.get("ARENA_TOKEN_FILE") or str(root / "token.txt")
-    python = os.environ.get("ARENA_PYTHON") or _python_for_scheduler()
+    python = os.environ.get("ARENA_PYTHON", "").strip() or _python_for_scheduler()
+    if not python.startswith('"') and (Path(python).suffix.lower() in {".exe", ".com"} or Path(python).is_file()):
+        python = f'"{python}"'
 
     if not bat.exists():
         bat.write_bytes((

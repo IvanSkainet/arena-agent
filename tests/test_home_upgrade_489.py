@@ -32,6 +32,11 @@ def test_fresh_install_does_not_write_state_in_code(locations):
     (code / "missions/templates").mkdir(parents=True)
     (code / "missions/templates/example.json").write_text("{}")
     CHECK.assertEqual(home.agent_home(), state)
+    from arena.private_state import write_private_json
+
+    write_private_json(home.agent_home() / "queue" / "inbox" / "task.json", {"cmd": "echo test"})
+    CHECK.assertTrue((state / "queue/inbox/task.json").is_file())
+    CHECK.assertFalse((code / "queue/inbox/task.json").exists())
 
 
 @pytest.mark.parametrize("relative", ["memory/facts.db", "memory/facts.jsonl", "webhooks.json",

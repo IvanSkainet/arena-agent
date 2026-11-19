@@ -32,6 +32,7 @@ from pathlib import Path
 from arena.admin.deployment_provenance import DEPLOYED_PROVENANCE
 from arena.admin.deployment_tombstones import REMOVED_RELEASE_TARGETS
 from arena.admin.update_targets import replace_targets
+from arena.service.launcher_paths import windows_launcher_root
 
 
 def _bridge_port() -> int:
@@ -410,8 +411,9 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
         or os.environ.get("ARENA_SERVICE_NAME", "").strip()
         or "ArenaUnifiedBridge"
     )
-    vbs = f"{dst}\\start_hidden.vbs"
-    bat = f"{dst}\\start_bridge.bat"
+    launchers = windows_launcher_root(install_root)
+    vbs = str(launchers / "start_hidden.vbs")
+    bat = str(launchers / "start_bridge.bat")
     # v4.169.21: `schtasks /Run` exiting 0 does NOT mean a process started.
     # Measured on Ivan's PC: the mover logged "relaunched via schtasks" at
     # 17:08:43, `LastTaskResult` was 0, the task went straight back to
