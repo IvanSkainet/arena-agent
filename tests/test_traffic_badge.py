@@ -116,8 +116,8 @@ def test_the_workflow_runs_on_a_schedule():
 def test_the_workflow_can_write_and_says_so():
     doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     job = doc["jobs"]["badge"]
-    assert job["permissions"]["contents"] == "write", (
-        "the job commits the refreshed badge; without write it fails at push"
+    assert job["permissions"]["contents"] == "read", (
+        "the default job token must stay read-only; the dedicated token opens PRs"
     )
     assert doc.get("permissions") == {}, (
         "top-level permissions must stay empty (Scorecard Token-Permissions)"
@@ -149,7 +149,26 @@ def test_checkout_does_not_persist_the_token():
     assert "persist-credentials: false" in raw, (
         "checkout leaves a push-capable token in .git/config"
     )
-    script = SCRIPT.read_text(encoding="utf-8")
-    assert "x-access-token" in script, (
-        "credentials are not persisted, so the push must carry the token"
-    )
+    script = (REPO_ROOT / "scripts" / "refresh_readme_pr.py").read_text(encoding="utf-8")
+    assert "GIT_ASKPASS" in script, "authentication must not persist in the checkout"
+    assert 'https://x-access-token:' not in script, "token must not appear in process arguments"
+    assert 'secrets.README_TRAFFIC_TOKEN' in raw, "traffic needs the dedicated credential"
+
+
+@pytest.mark.parametrize("payload", [None, [], {}, {"uniques": True, "count": 2},
+                                     {"uniques": 3, "count": 2}, {"uniques": -1, "count": 2},
+                                     {"uniques": "1", "count": 2}])
+def test_invalid_traffic_does_not_become_a_zero_snapshot(badge, monkeypatch, payload):
+    import io
+    import json
+
+    monkeypatch.setenv("GH_TOKEN", "test-only-placeholder")
+    monkeypatch.setattr(badge.urllib.request, "urlopen", lambda *args, **kwargs: io.BytesIO(json.dumps(payload).encode()))
+    with pytest.raises(SystemExit, match="invalid"):
+        badge.fetch_uniques()
+
+
+def test_badge_does_not_equate_unique_cloners_with_people(badge):
+    block = badge.badge_markup(1, 2, "2026-09-05")
+    assert "not verified people" in block  # nosec B101 -- truthful metrics regression.
+    assert "protected PR review" in block  # nosec B101 -- refresh proposals are not merged snapshots.

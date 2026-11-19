@@ -18,6 +18,10 @@ on:
     - cron: "17 4 * * *"
   workflow_dispatch:
 
+concurrency:
+  group: readme-traffic-refresh
+  cancel-in-progress: false
+
 permissions: {}
 
 jobs:
@@ -26,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
@@ -44,10 +48,10 @@ jobs:
           # zizmor artipacked: checkout leaves the token in .git/config,
           # where anything later in the job -- including an uploaded
           # artifact -- can carry it out. This job pushes, so it sets the
-          # credential explicitly on the remote instead.
+          # credential through an ephemeral askpass helper instead.
           persist-credentials: false
 
       - name: Read traffic and update the badge
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 scripts/render_traffic_badge.py --write
+          GH_TOKEN: ${{ secrets.README_TRAFFIC_TOKEN }}
+        run: python3 scripts/refresh_readme_pr.py
