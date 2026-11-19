@@ -134,13 +134,15 @@ def test_a_module_that_binds_a_tmp_home_does_not_hand_it_to_the_next_importer(
         _package = sys.modules.get("arena.agent_helpers")
         if getattr(_package, "files", None) is not None:
             delattr(_package, "files")
-        os.environ["ARENA_AGENT_HOME"] = {str(tmp_path / "second-home")!r}
+        os.environ.pop("ARENA_AGENT_HOME", None)
 
-        def test_a_later_qualified_import_is_not_given_the_first_tmp_home():
+        def test_a_later_qualified_import_is_not_given_the_first_tmp_home(monkeypatch):
+            monkeypatch.setenv("ARENA_AGENT_HOME", {str(tmp_path / "second-home")!r})
             import arena.agent_helpers.files as reimported
             assert reimported.ROOT == Path({str(tmp_path / "second-home")!r})
 
-        def test_a_later_import_through_the_parent_package_is_not_either():
+        def test_a_later_import_through_the_parent_package_is_not_either(monkeypatch):
+            monkeypatch.setenv("ARENA_AGENT_HOME", {str(tmp_path / "second-home")!r})
             # `sys.modules` is not the only reference: importing a
             # submodule binds it on its parent package too, and this
             # import form reads that attribute. Verified by mutation --
@@ -149,7 +151,7 @@ def test_a_module_that_binds_a_tmp_home_does_not_hand_it_to_the_next_importer(
             assert files.ROOT == Path({str(tmp_path / "second-home")!r})
     '''), encoding="utf-8")
 
-    result = _run_pytest(tmp_path, "test_reads_root.py", home=tmp_path / "second-home")
+    result = _run_pytest(tmp_path, "test_reads_root.py")
 
     assert result.returncode == 0, (
         "a module evicted from sys.modules was still handing its tmp home to "
@@ -253,7 +255,7 @@ def test_a_clean_run_is_not_reported_as_leaking(tmp_path: Path) -> None:
         f"a run that leaked nothing was reported as leaking:\n{result.stdout}")
 
 
-def _run_pytest(tmp_path: Path, *files: str, home: Path | None = None) -> subprocess.CompletedProcess[str]:
+def _run_pytest(tmp_path: Path, *files: str) -> subprocess.CompletedProcess[str]:
     """Run pytest in `tmp_path` with this repository's conftest loaded.
 
     The conftest is copied in rather than inherited: pytest only picks
@@ -271,8 +273,7 @@ def _run_pytest(tmp_path: Path, *files: str, home: Path | None = None) -> subpro
         [sys.executable, "-m", "pytest", *files,
          "--no-cov", "-p", "no:randomly", "-p", "no:cacheprovider", "-q"],
         cwd=tmp_path, capture_output=True, text=True,
-        env={**os.environ, "PYTHONPATH": str(_REPOSITORY),
-             **({"ARENA_AGENT_HOME": str(home)} if home is not None else {})}, timeout=120)
+        env={**os.environ, "PYTHONPATH": str(_REPOSITORY)}, timeout=120)
 
 
 @pytest.fixture
