@@ -169,3 +169,33 @@ def test_new_token_parents_are_private_without_chmodding_shared_ancestor(tmp_pat
     assert stat.S_IMODE(target.parent.parent.stat().st_mode) == 0o700
     assert stat.S_IMODE(target.parent.stat().st_mode) == 0o700
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX descriptor-relative recovery publication")
+def test_recovery_publication_parent_swap_keeps_source_for_inspection(tmp_path, monkeypatch):
+    from arena.tasks import queue
+
+    running = tmp_path / "running"
+    running.mkdir()
+    source = running / "orphan.json"
+    source.write_text('{"pid":999999999,"cmd":"unused"}')
+    failed = tmp_path / "failed"
+    failed.mkdir()
+    original = tmp_path / "original"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    create = queue.create_staged_file
+
+    def swapped(target, parent_fd):
+        result = create(target, parent_fd)
+        failed.rename(original)
+        failed.symlink_to(outside, target_is_directory=True)
+        return result
+
+    monkeypatch.setattr(queue, "create_staged_file", swapped)
+    result = queue.reclaim_interrupted_tasks(
+        running=running, failed=failed, now_fn=lambda: "now", alive=lambda _pid: False)
+    assert result["ok"] is False
+    assert source.exists()
+    assert not list(outside.iterdir())
+    assert (original / "orphan.json").exists()

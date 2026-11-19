@@ -7,14 +7,14 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from arena.private_state import write_private_json
+from arena.private_paths import create_staged_file, directory_matches, pinned_directory, unlink_staged
+from arena.private_state import private_directory, write_private_json
 from arena.tasks.ownership import _windows_pid_is_alive
 
 # Narrow seam for deterministic concurrency and failure tests.
@@ -179,8 +179,7 @@ def reclaim_interrupted_tasks(
     done = done if done is not None else running.parent / "done"
     if not running.exists():
         return {"ok": True, "reclaimed": reclaimed}
-    failed.mkdir(parents=True, exist_ok=True, mode=0o700)
-    failed.chmod(0o700)
+    private_directory(failed)
     recovery = RecoveryContext(failed, done, now_fn, alive)
     for path in sorted(running.glob("*.json")):
         try:
@@ -274,17 +273,28 @@ def _reclaim_one(path: Path, recovery: RecoveryContext) -> str | None:
 
 def _publish_failed_task(target: Path, task: dict[str, Any]) -> bool:
     """Publish a complete private record atomically, without overwriting one."""
-    fd, temp_name = tempfile.mkstemp(prefix=".reclaim-", dir=target.parent)
-    temporary = Path(temp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(json.dumps(task, ensure_ascii=False, indent=2) + "\n")
+    with pinned_directory(target.parent) as parent_fd:
+        fd, temporary = create_staged_file(target, parent_fd)
         try:
-            # A link into the same directory publishes only if the target does
-            # not exist; a second sweeper cannot truncate the winner's result.
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write(json.dumps(task, ensure_ascii=False, indent=2) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            installed = _link_failed_task(temporary, target, parent_fd)
+            if not directory_matches(target.parent, parent_fd):
+                raise OSError("recovery publication parent changed")
+            return installed
+        finally:
+            unlink_staged(temporary, parent_fd)
+
+
+def _link_failed_task(temporary: Path, target: Path, parent_fd: int | None) -> bool:
+    try:
+        if parent_fd is None:
             _link(temporary, target)
-        except FileExistsError:
-            return False
-        return True
-    finally:
-        temporary.unlink(missing_ok=True)
+        else:
+            _link(temporary.name, target.name, src_dir_fd=parent_fd,
+                  dst_dir_fd=parent_fd, follow_symlinks=False)
+    except FileExistsError:
+        return False
+    return True

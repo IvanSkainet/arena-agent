@@ -135,6 +135,79 @@ def _truncate_output(stdout: str, stderr: str, limit: int) -> tuple[str, str, bo
     return stdout, stderr, truncated
 
 
+def _read_submission(path: Path, ctx: TaskRunnerContext) -> dict | None:
+    try:
+        task = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        ctx.log_error("[TaskRunner] Failed to read %s: %s", path, exc)
+        return None
+    return task if isinstance(task, dict) else {"invalid_submission": task}
+
+
+def _prepare_task(task: dict, running_path: Path) -> tuple[Path, int, int]:
+    task["owner_created_at"] = _owner_creation_time()
+    cwd = Path(task.get("cwd") or str(Path.home())).expanduser().resolve()
+    task["cwd"] = str(cwd)
+    write_private_json(running_path, task)
+    timeout = int(task.get("timeout") or 3600)
+    limit = int(task.get("max_output") or 2_000_000)
+    if min(timeout, limit) <= 0:
+        raise ValueError("timeout and max_output must be positive")
+    command = task.get("cmd")
+    if not isinstance(command, str):
+        raise ValueError("cmd must be a nonempty string")
+    if not command.strip():
+        raise ValueError("cmd must be a nonempty string")
+    return cwd, timeout, limit
+
+
+def _task_environment(task: dict) -> dict[str, str]:
+    env = os.environ.copy()
+    if isinstance(task.get("env"), dict):
+        env.update({str(k): str(v) for k, v in task["env"].items()})
+    return env
+
+
+async def _execute_worker(task: dict, running_path: Path, cwd: Path, timeout: int):
+    worker = Path(__file__).with_name("process_worker.py")
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable, "-I", str(worker), str(running_path.resolve()),
+        cwd=str(cwd), env=_task_environment(task),
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    try:
+        stdout, stderr = await _task_process_output(proc, timeout)
+        return stdout.decode("utf-8", "replace"), stderr.decode("utf-8", "replace"), proc.returncode
+    except asyncio.TimeoutError:
+        return "", "timeout", 124
+
+
+def _finish_task(ctx: TaskRunnerContext, task: dict, running_path: Path,
+                 stdout: str, stderr: str, exit_code, duration: float, limit: int) -> None:
+    stdout, stderr, truncated = _truncate_output(stdout, stderr, limit)
+    state = "done" if exit_code == 0 else "failed"
+    task.update({
+        "finished_at": ctx.utc_now(), "duration_sec": duration,
+        "exit_code": exit_code, "stdout": stdout, "stderr": stderr,
+        "truncated": truncated, "state": state})
+    dest = (ctx.done if exit_code == 0 else ctx.failed) / running_path.name
+    write_private_json(dest, task)
+    try:
+        running_path.unlink()
+    except FileNotFoundError:
+        pass
+    ctx.log_info("[TaskRunner] %s: %s exit=%s dur=%ss", task.get("id") or running_path.stem,
+                 state, exit_code, duration)
+
+
+def _cleanup_sessions(ctx: TaskRunnerContext) -> None:
+    try:
+        removed = ctx.cleanup_mcp_sessions()
+        if removed:
+            ctx.log_info("[TaskRunner] Cleaned %d stale MCP sessions", removed)
+    except Exception:
+        pass
+
+
 def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
     def task_ensure_dirs() -> None:
         for p in [ctx.inbox, ctx.running, ctx.done, ctx.failed]:
@@ -142,15 +215,9 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
 
     async def task_run_one(task_path: Path) -> bool:
         """Process a single task JSON file asynchronously."""
-        try:
-            task = json.loads(task_path.read_text(encoding="utf-8"))
-        except Exception as e:
-            ctx.log_error("[TaskRunner] Failed to read %s: %s", task_path, e)
+        task = _read_submission(task_path, ctx)
+        if task is None:
             return False
-
-        if not isinstance(task, dict):
-            task = {"invalid_submission": task}
-        tid = task.get("id") or task_path.stem
         rp = ctx.running / task_path.name
         try:
             task_path.rename(rp)
@@ -165,16 +232,7 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
         t0 = time.time()
         max_output = 2_000_000
         try:
-            task["owner_created_at"] = _owner_creation_time()
-            cwd = Path(task.get("cwd") or str(Path.home())).expanduser().resolve()
-            task["cwd"] = str(cwd)
-            write_private_json(rp, task)
-            timeout = int(task.get("timeout") or 3600)
-            max_output = int(task.get("max_output") or 2_000_000)
-            if timeout <= 0 or max_output <= 0:
-                raise ValueError("timeout and max_output must be positive")
-            if not isinstance(task.get("cmd"), str) or not task["cmd"].strip():
-                raise ValueError("cmd must be a nonempty string")
+            cwd, timeout, max_output = _prepare_task(task, rp)
             blk = ctx.blocked_reason(task["cmd"])
             if blk:
                 task["state"] = "failed"
@@ -184,43 +242,13 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
                 move_atomic(rp, ctx.failed / rp.name)
                 return True
 
-            env = os.environ.copy()
-            if isinstance(task.get("env"), dict):
-                env.update({str(k): str(v) for k, v in task["env"].items()})
-
-            worker = Path(__file__).with_name("process_worker.py")
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable, "-I", str(worker), str(rp.resolve()), cwd=str(cwd), env=env,
-                stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-            try:
-                stdout, stderr = await _task_process_output(proc, timeout)
-                stdout = stdout.decode("utf-8", "replace")
-                stderr = stderr.decode("utf-8", "replace")
-                exit_code = proc.returncode
-            except asyncio.TimeoutError:
-                stdout, stderr = "", "timeout"
-                exit_code = 124
+            stdout, stderr, exit_code = await _execute_worker(task, rp, cwd, timeout)
         except Exception as e:
             stdout, stderr = "", repr(e)
             exit_code = 125
 
-        duration = round(time.time() - t0, 3)
-        stdout, stderr, truncated = _truncate_output(stdout, stderr, max_output)
-
-        state = "done" if exit_code == 0 else "failed"
-        task.update({
-            "finished_at": ctx.utc_now(), "duration_sec": duration,
-            "exit_code": exit_code, "stdout": stdout, "stderr": stderr,
-            "truncated": truncated, "state": state,
-        })
-        dest = (ctx.done if exit_code == 0 else ctx.failed) / task_path.name
-        write_private_json(dest, task)
-        try:
-            rp.unlink()
-        except FileNotFoundError:
-            pass
-
-        ctx.log_info("[TaskRunner] %s: %s exit=%s dur=%ss", tid, state, exit_code, duration)
+        _finish_task(ctx, task, rp, stdout, stderr, exit_code,
+                     round(time.time() - t0, 3), max_output)
         return True
 
     async def task_runner_loop(app: web.Application):
@@ -236,12 +264,7 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
                     await task_run_one(p)
             except Exception as e:
                 ctx.log_error("[TaskRunner] Loop error: %s", e)
-            try:
-                removed = ctx.cleanup_mcp_sessions()
-                if removed:
-                    ctx.log_info("[TaskRunner] Cleaned %d stale MCP sessions", removed)
-            except Exception:
-                pass
+            _cleanup_sessions(ctx)
             await asyncio.sleep(5)
 
     return TaskRunnerRuntime(

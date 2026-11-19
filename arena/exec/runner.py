@@ -44,32 +44,34 @@ def _kill_process_tree(proc: Any) -> None:
     primitive; the direct kill remains the race/failure fallback.
     """
     pid = getattr(proc, "pid", None)
-    if sys.platform == "win32" and pid:
-        try:
-            killed = subprocess.run(  # nosec B603 -- fixed taskkill argv, no shell
-                ["taskkill.exe", "/PID", str(pid), "/T", "/F"],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=10,
-                check=False,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            if killed.returncode == 0:
-                return
-        except (OSError, subprocess.SubprocessError):
-            pass
-    elif pid:
-        try:
-            # Negative pid = the whole process group created above.
-            os.killpg(os.getpgid(pid), signal.SIGKILL)
+    if pid:
+        killer = _kill_windows_tree if sys.platform == "win32" else _kill_posix_group
+        if killer(pid):
             return
-        except (ProcessLookupError, PermissionError, OSError):
-            pass  # fall through to the single-process kill
     try:
         proc.kill()
     except (ProcessLookupError, OSError):
         pass
+
+
+def _kill_windows_tree(pid: int) -> bool:
+    try:
+        killed = subprocess.run(  # nosec B603 -- fixed argv, no shell
+            ["taskkill.exe", "/PID", str(pid), "/T", "/F"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=10, check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return killed.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _kill_posix_group(pid: int) -> bool:
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGKILL)
+        return True
+    except OSError:
+        return False
 
 
 async def _terminate_if_running(proc: Any) -> None:
@@ -81,6 +83,72 @@ async def _terminate_if_running(proc: Any) -> None:
         await asyncio.wait_for(proc.wait(), timeout=5)
     except (asyncio.TimeoutError, ProcessLookupError, OSError):
         pass
+
+
+def _decode_limited(data: bytes, decode: Callable[[bytes], str], limit: int) -> tuple[str, bool]:
+    text = decode(data) if data else ""
+    encoded = text.encode("utf-8", "replace")
+    if len(encoded) <= limit:
+        return text, False
+    return encoded[:limit].decode("utf-8", "replace"), True
+
+
+class _StreamBudget:
+    """Count every byte while emitting at most the per-stream budget."""
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        self.totals = {"stdout": 0, "stderr": 0}
+        self.truncated = False
+
+    def consume(self, tag: str, chunk: bytes) -> dict[str, Any] | None:
+        before = self.totals[tag]
+        self.totals[tag] += len(chunk)
+        room = max(0, self.limit - before)
+        if len(chunk) > room:
+            self.truncated = True
+        emit = chunk[:room]
+        if emit:
+            return {"type": tag, "data": emit}
+        return None
+
+
+async def _buffered_output(proc: Any, timeout: int) -> tuple[bytes, bytes, bool]:
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return stdout, stderr, False
+    except asyncio.TimeoutError:
+        _kill_process_tree(proc)
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5)
+        except asyncio.TimeoutError:
+            stdout, stderr = b"", b""
+        return stdout, stderr, True
+
+
+async def _wait_for_exit(proc: Any) -> int:
+    try:
+        return await asyncio.wait_for(proc.wait(), timeout=5)
+    except asyncio.TimeoutError:
+        return proc.returncode if proc.returncode is not None else -1
+
+
+async def _finish_stream_pumps(proc: Any, pumps: list[asyncio.Task], timed_out: bool) -> None:
+    if not timed_out:
+        await asyncio.gather(*pumps, return_exceptions=True)
+        return
+    _kill_process_tree(proc)
+    try:
+        await asyncio.wait_for(asyncio.gather(*pumps, return_exceptions=True), timeout=5)
+    except asyncio.TimeoutError:
+        pass
+
+
+async def _cancel_pumps(pumps: list[asyncio.Task | None]) -> None:
+    active = [task for task in pumps if task is not None]
+    for task in active:
+        task.cancel()
+    await asyncio.gather(*active, return_exceptions=True)
 
 
 async def run_shell_command(
@@ -107,35 +175,13 @@ async def run_shell_command(
             **_process_group_kwargs(),
         )
         ACTIVE_PROCESSES[request_id] = {"cmd": cmd, "pid": proc.pid, "start": time.time()}
-        try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            exit_code = proc.returncode
-        except asyncio.TimeoutError:
-            timed_out = True
-            # Kill the whole group, not just the shell. `proc.kill()` signals
-            # the shell alone, so `bash -c "sleep 300"` left the sleep running
-            # with PPID 1 -- a leaked process on the user's machine, outliving
-            # the request that asked for it. It also kept the stdout pipe
-            # open, so the 5s drain below always ran to full length: a
-            # timeout=1 request consistently took 6s. Measured before the fix
-            # (overshoot was a flat 5s at timeout=1,2,3,5) and after.
-            _kill_process_tree(proc)
-            try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=5)
-            except asyncio.TimeoutError:
-                stdout_bytes, stderr_bytes = b"", b""
-            exit_code = proc.returncode if proc.returncode is not None else -1
+        stdout_bytes, stderr_bytes, timed_out = await _buffered_output(proc, timeout)
+        exit_code = proc.returncode if proc.returncode is not None else -1
 
         duration = round(time.time() - t0, 3)
-        stdout = decode_output_fn(stdout_bytes) if stdout_bytes else ""
-        stderr = decode_output_fn(stderr_bytes) if stderr_bytes else ""
-        truncated = False
-        if len(stdout.encode("utf-8", "replace")) > max_output:
-            stdout = stdout.encode("utf-8", "replace")[:max_output].decode("utf-8", "replace")
-            truncated = True
-        if len(stderr.encode("utf-8", "replace")) > max_output:
-            stderr = stderr.encode("utf-8", "replace")[:max_output].decode("utf-8", "replace")
-            truncated = True
+        stdout, stdout_truncated = _decode_limited(stdout_bytes, decode_output_fn, max_output)
+        stderr, stderr_truncated = _decode_limited(stderr_bytes, decode_output_fn, max_output)
+        truncated = stdout_truncated or stderr_truncated
         return {
             "ok": (not timed_out) and exit_code == 0,
             "request_id": request_id,
@@ -205,9 +251,7 @@ async def run_shell_command_stream(
     """
     t0 = time.time()
     timed_out = False
-    stdout_bytes_total = 0
-    stderr_bytes_total = 0
-    truncated = False
+    budget = _StreamBudget(max_output)
     proc: asyncio.subprocess.Process | None = None
     stdout_task: asyncio.Task | None = None
     stderr_task: asyncio.Task | None = None
@@ -245,70 +289,27 @@ async def run_shell_command_stream(
             if chunk is None:
                 eofs_seen += 1
                 continue
-            if tag == "stdout":
-                if stdout_bytes_total < max_output:
-                    room = max_output - stdout_bytes_total
-                    emit = chunk if len(chunk) <= room else chunk[:room]
-                    stdout_bytes_total += len(chunk)
-                    if len(chunk) > room:
-                        truncated = True
-                    if emit:
-                        yield {"type": "stdout", "data": emit}
-                else:
-                    stdout_bytes_total += len(chunk)
-                    truncated = True
-            else:
-                if stderr_bytes_total < max_output:
-                    room = max_output - stderr_bytes_total
-                    emit = chunk if len(chunk) <= room else chunk[:room]
-                    stderr_bytes_total += len(chunk)
-                    if len(chunk) > room:
-                        truncated = True
-                    if emit:
-                        yield {"type": "stderr", "data": emit}
-                else:
-                    stderr_bytes_total += len(chunk)
-                    truncated = True
+            event = budget.consume(tag, chunk)
+            if event is not None:
+                yield event
 
-        if timed_out:
-            # Same reason as the buffered path: signalling only the shell
-            # leaves grandchildren running and holding the pipes open.
-            _kill_process_tree(proc)
-            # Drain remaining pump output briefly so the tasks can exit.
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(stdout_task, stderr_task, return_exceptions=True),
-                    timeout=5,
-                )
-            except asyncio.TimeoutError:
-                pass
-        else:
-            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-
-        try:
-            exit_code = await asyncio.wait_for(proc.wait(), timeout=5)
-        except asyncio.TimeoutError:
-            exit_code = proc.returncode if proc.returncode is not None else -1
+        await _finish_stream_pumps(proc, [stdout_task, stderr_task], timed_out)
+        exit_code = await _wait_for_exit(proc)
 
         duration = round(time.time() - t0, 3)
         yield {
             "type": "exit",
             "exit_code": exit_code,
             "duration_sec": duration,
-            "stdout_bytes": stdout_bytes_total,
-            "stderr_bytes": stderr_bytes_total,
-            "truncated": truncated,
+            "stdout_bytes": budget.totals["stdout"],
+            "stderr_bytes": budget.totals["stderr"],
+            "truncated": budget.truncated,
             "timed_out": timed_out,
             "error": f"timeout after {timeout}s" if timed_out else None,
         }
     finally:
         await _terminate_if_running(proc)
-        pumps = [task for task in (stdout_task, stderr_task) if task is not None]
-        for task in pumps:
-            if not task.done():
-                task.cancel()
-        if pumps:
-            await asyncio.gather(*pumps, return_exceptions=True)
+        await _cancel_pumps([stdout_task, stderr_task])
         ACTIVE_PROCESSES.pop(request_id, None)
 
 

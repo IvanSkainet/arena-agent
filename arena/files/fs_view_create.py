@@ -40,6 +40,15 @@ def _err(ctx, msg: str, status: int) -> web.Response:
     return err_json(ctx, msg, status=status)
 
 
+def _line_number(value) -> int:
+    if isinstance(value, bool):
+        raise ValueError("boolean is not a line number")
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError("fractional or nonfinite line number")
+    return int(value)
+
+
 def _view_bounds(view_range, total_lines: int) -> tuple[int, int]:
     """Validate the optional inclusive one-based range independently of HTTP."""
     if view_range is None:
@@ -47,13 +56,10 @@ def _view_bounds(view_range, total_lines: int) -> tuple[int, int]:
     if not isinstance(view_range, list) or len(view_range) != 2:
         raise ValueError("view_range must be [start, end] line numbers (1-indexed)")
     try:
-        if any(isinstance(value, bool) or
-               (isinstance(value, float) and not value.is_integer()) for value in view_range):
-            raise ValueError("view_range values must be integers")
-        start, end = int(view_range[0]), int(view_range[1])
+        start, end = (_line_number(value) for value in view_range)
     except (ValueError, TypeError, OverflowError) as exc:
         raise ValueError("view_range values must be integers") from exc
-    if start < 1 or end < 1 or start > end:
+    if not 1 <= start <= end:
         raise ValueError(f"invalid view_range [{start}, {end}] — must be 1-indexed with start <= end")
     if start > total_lines:
         raise ValueError(f"start line {start} exceeds file length ({total_lines} lines)")
