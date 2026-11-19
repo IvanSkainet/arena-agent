@@ -18,6 +18,7 @@ def record_recovery(db_path: Path, quarantine: Path) -> None:
 
 
 def memory_status(db_path: Path) -> str:
-    if recovery_record(db_path).exists():
+    if (recovery_record(db_path).exists()
+            or db_path.with_name(db_path.name + ".recovery-incomplete").exists()):
         return "rebuilt"
     return "ok" if db_path.exists() else "empty"

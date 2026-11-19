@@ -53,7 +53,7 @@ def _read(name: str, directory: Path) -> tuple[dict | None, float]:
         if not isinstance(result.get(_KEYS[name]), list):
             return None, 0.0
         return result, max(0.0, time.time() - at)
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, OverflowError):
         return None, 0.0
 
 

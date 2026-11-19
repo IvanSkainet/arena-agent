@@ -113,7 +113,7 @@ def pid_is_alive(pid: int) -> bool:
     see, while the cost of a wrong "dead" is killing a task that is still
     running under another bridge.
     """
-    if not isinstance(pid, int) or pid <= 0:
+    if type(pid) is not int or pid <= 0:
         return False
     if os.name == "nt":
         return _windows_pid_is_alive(pid)

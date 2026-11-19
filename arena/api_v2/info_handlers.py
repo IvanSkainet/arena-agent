@@ -84,7 +84,7 @@ def make_v2_health_handler(ctx: ApiV2HandlerContext):
             "ok": all_healthy,
             "status": "healthy" if all_healthy else "unhealthy",
             "required_checks": sorted(required),
-            "optional_checks": ["cdp", "cluster"],
+            "optional_checks": sorted(set(checks) - set(required)),
             "version": ctx.version,
             "api_version": "2",
             "checks": checks,

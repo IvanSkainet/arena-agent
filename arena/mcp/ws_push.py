@@ -15,12 +15,14 @@ from arena.mcp.ws_frames import (  # noqa: F401  # kept: re-export/dynamic (AGEN
     threading,
     time,
 )
+from arena.private_state import private_directory
 
 SUBS: dict = {}
 SUBS_LOCK = threading.Lock()
 NOTIFY_QUEUE = agent_home() / "logs" / "ws_notify.queue"
-NOTIFY_QUEUE.parent.mkdir(parents=True, exist_ok=True)
-NOTIFY_QUEUE.touch(exist_ok=True)
+private_directory(NOTIFY_QUEUE.parent)
+NOTIFY_QUEUE.touch(mode=0o600, exist_ok=True)
+NOTIFY_QUEUE.chmod(0o600)
 
 def _subscribe(sock, topic):
     with SUBS_LOCK:

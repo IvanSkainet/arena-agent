@@ -39,6 +39,9 @@ def _producer(name: str, target: str, inputs: dict[str, Path]) -> str:
     producer = constraint.with_suffix(".in").name
     if producer not in inputs:
         raise ValueError(f"{name}: no generator for {target}")
+    canonical = "requirements-ci.txt" if producer == "requirements-ci.in" else Path(producer).with_suffix(".lock").name
+    if target != canonical:
+        raise ValueError(f"{name}: noncanonical generated constraint {target!r}; expected {canonical}")
     return producer
 
 
@@ -61,7 +64,8 @@ def _topological_order(dependencies: dict[str, set[str]]) -> list[str]:
 def regeneration_order(root: Path) -> list[str]:
     """Fail closed on missing generators, nonlocal constraints, and cycles.
 
-    Only root requirements-*.in / .lock pairs participate. All prerequisites
+    Only root requirements-*.in / .lock pairs participate, except the canonical
+    requirements-ci.in / requirements-ci.txt pair. All prerequisites
     are visited before their consumers, independent of alphabetical order.
     No resolver, network request, or repository-supplied program is executed.
     """

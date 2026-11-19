@@ -136,6 +136,8 @@ def resolve_home_path(
     try:
         resolved = target_path.resolve()
         inside = inside_any(resolved, jail_roots(home, root, extra_roots))
+    except ValueError:
+        return None, "path outside allowed filesystem roots", 403
     except (OSError, RuntimeError) as exc:
         # `resolve()` is a syscall too: an over-long component is
         # `OSError: [Errno 36]` and a broken mount is an OSError as well,

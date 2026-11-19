@@ -84,3 +84,21 @@ def test_subagent_timeout_finishes_metadata_and_reaps_command_tree(cli, tmp_path
                 psutil.Process(pid).kill()
             except psutil.NoSuchProcess:
                 pass
+
+
+def test_subagent_output_is_private_even_with_a_permissive_umask(tmp_path):
+    import os
+    import stat
+
+    from arena.subagent_lifecycle import _private_output, output_tail
+
+    path = tmp_path / "stdout.log"
+    old = os.umask(0)
+    try:
+        with _private_output(path) as stream:
+            stream.write(b"private output\n")
+    finally:
+        os.umask(old)
+    if os.name != "nt":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert output_tail(path, 0) == ""

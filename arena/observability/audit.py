@@ -101,7 +101,9 @@ def write_audit_event(
     lock: threading.Lock = audit_lock,
 ) -> dict[str, Any]:
     """Sanitize, timestamp, append and rotate an audit event; return written event."""
-    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    from arena.private_state import private_directory
+
+    private_directory(audit_path.parent)
     written = {"ts": utc_now_fn(), **sanitize_audit_event(event)}
     line = json.dumps(written, ensure_ascii=False, sort_keys=True) + "\n"
     with lock:

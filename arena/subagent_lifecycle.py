@@ -12,10 +12,23 @@ from arena.private_state import write_private_json
 
 
 def output_tail(path: Path, lines: int) -> str:
+    if lines <= 0:
+        return ""
     try:
         return "\n".join(path.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:])
     except OSError:
         return ""
+
+
+def _private_output(path: Path):
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
+    try:
+        path.chmod(0o600)
+        return os.fdopen(fd, "wb")
+    except BaseException:
+        os.close(fd)
+        raise
 
 
 def run(directory: Path) -> dict:
@@ -26,7 +39,7 @@ def run(directory: Path) -> dict:
     write_private_json(task, {"cmd": meta["cmd"], "cwd": meta["cwd"],
                               "timeout": meta["timeout"], "max_output": 2_000_000})
     worker = Path(__file__).with_name("tasks") / "process_worker.py"
-    with out_path.open("wb") as stdout, err_path.open("wb") as stderr:
+    with _private_output(out_path) as stdout, _private_output(err_path) as stderr:
         process = subprocess.Popen([sys.executable, "-I", str(worker), str(task)],  # nosec B603 -- fixed interpreter and package-owned worker; task is private operator input, never an executable path
                                    stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
                                    env=os.environ.copy(), close_fds=True)

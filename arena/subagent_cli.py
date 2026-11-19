@@ -29,11 +29,12 @@ import uuid
 from pathlib import Path
 
 from arena.home import agent_home, code_root
-from arena.private_state import write_private_json
+from arena.private_state import private_directory, write_private_json
 
 ROOT = agent_home()
 SUB_DIR = ROOT / "subagents"
-SUB_DIR.mkdir(parents=True, exist_ok=True)
+private_directory(ROOT)
+private_directory(SUB_DIR)
 
 
 def now_utc() -> str:
@@ -51,6 +52,8 @@ def _subagent_env(sid: str, name: str) -> dict[str, str]:
 
 
 def _output_tail(path: Path, lines: int) -> str:
+    if lines <= 0:
+        return ""
     try:
         return "\n".join(path.read_text().splitlines()[-lines:])
     except (OSError, UnicodeError) as exc:
@@ -93,7 +96,7 @@ def spawn(args) -> int:
                                    env=env, cwd=str(code_root()), stdin=subprocess.DEVNULL,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                    start_new_session=True)
-        (sd / "pid").write_text(str(process.pid))
+        write_private_json(sd / "pid", process.pid)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0 if summary["status"] in ("ok", "spawned") else 1
 

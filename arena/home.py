@@ -87,9 +87,9 @@ def default_home() -> Path:
 
 
 # Fixed fingerprints distinguish shipped examples from operator state.
-_SHIPPED_CONFIGURATION = {'mcp/mcp.json': 'ad92b392fedcaaed1f104384c734092dcf8b5ca56a3ee260916901de2d3e65cd',
- 'mcp/registry.json': '57f930b7ef66e51782f3c903d62f4cfa72a7d47f5671badf444d2bf3a90fa5a1',
- 'webhooks.json': '2119d4d751fb0d7b873d49a5e40e2b6f895eb1e83f90889d7483a3f45e707dd1'}
+_SHIPPED_CONFIGURATION = {'mcp/mcp.json': 'ad92b392fedcaaed1f104384c734092dcf8b5ca56a3ee260916901de2d3e65cd',  # DevSkim: ignore DS173237 -- public shipped-template SHA256 fingerprint, not a credential
+ 'mcp/registry.json': '57f930b7ef66e51782f3c903d62f4cfa72a7d47f5671badf444d2bf3a90fa5a1',  # DevSkim: ignore DS173237 -- public shipped-template SHA256 fingerprint, not a credential
+ 'webhooks.json': '2119d4d751fb0d7b873d49a5e40e2b6f895eb1e83f90889d7483a3f45e707dd1'}  # DevSkim: ignore DS173237 -- public shipped-template SHA256 fingerprint, not a credential
 
 
 def _state_file(root: Path, relative: str) -> bool:

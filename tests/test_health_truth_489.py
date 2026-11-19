@@ -142,3 +142,23 @@ def test_memory_status_permission_error_is_a_critical_diagnostic(monkeypatch):
     CHECK.assertTrue(check["critical"])
     CHECK.assertEqual(check["status"], "error")
     CHECK.assertIn("PermissionError", check["detail"])
+
+
+def test_incomplete_recovery_is_not_reported_healthy(tmp_path):
+    db = tmp_path / "facts.db"
+    db.write_bytes(b"")
+    db.with_name(db.name + ".recovery-incomplete").write_text("interrupted")
+    CHECK.assertEqual(memory_status(db), "rebuilt")
+
+
+def test_tls_requires_both_certificate_and_private_key(tmp_path):
+    from arena.api_v2.common import tls_ready
+
+    cert, key = tmp_path / "cert.pem", tmp_path / "key.pem"
+    cert.touch()
+    config = {"enabled": True, "cert_path": str(cert), "key_path": str(key)}
+    CHECK.assertFalse(tls_ready(config))
+    key.touch()
+    CHECK.assertTrue(tls_ready(config))
+    result = _v2()
+    CHECK.assertEqual(set(result["required_checks"]) | set(result["optional_checks"]), set(result["checks"]))

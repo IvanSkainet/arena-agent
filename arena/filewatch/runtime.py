@@ -113,7 +113,7 @@ def make_file_watch_runtime(ctx: FileWatchRuntimeContext) -> FileWatchRuntime:
         created_at: str = "",
     ) -> dict[str, Any]:
         default = ctx.default_root() if callable(ctx.default_root) else ctx.default_root
-        root_path = Path(root or default)
+        root_path = Path(root or default).expanduser().resolve()
         resolved, error, status = validate_watch_target(path, root=root_path, home=ctx.home)
         if resolved is None:
             return {"ok": False, "error": error, "status": status}
