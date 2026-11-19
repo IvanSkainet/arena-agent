@@ -8,9 +8,9 @@ from arena.home import agent_home
 
 def windows_launcher_root(install_root: Path | str) -> Path:
     install = Path(install_root)
-    if any((install / name).is_file() for name in ("start_hidden.vbs", "start_bridge.bat")):
+    if all((install / name).is_file() for name in ("start_hidden.vbs", "start_bridge.bat")):
         return install
     state = agent_home()
-    if any((state / name).is_file() for name in ("start_hidden.vbs", "start_bridge.bat")):
+    if all((state / name).is_file() for name in ("start_hidden.vbs", "start_bridge.bat")):
         return state
     return install

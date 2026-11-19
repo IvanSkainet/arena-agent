@@ -182,6 +182,8 @@ def _write_worker_result(path: Path, status: str) -> None:
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(path, flags, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        if os.name != "nt":
+            os.fchmod(stream.fileno(), 0o600)
         json.dump({"status": status}, stream)
 
 

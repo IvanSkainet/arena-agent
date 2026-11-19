@@ -229,6 +229,9 @@ def test_custom_state_root_is_retrievable_but_sensitive_paths_stay_blocked(tmp_p
     image.parent.mkdir()
     image.write_bytes(b"ordinary capture")
     assert standalone_tools._jail(str(image)) == str(image.resolve())
+    result = standalone_tools.call_tool("fs.read", {"path": str(image)})
+    assert not result.get("isError"), _text(result)
+    assert _text(result) == "ordinary capture"
     for target in (state / "token.txt", state / ".ssh" / "private-key"):
         with pytest.raises(standalone_tools.PathJailError):
             standalone_tools._jail(str(target))

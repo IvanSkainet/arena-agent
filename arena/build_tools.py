@@ -21,5 +21,5 @@ class BuildWithTools(build_py):
             destination.mkdir(parents=True, exist_ok=True)
             target = destination / source.name
             self.copy_file(str(source), str(target))
-            if source_directory.name == "bin" and source.name == "sd-exec":
+            if not self.dry_run and source_directory.name == "bin" and source.name == "sd-exec":
                 target.chmod(target.stat().st_mode | 0o111)

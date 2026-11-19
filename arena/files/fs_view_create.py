@@ -47,8 +47,11 @@ def _view_bounds(view_range, total_lines: int) -> tuple[int, int]:
     if not isinstance(view_range, list) or len(view_range) != 2:
         raise ValueError("view_range must be [start, end] line numbers (1-indexed)")
     try:
+        if any(isinstance(value, bool) or
+               (isinstance(value, float) and not value.is_integer()) for value in view_range):
+            raise ValueError("view_range values must be integers")
         start, end = int(view_range[0]), int(view_range[1])
-    except (ValueError, TypeError) as exc:
+    except (ValueError, TypeError, OverflowError) as exc:
         raise ValueError("view_range values must be integers") from exc
     if start < 1 or end < 1 or start > end:
         raise ValueError(f"invalid view_range [{start}, {end}] — must be 1-indexed with start <= end")

@@ -137,8 +137,11 @@ def test_windows_relaunchers_find_the_repaired_state_launcher(tmp_path, monkeypa
     state.mkdir()
     monkeypatch.setenv("ARENA_AGENT_HOME", str(state))
     (state / "start_bridge.bat").write_text("state launcher")
+    (state / "start_hidden.vbs").write_text("state hidden launcher")
     assert windows_launcher_root(code) == state
-    (code / "start_hidden.vbs").write_text("custom legacy launcher")
+    (code / "start_hidden.vbs").write_text("partial legacy launcher")
+    assert windows_launcher_root(code) == state
+    (code / "start_bridge.bat").write_text("complete legacy launcher")
     assert windows_launcher_root(code) == code
 
 

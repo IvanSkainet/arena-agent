@@ -49,8 +49,8 @@ def _jail(raw: str) -> str:
     if _Path(expanded).name in _BLOCKED_BASENAMES:
         raise PathJailError(f"accessing {_Path(expanded).name} is not allowed")
     resolved = _Path(expanded).resolve()
-    home = _allowed_root(resolved)
-    error = _sensitivity_error(_Path(expanded), home, action="accessing")
+    _allowed_root(resolved)
+    error = _sensitivity_error(_Path(expanded), _Path(resolved.anchor), action="accessing")
     if error is not None:
         raise PathJailError(error[0])
     return str(resolved)

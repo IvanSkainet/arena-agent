@@ -56,7 +56,9 @@ def launch_detached_shell_script(path: Path) -> None:
 
 def render_template(template: str, ctx: RestartContext) -> str:
     """Keep custom token paths as quoted data, never shell source."""
-    if ctx.sys_name == "Windows":
+    if "__TOKEN_FILE__" not in template:
+        prefix = ""
+    elif ctx.sys_name == "Windows":
         if any(char in ctx.token_file for char in ('"', "\r", "\n", "\0")):
             raise ValueError("invalid Windows token-file path")
         token = ctx.token_file.replace("%", "%%")
