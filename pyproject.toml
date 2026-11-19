@@ -17,10 +17,10 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 
-# Core runtime dependencies: task ownership and cleanup require psutil.
+# Desktop process identity/cleanup uses psutil; the Android bootstrap keeps it optional.
 dependencies = [
     "aiohttp>=3.14.4",
-    "psutil>=5.9",
+    "psutil>=5.9; sys_platform != 'android' and platform_system != 'Android'",
 ]
 
 [project.optional-dependencies]

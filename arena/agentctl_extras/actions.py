@@ -1,6 +1,7 @@
 """agentctl extras action commands."""
 from __future__ import annotations
 
+from arena.agent_helpers.journal import append_fact_record
 from arena.agentctl_extras.common import (
     AGENTCTL,
     ROOT,
@@ -131,7 +132,6 @@ def cmd_remember(args: list[str]) -> int:
             tags = args[idx+1].split(",")
 
     facts_file = ROOT / "memory" / "facts.jsonl"
-    facts_file.parent.mkdir(parents=True, exist_ok=True)
     fact = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "key": key,
@@ -139,8 +139,7 @@ def cmd_remember(args: list[str]) -> int:
         "tags": tags
     }
     try:
-        with open(facts_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(fact, ensure_ascii=False) + "\n")
+        append_fact_record(facts_file, fact)
         print(f"[OK] Remembered fact: {key}")
     except Exception as e:
         print(f"Error writing fact: {e}", file=sys.stderr)

@@ -1,6 +1,8 @@
 """Push notification extension for standalone MCP WebSocket server."""
 from __future__ import annotations
 
+import os
+
 from arena.home import agent_home
 
 # Explicit: these are underscore-prefixed, so `import *` never provided
@@ -20,9 +22,19 @@ from arena.private_state import private_directory
 SUBS: dict = {}
 SUBS_LOCK = threading.Lock()
 NOTIFY_QUEUE = agent_home() / "logs" / "ws_notify.queue"
-private_directory(NOTIFY_QUEUE.parent)
-NOTIFY_QUEUE.touch(mode=0o600, exist_ok=True)
-NOTIFY_QUEUE.chmod(0o600)
+
+
+def _prepare_notify_queue(path: Path) -> None:
+    private_directory(path.parent)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        if os.name != "nt":
+            os.fchmod(fd, 0o600)
+    finally:
+        os.close(fd)
+
+
+_prepare_notify_queue(NOTIFY_QUEUE)
 
 def _subscribe(sock, topic):
     with SUBS_LOCK:

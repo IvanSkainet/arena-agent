@@ -202,7 +202,12 @@ def _owner_is_alive(task: dict[str, Any], pid: int, alive: Callable[[int], bool]
     identity = task.get("owner_created_at")
     if identity is None:
         return True  # Older records do not establish a process-start identity.
-    import psutil
+    try:
+        import psutil
+    except ModuleNotFoundError as exc:
+        if exc.name != "psutil":
+            raise
+        return True  # Without an identity probe, never steal a live PID.
 
     try:
         return abs(psutil.Process(pid).create_time() - float(identity)) < .01

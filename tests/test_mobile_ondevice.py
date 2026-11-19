@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+from shutil import which
 from unittest import mock
 
 import pytest
@@ -30,8 +31,14 @@ from arena.mobile import adb, ondevice
 def on_device(monkeypatch):
     """Force the Android dispatch path regardless of the real host."""
     if os.name == "nt":
-        shell = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")) / "Git/bin/sh.exe"
-        if not shell.is_file():
+        candidates = [which("sh")]
+        for variable in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+            root = os.environ.get(variable)
+            if root:
+                candidates.extend(str(Path(root) / "Git" / relative)
+                                  for relative in ("bin/sh.exe", "usr/bin/sh.exe"))
+        shell = next((Path(path) for path in candidates if path and Path(path).is_file()), None)
+        if shell is None:
             pytest.fail("Android shell contract tests require a real POSIX shell on Windows")
         monkeypatch.setattr(ondevice, "_shell_binary", lambda: str(shell))
     with mock.patch.object(adb, "_on_device", return_value=True):

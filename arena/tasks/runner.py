@@ -94,6 +94,16 @@ async def _task_process_output(process, timeout: int) -> tuple[bytes, bytes]:
         process.stdin.close()
 
 
+def _owner_creation_time() -> float | None:
+    try:
+        import psutil
+    except ModuleNotFoundError as exc:
+        if exc.name != "psutil":
+            raise
+        return None  # The supported Termux bootstrap installs psutil optionally.
+    return psutil.Process().create_time()
+
+
 def _reclaim_quietly(ctx_: TaskRunnerContext, when: str) -> None:
     """Never let recovery of old records stop new work from running."""
     try:
@@ -152,12 +162,10 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
         # Who claimed it, so a later start can tell "still running elsewhere"
         # from "left behind by a process that no longer exists" (#B-032).
         task["pid"] = os.getpid()
-        import psutil
-
         t0 = time.time()
         max_output = 2_000_000
         try:
-            task["owner_created_at"] = psutil.Process().create_time()
+            task["owner_created_at"] = _owner_creation_time()
             cwd = Path(task.get("cwd") or str(Path.home())).expanduser().resolve()
             task["cwd"] = str(cwd)
             write_private_json(rp, task)

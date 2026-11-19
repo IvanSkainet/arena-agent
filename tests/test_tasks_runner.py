@@ -125,3 +125,24 @@ def test_invalid_claimed_task_always_becomes_a_failed_result(tmp_path):
         assert result["state"] == "failed"
         assert result["exit_code"] != 0
         assert result["stderr"]
+
+
+def test_task_without_optional_psutil_finishes_instead_of_stranding(tmp_path, monkeypatch):
+    import subprocess
+
+    from arena.tasks import queue
+
+    monkeypatch.setitem(sys.modules, "psutil", None)
+    runtime = make_task_runner_runtime(_ctx(tmp_path))
+    runtime.ensure_dirs()
+    argv = [sys.executable, "-c", "print('optional-identity-finished')"]
+    command = subprocess.list2cmdline(argv) if sys.platform == "win32" else shlex.join(argv)
+    task = tmp_path / "inbox" / "no-identity.json"
+    task.write_text(json.dumps({"id": "no-identity", "cmd": command, "cwd": str(tmp_path), "timeout": 10}))
+    assert asyncio.run(runtime.run_one(task)) is True
+    result = json.loads((tmp_path / "done" / task.name).read_text())
+    assert result["state"] == "done"
+    assert result["owner_created_at"] is None
+    assert result["stdout"].strip() == "optional-identity-finished"
+    assert not list((tmp_path / "running").iterdir())
+    assert queue._owner_is_alive({"owner_created_at": 123.0}, 123, lambda pid: True) is True
