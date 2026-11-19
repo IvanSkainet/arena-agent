@@ -140,3 +140,21 @@ def test_cache_data_and_lease_are_private(tmp_path):
         CHECK.assertEqual((directory / "git_repos.lease").stat().st_mode & 0o777, 0o600)
     CHECK.assertEqual((directory / "git_repos.json").stat().st_mode & 0o777, 0o600)
     CHECK.assertEqual(directory.stat().st_mode & 0o777, 0o755)  # A lease cannot chmod an existing shared parent.
+
+
+def test_empty_lease_initialization_occurs_only_after_lock_acquisition(tmp_path, monkeypatch):
+    from arena.inventory import cache_lease as lease_module
+
+    path = tmp_path / "lease"
+    observations = []
+    real_lock = lease_module._lock
+
+    def observe_lock(fd):
+        observations.append(os.fstat(fd).st_size)
+        real_lock(fd)
+
+    monkeypatch.setattr(lease_module, "_lock", observe_lock)
+    with lease_module.cache_lease(path) as acquired:
+        CHECK.assertTrue(acquired)
+    CHECK.assertEqual(path.read_bytes(), b"\0")
+    CHECK.assertEqual(observations, [0])

@@ -76,8 +76,6 @@ def lease_in_directory(path: Path, parent_fd: int | None) -> Iterator[bool]:
 def _held_lease(fd: int) -> Iterator[bool]:
     held = False
     try:
-        if os.fstat(fd).st_size == 0:
-            os.write(fd, b"\0")
         try:
             _lock(fd)
         except OSError as exc:
@@ -86,6 +84,11 @@ def _held_lease(fd: int) -> Iterator[bool]:
             yield False
             return
         held = True
+        # Windows permits locking a range beyond EOF. Initialize only while
+        # holding that range: a competing holder can otherwise make this
+        # first-byte write fail with EACCES between our size check and write.
+        if os.fstat(fd).st_size == 0:
+            os.write(fd, b"\0")
         yield True
     finally:
         if held:
