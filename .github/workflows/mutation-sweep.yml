@@ -110,7 +110,7 @@ jobs:
           # targets in five seconds. The report said "ran" with a straight
           # face -- a fail-open in the very tooling written to find
           # fail-opens. No `|| true` here.
-          python -m pip install --only-binary :all: --require-hashes -r requirements-ci.lock
+          python -m pip install --only-binary :all: --require-hashes -r requirements-ci.txt
           python -m pip install --no-deps --no-build-isolation -e .
           # mutmut 2.5.1, not 3.x: 3.x copies the tree into mutants/ and
           # breaks our imports. Measured, not assumed. Hash-locked in

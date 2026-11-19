@@ -17,11 +17,11 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any
 
+from arena.home import agent_home
 from arena.scenarios.storage import (
     InvalidScenario,
     ScenarioNotFound,
@@ -39,7 +39,7 @@ def resolve_missions_dir() -> Path:
     Mirrors ``arena/missions_cli/common.py::MISSIONS`` — env
     ``ARENA_AGENT_HOME`` overrides, otherwise ``~/arena-bridge``.
     """
-    root = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
+    root = agent_home()
     return root / "missions"
 
 

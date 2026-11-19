@@ -73,7 +73,7 @@ def repo_copy(tmp_path: Path) -> Path:
     (work / "scripts" / GUARD.name).write_bytes(GUARD.read_bytes())
     for path in REPO_ROOT.glob("requirements-*.in"):
         (work / path.name).write_bytes(path.read_bytes())
-    for path in REPO_ROOT.glob("requirements-*.lock"):
+    for path in [*REPO_ROOT.glob("requirements-*.lock"), REPO_ROOT / "requirements-ci.txt"]:
         (work / path.name).write_bytes(path.read_bytes())
     for path in WORKFLOWS.glob("*.yml"):
         (work / ".github" / "workflows" / path.name).write_bytes(path.read_bytes())
@@ -107,9 +107,9 @@ def test_ci_lock_matches_the_declared_ruff() -> None:
             declared = match.group("version")
     assert declared is not None
 
-    lock = (REPO_ROOT / "requirements-ci.lock").read_text(encoding="utf-8")
+    lock = (REPO_ROOT / "requirements-ci.txt").read_text(encoding="utf-8")
     assert re.search(rf"^ruff=={re.escape(declared)}\b", lock, re.M), (
-        "requirements-ci.lock does not pin the ruff version its .in declares"
+        "requirements-ci.txt does not pin the ruff version its .in declares"
     )
 
 
@@ -159,7 +159,7 @@ def test_guard_ignores_locks_that_never_share_an_interpreter(
     """Reverse sabotage: a legitimately independent resolution is not a bug.
 
     requirements-security.lock resolves rich/packaging/cffi differently
-    from requirements-ci.lock because its own graph demands it, and no job
+    from requirements-ci.txt because its own graph demands it, and no job
     installs both. A detector that reports this is worse than no detector.
     """
     target = repo_copy / "requirements-security.lock"
@@ -188,7 +188,7 @@ def test_guard_accepts_a_new_job_pairing_consistent_locks(repo_copy: Path) -> No
         "    runs-on: ubuntu-latest\n"
         "    steps:\n"
         "      - run: python -m pip install --require-hashes -r "
-        "requirements-ci.lock\n"
+        "requirements-ci.txt\n"
         "      - run: python -m pip install --require-hashes -r "
         "requirements-mutation.lock\n",
         encoding="utf-8",
@@ -212,7 +212,7 @@ def test_guard_discovers_new_jobs_rather_than_a_hardcoded_list(
         "    runs-on: ubuntu-latest\n"
         "    steps:\n"
         "      - run: python -m pip install --require-hashes -r "
-        "requirements-ci.lock\n"
+        "requirements-ci.txt\n"
         "      - run: python -m pip install --require-hashes -r "
         "requirements-security.lock\n",
         encoding="utf-8",

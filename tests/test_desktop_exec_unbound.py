@@ -24,6 +24,10 @@ local variable 'proc'`.
 from __future__ import annotations
 
 import asyncio
+import os
+import shlex
+import subprocess
+import sys
 from unittest import mock
 
 import pytest
@@ -38,7 +42,10 @@ def test_a_normal_command_still_works():
 
 
 def test_a_real_timeout_returns_the_error_dict():
-    result = asyncio.run(_desktop_exec("sleep 5", timeout=0.3))
+    argv = [sys.executable, "-c", "import time; time.sleep(5)"]
+    command = (f'"{sys.executable}" {subprocess.list2cmdline(argv[1:])}'
+                if os.name == "nt" else shlex.join(argv))
+    result = asyncio.run(_desktop_exec(command, timeout=0.3))
     assert result["ok"] is False
     assert "timed out" in result["error"]
 
@@ -139,3 +146,99 @@ def test_a_process_that_dies_between_timeout_and_kill_is_tolerated():
 
     assert result["ok"] is False
     assert "timed out" in result["error"]
+
+
+def test_timeout_promptly_removes_command_and_descendant(tmp_path):
+    """An inherited stdout pipe must not keep the loop alive until child exit."""
+    import json
+
+    marker = tmp_path / "process-identities.json"
+    script = tmp_path / "sleeping child.py"
+    script.write_text(
+        "import subprocess,sys,os,json,time,psutil\nfrom pathlib import Path\n"
+        "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'])\n"
+        f"Path({str(marker)!r}).write_text(json.dumps([[p,psutil.Process(p).create_time()] "
+        "for p in [os.getpid(),child.pid]]))\n"
+        "time.sleep(60)\n")
+    argv = [sys.executable, str(script)]
+    # cmd metacharacters must be quoted even when an executable has no spaces.
+    command = ('"' + sys.executable + '" ' + subprocess.list2cmdline(argv[1:])
+                if os.name == "nt" else shlex.join(argv))
+    try:
+        result, elapsed = asyncio.run(_run_desktop_with_ready_marker(command, marker))
+        assert not result["ok"] and "timed out" in result["error"]
+        assert elapsed < 10, f"timeout cleanup took {elapsed:.2f}s"
+        identities = json.loads(marker.read_text())
+        _assert_processes_gone(identities)
+    finally:
+        _cleanup_test_processes(marker)
+
+
+async def _wait_ready_marker(marker):
+    import json
+    import time
+
+    deadline = time.monotonic() + 15
+    while True:
+        try:
+            return json.loads(marker.read_text())
+        except (OSError, ValueError) as exc:
+            if time.monotonic() >= deadline:
+                raise AssertionError("test child did not publish a complete readiness marker") from exc
+            await asyncio.sleep(.01)
+
+
+async def _run_desktop_with_ready_marker(command, marker):
+    import time
+
+    from arena.exec.runner import _kill_process_tree
+
+    real_spawn = asyncio.create_subprocess_shell
+    ready_at = time.monotonic()
+
+    async def ready_spawn(*args, **kwargs):
+        nonlocal ready_at
+        proc = await real_spawn(*args, **kwargs)
+        try:
+            await _wait_ready_marker(marker)
+        except BaseException:
+            await asyncio.to_thread(_kill_process_tree, proc)
+            await proc.wait()
+            raise
+        ready_at = time.monotonic()
+        return proc
+
+    with mock.patch("asyncio.create_subprocess_shell", ready_spawn):
+        result = await _desktop_exec(command, timeout=1)
+        return result, time.monotonic() - ready_at
+
+
+def _assert_processes_gone(identities):
+    import time
+
+    import psutil
+
+    deadline = time.monotonic() + 5
+    while any(psutil.pid_exists(pid) for pid, _created in identities):
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(.02)
+    assert not any(psutil.pid_exists(pid) for pid, _created in identities)
+
+
+def _cleanup_test_processes(marker):
+    import json
+
+    import psutil
+
+    if not marker.exists():
+        return
+    # Never signal a recycled numeric PID if an assertion failed.
+    for pid, created in json.loads(marker.read_text()):
+        try:
+            process = psutil.Process(pid)
+            if process.create_time() == created:
+                process.kill()
+                process.wait(timeout=5)
+        except psutil.NoSuchProcess:
+            pass

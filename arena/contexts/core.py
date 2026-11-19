@@ -37,6 +37,7 @@ class PublicHandlerContext:
     now: Callable[[], float]
     hostname: Callable[[], str]
     bridge_port: Callable[[], int]
+    memory_status: Callable[[], str] = lambda: "unknown"
 
 
 @dataclass(frozen=True)

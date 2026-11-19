@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from arena.home import agent_home, code_root
+from arena.service.launcher_paths import _has_mkdtemp_suffix
 from arena.util import _subprocess_kwargs
 
 TASK = "ArenaUnifiedBridge"
@@ -22,7 +24,9 @@ def _run(cmd: list[str], timeout: int = 15) -> dict[str, Any]:
 
 
 def _root() -> Path:
-    return Path(os.environ.get("ARENA_AGENT_HOME") or Path(__file__).resolve().parents[2]).resolve()
+    # Not the code directory: an install that wrote webhooks on autostart
+    # would otherwise recreate state inside site-packages (#B-006).
+    return agent_home().resolve()
 
 
 def _python_for_scheduler() -> str:
@@ -53,6 +57,16 @@ def _python_for_scheduler() -> str:
     return "py -3"
 
 
+def _quoted_windows_python() -> str:
+    python = os.environ.get("ARENA_PYTHON", "").strip() or _python_for_scheduler()
+    if python.startswith('"'):
+        return python
+    path = Path(python)
+    if path.suffix.lower() in {".exe", ".com"} or path.is_file():
+        return f'"{python}"'
+    return python  # Command-style fallback, e.g. py -3.
+
+
 def write_windows_launchers(root: Path, *, port: int = 8765,
                             profile: str = "owner-shell") -> dict[str, Any]:
     """Create `start_bridge.bat` and `start_hidden.vbs` if they are missing.
@@ -72,7 +86,7 @@ def write_windows_launchers(root: Path, *, port: int = 8765,
     bat = root / "start_bridge.bat"
     vbs = root / "start_hidden.vbs"
     token_file = os.environ.get("ARENA_TOKEN_FILE") or str(root / "token.txt")
-    python = os.environ.get("ARENA_PYTHON") or _python_for_scheduler()
+    python = _quoted_windows_python()
 
     if not bat.exists():
         bat.write_bytes((
@@ -81,8 +95,8 @@ def write_windows_launchers(root: Path, *, port: int = 8765,
                 f'cd /d "{root}"',
                 f"set ARENA_AGENT_HOME={root}",
                 f"set ARENA_TOKEN_FILE={token_file}",
-                f'{python} -u unified_bridge.py serve --profile {profile} '
-                f"--port {port}",
+                (f'{python} -u "{code_root() / "unified_bridge.py"}" serve --profile {profile} '
+                 f"--port {port}"),
             ]) + "\r\n").encode("utf-8"))
         created.append(bat.name)
 
@@ -163,7 +177,7 @@ def repair_bare_python(root: Path) -> dict[str, Any]:
     changed = False
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith("python ") or stripped.startswith("python\t"):
+        if stripped.startswith(("python ", "python\t")):
             fixed.append(line.replace("python", _python_for_scheduler(), 1))
             changed = True
         else:
@@ -258,20 +272,6 @@ def _is_scratch_component(part: str) -> bool:
         return True
     return any(_has_mkdtemp_suffix(part, prefix)
                for prefix in ("mcp-dispatch-", "pytest-tmp-"))
-
-
-def _has_mkdtemp_suffix(part: str, prefix: str) -> bool:
-    """True if `part` is `prefix` followed by a `mkdtemp` suffix.
-
-    `mkdtemp` appends exactly eight characters from `[a-z0-9_]`. A
-    deliberate name such as `mcp-dispatch-production` does not have
-    that shape, which is the distinction that keeps a real install
-    directory out of the refusal (review).
-    """
-    if not part.startswith(prefix):
-        return False
-    suffix = part[len(prefix):]
-    return len(suffix) == 8 and all(c.isalnum() or c == "_" for c in suffix)
 
 
 def _launcher_refusal(root: Path, vbs: Path, written: dict[str, Any],

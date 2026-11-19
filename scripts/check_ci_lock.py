@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sanity-check requirements-ci.lock for environment-marker coverage.
+"""Sanity-check requirements-ci.txt for environment-marker coverage.
 
 Why this exists: uv's --universal resolver (0.12.1 observed) can drop
 marker-forked dependencies on cold caches, producing a lock that
@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-LOCK = Path(__file__).resolve().parent.parent / "requirements-ci.lock"
+LOCK = Path(__file__).resolve().parent.parent / "requirements-ci.txt"
 
 # package name -> a regex its pin line must satisfy (marker guard)
 REQUIRED_MARKER_PINS = {
@@ -47,7 +47,7 @@ def main() -> int:
             problems.append(f"missing pin: {name}")
 
     if problems:
-        print("requirements-ci.lock FAILED marker-coverage check:")
+        print("requirements-ci.txt FAILED marker-coverage check:")
         for p in problems:
             print(f"  - {p}")
         return 1

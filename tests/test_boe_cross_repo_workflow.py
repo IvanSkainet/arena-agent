@@ -72,33 +72,19 @@ def test_compatibility_manifest_is_exact_and_commit_pinned() -> None:
     assert value["protocolRevision"] == "boe-gm-terminal-relay-v1"
 
 
-def test_workflow_runs_on_windows_for_manual_scheduled_change_and_reuse_paths() -> None:
+def test_external_diagnostic_is_manual_or_scheduled_not_a_default_gate() -> None:
     workflow = _workflow(WORKFLOW)
-    triggers = _triggers(workflow)
-    assert {"workflow_call", "workflow_dispatch", "schedule", "push", "pull_request"} == set(
-        triggers
-    )
+    assert set(_triggers(workflow)) == {"workflow_dispatch", "schedule"}
     assert workflow["permissions"] == {}
     job = workflow["jobs"]["contract"]
     assert job["runs-on"] == "windows-latest"
     assert job["permissions"] == {"contents": "read"}
     assert job["timeout-minutes"] == 30
-    for trigger in ("push", "pull_request"):
-        paths = set(triggers[trigger]["paths"])
-        for required in (
-            ".github/workflows/boe-contract.yml",
-            ".github/workflows/release-candidate.yml",
-            "integrations/book_of_eternity_compatibility.json",
-            "scripts/boe_cross_repo_contract.py",
-            "arena/game/boe_relay.py",
-            "arena/relay/**",
-            "bin/arena-relay",
-            "unified_bridge.py",
-        ):
-            assert required in paths
+    # A failed optional diagnostic must still be visibly failed, not greenwashed.
+    assert "continue-on-error" not in WORKFLOW.read_text(encoding="utf-8")
 
 
-def test_workflow_checks_out_exact_game_pin_and_rejects_stale_upstream() -> None:
+def test_workflow_checks_out_exact_game_pin_and_reports_upstream_drift() -> None:
     workflow = _workflow(WORKFLOW)
     job = workflow["jobs"]["contract"]
     raw = WORKFLOW.read_text(encoding="utf-8")
@@ -106,15 +92,16 @@ def test_workflow_checks_out_exact_game_pin_and_rejects_stale_upstream() -> None
     assert "integrations/book_of_eternity_compatibility.json" in run
     assert "game_sha=$($manifest.commit)" in run
     assert "git ls-remote" in run
-    assert "game pin is stale" in run
+    assert 'Write-Warning "game pin is stale' in run
+    assert 'throw "game pin is stale' not in run
     assert "git -C game rev-parse HEAD" in run
     assert "repository: ${{ steps.pin.outputs.game_repository }}" in raw
     assert "ref: ${{ steps.pin.outputs.game_sha }}" in raw
-    assert "ARENA_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}" in raw
+    assert "ARENA_SOURCE_SHA: ${{ github.sha }}" in raw
     assert "ref: ${{ env.ARENA_SOURCE_SHA }}" in raw
     assert "ARENA_COMMIT: ${{ env.ARENA_SOURCE_SHA }}" in raw
     assert "persist-credentials: false" in raw
-    assert "cache-dependency-path: requirements-ci.lock" in raw
+    assert "cache-dependency-path: requirements-ci.txt" in raw
 
 
 def test_workflow_builds_release_and_game_then_runs_real_contract() -> None:
@@ -161,17 +148,11 @@ def test_every_cross_repo_action_is_commit_pinned_and_runtime_recorded() -> None
     assert runtime_map[setup_dotnet] == "node24"
 
 
-def test_release_candidate_cannot_attest_before_cross_repo_contract() -> None:
+def test_release_candidate_is_independent_of_optional_game_diagnostic() -> None:
     jobs = _workflow(CANDIDATE)["jobs"]
-    contract = jobs["boe-contract"]
-    assert contract["uses"] == "./.github/workflows/boe-contract.yml"
-    assert contract["permissions"] == {"contents": "read"}
-    assert set(jobs["attest"]["needs"]) == {
-        "boe-contract",
-        "build-primary",
-        "build-rebuild",
-        "build-apk",
-    }
+    assert "boe-contract" not in jobs
+    assert "boe-contract.yml" not in CANDIDATE.read_text(encoding="utf-8")
+    assert set(jobs["attest"]["needs"]) == {"build-primary", "build-rebuild", "build-apk"}
 
 
 def test_harness_defines_two_turns_then_correlated_repair_without_game_rules() -> None:
@@ -266,8 +247,19 @@ def test_documentation_keeps_transport_and_game_engine_boundaries_separate() -> 
     text = DOC.read_text(encoding="utf-8")
     assert "The Book of Eternity: Reborn" in text
     assert "transport, not a second game engine" in text
-    assert "385979a01c08863cf3018b399aad7799b58b8929" in text
+    assert "integrations/book_of_eternity_compatibility.json" in text
+    assert "single source of truth" in text
     assert "arena-relay terminal" in text
     flattened = " ".join(text.split())
     assert "does not implement game rules" in flattened
-    assert "release-candidate workflow calls this reusable Windows contract" in flattened
+    assert "not called by the release-candidate workflow" in flattened
+    assert "not a required dependency or acceptance gate for Arena" in flattened
+
+
+def test_no_other_workflow_requires_the_optional_game_workflow() -> None:
+    for path in WORKFLOW.parent.glob("*.yml"):
+        if path == WORKFLOW:
+            continue
+        workflow = _workflow(path)
+        for job in workflow.get("jobs", {}).values():
+            assert not str(job.get("uses", "")).endswith("/boe-contract.yml"), path.name

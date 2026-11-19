@@ -17,6 +17,7 @@ from arena.filewatch.runtime import FileWatchRuntimeContext, make_file_watch_run
 from arena.handler_context import FileWatchHandlerContext  # noqa: E402
 from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
 from arena.mcp.tool_watch import handle_watch_tool  # noqa: E402
+from arena.web_utils import cors_json_response  # noqa: E402
 
 
 class _Events(list):
@@ -72,7 +73,8 @@ def test_file_watch_runtime_add_list_remove_and_detect_change(tmp_path):
 async def _json_request(method: str, path: str, body: dict):
     req = make_mocked_request(method, path, headers={"Authorization": "Bearer t"})
     req.app[APP_CFG] = {"root": str(Path(path).parent if path.startswith("/") else Path("/tmp"))}
-    async def _json():
+
+    async def _json(*, loads=json.loads):
         return body
     req.json = _json
     return req
@@ -87,7 +89,7 @@ def test_file_watch_handler_add_list_delete(tmp_path):
         FileWatchHandlerContext(
             require_auth=lambda request: None,
             record_request=lambda *args, **kwargs: None,
-            cors_json_response=ub._cors_json_response,
+            cors_json_response=cors_json_response,
             app_cfg_key=APP_CFG,
             home=tmp_path,
             list_sync=runtime.list_sync,
@@ -98,7 +100,8 @@ def test_file_watch_handler_add_list_delete(tmp_path):
     )
     add_req = make_mocked_request("POST", "/v1/watch/files", headers={"Authorization": "Bearer t"})
     add_req.app[APP_CFG] = {"root": tmp_path}
-    async def _json_add():
+
+    async def _json_add(*, loads=json.loads):
         return {"path": str(watched), "recursive": True, "patterns": ["*.txt"]}
     add_req.json = _json_add
     add_resp = asyncio.run(handlers.watch_files(add_req))
@@ -113,7 +116,8 @@ def test_file_watch_handler_add_list_delete(tmp_path):
 
     del_req = make_mocked_request("DELETE", "/v1/watch/files", headers={"Authorization": "Bearer t"})
     del_req.app[APP_CFG] = {"root": tmp_path}
-    async def _json_del():
+
+    async def _json_del(*, loads=json.loads):
         return {"id": add_data["id"]}
     del_req.json = _json_del
     del_resp = asyncio.run(handlers.watch_files(del_req))
@@ -138,6 +142,7 @@ def test_watch_tool_and_registry(tmp_path):
         },
     )()
     add = handle_watch_tool("watch.files", {"action": "add", "path": str(watched), "patterns": ["*.py"]}, ctx=ctx)
+    assert add is not None
     payload = json.loads(add["content"][0]["text"])
     assert payload["ok"] is True
     assert any(tool["name"] == "watch.files" for tool in MCP_TOOLS)
@@ -149,3 +154,40 @@ def test_watch_route_registered():
     assert ("GET", "/v1/watch/files") in paths
     assert ("POST", "/v1/watch/files") in paths
     assert ("DELETE", "/v1/watch/files") in paths
+
+
+def test_watch_http_rejects_wrong_json_types_before_filesystem_access(tmp_path, monkeypatch):
+    def forbidden_resolution(*args, **kwargs):
+        raise AssertionError("invalid options reached filesystem resolution")
+
+    monkeypatch.setattr("arena.filewatch.handlers.resolve_home_path", forbidden_resolution)
+    runtime, _events = _runtime(tmp_path)
+    handlers = make_file_watch_handlers(FileWatchHandlerContext(
+        require_auth=lambda request: None,
+        record_request=lambda *args, **kwargs: None,
+        cors_json_response=cors_json_response,
+        app_cfg_key=APP_CFG, home=tmp_path,
+        list_sync=runtime.list_sync, add_sync=runtime.add_sync,
+        remove_sync=runtime.remove_sync, utc_now=lambda: "now"))
+    bodies = [
+        {"path": {"long": "x" * 1024}, "patterns": [False]},
+        {"path": str(tmp_path), "patterns": 7},
+        {"path": str(tmp_path), "patterns": [True]},
+        {"path": str(tmp_path), "recursive": "yes"},
+    ]
+
+    async def check(body):
+        request = make_mocked_request("POST", "/v1/watch/files")
+        request.app[APP_CFG] = {"root": tmp_path}
+
+        async def payload(*, loads=json.loads):
+            return body
+
+        request.json = payload
+        response = await handlers.watch_files(request)
+        assert response.status == 400
+        assert json.loads(response.text)["ok"] is False
+
+    for body in bodies:
+        asyncio.run(check(body))
+    assert runtime.list_sync()["count"] == 0

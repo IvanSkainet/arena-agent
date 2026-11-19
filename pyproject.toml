@@ -1,6 +1,6 @@
 [project]
 name = "skainet-bridge"
-version = "4.170.0"
+version = "4.170.1"
 description = "Cross-platform local automation bridge for AI agents — one process, one port, modular Python architecture."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,15 +17,15 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 
-# Core runtime dependency. Everything else is optional and degrades gracefully.
+# Desktop process identity/cleanup uses psutil; the Android bootstrap keeps it optional.
 dependencies = [
     "aiohttp>=3.14.4",
+    "psutil>=5.9; sys_platform != 'android' and platform_system != 'Android'",
 ]
 
 [project.optional-dependencies]
 # Recommended extras for the complete local bridge experience.
 full = [
-    "psutil>=5.9",
     "websockets>=12.0",
     "requests>=2.32",
     "certifi>=2026.10.19",
@@ -66,6 +66,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = ["unified_bridge"]
+
+[tool.setuptools.cmdclass]
+build_py = "arena.build_tools.BuildWithTools"
 
 [tool.setuptools.packages.find]
 include = ["arena*"]

@@ -15,7 +15,7 @@ own scanner from an unpinned range is deciding what counts as secure
 using code nobody reviewed, and its verdict gates every release.
 
 Every package in the first two groups was already hash-pinned in
-`requirements-ci.lock`. The scanners now have their own
+`requirements-ci.txt`. The scanners now have their own
 `requirements-security.lock`, generated the same way as the existing
 lint lock.
 """
@@ -105,7 +105,7 @@ def test_legitimate_forms_are_not_flagged() -> None:
         "name: p\non: workflow_dispatch\npermissions:\n  contents: read\n"
         "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n"
         "      - run: python -m pip install --upgrade pip\n"
-        "      - run: python -m pip install --require-hashes -r requirements-ci.lock\n"
+        "      - run: python -m pip install --require-hashes -r requirements-ci.txt\n"
         "      - run: python -m pip install --no-deps --no-build-isolation -e .\n"
         "      - run: python -m pip install --no-deps dist/arena.whl\n",
         encoding="utf-8")
@@ -131,7 +131,7 @@ def test_multi_line_install_with_hashes_is_not_flagged() -> None:
         "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n"
         "      - run: |\n"
         "          python -m pip install \\\n"
-        "            --require-hashes -r requirements-ci.lock\n",
+        "            --require-hashes -r requirements-ci.txt\n",
         encoding="utf-8")
     try:
         proc = _run_ratchet()

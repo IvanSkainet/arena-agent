@@ -192,7 +192,7 @@ def main() -> int:
     # workspace per failed start (sourcery and cubic, separately).
     try:
         with _signals_held():
-            root = Path(tempfile.mkdtemp(prefix="fuzz-root-"))
+            root = Path(tempfile.mkdtemp(prefix="fuzz-root-")).resolve()
             _LEAKED.append(root)
         return _serve_until_stopped(root, args)
     except KeyboardInterrupt:

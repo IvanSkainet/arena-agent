@@ -5,15 +5,16 @@ import argparse  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import datetime as dt
 import importlib.util
 import json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
-import os
 import shutil
 import subprocess
 import sys  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from pathlib import Path
 
+from arena.home import agent_home
+
 
 def get_agent_home() -> Path:
-    return Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
+    return agent_home()
 
 ROOT = get_agent_home()
 FACTS = ROOT / "memory" / "facts.jsonl"

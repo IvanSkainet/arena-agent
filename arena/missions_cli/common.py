@@ -4,52 +4,49 @@ from __future__ import annotations
 import argparse  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import datetime as dt
 import json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
-import os
 import re
 import subprocess
 import textwrap  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import uuid  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
-from pathlib import Path
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
+from arena.home import agent_home, executable_root
+
+ROOT = agent_home()
 MISSIONS = ROOT / "missions"
 TEMPLATES = ROOT / "missions/templates"
 REPORTS = ROOT / "reports"
-AGENT = ROOT / "bin/agentctl"
+AGENT = executable_root() / "bin/agentctl"
 
 def _fire_mission_hook(event, target, args=None, exit_code=0):
     """Запустить хуки события через hooks_runner. Тихо игнорирует если его нет."""
     try:
         import json as _j
         import os as _os
-        import pathlib as _pl
         import subprocess as _sp
         import sys as _sys
-        root = _pl.Path(_os.environ.get("ARENA_AGENT_HOME", str(_pl.Path.home() / "arena-bridge")))
-        runner = root / "bin" / "hooks_runner.py"
+        runner = executable_root() / "bin" / "hooks_runner.py"
         if not runner.exists():
             return
         _sp.run([_sys.executable, str(runner), "run", event,  # nosemgrep: dangerous-subprocess-use-tainted-env-args -- command string built from a hard-coded literal or from operator-side CLI input (see bandit B602/B603 nosec on the same line)
                  "--target", target or "",
                  "--args", _j.dumps(args or {}),
                  "--exit", str(exit_code)],
-                timeout=70, check=False)
+                timeout=70, check=False, env={**_os.environ, "ARENA_AGENT_HOME": str(ROOT)})
     except Exception:
         pass
 
 def _start_recording(mission_id):
     """Опциональная запись экрана через ffmpeg+sd-exec. ENV: ARENA_REC=1."""
     import os as _os
-    import pathlib as _pl
     import subprocess as _sp
     if _os.environ.get("ARENA_REC") != "1":
         return None
-    root = _pl.Path(_os.environ.get("ARENA_AGENT_HOME", str(_pl.Path.home() / "arena-bridge")))
+    root = agent_home()
     rec_dir = root / "reports" / "recordings"
     rec_dir.mkdir(parents=True, exist_ok=True)
     out = rec_dir / f"mission-{mission_id}.mp4"
     # ffmpeg через sd-exec — выходим из bridge cgroup, имеем DISPLAY
-    sd = root / "bin" / "sd-exec"
+    sd = executable_root() / "bin" / "sd-exec"
     cmd = [str(sd), "--", "ffmpeg", "-y", "-loglevel", "error",
            "-f", "x11grab", "-framerate", "10", "-i",
            _os.environ.get("DISPLAY", ":0"),

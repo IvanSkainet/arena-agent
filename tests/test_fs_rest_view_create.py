@@ -338,3 +338,15 @@ def test_fs_view_create_handlers_have_fields():
     import dataclasses
     fields = {f.name for f in dataclasses.fields(FsViewCreateHandlers)}
     assert fields == {"view", "create"}, f"unexpected fields: {fields}"
+
+
+def test_fuzz_numeric_content_is_rejected_before_creating_a_file(tmp_path):
+    ctx, audit = _make_ctx(tmp_path)
+    handlers = make_fs_view_create_handlers(ctx)
+    for content in (9007199254740992.0, True, ["not text"], {"not": "text"}):
+        request = _mock_request("POST", "/v1/fs/create", {"path": -715, "content": content})
+        response = asyncio.run(handlers.create(request))
+        assert response.status == 400
+        assert response._data["error"] == "content must be a string"
+    assert audit == []
+    assert not (tmp_path / "-715").exists()

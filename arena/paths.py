@@ -1,9 +1,11 @@
 """Filesystem path layout for the Arena bridge runtime."""
 from __future__ import annotations
 
-import os
+import os  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from dataclasses import dataclass
 from pathlib import Path
+
+from arena.home import agent_home
 
 
 @dataclass(frozen=True)
@@ -26,8 +28,13 @@ class ArenaPaths:
     relay_dir: Path
 
     @classmethod
-    def from_env(cls, bridge_dir: Path) -> "ArenaPaths":
-        root_agent = Path(os.environ.get("ARENA_AGENT_HOME", str(bridge_dir))).expanduser()
+    def from_env(cls, bridge_dir: Path | None = None) -> "ArenaPaths":
+        # State lives in ARENA_AGENT_HOME or ~/arena-bridge -- never in the
+        # directory the code was installed into. ``bridge_dir`` survives as the
+        # caller's fallback (tests, scripts/serve_bridge_for_fuzzing.py), and
+        # the environment still wins over it: the fallback used to be the *code*
+        # directory, and an operator's ARENA_AGENT_HOME has to beat that.
+        root_agent = agent_home(bridge_dir, env_wins=True)
         queue = root_agent / "queue"
         return cls(
             root_agent=root_agent,

@@ -39,7 +39,9 @@ def doctor(args):
     try:
         d = bridge_get("/v1/doctor")
         print(f"\n{'='*50}")
-        print(f"Doctor: {d.get('passed',0)}/{d.get('total',0)} checks passed")
+        print(f"Doctor: {d.get('passed',0)}/{d.get('total',0)} checks passed; "
+              f"{d.get('degraded',0)} degraded, {d.get('failed',0)} failed "
+              f"({d.get('status', 'unknown')})")
         print(f"{'='*50}")
         for c in d.get("checks", []):
             icon = "✅" if c["ok"] else "❌"

@@ -1,18 +1,54 @@
 """Push notification extension for standalone MCP WebSocket server."""
 from __future__ import annotations
 
+import os
+import stat
+
+from arena.home import agent_home
+
 # Explicit: these are underscore-prefixed, so `import *` never provided
 # them. Until v4.155.0 this module called _send_text/_http_handshake that
 # were simply not bound -- the resulting NameError was swallowed by a
 # per-subscriber `except Exception`, silently marking every WebSocket
 # subscriber dead. Confirmed by execution, not by reading.
-from arena.mcp.ws_frames import Path, _send_text, json, threading, time
+from arena.mcp.ws_frames import (  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+    Path,
+    _send_text,
+    json,
+    threading,
+    time,
+)
+from arena.private_paths import is_linked_path, pinned_directory
+from arena.private_state import private_directory
+from arena.windows_privacy import restrict_to_current_user
 
 SUBS: dict = {}
 SUBS_LOCK = threading.Lock()
-NOTIFY_QUEUE = Path.home() / "arena-bridge" / "logs" / "ws_notify.queue"
-NOTIFY_QUEUE.parent.mkdir(parents=True, exist_ok=True)
-NOTIFY_QUEUE.touch(exist_ok=True)
+NOTIFY_QUEUE = agent_home() / "logs" / "ws_notify.queue"
+
+
+def _prepare_notify_queue(path: Path) -> None:
+    private_directory(path.parent)
+    with pinned_directory(path.parent) as parent_fd:
+        if parent_fd is None:
+            restrict_to_current_user(path.parent)
+            if is_linked_path(path):
+                raise OSError("refusing a linked notification queue")
+        name = path if parent_fd is None else path.name
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+                        0o600, dir_fd=parent_fd)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise OSError("notification queue must be a regular file")
+            if parent_fd is not None:
+                os.fchmod(fd, 0o600)
+            else:
+                restrict_to_current_user(path)
+        finally:
+            os.close(fd)
+
+
+_prepare_notify_queue(NOTIFY_QUEUE)
 
 def _subscribe(sock, topic):
     with SUBS_LOCK:
@@ -27,7 +63,7 @@ def _unsubscribe_all(sock):
 
 def _broadcast(topic, payload):
     msg = json.dumps({"jsonrpc": "2.0", "method": "notify",
-                      "params": {"topic": topic, "data": payload}}, ensure_ascii=False)
+                        "params": {"topic": topic, "data": payload}}, ensure_ascii=False)
     with SUBS_LOCK:
         targets = list(SUBS.get(topic, set()))
     dead = []

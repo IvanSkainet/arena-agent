@@ -22,7 +22,7 @@ def test_relock_uses_untrusted_pr_event_with_narrow_bot_gate() -> None:
 def test_old_hash_locked_uv_regenerates_every_pair_including_itself() -> None:
     text = source()
     install = "pip install --only-binary :all: --require-hashes -r requirements-relock.lock"
-    loop = "for in_file in requirements-*.in; do"
+    loop = "while IFS= read -r in_file; do"
     compile_call = 'uv pip compile --universal --generate-hashes --strip-extras'
     assert text.index(install) < text.index(loop) < text.index(compile_call)
     assert '[ "$in_file" = "requirements-relock.in" ] && continue' not in text
@@ -36,4 +36,6 @@ def test_every_generated_lock_is_verified_before_any_push() -> None:
     commit = text.index("git commit -m")
     push = text.index('git push origin "HEAD:$HEAD_REF"')
     assert text.index("python scripts/check_ci_lock.py") < verify < commit < push
+    assert verify < text.index("python scripts/lock_conflict_ratchet.py") < commit
+    assert text.index("in_files=\"$(python scripts/lock_regeneration_order.py)\"") < text.index("while IFS= read -r in_file; do")
     assert "if git diff --quiet -- 'requirements-*.lock'" in text

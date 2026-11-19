@@ -94,14 +94,18 @@ jobs:
       - name: Regenerate every .in/.lock pair
         run: |
           set -euo pipefail
-          for in_file in requirements-*.in; do
+          in_files="$(python scripts/lock_regeneration_order.py)"
+          while IFS= read -r in_file; do
             lock_file="${in_file%.in}.lock"
+            if [ "$in_file" = "requirements-ci.in" ]; then
+              lock_file="requirements-ci.txt"
+            fi
             echo "::group::$in_file -> $lock_file"
             uv pip compile --universal --generate-hashes --strip-extras \
               --python-version 3.10 \
               --output-file="$lock_file" "$in_file"
             echo "::endgroup::"
-          done
+          done <<< "$in_files"
 
       # Fail closed: if the regenerated locks do not satisfy our own guards,
       # push nothing. A wrong lock committed by a bot is worse than a red PR.
@@ -109,6 +113,7 @@ jobs:
         run: |
           python scripts/check_ci_lock.py
           python scripts/check_lock_freshness.py
+          python scripts/lock_conflict_ratchet.py
 
       - name: Commit and push if anything changed
         env:
@@ -117,13 +122,13 @@ jobs:
           HEAD_REF: ${{ github.head_ref }}
         run: |
           set -euo pipefail
-          if git diff --quiet -- 'requirements-*.lock'; then
+          if git diff --quiet -- 'requirements-*.lock' requirements-ci.txt; then
             echo "locks already in sync with the .in files; nothing to push"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add requirements-*.lock
+          git add requirements-*.lock requirements-ci.txt
           git commit -m "deps: regenerate hash-locked requirements for this bump
 
           Dependabot edits the .in files; CI installs from the .lock files.
@@ -137,6 +142,6 @@ jobs:
           {
             echo "### Dependabot lock regeneration"
             echo
-            git --no-pager diff --stat HEAD~1 -- 'requirements-*.lock' 2>/dev/null \
+            git --no-pager diff --stat HEAD~1 -- 'requirements-*.lock' requirements-ci.txt 2>/dev/null \
               || echo "- no lock changes were needed"
           } >> "$GITHUB_STEP_SUMMARY"

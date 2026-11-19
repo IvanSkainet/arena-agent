@@ -5,6 +5,8 @@ import asyncio
 from collections.abc import Awaitable
 from typing import Any
 
+_REQUEST_TRANSPORT = object()
+
 
 class ClientDisconnected(ConnectionError):
     """The HTTP transport closed before the awaited exec work finished."""
@@ -15,6 +17,7 @@ async def await_while_client_connected(
     awaitable: Awaitable[Any],
     *,
     poll_interval: float = 0.05,
+    transport: Any = _REQUEST_TRANSPORT,
 ) -> Any:
     """Await work, cancelling it promptly when the request transport closes.
 
@@ -28,7 +31,8 @@ async def await_while_client_connected(
     ordinary await semantics rather than being mistaken for a disconnect.
     """
     worker = asyncio.ensure_future(awaitable)
-    transport = getattr(request, "transport", None)
+    if transport is _REQUEST_TRANSPORT:
+        transport = getattr(request, "transport", None)
     if transport is None:
         return await worker
 
@@ -104,10 +108,16 @@ async def forward_stream_events(
     request_id: str,
 ) -> dict[str, Any] | None:
     """Forward runner events while binding every silent wait to the client."""
+    # aiohttp clears request.transport after connection_lost. Preserve the
+    # original connection across yields rather than treating a detached real
+    # client as a transport-less direct unit invocation on the next event.
+    transport = getattr(request, "transport", None)
     exit_event = None
     while True:
         try:
-            event = await await_while_client_connected(request, anext(stream))
+            event = await await_while_client_connected(
+                request, anext(stream), transport=transport,
+            )
         except StopAsyncIteration:
             return exit_event
         event_type = event["type"]

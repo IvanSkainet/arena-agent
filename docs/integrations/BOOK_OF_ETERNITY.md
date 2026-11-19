@@ -15,12 +15,22 @@ Moving branches or tags are not accepted as compatibility evidence.
 Current upstream:
 
 - repository: `StanislavSmetaninSSM/The-Book-of-Eternity-Reborn`;
-- commit: `385979a01c08863cf3018b399aad7799b58b8929`;
+- commit: the full `commit` SHA in the compatibility manifest (single source of truth);
 - protocol: `boe-gm-terminal-relay-v1`.
 
-The scheduled/manual/release paths require the pin to equal upstream `main`.
-Pull requests test the commit declared in their manifest so a pin-update PR can
-prove the new revision before merge.
+## Optional, non-blocking integration
+
+This game is **not a required dependency or acceptance gate for Arena**.
+Its external compatibility workflow runs only manually or on its own weekly
+schedule, not on pull requests or pushes. Release build, verification, SBOM,
+and attestation do not depend on that workflow. Arena's local relay tests and
+security checks remain required and unchanged.
+
+The diagnostic tests the exact manifest pin. Upstream drift is reported as a
+warning, not used to force an unvalidated pin update. A failed live diagnostic
+remains a failed workflow with its evidence; it is not converted to success.
+Neither a green Arena release nor a stale pin claims compatibility with the
+latest game. Qualification of that external integration is independent work.
 
 ## What the Windows contract executes
 
@@ -33,7 +43,8 @@ process boundaries:
 3. check out the exact game commit and build the upstream
    `BookOfEternityGMBridge` project;
 4. run selected upstream PowerShell terminal-signal and validation-repair
-   contracts;
+   contracts; require exactly the three selected tests to be present and
+   Passed in the TRX report (a zero exit with a stale/empty filter is not proof);
 5. start the extracted Arena Bridge artifact on loopback with an ephemeral
    token;
 6. configure the upstream GM bridge to host the extracted generic
@@ -72,9 +83,8 @@ tracked separately in `docs/audits/boe-contract-live-findings-12.md`.
 
 ## Release and manual operation
 
-The manual release-candidate workflow calls this reusable Windows contract and
-will not attest a release candidate until it passes. The workflow also runs on
-a weekly schedule, on relevant `master`/PR path changes, and manually:
+The independent diagnostic runs on a weekly schedule and can be started
+manually. It is not called by the release-candidate workflow:
 
 ```bash
 gh workflow run boe-contract.yml --ref master

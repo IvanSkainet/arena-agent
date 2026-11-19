@@ -35,7 +35,7 @@ EXCLUDE_TOP = {
     # is git-ignored, and the untracked guard inspects ignored files, so
     # without this line a release cannot be cut on any machine that has run
     # the gate locally.
-    ".schemathesis",
+    ".schemathesis", ".inventory-cache", "code-runs", "flight-records", "update",
 }
 EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
 EXCLUDE_SUBDIRS = {"__pycache__", ".pytest_cache", "node_modules", ".mypy_cache"}
@@ -66,7 +66,7 @@ EXCLUDE_PATH_PATTERNS = (
     # had ridden into a commit.
     "queue/inbox/",
     "queue/running/", "queue/done/", "queue/failed/",
-    "memory/sessions/", "memory/facts.jsonl", "memory/history.jsonl",
+    "memory/sessions/", "memory/facts.jsonl", "memory/history.jsonl", "memory/facts.db",
 )
 EXCLUDE_EXTRA = {".DS_Store", "Thumbs.db"}
 

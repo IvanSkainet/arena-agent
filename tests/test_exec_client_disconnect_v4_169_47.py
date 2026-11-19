@@ -34,8 +34,9 @@ class _Transport:
 
 
 class _Request:
-    def __init__(self, transport) -> None:
+    def __init__(self, transport: _Transport | None) -> None:
         self.transport = transport
+        self.remote: str | None = None
 
 
 def test_disconnect_watcher_cancels_and_awaits_work() -> None:
@@ -313,5 +314,37 @@ def test_stream_forwarder_returns_none_for_empty_stream() -> None:
             decode_output=lambda data: data, request_id="empty",
         )
         assert result is None
+
+    asyncio.run(scenario())
+
+
+def test_stream_keeps_original_transport_after_aiohttp_detaches_it() -> None:
+    async def scenario() -> None:
+        transport = _Transport()
+        request = _Request(transport)
+        cleaned = asyncio.Event()
+
+        async def events():
+            try:
+                yield {"type": "start", "pid": 123}
+                await asyncio.sleep(30)
+            finally:
+                cleaned.set()
+
+        async def emit(_event):
+            transport.closing = True
+            request.transport = None
+
+        stream = events()
+        try:
+            with pytest.raises(ClientDisconnected):
+                await asyncio.wait_for(
+                    forward_stream_events(request, stream, emit=emit,
+                                            decode_output=lambda value: value, request_id="detached"),
+                    timeout=0.5,
+                )
+            assert cleaned.is_set()
+        finally:
+            await stream.aclose()
 
     asyncio.run(scenario())

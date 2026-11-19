@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import os
+import os  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import re
 import threading
 from pathlib import Path
 from typing import Any
 
+from arena.home import agent_home
 from arena.jsonshape import loads_object
 
 # Guards concurrent read/write of run JSON files: without it a reader can
@@ -36,7 +37,7 @@ def _slug(value: str, fallback: str = "autopilot") -> str:
 
 
 def _home() -> Path:
-    return Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
+    return agent_home()
 
 
 def _runs_dir() -> Path:

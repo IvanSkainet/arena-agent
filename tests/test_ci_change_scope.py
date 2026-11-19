@@ -47,7 +47,7 @@ def test_docs_only_classifier_is_explicit_and_fail_closed() -> None:
         ".github/workflows/ci.yml",
         ".github/scripts/change_scope.py",
         ".github/dependabot.yml",
-        "requirements-ci.lock",
+        "requirements-ci.txt",
         "install.sh",
     ):
         assert not module.docs_only([path]), path

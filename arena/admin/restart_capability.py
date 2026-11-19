@@ -31,6 +31,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from arena.service.launcher_paths import windows_launcher_root
+
 _WIN = sys.platform == "win32"
 
 
@@ -75,8 +77,9 @@ def describe(install_root: Path | str | None = None) -> dict[str, Any]:
         return info
 
     name = task_name()
-    vbs = root / "start_hidden.vbs"
-    bat = root / "start_bridge.bat"
+    launchers = windows_launcher_root(root)
+    vbs = launchers / "start_hidden.vbs"
+    bat = launchers / "start_bridge.bat"
     checked = [
         # Direct launchers are more reliable for an on-demand restart. The
         # task is commonly ONLOGON: `schtasks /Run` can exit 0 without starting

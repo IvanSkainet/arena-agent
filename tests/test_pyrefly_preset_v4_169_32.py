@@ -84,7 +84,7 @@ def test_mypy_package_is_gone_from_the_ci_pins() -> None:
 
 
 def test_mypy_is_gone_from_the_ci_lock() -> None:
-    text = (REPO_ROOT / "requirements-ci.lock").read_text(encoding="utf-8")
+    text = (REPO_ROOT / "requirements-ci.txt").read_text(encoding="utf-8")
     assert not re.search(r"^mypy==", text, re.M)
 
 

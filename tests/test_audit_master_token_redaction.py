@@ -334,7 +334,7 @@ def test_serve_wires_the_registration_at_the_source():
 
     from arena import cli
 
-    source = inspect.getsource(cli.serve)
+    source = inspect.getsource(cli._serve_runtime)
     assert "register_literal_secret(token" in source
 
 

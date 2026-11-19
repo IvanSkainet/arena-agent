@@ -240,6 +240,10 @@ async def _check_success_schemas(spec, root):
                 problems.append(f"GET {path} -> {response.status}")
                 continue
             body = await response.json()
+            if path == "/health":
+                undocumented = set(body) - set(schema["properties"])
+                if undocumented:
+                    problems.append(f"GET {path}: undocumented fields {sorted(undocumented)}")
             for key in schema["required"]:
                 if key not in body:
                     problems.append(f"GET {path}: documents required '{key}', absent")

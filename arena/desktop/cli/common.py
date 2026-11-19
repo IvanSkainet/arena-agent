@@ -4,16 +4,18 @@ from __future__ import annotations
 import argparse  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import datetime as dt
 import json
-import os
+import os  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import random  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import re  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import shutil
 import subprocess
 import sys  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import time  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
-from pathlib import Path
+from pathlib import Path  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
+from arena.home import agent_home
+
+ROOT = agent_home()
 REPORTS = ROOT / "reports"
 _wm_started = False
 

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Fail-closed guard: every `.in` requirement must be pinned in its `.lock`.
+"""Fail-closed guard: every `.in` requirement must be pinned in its generated output.
 
 Why this exists
 ---------------
-CI installs exclusively from the `.lock` files (`pip install --require-hashes
--r requirements-ci.lock`). The `.in` files are inputs to the generator and are
+CI installs exclusively from generated `.lock` files, `requirements-ci.txt`,
+or `ci/guarddog/requirements.txt` (`pip install --require-hashes
+-r requirements-ci.txt`). The `.in` files are inputs to the generator and are
 never installed, so editing one without regenerating its lock is invisible:
 the new dependency simply is not there, CI stays green, and the failure
 surfaces later as an ImportError in whatever job first needs it.
@@ -16,7 +17,9 @@ requirements-ci.in left the existing lock guard reporting
 This is the same class of check as `uv lock --check` / `cargo`'s lockfile
 verification, adapted to the pip-compile pair layout this repo uses.
 
-What is checked, for each `<name>.in` / `<name>.lock` pair:
+What is checked, for each `<name>.in` / `<name>.lock` pair (with the
+`requirements-ci.in` / `requirements-ci.txt` and
+`ci/guarddog/requirements.in` / `ci/guarddog/requirements.txt` exceptions):
   1. every requirement declared in the `.in` appears as a `==` pin in the lock;
   2. the pinned VERSION matches the version the `.in` demands (a stale lock
      that pins an older release is just as broken as a missing entry);
@@ -69,7 +72,7 @@ EXTRA_PAIRS: tuple[tuple[Path, Path], ...] = (
     # the generator's job and is deliberately out of scope (see the module
     # docstring).
     (ROOT / "ci" / "guarddog" / "requirements.in",
-     ROOT / "ci" / "guarddog" / "requirements.txt"),
+        ROOT / "ci" / "guarddog" / "requirements.txt"),
 )
 
 # Requirement line in a `.in`: name==version, optional extras/marker.
@@ -185,7 +188,8 @@ def check_paths(in_path: Path, lock_path: Path) -> list[str]:
 
 def check_pair(stem: str) -> list[str]:
     """Root-convention pair: `requirements-<stem>.in` / `.lock`."""
-    return check_paths(ROOT / f"{stem}.in", ROOT / f"{stem}.lock")
+    suffix = ".txt" if stem == "requirements-ci" else ".lock"
+    return check_paths(ROOT / f"{stem}.in", ROOT / f"{stem}{suffix}")
 
 
 def check_extra_pairs() -> list[str]:
@@ -211,7 +215,7 @@ def main() -> int:
     stems = sorted(p.with_suffix("").name for p in ROOT.glob("requirements-*.in"))
     if not stems:
         print("no requirements-*.in files found — guard is looking in the "
-              "wrong place, fix it before trusting it", file=sys.stderr)
+                "wrong place, fix it before trusting it", file=sys.stderr)
         return 2
 
     all_problems: list[str] = []
@@ -227,7 +231,7 @@ def main() -> int:
 
     names = stems + [p.relative_to(ROOT).as_posix() for p, _ in EXTRA_PAIRS]
     print(f"OK: {len(names)} .in/.lock pair(s) agree, every pin is hashed "
-          f"({', '.join(names)})")
+            f"({', '.join(names)})")
     return 0
 
 

@@ -42,8 +42,10 @@ def test_now_iso_format():
 
 
 def test_facts_path_shape():
-    assert ah_files.ROOT == Path.home() / "arena-bridge"
-    assert ah_files.FACTS == Path.home() / "arena-bridge" / "memory" / "facts.jsonl"
+    from arena.home import agent_home
+
+    assert ah_files.ROOT == agent_home()
+    assert ah_files.FACTS == agent_home() / "memory" / "facts.jsonl"
     assert ah_files.FACTS.name == "facts.jsonl"
     assert ah_files.FACTS.parent.name == "memory"
 

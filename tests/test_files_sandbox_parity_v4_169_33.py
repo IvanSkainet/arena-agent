@@ -24,7 +24,7 @@ never written:
 
 3. **Sentinel message drift**. Short strings here function as enum
    tokens -- ``validate_upload_target`` literally compares
-   ``err == "path outside home directory"`` to decide whether to reword.
+   ``err == "path outside allowed filesystem roots"`` to decide whether to reword.
    So the spelling is load-bearing and now pinned. Messages that name
    which rule fired are operator diagnostics (the module docstring says
    so) and are pinned too, along with the {action} verb threading.
@@ -315,12 +315,12 @@ def test_traversal_refused_before_resolution(px, verb, target):
 def test_outside_home_passthrough_message(px, verb):
     target = str(px["outside"] / "x.txt")
     path, err, status = _call(verb, px, target)
-    assert (path, err, status) == (None, "path outside home directory", 403)
+    assert (path, err, status) == (None, "path outside allowed filesystem roots", 403)
 
 
 @pytest.mark.parametrize("verb,expected", [
-    ("uploading", "upload path must be inside user home"),
-    ("creating", "create path must be inside user home"),
+    ("uploading", "upload path must be inside an allowed filesystem root"),
+    ("creating", "create path must be inside an allowed filesystem root"),
 ])
 def test_outside_home_is_reworded_for_upload_and_create(px, verb, expected):
     # The rewording branch keys on the exact sentinel string from

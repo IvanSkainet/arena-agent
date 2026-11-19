@@ -21,7 +21,7 @@ PyYAML is imported normally, not through `pytest.importorskip`. AGENTS.md
 forbids the latter for a gate dependency and greptile and cubic both caught
 it here: skipping the module when the parser is missing means the gate
 reports success having asserted nothing, which is the failure this file
-exists to prevent. PyYAML is in requirements-ci.lock.
+exists to prevent. PyYAML is in requirements-ci.txt.
 """
 from __future__ import annotations
 
@@ -395,7 +395,7 @@ def test_the_job_installs_hashes_and_starts_the_bridge_before_fuzzing(fuzz_job):
     steps = fuzz_job["steps"]
     runs = "\n".join(step.get("run", "") for step in steps)
     assert "--require-hashes -r requirements-fuzz.lock" in runs
-    assert "--require-hashes -r requirements-ci.lock" in runs
+    assert "--require-hashes -r requirements-ci.txt" in runs
     assert "serve_bridge_for_fuzzing.py" in runs
     assert "schemathesis run" in runs
     names = [step.get("name", "") for step in steps]

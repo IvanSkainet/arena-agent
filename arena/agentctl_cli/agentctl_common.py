@@ -11,11 +11,17 @@ from typing import Any
 
 from arena.agentctl_cli.tls import build_ssl_context
 from arena.constants import VERSION  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+from arena.home import agent_home, default_home, executable_root, token_path as token_path_for
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
+ROOT = agent_home()
 BRIDGE_URL = os.environ.get("ARENA_BRIDGE_URL", "http://127.0.0.1:8765")
-BIN = ROOT / "bin"
-SCRIPTS = ROOT / "scripts"
+# The scripts the CLI runs ship with the code, not with the state. They used
+# to be looked for under ROOT, which is why `agentctl mcp` answered with an
+# interpreter traceback about ~/arena-bridge/bin/mcp_marketplace.py whenever
+# the bridge lived anywhere else (#B-029).
+CODE_ROOT = executable_root()
+BIN = CODE_ROOT / "bin"
+SCRIPTS = CODE_ROOT / "scripts"
 
 
 def _load_token() -> str:
@@ -57,9 +63,10 @@ def _load_token() -> str:
     env_tok = os.environ.get("ARENA_BRIDGE_TOKEN", "").strip()
     if env_tok:
         return env_tok
-    # 3. Disk fallback, standard locations.
-    for token_path in (ROOT / "token.txt",
-                       Path.home() / "arena-bridge" / "token.txt"):
+    # 3. Disk fallback, standard locations. The second entry is the
+    # historical install location, kept on purpose: an operator whose
+    # ARENA_AGENT_HOME points elsewhere still has a working token there.
+    for token_path in (ROOT / "token.txt", token_path_for(), default_home() / "token.txt"):
         if token_path.exists():
             tok = _read_first_line(token_path)
             if tok:
@@ -146,7 +153,11 @@ def bridge_post(path: str, data: dict, token: bool = True, timeout: int = 20) ->
 def run_bin(tool: str, args: list[str] | None = None) -> None:
     py = sys.executable or "python3"
     tool_path = BIN / tool
-    cmd = [py, str(tool_path)] if tool_path.suffix == ".py" else [str(tool_path)]
+    packaged = {"mcp_marketplace.py": "arena.mcp_marketplace.cli", "subagent.py": "arena.subagent_cli"}
+    if not tool_path.exists() and tool in packaged:
+        cmd = [py, "-m", packaged[tool]]
+    else:
+        cmd = [py, str(tool_path)] if tool_path.suffix == ".py" else [str(tool_path)]
     try:
         subprocess.run(cmd + (args or []), check=True)  # nosemgrep: dangerous-subprocess-use-tainted-env-args -- command string built from a hard-coded literal or from operator-side CLI input (see bandit B602/B603 nosec on the same line)
     except subprocess.CalledProcessError as e:

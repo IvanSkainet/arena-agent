@@ -40,7 +40,7 @@ What is checked
 
 What is deliberately NOT checked: agreement between locks that never meet.
 requirements-security.lock resolves rich/packaging/cffi differently from
-requirements-ci.lock because its own dependency graph demands it, and no
+requirements-ci.txt because its own dependency graph demands it, and no
 job installs both. Forcing unrelated resolutions to match would produce
 failures with nothing behind them, and a gate that cries wolf gets
 disabled — the co-installation map is read out of the workflows so the
@@ -68,7 +68,7 @@ LOCK_PIN = re.compile(
 )
 # `pip install --require-hashes -r requirements-<x>.lock`, however the
 # surrounding command is spelled (python -m pip, a venv's pip, quoted path).
-LOCK_INSTALL = re.compile(r"-r\s+(requirements-[A-Za-z0-9_.-]+\.lock)")
+LOCK_INSTALL = re.compile(r"-r\s+(requirements-[A-Za-z0-9_.-]+\.(?:lock|txt))")
 
 
 def canonical(name: str) -> str:

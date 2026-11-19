@@ -32,6 +32,7 @@ from pathlib import Path
 from arena.admin.deployment_provenance import DEPLOYED_PROVENANCE
 from arena.admin.deployment_tombstones import REMOVED_RELEASE_TARGETS
 from arena.admin.update_targets import replace_targets
+from arena.service.launcher_paths import windows_launcher_root
 
 
 def _bridge_port() -> int:
@@ -105,6 +106,42 @@ def spawn_detached_mover(script: Path) -> Path:
         close_fds=True,
     )
     return vbs_shim
+
+
+def _snapshot_target_lines(targets: tuple[str, ...], dst: str, backup: str | None,
+                           provenance_path: Path | None) -> list[str]:
+    """Build the complete rollback snapshot before any replacement starts."""
+    lines: list[str] = []
+    if backup is not None:
+        for idx, name in enumerate(targets):
+            d = f"{dst}\\{name}"
+            b = f"{backup}\\{name}"
+            backup_file = f"backup_file_{idx}"
+            backup_done = f"backup_done_{idx}"
+            lines.extend([
+                f'rem ---- backup target {idx}: {name} ----',
+                f'if not exist "{d}" goto :{backup_done}',
+                f'if not exist "{d}\\*" goto :{backup_file}',
+                f'robocopy "{d}" "{b}" /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 >NUL',
+                'if errorlevel 8 goto :copy_failed',
+                f'echo dir>"{backup}\\.arena-target-{idx}-dir"',
+                f'goto :{backup_done}',
+                f':{backup_file}',
+                f'copy /Y "{d}" "{b}" >NUL',
+                'if errorlevel 1 goto :copy_failed',
+                f'echo file>"{backup}\\.arena-target-{idx}-file"',
+                f':{backup_done}',
+            ])
+        if provenance_path is not None:
+            provenance_dst = f"{dst}\\{DEPLOYED_PROVENANCE}"
+            backup_provenance = f"{backup}\\{DEPLOYED_PROVENANCE}"
+            lines.extend([
+                f'copy /Y "{provenance_dst}" "{backup_provenance}" >NUL',
+                'if errorlevel 1 goto :copy_failed',
+                f'echo file>"{backup}\\.arena-provenance-present"',
+            ])
+
+    return lines
 
 
 def _write_windows_installer(payload_root: Path, install_root: Path,
@@ -228,34 +265,7 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
     # Snapshot every old target before replacing any of them. Interleaving
     # backup and install leaves a half-updated tree when a later backup fails.
     targets = tuple(replace_targets(payload_root))
-    if backup is not None:
-        for idx, name in enumerate(targets):
-            d = f"{dst}\\{name}"
-            b = f"{backup}\\{name}"
-            backup_file = f"backup_file_{idx}"
-            backup_done = f"backup_done_{idx}"
-            lines.extend([
-                f'rem ---- backup target {idx}: {name} ----',
-                f'if not exist "{d}" goto :{backup_done}',
-                f'if not exist "{d}\\*" goto :{backup_file}',
-                f'robocopy "{d}" "{b}" /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 >NUL',
-                'if errorlevel 8 goto :copy_failed',
-                f'echo dir>"{backup}\\.arena-target-{idx}-dir"',
-                f'goto :{backup_done}',
-                f':{backup_file}',
-                f'copy /Y "{d}" "{b}" >NUL',
-                'if errorlevel 1 goto :copy_failed',
-                f'echo file>"{backup}\\.arena-target-{idx}-file"',
-                f':{backup_done}',
-            ])
-        if provenance_path is not None:
-            provenance_dst = f"{dst}\\{DEPLOYED_PROVENANCE}"
-            backup_provenance = f"{backup}\\{DEPLOYED_PROVENANCE}"
-            lines.extend([
-                f'copy /Y "{provenance_dst}" "{backup_provenance}" >NUL',
-                'if errorlevel 1 goto :copy_failed',
-                f'echo file>"{backup}\\.arena-provenance-present"',
-            ])
+    lines.extend(_snapshot_target_lines(targets, dst, backup, provenance_path))
 
     # Only after the complete rollback snapshot exists may replacement begin.
     lines.append("set _install_started=1")
@@ -410,8 +420,9 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
         or os.environ.get("ARENA_SERVICE_NAME", "").strip()
         or "ArenaUnifiedBridge"
     )
-    vbs = f"{dst}\\start_hidden.vbs"
-    bat = f"{dst}\\start_bridge.bat"
+    launchers = windows_launcher_root(install_root)
+    vbs = str(launchers / "start_hidden.vbs")
+    bat = str(launchers / "start_bridge.bat")
     # v4.169.21: `schtasks /Run` exiting 0 does NOT mean a process started.
     # Measured on Ivan's PC: the mover logged "relaunched via schtasks" at
     # 17:08:43, `LastTaskResult` was 0, the task went straight back to

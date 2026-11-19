@@ -161,3 +161,15 @@ def test_symlink_entry_is_rejected(tmp_path: Path) -> None:
     _write_zip(artifact, symlink_path=target)
     with pytest.raises(M.VerificationError, match="non-regular"):
         M.verify_zip(artifact, expected_version="9.9.9")
+
+
+@pytest.mark.parametrize("relative", [".inventory-cache/git_repos.json", "code-runs/id/run.json",
+                                      "flight-records/probe.json", "update/last.json",
+                                      "memory/facts.db", "memory/facts.db-wal",
+                                      "queue/inbox/id.json", "queue/running/id.json",
+                                      "queue/done/id.json", "queue/failed/id.json"])
+def test_private_runtime_bytes_are_refused_even_in_a_canonical_zip(tmp_path, relative):
+    candidate = tmp_path / "private.zip"
+    _write_zip(candidate, extra={M.PREFIX + relative: b"private runtime data"})
+    with pytest.raises(M.VerificationError, match="forbidden"):
+        M.verify_zip(candidate, expected_version="9.9.9")

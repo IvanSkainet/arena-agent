@@ -6,7 +6,12 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import textwrap
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from arena.home import code_root  # noqa: E402
 
 AURL=os.getenv('AURL') or os.getenv('ARENA_BRIDGE_URL') or ''
 ATOK=os.getenv('ATOK') or os.getenv('ARENA_BRIDGE_TOKEN') or ''
@@ -31,7 +36,7 @@ import json, os
 print(json.dumps({'cmd':os.environ['CMD'],'timeout':int(os.environ['TIMEOUT']),'max_output':int(os.environ['MAX'])}))
 PY''').strip())
     elif a.kind=='python':
-        print(open(os.path.expanduser('~/arena-bridge/bin/ai_client.py')).read())
+        print((code_root() / 'bin' / 'ai_client.py').read_text(encoding='utf-8'))
     elif a.kind=='powershell':
         print('''param([string]$Cmd)\n$body=@{cmd=$Cmd;timeout=90;max_output=30000}|ConvertTo-Json\nInvoke-RestMethod -Uri "$env:AURL/v1/exec" -Method Post -Headers @{Authorization="Bearer $env:ATOK"} -ContentType 'application/json' -Body $body''')
 def test(a):

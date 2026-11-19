@@ -16,7 +16,7 @@ where a swapped package changes what the tests run against, with nothing
 turning red.
 
 Every package involved was already hash-pinned in
-`requirements-ci.lock`, so the fix made the commands shorter as well as
+`requirements-ci.txt`, so the fix made the commands shorter as well as
 safer.
 
 Allowed:
@@ -59,7 +59,7 @@ _PIP_INSTALL = re.compile(r"\bpip\s+install\b")
 # A lock file is the only requirements file that may be installed
 # without --require-hashes being suspicious, and even then we demand the
 # flag; this just recognises the filename for a clearer message.
-_LOCK_FILE = re.compile(r"requirements[\w.-]*\.lock")
+_LOCK_FILE = re.compile(r"requirements(?:[\w.-]*\.lock|-ci\.txt)")
 
 
 def _is_allowed(line: str) -> bool:
@@ -168,7 +168,7 @@ def main() -> int:
         for line in found:
             print(f"  {line}")
         print()
-        print("  python -m pip install --require-hashes -r requirements-ci.lock")
+        print("  python -m pip install --require-hashes -r requirements-ci.txt")
         return 1
     print(f"pinned pip ratchet: OK ({scanned} workflow files)")
     return 0

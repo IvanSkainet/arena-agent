@@ -200,7 +200,7 @@ def test_repair_writes_the_launchers_instead_of_refusing(tmp_path: Path) -> None
     lone_lf = raw.replace(b"\r\n", b"")
     assert b"\n" not in lone_lf, "a .bat needs CRLF on every line, not just the last"
     bat = raw.decode("utf-8")
-    assert "unified_bridge.py serve" in bat
+    assert 'unified_bridge.py" serve' in bat
     assert "--port 8765" in bat
     assert str(tmp_path) in bat
 

@@ -70,14 +70,21 @@ def make_v2_health_handler(ctx: ApiV2HandlerContext):
         checks = {
             "bridge": True,
             "cdp": ctx.cdp_state["connected"],
-            "watchdog": ctx.watchdog_state["last_check"] > 0,
+            "watchdog": (ctx.watchdog_state["last_check"] > 0
+                         and 0 <= ctx.now() - ctx.watchdog_state["last_check"]
+                         <= max(60, ctx.watchdog_state.get("check_interval_s", 30) * 3)),
             "tls": tls_ready(ctx.tls_config),
             "cluster": ctx.cluster_config["enabled"],
         }
-        all_healthy = True
+        required = {"bridge": checks["bridge"], "watchdog": checks["watchdog"]}
+        if ctx.tls_config.get("enabled"):
+            required["tls"] = checks["tls"]
+        all_healthy = all(required.values())
         return ctx.cors_json_response({
             "ok": all_healthy,
-            "status": "healthy" if all_healthy else "degraded",
+            "status": "healthy" if all_healthy else "unhealthy",
+            "required_checks": sorted(required),
+            "optional_checks": sorted(set(checks) - set(required)),
             "version": ctx.version,
             "api_version": "2",
             "checks": checks,

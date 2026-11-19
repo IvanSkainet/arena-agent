@@ -15,7 +15,7 @@ class TaskQueueRuntimeContext:
     running: Path
     done: Path
     failed: Path
-    default_cwd: str
+    default_cwd: str | Callable[[], str]
     now: Callable[[], str]
 
 
@@ -31,7 +31,7 @@ def make_task_queue_runtime(ctx: TaskQueueRuntimeContext) -> TaskQueueRuntime:
         return list_tasks(inbox=ctx.inbox, running=ctx.running, done=ctx.done, failed=ctx.failed, status=status, limit=limit)
 
     def _task_submit_sync(data: dict[str, Any]) -> dict[str, Any]:
-        return submit_task(data, inbox=ctx.inbox, default_cwd=ctx.default_cwd, now_fn=ctx.now)
+        return submit_task(data, inbox=ctx.inbox, default_cwd=ctx.default_cwd() if callable(ctx.default_cwd) else ctx.default_cwd, now_fn=ctx.now)
 
     def _tasks_clean_sync() -> dict[str, Any]:
         return clean_tasks(done=ctx.done, failed=ctx.failed, older_than_seconds=86400)

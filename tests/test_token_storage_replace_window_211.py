@@ -23,7 +23,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -52,13 +51,18 @@ _POST_REPLACE_CALL = "fchmod" if os.name == "posix" else "chmod"
 def _is_the_post_replace_call(first_argument, target: Path) -> bool:
     """Is this the mode change that happens after the rename?
 
-    On POSIX the call takes the descriptor, and there is exactly one
-    `os.fchmod` in the write, so any call qualifies. On the path-based
+    On POSIX compare descriptor identity with the installed token, not
+    unrelated directory-hardening fchmod calls. On the path-based
     side both the temporary file and the target go through `os.chmod`, so
     only a call naming the target counts.
     """
     if _POST_REPLACE_CALL == "fchmod":
-        return True
+        try:
+            actual = os.fstat(first_argument)
+            expected = target.stat()
+        except OSError:
+            return False
+        return (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino)
     return Path(first_argument) == target
 
 
@@ -224,9 +228,13 @@ def test_a_file_swapped_between_replace_and_chmod_is_a_hard_failure(
     target.write_text("OLD-TOKEN", encoding="utf-8")
     intruder = tmp_path / "intruder.txt"
     intruder.write_text("SOMEONE-ELSES-TOKEN", encoding="utf-8")
+    real_fchmod = token_storage.os.fchmod
+
     def swaps_then_fails(_fd, _mode, *args, **kwargs):
-        os.replace(intruder, target)
-        raise PermissionError("mode change denied")
+        if _is_the_post_replace_call(_fd, target):
+            os.replace(intruder, target)
+            raise PermissionError("mode change denied")
+        return real_fchmod(_fd, _mode, *args, **kwargs)
 
     monkeypatch.setattr(token_storage.os, "fchmod", swaps_then_fails)
 
@@ -289,7 +297,7 @@ def test_first_start_still_dies_when_nothing_was_written(
     def denied(*_args, **_kwargs):
         raise OSError("chmod denied")
 
-    monkeypatch.setattr(token_storage.os, "chmod", denied)
+    monkeypatch.setattr(token_storage.os, "fchmod" if os.name == "posix" else "chmod", denied)
     monkeypatch.delenv("ARENA_TOKEN_FILE", raising=False)
     monkeypatch.delenv("ARENA_LOCAL_BRIDGE_TOKEN", raising=False)
 
@@ -442,7 +450,8 @@ def test_a_swap_before_the_first_stat_does_not_chmod_a_foreign_file(
 
     def swaps_right_after(src, dst, *args, **kwargs):
         result = real_replace(src, dst, *args, **kwargs)
-        if Path(dst) == target:
+        expected = target.name if kwargs.get("dst_dir_fd") is not None else target
+        if Path(dst) == Path(expected):
             real_replace(str(intruder), str(target))
         return result
 
@@ -497,17 +506,17 @@ def test_a_failed_staging_closes_the_descriptor_it_opened(
     """
     target = tmp_path / "token.txt"
     staged: list[int] = []
-    real_mkstemp = tempfile.mkstemp
+    real_create = token_storage._create_staged_file
 
     def remember(*args, **kwargs):
-        fd, name = real_mkstemp(*args, **kwargs)
+        fd, name = real_create(*args, **kwargs)
         staged.append(fd)
         return fd, name
 
     def fails(_fd):
         raise OSError("fsync denied")
 
-    monkeypatch.setattr(tempfile, "mkstemp", remember)
+    monkeypatch.setattr(token_storage, "_create_staged_file", remember)
     monkeypatch.setattr(token_storage.os, "fsync", fails)
 
     for _ in range(10):
@@ -539,7 +548,7 @@ def test_an_unremovable_staged_file_is_reported_not_swallowed(
         raise OSError("unlink denied")
 
     monkeypatch.setattr(token_storage.os, "fsync", fails)
-    monkeypatch.setattr(Path, "unlink", cannot_unlink)
+    monkeypatch.setattr(token_storage, "_unlink_staged", cannot_unlink)
 
     with caplog.at_level(logging.WARNING, logger="arena-bridge"):
         with pytest.raises(OSError, match="fsync denied"):
@@ -562,3 +571,13 @@ def test_every_mode_change_uses_the_one_constant(tmp_path: Path) -> None:
     assert token_storage.TOKEN_FILE_MODE == 0o600
     assert source.count("0o600") == source.count(definition) == 1, (
         "a mode literal escaped the constant")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shared-directory permission contract")
+def test_custom_token_parent_is_not_chmodded(tmp_path):
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o755)
+    shared.chmod(0o755)
+    token_storage.write_owner_token(shared / "token.txt", "private")
+    assert shared.stat().st_mode & 0o777 == 0o755
+    assert (shared / "token.txt").stat().st_mode & 0o777 == 0o600

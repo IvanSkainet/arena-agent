@@ -136,17 +136,19 @@ def test_a_module_that_binds_a_tmp_home_does_not_hand_it_to_the_next_importer(
             delattr(_package, "files")
         os.environ.pop("ARENA_AGENT_HOME", None)
 
-        def test_a_later_qualified_import_is_not_given_the_first_tmp_home():
+        def test_a_later_qualified_import_is_not_given_the_first_tmp_home(monkeypatch):
+            monkeypatch.setenv("ARENA_AGENT_HOME", {str(tmp_path / "second-home")!r})
             import arena.agent_helpers.files as reimported
-            assert reimported.ROOT == Path.home() / "arena-bridge"
+            assert reimported.ROOT == Path({str(tmp_path / "second-home")!r})
 
-        def test_a_later_import_through_the_parent_package_is_not_either():
+        def test_a_later_import_through_the_parent_package_is_not_either(monkeypatch):
+            monkeypatch.setenv("ARENA_AGENT_HOME", {str(tmp_path / "second-home")!r})
             # `sys.modules` is not the only reference: importing a
             # submodule binds it on its parent package too, and this
             # import form reads that attribute. Verified by mutation --
             # dropping only the sys.modules entry fails here.
             from arena.agent_helpers import files
-            assert files.ROOT == Path.home() / "arena-bridge"
+            assert files.ROOT == Path({str(tmp_path / "second-home")!r})
     '''), encoding="utf-8")
 
     result = _run_pytest(tmp_path, "test_reads_root.py")

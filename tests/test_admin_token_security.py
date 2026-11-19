@@ -108,7 +108,8 @@ def test_chmod_failure_is_reported_as_failure(tmp_path, monkeypatch):
     def denied(*_args, **_kwargs):
         raise OSError("chmod denied")
 
-    monkeypatch.setattr(token_storage.os, "chmod", denied)
+    # POSIX staging now hardens the opened descriptor, not its pathname.
+    monkeypatch.setattr(token_storage.os, "fchmod" if os.name == "posix" else "chmod", denied)
     result = token_module.token_regenerate(str(target), default_token_file=target)
 
     assert result["ok"] is False

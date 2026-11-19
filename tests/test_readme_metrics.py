@@ -33,6 +33,19 @@ def renderer():
 READMES = (REPO_ROOT / "README.md", REPO_ROOT / "README.ru.md")
 
 
+@pytest.fixture(autouse=True)
+def forbid_checkout_readme_writes(monkeypatch):
+    """Even a regressed renderer target must not modify the checkout."""
+    write_text = Path.write_text
+
+    def guarded_write(path, *args, **kwargs):
+        if path.resolve() in READMES:
+            raise AssertionError("test attempted to rewrite a committed README")
+        return write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", guarded_write)
+
+
 def _slug(heading: str) -> str:
     """GitHub's anchor slug: lowercase, drop punctuation, spaces to hyphens.
 
@@ -116,16 +129,25 @@ def test_counts_are_plausible(renderer):
     assert m["workflows"] >= 1 and m["gates"] >= 1, m
 
 
-def test_the_generated_block_excludes_itself(renderer):
+def test_the_generated_block_excludes_itself(renderer, tmp_path, monkeypatch):
     """The counter must not count its own output.
 
     It does now only because the metrics come from source globs; if someone
     later counts README.md too, writing the table would change the number the
     table reports and --check could never converge.
     """
+    original = README.read_bytes()
+    isolated = tmp_path / "README.md"
+    isolated.write_bytes(original)
+    monkeypatch.setattr(renderer, "README", isolated)
+    monkeypatch.setattr(renderer, "REPO_ROOT", tmp_path)
+    # A real temporary source tree keeps collection and rewriting co-located.
+    (tmp_path / "arena").mkdir()
+    (tmp_path / "arena" / "sample.py").write_text("value = 1\n")
     m1 = renderer.collect()
-    renderer.main([])           # rewrite
+    renderer.main([])           # rewrite only the isolated copy
     m2 = renderer.collect()
+    assert README.read_bytes() == original, "renderer changed the checkout README"
     assert m1 == m2, f"rendering changed the measured values: {m1} -> {m2}"
     assert renderer.main(["--check"]) == 0, "not idempotent: --check fails after a write"
 

@@ -4,14 +4,16 @@ from __future__ import annotations
 import argparse  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import datetime as dt
 import json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
-import os
+import os  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import shutil  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import subprocess  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import sys
 import time  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from pathlib import Path
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
+from arena.home import agent_home, executable_root
+
+ROOT = agent_home()
 SK = ROOT / "skills"
 LOGS = ROOT / "logs"
 LOG_FILE = LOGS / "skills.jsonl"
@@ -24,16 +26,16 @@ def _fire_hook(event: str, target: str, args=None, exit_code: int = 0) -> None:
     try:
         import json as _j
         import subprocess as _sp
-        runner = ROOT / "bin" / "hooks_runner.py"
+        runner = executable_root() / "bin" / "hooks_runner.py"
         if not runner.exists():
-            runner = ROOT / "scripts" / "hooks_runner.py"
+            runner = executable_root() / "scripts" / "hooks_runner.py"
         if not runner.exists():
             return
         _sp.run([sys.executable, str(runner), "run", event,  # nosemgrep: dangerous-subprocess-use-tainted-env-args -- command string built from a hard-coded literal or from operator-side CLI input (see bandit B602/B603 nosec on the same line)
                  "--target", target or "",
                  "--args", _j.dumps(args or {}),
                  "--exit", str(exit_code)],
-                timeout=70, check=False)
+                timeout=70, check=False, env={**os.environ, "ARENA_AGENT_HOME": str(ROOT)})
     except Exception:
         pass
 

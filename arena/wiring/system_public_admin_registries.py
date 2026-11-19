@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import MutableMapping
 from typing import Any, Callable
 
+from arena.memory.health import memory_status
 from arena.wiring.env import RuntimeEnv
 
 
@@ -68,6 +69,7 @@ def build_system_public_admin_registries(g: MutableMapping[str, Any]) -> dict[st
         now=env.time.time,
         hostname=env.socket.gethostname,
         bridge_port=env._get_bridge_port,
+        memory_status=lambda: memory_status(env.MEMORY_DB),
     ))
     registry.update(_public_handler_registry)
     return registry
