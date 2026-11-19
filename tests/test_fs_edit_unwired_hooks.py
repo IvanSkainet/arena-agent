@@ -107,3 +107,15 @@ def test_fully_wired_context_runs_the_edit(tmp_path):
     assert resp.status == 200, json.dumps(resp.data, default=str)
     assert resp.data["ok"] is True
     assert "two" in target.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("invalid_path", [None, True, 42, {}, [], ["x" * 400]])
+def test_edit_rejects_non_string_path_before_filesystem(tmp_path, invalid_path):
+    handlers = make_file_handlers(_ctx(
+        tmp_path, create_edit_preview=create_preview,
+        apply_edit_preview=apply_preview, rollback_edit_change=rollback_change,
+    ))
+    request = _req({"path": invalid_path, "old_text": "x", "new_text": "y"}, path="/v1/fs/edit", root=tmp_path)
+    response = asyncio.run(handlers.fs_edit(request))
+    assert response.status == 400  # nosec B101 -- malformed client input, not a server error.
+    assert response.data["error"] == "path must be a string"  # nosec B101 -- boundary diagnostic.

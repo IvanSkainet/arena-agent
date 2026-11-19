@@ -10,7 +10,7 @@ verified a signature. The number is mostly auto-update retries and
 bots, and it only ever goes up.
 
 ``/traffic/clones`` reports ``uniques``: distinct cloners over a rolling
-**14-day** window. Smaller, and actually about people.
+**14-day** window. This is a traffic signal, not a count of people; automation can clone too.
 
 That window is the catch, and it decides the design. A badge committed
 once would freeze at the day it was generated and slowly become a lie --
@@ -28,7 +28,6 @@ import argparse
 import json
 import os
 import re
-import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -41,6 +40,7 @@ REPO = os.environ.get("GITHUB_REPOSITORY", "IvanSkainet/arena-agent")
 
 BEGIN = "<!-- BEGIN TRAFFIC BADGE -->"
 END = "<!-- END TRAFFIC BADGE -->"
+BLOCK = re.compile(re.escape(BEGIN) + r".*?" + re.escape(END), re.S)
 
 
 def _token() -> str | None:
@@ -72,12 +72,33 @@ def fetch_uniques() -> tuple[int, int]:
             f"traffic badge: GitHub returned HTTP {exc.code}. 403 usually "
             f"means the token lacks push access to {REPO}."
         ) from exc
-    return int(data.get("uniques", 0)), int(data.get("count", 0))
+    return parse_counts(data)
+
+
+def _clone_count(value: object) -> int:
+    if isinstance(value, bool):
+        raise SystemExit("traffic badge: invalid boolean clone count")
+    if not isinstance(value, int):
+        raise SystemExit("traffic badge: invalid clone count type")
+    if value < 0:
+        raise SystemExit("traffic badge: invalid negative clone count")
+    return value
+
+
+def parse_counts(data: object) -> tuple[int, int]:
+    if not isinstance(data, dict):
+        raise SystemExit("traffic badge: invalid traffic response")
+    uniques = _clone_count(data.get("uniques"))
+    total = _clone_count(data.get("count"))
+    if uniques > total:
+        raise SystemExit("traffic badge: invalid clone counts; uniques exceed total")
+    return uniques, total
+
 
 
 def badge_markup(uniques: int, total: int, measured: str) -> str:
     """Static shields.io badge plus the caveat that makes it honest."""
-    colour = "brightgreen" if uniques >= 100 else "blue" if uniques >= 20 else "lightgrey"
+    colour = "blue"  # Traffic volume is not a popularity or human-user rating.
     label = "unique%20clones%20(14d)"
     return (
         f"{BEGIN}\n"
@@ -85,18 +106,30 @@ def badge_markup(uniques: int, total: int, measured: str) -> str:
         f"(https://img.shields.io/badge/{label}-{uniques}-{colour})\n"
         f"\n"
         f"<sub>{uniques} unique cloners over the 14 days to {measured} "
-        f"({total} clones total). Refreshed daily by "
-        f"`.github/workflows/traffic-badge.yml`; GitHub only keeps a "
-        f"14-day window. Deliberately not a release-download count — "
-        f"v4.169.50 showed 349 downloads of one asset against 3 of the "
-        f"byte-identical copy, so that number measures automation, not "
-        f"people.</sub>\n"
+        f"({total} clones total). Daily refresh proposals are opened by "
+        f"`.github/workflows/traffic-badge.yml` and reach README only after "
+        f"normal protected PR review and checks. GitHub keeps a rolling "
+        f"14-day window. Unique cloners are not verified people and may "
+        f"include automation. Release-download counts also include automation "
+        f"and retries; v4.169.50 reported 349 downloads of one ZIP and 3 of "
+        f"its byte-identical alias, which does not establish a human user count.</sub>\n"
         f"{END}"
     )
 
 
+def traffic_block_present(readme: str) -> bool:
+    counts = (readme.count(BEGIN), readme.count(END))
+    if counts == (0, 0):
+        return False
+    if counts != (1, 1):
+        raise SystemExit("traffic badge: malformed marker counts")
+    if BLOCK.search(readme) is None:
+        raise SystemExit("traffic badge: malformed marker order")
+    return True
+
+
 def render(readme: str, block: str) -> str:
-    if BEGIN in readme and END in readme:
+    if traffic_block_present(readme):
         return re.sub(
             re.escape(BEGIN) + r".*?" + re.escape(END),
             lambda _: block,
@@ -117,7 +150,7 @@ def render(readme: str, block: str) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write", action="store_true",
-                        help="update README.md and commit if it changed")
+                        help="update README.md locally; publishing is a separate protected PR step")
     parser.add_argument("--check", action="store_true",
                         help="exit 1 if the badge block is missing")
     args = parser.parse_args(argv)
@@ -125,57 +158,35 @@ def main(argv: list[str] | None = None) -> int:
     readme = README.read_text(encoding="utf-8")
 
     if args.check:
-        missing = BEGIN not in readme or END not in readme
-        if missing:
-            print("traffic badge: README.md has no badge block")
-            return 1
-        print("traffic badge: block present")
-        return 0
+        return check_block(readme)
+    refresh_snapshot(readme, write=args.write)
+    return 0
 
+
+def check_block(readme: str) -> int:
+    if not traffic_block_present(readme):
+        print("traffic badge: README.md has no badge block")
+        return 1
+    print("traffic badge: block present")
+    return 0
+
+
+def refresh_snapshot(readme: str, *, write: bool) -> None:
     uniques, total = fetch_uniques()
     measured = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     updated = render(readme, badge_markup(uniques, total, measured))
 
     if updated == readme:
         print(f"traffic badge: unchanged ({uniques} uniques)")
-        return 0
+        return
 
-    if not args.write:
+    if not write:
         print(f"traffic badge: would set {uniques} uniques / {total} clones")
-        return 0
+        return
 
     README.write_text(updated, encoding="utf-8")
     print(f"traffic badge: {uniques} uniques, {total} clones, measured {measured}")
-
-    # Committing is part of the job: a scheduled run that edits a file and
-    # walks away leaves the badge stale in the tree while claiming success.
-    subprocess.run(["git", "config", "user.name", "github-actions[bot]"],
-                   cwd=REPO_ROOT, check=True)
-    subprocess.run(
-        ["git", "config", "user.email",
-         "41898282+github-actions[bot]@users.noreply.github.com"],
-        cwd=REPO_ROOT, check=True)
-    subprocess.run(["git", "add", "README.md"], cwd=REPO_ROOT, check=True)
-    diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=REPO_ROOT)
-    if diff.returncode == 0:
-        print("traffic badge: nothing to commit")
-        return 0
-    subprocess.run(
-        ["git", "commit", "-m",
-         f"chore: refresh unique-clones badge ({uniques} over 14d)"],
-        cwd=REPO_ROOT, check=True)
-    # checkout runs with persist-credentials: false (zizmor artipacked),
-    # so the token is supplied here and never written to .git/config.
-    remote = f"https://x-access-token:{_token()}@github.com/{REPO}.git"
-    branch = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=REPO_ROOT,
-        capture_output=True, text=True, check=True).stdout.strip()
-    # Rebase first: the badge job races anything else pushing to master.
-    subprocess.run(["git", "pull", "--rebase", "--autostash", remote, branch],
-                   cwd=REPO_ROOT, check=True)
-    subprocess.run(["git", "push", remote, f"HEAD:{branch}"],
-                   cwd=REPO_ROOT, check=True)
-    return 0
+    return
 
 
 if __name__ == "__main__":

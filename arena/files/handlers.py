@@ -177,7 +177,9 @@ async def _handle_v1_fs_edit(ctx: FileHandlerContext, request: web.Request) -> w
     if error is not None:
         return error
     assert data is not None and hooks is not None
-    target = str(data.get("path", ""))
+    target = data.get("path", "")
+    if not isinstance(target, str):
+        return _json_error(ctx, "path must be a string", 400)
     target_path, err, status = validate_edit_target(
         target,
         root=request.app[APP_CFG]["root"],

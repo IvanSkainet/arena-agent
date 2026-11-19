@@ -27,9 +27,9 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 
 | Metric | Value |
 | --- | --- |
-| Runtime code | **118,991** lines across 842 files |
-| Test code | **126,103** lines across 643 files |
-| Test-to-code ratio | **1.06×** |
+| Runtime code | **120,596** lines across 858 files |
+| Test code | **128,728** lines across 657 files |
+| Test-to-code ratio | **1.07×** |
 | CI workflows | **16** |
 | Quality gates (ratchets) | **20** |
 
@@ -40,7 +40,7 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 <!-- BEGIN TRAFFIC BADGE -->
 ![Unique clones (14 days)](https://img.shields.io/badge/unique%20clones%20(14d)-696-brightgreen)
 
-<sub>696 unique cloners over the 14 days to 2026-09-04 (39545 clones total). Refreshed daily by `.github/workflows/traffic-badge.yml`; GitHub only keeps a 14-day window. Deliberately not a release-download count — v4.169.50 showed 349 downloads of one asset against 3 of the byte-identical copy, so that number measures automation, not people.</sub>
+<sub>696 unique cloners over the 14 days to 2026-09-04 (39545 clones total). Daily refresh proposals are opened by `.github/workflows/traffic-badge.yml` and reach README only after normal protected PR review and checks. GitHub keeps a rolling 14-day window. Unique cloners are not verified people and may include automation. Release-download counts also include automation and retries; v4.169.50 reported 349 downloads of one ZIP and 3 of its byte-identical alias, which does not establish a human user count.</sub>
 <!-- END TRAFFIC BADGE -->
 
 ---

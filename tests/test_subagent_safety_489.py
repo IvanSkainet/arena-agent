@@ -78,7 +78,14 @@ def _wait_for_terminal_metadata(run) -> dict:
 
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
-        meta = json.loads((run / "meta.json").read_text())
+        try:
+            raw = (run / "meta.json").read_text()
+        except (PermissionError, FileNotFoundError):
+            # Atomic private publication can briefly deny a Windows reader.
+            # Keep the original deadline; malformed readable JSON still fails.
+            time.sleep(.03)
+            continue
+        meta = json.loads(raw)
         if meta["status"] not in {"running", "spawned"}:
             return meta
         time.sleep(.03)
@@ -196,3 +203,37 @@ def test_cleanup_does_not_adopt_a_recycled_pid(monkeypatch):
 
     monkeypatch.setattr(psutil, "Process", lambda _pid: ReusedProcess())
     assert _owned_processes([(12345, 111.0)]) == []
+
+
+@pytest.mark.parametrize("transient", [PermissionError, FileNotFoundError])
+def test_terminal_metadata_reader_tolerates_private_publish_window(monkeypatch, transient):
+    import time
+    from unittest.mock import MagicMock
+
+    run = MagicMock()
+    run.__truediv__.return_value.read_text.side_effect = [transient(), '{"status":"timeout"}']
+    monkeypatch.setattr(time, "sleep", lambda delay: None)
+    assert _wait_for_terminal_metadata(run)["status"] == "timeout"  # nosec B101 -- eventual terminal record required.
+    assert run.__truediv__.return_value.read_text.call_count == 2  # nosec B101 -- one transient retry.
+
+
+def test_terminal_metadata_reader_does_not_hide_corrupt_json():
+    from unittest.mock import MagicMock
+
+    run = MagicMock()
+    run.__truediv__.return_value.read_text.return_value = "broken"
+    with pytest.raises(json.JSONDecodeError):
+        _wait_for_terminal_metadata(run)
+
+
+def test_terminal_metadata_reader_keeps_original_deadline(monkeypatch):
+    import time
+    from unittest.mock import MagicMock
+
+    run = MagicMock()
+    run.__truediv__.return_value.read_text.side_effect = PermissionError()
+    ticks = iter([0, 0, 21])
+    monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(time, "sleep", lambda delay: None)
+    with pytest.raises(AssertionError, match="did not reach terminal"):
+        _wait_for_terminal_metadata(run)

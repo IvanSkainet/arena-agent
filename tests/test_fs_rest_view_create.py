@@ -16,6 +16,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
@@ -350,3 +352,14 @@ def test_fuzz_numeric_content_is_rejected_before_creating_a_file(tmp_path):
         assert response._data["error"] == "content must be a string"
     assert audit == []
     assert not (tmp_path / "-715").exists()
+
+
+@pytest.mark.parametrize("operation", ["view", "create"])
+@pytest.mark.parametrize("invalid_path", [None, True, 42, {}, [], ["x" * 400]])
+def test_rest_rejects_non_string_path_before_filesystem(tmp_path, operation, invalid_path):
+    ctx, _ = _make_ctx(tmp_path)
+    handlers = make_fs_view_create_handlers(ctx)
+    request = _mock_request("POST", "/v1/fs/" + operation, {"path": invalid_path, "content": "safe"})
+    response = asyncio.run(getattr(handlers, operation)(request))
+    assert response.status == 400  # nosec B101 -- client input must not cause 500.
+    assert response._data["error"] == "path must be a string"  # nosec B101 -- boundary contract.
