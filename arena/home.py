@@ -145,6 +145,14 @@ def code_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def executable_root() -> Path:
+    """Compatibility tools live in the checkout or wheel-owned resource tree."""
+    source = code_root()
+    if (source / "bin" / "agentctl").is_file():
+        return source
+    return Path(__file__).resolve().parent / "_executables"
+
+
 def token_path(explicit: str | Path | None = None, *, for_write: bool = False) -> Path:
     """Where the bearer token file is expected.
 
@@ -199,6 +207,7 @@ __all__ = [
     "DATA_DIRNAME",
     "agent_home",
     "code_root",
+    "executable_root",
     "sandbox_home",
     "token_path",
 ]

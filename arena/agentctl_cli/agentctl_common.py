@@ -11,7 +11,7 @@ from typing import Any
 
 from arena.agentctl_cli.tls import build_ssl_context
 from arena.constants import VERSION  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
-from arena.home import agent_home, code_root, default_home, token_path as token_path_for
+from arena.home import agent_home, default_home, executable_root, token_path as token_path_for
 
 ROOT = agent_home()
 BRIDGE_URL = os.environ.get("ARENA_BRIDGE_URL", "http://127.0.0.1:8765")
@@ -19,7 +19,7 @@ BRIDGE_URL = os.environ.get("ARENA_BRIDGE_URL", "http://127.0.0.1:8765")
 # to be looked for under ROOT, which is why `agentctl mcp` answered with an
 # interpreter traceback about ~/arena-bridge/bin/mcp_marketplace.py whenever
 # the bridge lived anywhere else (#B-029).
-CODE_ROOT = code_root()
+CODE_ROOT = executable_root()
 BIN = CODE_ROOT / "bin"
 SCRIPTS = CODE_ROOT / "scripts"
 

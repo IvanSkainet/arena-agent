@@ -11,12 +11,12 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from typing import Any  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 
-from arena.home import code_root
+from arena.home import executable_root
 from arena.mcp.tool_utils import make_run_local, make_run_sd
 
 VERSION = "0.3.0"
 HOME = os.path.expanduser("~")
-BIN = str(code_root() / "bin")
+BIN = str(executable_root() / "bin")
 SESSIONS: dict[str, dict] = {}
 SLOCK = threading.Lock()
 

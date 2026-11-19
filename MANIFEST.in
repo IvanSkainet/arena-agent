@@ -1,0 +1,3 @@
+recursive-include bin *
+recursive-include scripts *.py *.sh *.ps1 *.bat *.json *.txt
+global-exclude __pycache__ *.pyc

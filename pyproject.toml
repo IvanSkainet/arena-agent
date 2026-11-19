@@ -67,6 +67,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 py-modules = ["unified_bridge"]
 
+[tool.setuptools.cmdclass]
+build_py = "arena.build_tools.BuildWithTools"
+
 [tool.setuptools.packages.find]
 include = ["arena*"]
 
