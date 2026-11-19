@@ -264,20 +264,23 @@ def test_release_docs_state_the_real_asset_count():
 
 
 @pytest.mark.parametrize(
-    "release_id,draft,immutable,expected_code",
-    [("451763650", True, False, 0), ("451763650", False, True, 0),
-     ("", True, False, 1), ("null", True, False, 1),
-     ("1/../../tags/v4.170.1", True, False, 1)],
+    "case",
+    [
+        ("451763650", True, False, 0),
+        ("987654321", False, True, 0),
+        ("", True, False, 1),
+        ("null", True, False, 1),
+        ("1/../../tags/v4.170.1", True, False, 1),
+    ],
 )
-def test_release_state_resolves_drafts_by_numeric_id(
-    sign_job, tmp_path, release_id, draft, immutable, expected_code,
-):
+def test_release_state_resolves_drafts_by_numeric_id(sign_job, tmp_path, case):
     """Execute the real shell step; REST by-tag returns 404 for draft releases."""
     import json
     import os
     import shutil
-    import subprocess
+    import subprocess  # nosec B404 -- execute repository-owned workflow in test harness.
 
+    release_id, draft, immutable, expected_code = case
     bash = shutil.which("bash")
     if not bash or not shutil.which("jq"):
         pytest.skip("release shell step requires bash and jq")
@@ -289,33 +292,57 @@ def test_release_state_resolves_drafts_by_numeric_id(
         "GITHUB_OUTPUT": str(output), "FAKE_RELEASE_ID": release_id,
         "FAKE_RELEASE_JSON": json.dumps({"draft": draft, "immutable": immutable}),
     })
-    # Only these two invocations work. In particular, any REST by-tag
-    # lookup fails, exactly like the real draft observed in signing run
-    # 44590187961. A malformed ID must never be passed to the API.
+    # Only these two invocations work. REST by-tag fails like real signing
+    # run 44590187961. The second ID catches hardcoded endpoint mutations.
     stub = r'''
 gh() {
-  if [ "$*" = "release view v4.170.1 --repo IvanSkainet/arena-agent --json databaseId --jq .databaseId" ]; then
-    printf '%s\n' "$FAKE_RELEASE_ID"
-  elif [ "$*" = "api repos/IvanSkainet/arena-agent/releases/451763650" ]; then
-    printf '%s\n' "$FAKE_RELEASE_JSON"
-  else
-    echo "unexpected gh invocation: $*" >&2
-    return 97
-  fi
+    if [ "$*" = "release view v4.170.1 --repo IvanSkainet/arena-agent --json databaseId --jq .databaseId" ]; then
+        printf '%s\n' "$FAKE_RELEASE_ID"
+    elif [ "$*" = "api repos/IvanSkainet/arena-agent/releases/$FAKE_RELEASE_ID" ]; then
+        printf '%s\n' "$FAKE_RELEASE_JSON"
+    else
+        echo "unexpected gh invocation: $*" >&2
+        return 97
+    fi
 }
 '''
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603 -- trusted repository workflow; no external input.
         [bash, "-c", stub + step["run"]], env=env,
         capture_output=True, text=True, timeout=15, check=False,
     )
-    assert result.returncode == expected_code, result.stdout + result.stderr
+    assert result.returncode == expected_code, result.stdout + result.stderr  # nosec B101
     if expected_code:
-        assert not output.exists()
-        assert "could not resolve a numeric release ID" in result.stdout
+        assert not output.exists()  # nosec B101 -- pytest assertions are the test contract.
+        assert "could not resolve a numeric release ID" in result.stdout  # nosec B101
     else:
         expected = (
             f"draft={str(draft).lower()}\n"
             f"immutable={str(immutable).lower()}\n"
             f"writable={str(not immutable).lower()}\n"
         )
-        assert output.read_text(encoding="utf-8") == expected
+        assert output.read_text(encoding="utf-8") == expected  # nosec B101
+
+
+def test_same_tag_signers_are_serialized_without_cancellation(wf):
+    concurrency = wf["concurrency"]
+    assert "github.event.release.tag_name || inputs.tag" in concurrency["group"]  # nosec B101 -- pytest contract, not a runtime access guard.
+    assert concurrency["cancel-in-progress"] is False  # nosec B101 -- pytest contract, not a runtime access guard.
+
+
+def test_remote_signing_set_is_complete_and_cryptographically_verified(sign_job):
+    steps = sign_job["steps"]
+    step = next(s for s in steps if s["name"] == "Verify complete attached signature set")
+    script = step["run"]
+    assert '"arena-agent-${TAG}.zip" arena-agent.zip arena-bridge.apk "SHA256SUMS-${TAG}.txt"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
+    assert 'test -s "verified-signatures/${f}.sig"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
+    assert 'test -s "verified-signatures/${f}.pem"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
+    assert 'cosign verify-blob "dist/$f"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
+    assert '--signature "verified-signatures/${f}.sig"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
+    assert '--certificate "verified-signatures/${f}.pem"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
+    assert '"https://token.actions.githubusercontent.com"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
+    assert "sign-release\\.yml@" in script  # nosec B101 -- pytest contract, not a runtime access guard.
+    assert 'cmp "dist/SHA256SUMS-${TAG}.txt" "verified-signatures/SHA256SUMS-${TAG}.txt"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
+    assert steps.index(step) > next(i for i, s in enumerate(steps) if s["name"] == "Attach signatures to the release")  # nosec B101 -- pytest contract, not a runtime access guard.
+    assert steps.index(step) < next(i for i, s in enumerate(steps) if s["name"] == "Anonymous end-to-end download & smoke verification")  # nosec B101 -- pytest contract, not a runtime access guard.
+    immutable = next(s for s in steps if s["name"] == "Refuse to leave a published release unsigned")
+    assert 'if [ "$have" -ne 8 ]' in immutable["run"]  # nosec B101 -- pytest contract, not a runtime access guard.
