@@ -36,8 +36,8 @@ def _load():
     return module
 
 
-@pytest.fixture()
-def badge():
+@pytest.fixture(name="badge")
+def _badge_fixture():
     return _load()
 
 
@@ -149,15 +149,15 @@ def test_checkout_does_not_persist_the_token():
     assert "persist-credentials: false" in raw, (
         "checkout leaves a push-capable token in .git/config"
     )
-    script = (REPO_ROOT / "scripts" / "refresh_readme_pr.py").read_text(encoding="utf-8")
-    assert "GIT_ASKPASS" in script, "authentication must not persist in the checkout"
-    assert 'https://x-access-token:' not in script, "token must not appear in process arguments"
-    assert 'secrets.README_TRAFFIC_TOKEN' in raw, "traffic needs the dedicated credential"
+    script = (REPO_ROOT / "arena" / "maintenance" / "readme_refresh.py").read_text(encoding="utf-8")
+    assert "GIT_ASKPASS" in script, "authentication must not persist in the checkout"  # nosec B101 -- pytest workflow contract.
+    assert 'https://x-access-token:' not in script, "token must not appear in process arguments"  # nosec B101 -- pytest workflow contract.
+    assert 'secrets.README_TRAFFIC_TOKEN' in raw, "traffic needs the dedicated credential"  # nosec B101 -- pytest workflow contract.
 
 
 @pytest.mark.parametrize("payload", [None, [], {}, {"uniques": True, "count": 2},
-                                     {"uniques": 3, "count": 2}, {"uniques": -1, "count": 2},
-                                     {"uniques": "1", "count": 2}])
+                                    {"uniques": 3, "count": 2}, {"uniques": -1, "count": 2},
+                                    {"uniques": "1", "count": 2}])
 def test_invalid_traffic_does_not_become_a_zero_snapshot(badge, monkeypatch, payload):
     import io
     import json
@@ -172,3 +172,11 @@ def test_badge_does_not_equate_unique_cloners_with_people(badge):
     block = badge.badge_markup(1, 2, "2026-09-05")
     assert "not verified people" in block  # nosec B101 -- truthful metrics regression.
     assert "protected PR review" in block  # nosec B101 -- refresh proposals are not merged snapshots.
+
+
+def test_only_master_can_enter_the_credential_job():
+    doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    job = doc["jobs"]["badge"]
+    assert job["if"] == "github.ref == 'refs/heads/master'"  # nosec B101 -- dispatch boundary.
+    checkout = next(step for step in job["steps"] if step.get("name") == "Checkout")
+    assert checkout["with"]["ref"] == "${{ github.sha }}"  # nosec B101 -- immutable trusted source.

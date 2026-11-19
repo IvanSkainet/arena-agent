@@ -28,6 +28,7 @@ TESTS = REPO / "tests"
 
 # Modules that shell out to git and must therefore use the shared budget.
 GIT_MODULES = (
+    "test_readme_refresh_pr.py",
     "test_git_tools.py",
     "test_admin_proposal_core.py",
     "test_gitleaks_allowlist_v4_169_42.py",

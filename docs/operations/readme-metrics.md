@@ -16,20 +16,21 @@ Create a fine-grained PAT scoped only to this repository with:
 Store it as the Actions secret `README_TRAFFIC_TOKEN`, with an expiry and a
 rotation reminder. Never reuse secret-scanning or Android-signing credentials.
 The default job token has only contents:read; checkout does not persist it.
-The PAT is passed only to the trusted refresh step. Git uses an ephemeral
-askpass helper: the token is not in remote URLs, command arguments, or git config.
+The PAT is passed only to the trusted refresh step. Git uses an checked-in executable
+askpass helper containing no credential material: the token is not in remote URLs, command arguments, or git config.
 
 ## Operation
 
-The daily/manual `traffic badge` workflow invokes `scripts/refresh_readme_pr.py`.
+Only master dispatches can enter the credential-bearing job. Checkout is pinned
+to the event SHA. The daily/manual `traffic badge` workflow invokes `scripts/refresh_readme_pr.py`.
 It fetches master, regenerates both blocks, pushes only
-`automation/readme-metrics` without force, and opens a regular PR to master.
+`automation/readme-metrics-<unique-id>` without force, and opens a regular PR to master.
 PAT-created PR events run the normal CI/review pipeline. The job never merges,
 enables bypass, changes a ruleset, or pushes to master. If a refresh PR is already
 open, it retains that commit rather than repeatedly invalidating review. Its
 snapshot date stays visible until the PR actually merges; proposals are not
-claimed as daily merged updates. A diverged abandoned branch fails closed and
-needs manual review rather than an automatic force push.
+claimed as daily merged updates. Fresh unique branch names avoid collisions with retained squash/rebase-merged
+or orphaned branch tips. No remote branch is force-pushed or deleted.
 
 Missing credentials, API errors and malformed counts fail rather than becoming
 zero-valued metrics. Failed refreshes leave the last dated snapshot visible.

@@ -71,14 +71,28 @@ def fetch_uniques() -> tuple[int, int]:
             f"traffic badge: GitHub returned HTTP {exc.code}. 403 usually "
             f"means the token lacks push access to {REPO}."
         ) from exc
+    return parse_counts(data)
+
+
+def _clone_count(value: object) -> int:
+    if isinstance(value, bool):
+        raise SystemExit("traffic badge: invalid boolean clone count")
+    if not isinstance(value, int):
+        raise SystemExit("traffic badge: invalid clone count type")
+    if value < 0:
+        raise SystemExit("traffic badge: invalid negative clone count")
+    return value
+
+
+def parse_counts(data: object) -> tuple[int, int]:
     if not isinstance(data, dict):
         raise SystemExit("traffic badge: invalid traffic response")
-    uniques, total = data.get("uniques"), data.get("count")
-    if (not isinstance(uniques, int) or isinstance(uniques, bool)
-            or not isinstance(total, int) or isinstance(total, bool)
-            or not 0 <= uniques <= total):
-        raise SystemExit("traffic badge: invalid clone counts; refusing to publish zeros")
+    uniques = _clone_count(data.get("uniques"))
+    total = _clone_count(data.get("count"))
+    if uniques > total:
+        raise SystemExit("traffic badge: invalid clone counts; uniques exceed total")
     return uniques, total
+
 
 
 def badge_markup(uniques: int, total: int, measured: str) -> str:

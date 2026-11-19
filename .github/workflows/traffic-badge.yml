@@ -1,16 +1,5 @@
-# Publishes a unique-clones badge from GitHub's traffic API.
-#
-# The release download counter is a poor popularity signal and we have
-# the evidence: v4.169.50 showed 349 downloads of
-# arena-agent-v4.169.50.zip against 3 of the byte-identical
-# arena-agent.zip, and 0 of the .sig files. One build, two names, wildly
-# different counts -- most of that number is auto-update retries and
-# bots, not people.
-#
-# /traffic/clones reports `uniques`, which counts distinct actors over a
-# rolling 14-day window. It is a smaller number and a truer one. The
-# window is why this runs on a schedule: the value expires, so a badge
-# committed once would freeze at whatever it said that day.
+# Read GitHub clone traffic and propose a normal protected README update.
+# Neither unique cloners nor release downloads counts verified human users.
 name: traffic badge
 
 on:
@@ -26,6 +15,7 @@ permissions: {}
 
 jobs:
   badge:
+    if: github.ref == 'refs/heads/master'
     name: Refresh the unique-clones badge
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -49,6 +39,7 @@ jobs:
           # where anything later in the job -- including an uploaded
           # artifact -- can carry it out. This job pushes, so it sets the
           # credential through an ephemeral askpass helper instead.
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Read traffic and update the badge
