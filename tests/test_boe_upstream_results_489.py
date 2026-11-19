@@ -27,7 +27,13 @@ def _report(tmp_path, rows):
 
 
 def test_exact_three_upstream_contracts_pass(tmp_path):
-    checker.check_results(_report(tmp_path, [(name, "Passed") for name in checker.REQUIRED_TESTS]))
+    expected = {
+        "Helper_CompleteBoeTurnWritesCorrelatedTerminalSignal",
+        "Helper_CompleteBoeValidationRepairAllowsRepairReadyAfterAcceptedTurnCompletion",
+        "DaemonAutomaticDispatch_DoesNotSendBootstrapAsSeparateGmRequest",
+    }
+    CHECK.assertEqual(checker.REQUIRED_TESTS, expected)
+    checker.check_results(_report(tmp_path, [(name, "Passed") for name in expected]))
 
 
 @pytest.mark.parametrize("mutation", ["missing", "duplicate", "failed", "skipped", "unrelated", "empty"])

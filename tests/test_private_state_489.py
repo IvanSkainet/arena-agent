@@ -20,11 +20,12 @@ def test_failed_publication_preserves_old_state_and_cleans_staging(tmp_path, mon
     def denied(*args):
         raise PermissionError("publication denied")
 
+    original_bytes = target.read_bytes()
     with monkeypatch.context() as patch:
         patch.setattr(private_state, "_replace", denied)
         with pytest.raises(PermissionError, match="publication denied"):
             private_state.write_private_json(target, {"new": True})
-    CHECK.assertEqual(json.loads(target.read_text()), {"old": True})
+    CHECK.assertEqual(target.read_bytes(), original_bytes)
     CHECK.assertEqual(list(tmp_path.glob("*.tmp")), [])
     private_state.write_private_json(target, {"new": True})
     CHECK.assertEqual(json.loads(target.read_text()), {"new": True})

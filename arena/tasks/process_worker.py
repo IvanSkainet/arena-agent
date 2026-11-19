@@ -87,23 +87,40 @@ def _parent_pipe(cancelled: threading.Event) -> None:
     cancelled.set()
 
 
-def _collect(process: subprocess.Popen, cancelled: threading.Event, timeout: float) -> int:
+def _drain_pipe(source, destination, limit: int) -> None:
+    """Drain continuously while retaining at most the configured output budget."""
+    retained = 0
+    while chunk := source.read(65536):
+        keep = chunk[:max(0, limit - retained)]
+        destination.write(keep)
+        retained += len(keep)
+    destination.flush()
+
+
+def _collect(process: subprocess.Popen, cancelled: threading.Event, timeout: float,
+             max_output: int = 2_000_000) -> int:
+    readers = [threading.Thread(target=_drain_pipe, args=(source, target, max_output + 1), daemon=True)
+               for source, target in ((process.stdout, sys.stdout.buffer),
+                                      (process.stderr, sys.stderr.buffer))]
+    for reader in readers:
+        reader.start()
     deadline = time.monotonic() + timeout
-    while True:
+    result = None
+    while process.poll() is None:
         if cancelled.is_set():
             _stop_tree(process)
-            return 125
+            result = 125
+            break
         if time.monotonic() >= deadline:
             _stop_tree(process)
-            sys.stderr.write("timeout")
-            return 124
-        try:
-            stdout, stderr = process.communicate(timeout=0.2)
-        except subprocess.TimeoutExpired:
-            continue
-        sys.stdout.buffer.write(stdout)
-        sys.stderr.buffer.write(stderr)
-        return process.returncode
+            result = 124
+            break
+        time.sleep(.02)
+    for reader in readers:
+        reader.join(timeout=10)
+    if result == 124:
+        sys.stderr.write("timeout")
+    return process.returncode if result is None else result
 
 
 def main() -> int:
@@ -120,7 +137,8 @@ def main() -> int:
                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                close_fds=True, start_new_session=os.name != "nt")
     try:
-        return _collect(process, cancelled, float(task.get("timeout") or 3600))
+        return _collect(process, cancelled, float(task.get("timeout") or 3600),
+                        int(task.get("max_output") or 2_000_000))
     finally:
         if process.poll() is None:
             _stop_tree(process)

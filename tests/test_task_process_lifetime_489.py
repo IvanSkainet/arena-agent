@@ -109,3 +109,25 @@ def test_timeout_reaps_the_child_and_grandchild(tmp_path):
             process.kill()
         process.wait(timeout=5)
         _cleanup(pids)
+
+
+def test_worker_drains_large_output_but_retains_only_budget_plus_sentinel(tmp_path):
+    script = tmp_path / "noisy.py"
+    script.write_text("import sys\nsys.stdout.write('x' * 8_000_000)\nsys.stderr.write('y' * 8_000_000)\n")
+    argv = [sys.executable, str(script)]
+    command = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
+    task = tmp_path / "bounded.json"
+    task.write_text(json.dumps({"cmd": command, "cwd": str(tmp_path),
+                                "timeout": 15, "max_output": 1000}))
+    process = subprocess.Popen([sys.executable, "-I", str(WORKER), str(task)],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        # Keep the owner lease open until the worker drains both child pipes.
+        CHECK.assertEqual(process.wait(timeout=20), 0)
+        stdout, stderr = process.communicate(timeout=3)
+        CHECK.assertEqual(stdout, b"x" * 1001)
+        CHECK.assertEqual(stderr, b"y" * 1001)
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.communicate(timeout=5)

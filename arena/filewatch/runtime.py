@@ -107,9 +107,9 @@ def make_file_watch_runtime(ctx: FileWatchRuntimeContext) -> FileWatchRuntime:
     ) -> dict[str, Any]:
         default = ctx.default_root() if callable(ctx.default_root) else ctx.default_root
         root_path = Path(root or default)
-        resolved = _resolve_target(path, root=root_path, home=ctx.home)
+        resolved, error, status = validate_watch_target(path, root=root_path, home=ctx.home)
         if resolved is None:
-            return {"ok": False, "error": "path outside home directory", "status": 403}
+            return {"ok": False, "error": error, "status": status}
         if not resolved.exists():
             return {"ok": False, "error": "path not found", "status": 404}
         clean_patterns = [str(p).strip() for p in (patterns or []) if str(p).strip()][:20]

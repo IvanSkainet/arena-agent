@@ -77,7 +77,7 @@ def test_a_watch_outside_every_allowed_tree_is_refused_not_crashed(tmp_path):
 
     assert result["ok"] is False
     assert result["status"] == 403
-    assert result["error"] == "path outside home directory"
+    assert result["error"] == "path outside allowed filesystem roots"
 
 
 @pytest.mark.parametrize("target", [{}, ["x"], 17])
@@ -122,7 +122,7 @@ def test_the_two_jails_agree_on_what_is_inside(tmp_path):
         _path, error, _status = resolve_home_path(str(candidate), root=workspace, home=home)
         jail_says_inside = error is None
         result = _add(runtime, str(candidate), workspace)
-        runtime_says_inside = result.get("error") != "path outside home directory"
+        runtime_says_inside = result.get("error") != "path outside allowed filesystem roots"
         assert runtime_says_inside is jail_says_inside, (candidate, error, result)
 
 

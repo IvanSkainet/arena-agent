@@ -1,4 +1,6 @@
 """The project agents CLI must use the configured agent home."""
+import os
+
 from arena.project_cli.agents import agents_md_command
 
 
@@ -24,6 +26,11 @@ def test_agents_discovers_most_recent_project(tmp_path, monkeypatch, capsys):
     project = home / "projects" / "example"
     project.mkdir(parents=True)
     (project / "AGENTS.md").write_text("Discovered")
+    older = home / "projects" / "older"
+    older.mkdir()
+    (older / "AGENTS.md").write_text("Wrong old project")
+    os.utime(older, (1000, 1000))
+    os.utime(project, (2000, 2000))
     monkeypatch.setenv("ARENA_AGENT_HOME", str(home))
     monkeypatch.delenv("ARENA_CURRENT_PROJECT", raising=False)
 

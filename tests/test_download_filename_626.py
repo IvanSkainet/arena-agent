@@ -48,7 +48,7 @@ def test_the_header_cannot_carry_a_control_character(name: str, why: str) -> Non
 
     assert header.startswith("attachment; filename=\"")
     plain, _, extended = header.partition("; filename*=")
-    assert extended.startswith("UTF-8''")
+    assert extended == "UTF-8''" + quote(name, safe="", errors="surrogateescape")
     # The fallback is what a client that ignores `filename*` reads.
     fallback = plain.split('"')[1]
     assert all(32 <= ord(ch) < 127 for ch in fallback), (why, fallback)

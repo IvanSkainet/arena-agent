@@ -2,7 +2,7 @@
 
 `GET /health` is the unauthenticated liveness endpoint. A successful response
 means the HTTP process can answer; `ok: true` is not a data-integrity guarantee.
-`memory` is `empty` when no database exists, `ok` when a database exists with no
+`memory` is `empty` when no database or recovery marker exists, `ok` when a database exists with no
 recorded recovery, or `rebuilt` after corruption was quarantined and a fresh
 database created. Database presence is not a full SQLite integrity check.
 `memory: rebuilt` makes `status: degraded`, while retaining liveness.
@@ -10,6 +10,8 @@ database created. Database presence is not a full SQLite integrity check.
 denied); it also makes health degraded and the doctor diagnostic critical.
 Neither a denied inspection nor a missing integrity check implies an empty store.
 
+A retained recovery marker takes precedence over database existence: even if
+the replacement database is deleted, the status remains `rebuilt`.
 The private `facts.db.recovered.json` marker survives restarts. It records the
 quarantine location for the operator; the public endpoint returns only the
 status, never that path. Inspect the preserved database and restore/export any

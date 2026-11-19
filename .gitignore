@@ -170,6 +170,6 @@ android_app/build/
 
 # Private runtime state, including compatibility-mode source installs.
 .inventory-cache/
-code-runs/
-flight-records/
-update/
+/code-runs/
+/flight-records/
+/update/

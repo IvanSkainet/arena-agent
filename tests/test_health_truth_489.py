@@ -71,7 +71,10 @@ def test_public_health_reports_rebuilt_without_leaking_the_quarantine_path():
     result = json.loads(response.text)
     CHECK.assertEqual(result["memory"], "rebuilt")
     CHECK.assertEqual(result["status"], "degraded")
-    CHECK.assertNotIn("quarantine", result)
+    CHECK.assertEqual(result, {"ok": True, "service": "arena-unified-bridge",
+                               "version": "test", "uptime_seconds": 1,
+                               "memory": "rebuilt", "status": "degraded"})
+    CHECK.assertNotIn("quarantine", json.dumps(result))
     healthy = asyncio.run(make_public_handlers(replace(ctx, memory_status=lambda: "ok")).health(None))
     CHECK.assertEqual(json.loads(healthy.text)["status"], "healthy")
 
