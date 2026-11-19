@@ -38,3 +38,49 @@ def test_prune_and_rm_preserve_active_and_unknown_runs(cli):
     assert (cli.SUB_DIR / ("a" * 10)).exists()
     assert (cli.SUB_DIR / ("c" * 10)).exists()
     assert not (cli.SUB_DIR / ("b" * 10)).exists()
+
+
+@pytest.mark.parametrize("wait", [False, True])
+def test_subagent_timeout_finishes_metadata_and_reaps_command_tree(cli, tmp_path, monkeypatch, wait):
+    import os
+    import shlex
+    import subprocess
+    import sys
+    import time
+
+    import psutil
+
+    monkeypatch.setattr(cli, "ROOT", tmp_path)
+    marker = tmp_path / "pids.json"
+    script = tmp_path / "child.py"
+    script.write_text(
+        "import subprocess,sys,os,json,time\nfrom pathlib import Path\n"
+        "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'])\n"
+        f"Path({str(marker)!r}).write_text(json.dumps([os.getpid(),child.pid]))\n"
+        "time.sleep(60)\n")
+    argv = [sys.executable, str(script)]
+    command = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
+    result = cli.spawn(SimpleNamespace(cmd=command, name="timeout-test", timeout=1,
+                                      wait=wait, max_out=10))
+    assert result == (1 if wait else 0)
+    run = next(cli.SUB_DIR.iterdir())
+    deadline = time.monotonic() + 20
+    pids = []
+    try:
+        while time.monotonic() < deadline:
+            meta = json.loads((run / "meta.json").read_text())
+            if meta["status"] == "timeout":
+                break
+            time.sleep(.03)
+        assert meta["status"] == "timeout"
+        assert json.loads((run / "summary.json").read_text())["status"] == "timeout"
+        pids = json.loads(marker.read_text())
+        assert not any(psutil.pid_exists(pid) for pid in pids)
+    finally:
+        if marker.exists():
+            pids = json.loads(marker.read_text())
+        for pid in pids:
+            try:
+                psutil.Process(pid).kill()
+            except psutil.NoSuchProcess:
+                pass

@@ -21,6 +21,29 @@ from typing import Any
 _JOB: Any = None
 
 
+def _adopt_descendants() -> None:
+    if sys.platform != "linux":
+        return
+    import ctypes
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
+        raise OSError(ctypes.get_errno(), "cannot supervise adopted descendants")
+
+
+def _reap_descendants() -> None:
+    if sys.platform != "linux":
+        return
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            pid, _status = os.waitpid(-1, os.WNOHANG)
+        except ChildProcessError:
+            return
+        if pid == 0:
+            time.sleep(.01)
+
+
 def _windows_job() -> None:
     import ctypes
     from ctypes import wintypes
@@ -129,6 +152,7 @@ def main() -> int:
     task = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     if os.name == "nt":
         _windows_job()
+    _adopt_descendants()
     cancelled = threading.Event()
     threading.Thread(target=_parent_pipe, args=(cancelled,), daemon=True).start()
     # Deliberately the same authorized task shell contract as the old runner;
@@ -140,8 +164,8 @@ def main() -> int:
         return _collect(process, cancelled, float(task.get("timeout") or 3600),
                         int(task.get("max_output") or 2_000_000))
     finally:
-        if process.poll() is None:
-            _stop_tree(process)
+        _stop_tree(process)
+        _reap_descendants()
 
 
 if __name__ == "__main__":

@@ -55,6 +55,27 @@ def move_atomic(src: Path, dst: Path) -> None:
 
 
 
+def kill_worker_tree(pid: int) -> None:
+    """Last-resort cleanup for a worker that did not honor its lease EOF."""
+    import psutil
+
+    try:
+        worker = psutil.Process(pid)
+        descendants = worker.children(recursive=True)
+    except psutil.NoSuchProcess:
+        return
+    for process in reversed(descendants):
+        try:
+            process.kill()
+        except psutil.NoSuchProcess:
+            pass
+    try:
+        worker.kill()
+    except psutil.NoSuchProcess:
+        pass
+    psutil.wait_procs(descendants, timeout=5)
+
+
 async def _task_process_output(process, timeout: int) -> tuple[bytes, bytes]:
     """Read output without communicate(), which would close the owner lease."""
     readers = asyncio.gather(process.stdout.read(), process.stderr.read(), process.wait())
@@ -66,7 +87,7 @@ async def _task_process_output(process, timeout: int) -> tuple[bytes, bytes]:
         try:
             await asyncio.wait_for(process.wait(), timeout=12)
         except asyncio.TimeoutError:
-            process.kill()
+            kill_worker_tree(process.pid)
             await process.wait()
         raise
     finally:

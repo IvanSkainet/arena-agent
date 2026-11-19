@@ -15,6 +15,8 @@ the file by hand was the only recovery -- undiscoverable from the log.
 from __future__ import annotations
 
 import sqlite3
+import subprocess
+import sys
 from contextlib import closing
 from pathlib import Path
 
@@ -141,14 +143,19 @@ def test_facts_survive_when_only_the_sidecars_are_stale(tmp_path):
     db = tmp_path / "memory" / "facts.db"
     db.parent.mkdir(parents=True)
     init_memory_db(db_path=db, jsonl_path=tmp_path / "memory" / "facts.jsonl")
-    with closing(sqlite3.connect(db)) as conn, conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO memory_facts (profile, key, value, tags, timestamp)"
-            " VALUES ('default', 'kept', 'yes', '[]', '2026-11-07T00:00:00+00:00')"
-        )
-        conn.commit()
-
-    (db.parent / "facts.db-wal").write_bytes(b"\x00" * 32)  # leftover, not a valid WAL
+    # os._exit skips sqlite connection cleanup, leaving a real committed WAL
+    # frame exactly as an abruptly terminated writer does.
+    code = (
+        "import sqlite3,sys,os; c=sqlite3.connect(sys.argv[1]); "
+        "c.execute('PRAGMA journal_mode=WAL'); c.execute('PRAGMA wal_autocheckpoint=0'); "
+        "c.execute(\"INSERT OR REPLACE INTO memory_facts \
+        (profile,key,value,tags,timestamp) VALUES ('default','kept','yes','[]','2026-09-05')\"); "
+        "c.commit(); os._exit(0)"
+    )
+    subprocess.run([sys.executable, "-c", code, str(db)], check=True, timeout=20)
+    wal = db.with_name(db.name + "-wal").read_bytes()
+    assert len(wal) > 32
+    assert wal[:4] in (b"\x37\x7f\x06\x82", b"\x37\x7f\x06\x83")
 
     init_memory_db(db_path=db, jsonl_path=tmp_path / "memory" / "facts.jsonl")
 

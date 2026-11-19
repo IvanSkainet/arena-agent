@@ -25,11 +25,11 @@ import os
 import re
 import subprocess
 import sys
-import time
 import uuid
 from pathlib import Path
 
-from arena.home import agent_home
+from arena.home import agent_home, code_root
+from arena.private_state import write_private_json
 
 ROOT = agent_home()
 SUB_DIR = ROOT / "subagents"
@@ -59,65 +59,43 @@ def _output_tail(path: Path, lines: int) -> str:
 
 
 def spawn(args) -> int:
+    if args.timeout <= 0 or args.max_out <= 0:
+        print("timeout and max-out must be positive", file=sys.stderr)
+        return 1
     sid = short_id()
-    sd = SUB_DIR / sid
-    sd.mkdir(parents=True, exist_ok=True)
-    meta = {
-        "id": sid, "name": args.name or "anon", "cmd": args.cmd,
-        "created": now_utc(), "timeout": args.timeout, "wait": args.wait,
-        "status": "running",
-    }
-    (sd / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2))
-    out_path = sd / "stdout.log"
-    err_path = sd / "stderr.log"
-    summary_path = sd / "summary.json"
-
-    # env: пробрасываем ARENA_*, помечаем subagent
+    sd = (SUB_DIR / sid).resolve()
+    meta = {"id": sid, "name": args.name or "anon", "cmd": args.cmd,
+            "created": now_utc(), "timeout": args.timeout, "wait": args.wait,
+            "status": "running" if args.wait else "spawned", "cwd": str(ROOT.resolve()),
+            "max_out": args.max_out}
+    write_private_json(sd / "meta.json", meta)
     env = _subagent_env(sid, meta["name"])
-
-    t0 = time.time()
     if args.wait:
-        # синхронно с таймаутом
-        with open(out_path, "w") as fout, open(err_path, "w") as ferr:
-            try:
-                p = subprocess.run(args.cmd, shell=True, env=env, stdout=fout, stderr=ferr,  # nosec B602 -- subagent runs the command the operator passed on argv  # nosemgrep: subprocess-shell-true -- explicit local operator shell-command API, not a remotely supplied executable
-                                   timeout=args.timeout, cwd=str(ROOT), check=False)
-                rc = p.returncode
-                status = "ok" if rc == 0 else "fail"
-            except subprocess.TimeoutExpired:
-                rc = -1
-                status = "timeout"
+        from arena.subagent_lifecycle import run
+
+        # Apply the same identity environment as a detached monitor.
+        previous = {key: os.environ.get(key) for key in ("ARENA_SUBAGENT_ID", "ARENA_SUBAGENT_NAME")}
+        try:
+            os.environ.update({key: env[key] for key in previous})
+            summary = run(sd)
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
     else:
-        # фоном через nohup; subagent сам пишет в свои файлы
-        with open(out_path, "w") as fout, open(err_path, "w") as ferr:
-            p = subprocess.Popen(args.cmd, shell=True, env=env,  # nosec B602 -- subagent runs the command the operator passed on argv  # nosemgrep: subprocess-shell-true -- explicit local operator shell-command API, not a remotely supplied executable
-                                 stdout=fout, stderr=ferr, cwd=str(ROOT),
-                                 start_new_session=True)
-        rc = None
-        status = "spawned"
-        # сохраним pid для status checks
-        (sd / "pid").write_text(str(p.pid))
-
-    dur = round(time.time() - t0, 3)
-
-    # summary
-    out_tail = _output_tail(out_path, args.max_out)
-    err_tail = _output_tail(err_path, 30)
-
-    summary = {
-        "id": sid, "name": meta["name"], "status": status, "exit": rc,
-        "duration_sec": dur, "stdout_tail": out_tail, "stderr_tail": err_tail,
-        "paths": {"stdout": str(out_path), "stderr": str(err_path), "dir": str(sd)},
-    }
-    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2))
-
-    meta["status"] = status
-    meta["exit"] = rc
-    meta["duration_sec"] = dur
-    (sd / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2))
-
+        summary = {"id": sid, "name": meta["name"], "status": "spawned", "exit": None,
+                   "paths": {"stdout": str(sd / "stdout.log"), "stderr": str(sd / "stderr.log"),
+                             "dir": str(sd)}}
+        write_private_json(sd / "summary.json", summary)
+        process = subprocess.Popen([sys.executable, "-m", "arena.subagent_lifecycle", str(sd)],
+                                   env=env, cwd=str(code_root()), stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   start_new_session=True)
+        (sd / "pid").write_text(str(process.pid))
     print(json.dumps(summary, ensure_ascii=False, indent=2))
-    return 0 if status in ("ok", "spawned") else 1
+    return 0 if summary["status"] in ("ok", "spawned") else 1
 
 
 def list_cmd(_args) -> int:
