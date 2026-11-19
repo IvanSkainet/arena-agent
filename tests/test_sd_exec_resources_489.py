@@ -18,6 +18,7 @@ def _module():
 def test_scope_never_receives_service_only_pipe_flag(monkeypatch):
     module = _module()
     calls = []
+    monkeypatch.setattr(module, "_build_env_flags", lambda: [])
     monkeypatch.setattr(module.subprocess, "run", lambda argv, **kw: (calls.append(argv) or SimpleNamespace(returncode=0)))
     opts = {"no_pipe": False, "timeout": None, "background": False}
     assert module._run_systemd(opts, ["echo", "safe"]) == 0

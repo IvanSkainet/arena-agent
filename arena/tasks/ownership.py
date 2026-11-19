@@ -11,6 +11,8 @@ def _windows_pid_is_alive(pid: int) -> bool:
     Access denied and unrecognised errors are treated as alive: reclaiming
     the record is unsafe unless the system positively reports a dead PID.
     """
+    if pid > 0xFFFFFFFF:
+        return True  # Win32 DWORD conversion must not truncate an unknown PID.
     import ctypes
     from ctypes import wintypes
 
