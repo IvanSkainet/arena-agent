@@ -114,7 +114,7 @@ def test_watch_default_root_is_read_after_configuration(tmp_path):
     (workspace / "readme.txt").write_text("complete")
     ctx = FileWatchRuntimeContext(home=tmp_path / "different-home", default_root=home.sandbox_home,
                                   emit_event=lambda *args: None, utc_now=lambda: "now",
-                                  log_info=lambda *args: None, log_warning=lambda *args: None)
+                                    log_info=lambda *args: None, log_warning=lambda *args: None)
     runtime = make_file_watch_runtime(ctx)
     runtime_profile.publish({"root": str(workspace)})
     try:
@@ -154,7 +154,7 @@ def test_worker_entry_point_runs_from_unrelated_cwd(tmp_path, monkeypatch):
            "ARENA_AGENT_HOME": str(tmp_path / "state")}
     worker = Path(slow_probe_cache.__file__).with_name("cache_worker.py")
     subprocess.run([sys.executable, "-I", str(worker), "python_venvs", str(directory)],
-                   cwd=tmp_path, env=env, check=True, timeout=15)
+                    cwd=tmp_path, env=env, check=True, timeout=15)
     raw = json.loads((directory / "python_venvs.json").read_text())
     CHECK.assertEqual(raw["result"]["venvs"], [])
 

@@ -45,7 +45,7 @@ def _write_new_content(target_path, content: str, encoding: str) -> tuple[int, s
         target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_text(content, encoding="utf-8")
         return len(content.encode("utf-8")), None, 200
-    except Exception:
+    except (OSError, UnicodeError):
         return 0, "Internal error", 500
 
 
@@ -54,5 +54,5 @@ def _write_binary_content(target_path, content: bytes) -> tuple[int, str | None,
         target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_bytes(content)
         return len(content), None, 200
-    except Exception:
+    except OSError:
         return 0, "Internal error writing binary file", 500

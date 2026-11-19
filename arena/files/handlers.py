@@ -163,7 +163,7 @@ def _edit_hooks(ctx: FileHandlerContext) -> tuple[EditHooks | None, web.Response
 
 
 async def _parse_edit_request(ctx: FileHandlerContext, request: web.Request
-                              ) -> tuple[dict | None, EditHooks | None, web.Response | None]:
+                                ) -> tuple[dict | None, EditHooks | None, web.Response | None]:
     data, error = await parse_json_body(request, ctx)
     if error is not None:
         ctx.record_request(is_error=True, count_request=False)

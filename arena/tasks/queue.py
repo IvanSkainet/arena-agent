@@ -5,6 +5,7 @@ bridge globals; callers pass queue directory paths explicitly.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import time
@@ -289,10 +290,8 @@ def _publish_failed_task(target: Path, task: dict[str, Any]) -> bool:
                 raise OSError("recovery publication parent changed")
             return installed
         finally:
-            try:
+            with contextlib.suppress(FileNotFoundError):
                 unlink_staged(temporary, parent_fd)
-            except FileNotFoundError:
-                pass
 
 
 def _link_failed_task(temporary: Path, target: Path, parent_fd: int | None) -> bool:

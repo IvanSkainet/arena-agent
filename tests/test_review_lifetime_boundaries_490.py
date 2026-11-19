@@ -107,12 +107,16 @@ def test_desktop_cancellation_reaps_a_child_whose_spawn_has_not_returned(monkeyp
 
 
 def test_deeply_nested_task_is_rejected_without_escaping_the_reader(tmp_path):
-    from arena.tasks.runner import _read_submission
+    from arena.tasks.runner import TaskRunnerContext, _read_submission
 
     submission = tmp_path / "deep.json"
     submission.write_text("[" * 10000 + "0" + "]" * 10000)
     errors = []
-    context = SimpleNamespace(log_error=lambda *args: errors.append(args))
+    context = TaskRunnerContext(
+        inbox=tmp_path, running=tmp_path, done=tmp_path, failed=tmp_path,
+        blocked_reason=lambda command: None, cleanup_mcp_sessions=lambda: 0,
+        utc_now=lambda: "now", log_info=lambda *args: None,
+        log_error=lambda *args: errors.append(args))
     assert _read_submission(submission, context) is None
     assert len(errors) == 1
 

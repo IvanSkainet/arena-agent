@@ -151,9 +151,6 @@ def test_a_process_that_dies_between_timeout_and_kill_is_tolerated():
 def test_timeout_promptly_removes_command_and_descendant(tmp_path):
     """An inherited stdout pipe must not keep the loop alive until child exit."""
     import json
-    import time
-
-    from arena.exec.runner import _kill_process_tree
 
     marker = tmp_path / "process-identities.json"
     script = tmp_path / "sleeping child.py"
@@ -168,42 +165,52 @@ def test_timeout_promptly_removes_command_and_descendant(tmp_path):
     command = ('"' + sys.executable + '" ' + subprocess.list2cmdline(argv[1:])
                 if os.name == "nt" else shlex.join(argv))
     try:
-        async def run_when_ready():
-            real_spawn = asyncio.create_subprocess_shell
-
-            async def ready_spawn(*args, **kwargs):
-                proc = await real_spawn(*args, **kwargs)
-                deadline = time.monotonic() + 15
-                while not marker.exists():
-                    if time.monotonic() >= deadline:
-                        await asyncio.to_thread(_kill_process_tree, proc)
-                        await proc.wait()
-                        raise AssertionError("test child did not become ready")
-                    await asyncio.sleep(.01)
-                # A complete JSON marker, not just an existing file, is ready.
-                while True:
-                    try:
-                        json.loads(marker.read_text())
-                        return proc
-                    except (ValueError, OSError):
-                        if time.monotonic() >= deadline:
-                            await asyncio.to_thread(_kill_process_tree, proc)
-                            await proc.wait()
-                            raise AssertionError("test marker remained incomplete")
-                        await asyncio.sleep(.01)
-
-            with mock.patch("asyncio.create_subprocess_shell", ready_spawn):
-                started = time.monotonic()
-                result = await _desktop_exec(command, timeout=1)
-                return result, time.monotonic() - started
-
-        result, elapsed = asyncio.run(run_when_ready())
+        result, elapsed = asyncio.run(_run_desktop_with_ready_marker(command, marker))
         assert not result["ok"] and "timed out" in result["error"]
         assert elapsed < 10, f"timeout cleanup took {elapsed:.2f}s"
         identities = json.loads(marker.read_text())
         _assert_processes_gone(identities)
     finally:
         _cleanup_test_processes(marker)
+
+
+async def _wait_ready_marker(marker):
+    import json
+    import time
+
+    deadline = time.monotonic() + 15
+    while True:
+        try:
+            return json.loads(marker.read_text())
+        except (OSError, ValueError) as exc:
+            if time.monotonic() >= deadline:
+                raise AssertionError("test child did not publish a complete readiness marker") from exc
+            await asyncio.sleep(.01)
+
+
+async def _run_desktop_with_ready_marker(command, marker):
+    import time
+
+    from arena.exec.runner import _kill_process_tree
+
+    real_spawn = asyncio.create_subprocess_shell
+    ready_at = time.monotonic()
+
+    async def ready_spawn(*args, **kwargs):
+        nonlocal ready_at
+        proc = await real_spawn(*args, **kwargs)
+        try:
+            await _wait_ready_marker(marker)
+        except BaseException:
+            await asyncio.to_thread(_kill_process_tree, proc)
+            await proc.wait()
+            raise
+        ready_at = time.monotonic()
+        return proc
+
+    with mock.patch("asyncio.create_subprocess_shell", ready_spawn):
+        result = await _desktop_exec(command, timeout=1)
+        return result, time.monotonic() - ready_at
 
 
 def _assert_processes_gone(identities):

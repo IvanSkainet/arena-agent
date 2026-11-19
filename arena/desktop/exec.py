@@ -26,7 +26,7 @@ async def _desktop_exec(cmd: str, timeout: float = 10) -> dict:
     pending" -- a kill that does not wait is only half a cleanup.
     """
     proc: asyncio.subprocess.Process | None = None
-    spawn = None
+    spawn: asyncio.Future[asyncio.subprocess.Process] | None = None
     try:
         spawn = asyncio.ensure_future(asyncio.create_subprocess_shell(
             cmd,
@@ -60,12 +60,13 @@ async def _desktop_exec(cmd: str, timeout: float = 10) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-async def _reap_cancelled_spawn(spawn, proc: asyncio.subprocess.Process | None) -> None:
+async def _reap_cancelled_spawn(spawn: asyncio.Future[asyncio.subprocess.Process],
+                                proc: asyncio.subprocess.Process | None) -> None:
     """A cancelled caller still owns the child whose spawn is in flight."""
     if proc is None:
         try:
             proc = await spawn
-        except Exception:
+        except (OSError, ValueError, RuntimeError):
             return  # Spawn failed without returning a child to own.
     await asyncio.to_thread(_kill_process_tree, proc)
     await proc.wait()
