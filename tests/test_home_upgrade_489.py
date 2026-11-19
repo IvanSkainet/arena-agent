@@ -202,3 +202,35 @@ def test_subagent_missing_tail_is_visible_not_silently_swallowed(tmp_path, capsy
 
     CHECK.assertEqual(subagent_cli._output_tail(tmp_path / "missing.log", 10), "")
     CHECK.assertIn("Cannot read output tail", capsys.readouterr().err)
+
+
+def test_shipped_configuration_examples_are_not_legacy_state(locations):
+    code, state = locations
+    source = Path(home.__file__).resolve().parents[1]
+    for name in ("webhooks.json", "mcp/mcp.json", "mcp/registry.json"):
+        target = code / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((source / name).read_bytes())
+    CHECK.assertEqual(home.agent_home(), state)
+
+
+@pytest.mark.parametrize("relative", ["audit.jsonl", "capability-gaps.json", "code-runs/run/result.json",
+                                      "mcp-servers/project/main.py", "mcp/mcp.json", "mcp/registry.json"])
+def test_all_existing_operator_stores_participate_in_conflict_detection(locations, relative):
+    code, state = locations
+    (code / "memory").mkdir()
+    (code / "memory/facts.db").write_bytes(b"legacy facts")
+    target = state / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text('{"operator":"state"}')
+    with pytest.raises(RuntimeError, match="ARENA_AGENT_HOME"):
+        home.agent_home()
+
+
+def test_legacy_jsonl_reader_skips_invalid_utf8_tail_and_keeps_later_fact(tmp_path, monkeypatch):
+    from arena.agent_helpers import runtime
+
+    source = tmp_path / "facts.jsonl"
+    source.write_bytes(b'{"key":"torn","value":"\xff"}\n{"key":"valid","value":"kept"}\n')
+    monkeypatch.setattr(runtime, "FACTS", source)
+    CHECK.assertEqual(runtime.load_facts(), [{"key": "valid", "value": "kept"}])

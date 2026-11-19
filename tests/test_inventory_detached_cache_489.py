@@ -131,7 +131,11 @@ def test_registry_uses_cached_collectors():
 @pytest.mark.skipif(os.name == "nt", reason="POSIX file-mode semantics")
 def test_cache_data_and_lease_are_private(tmp_path):
     directory = tmp_path / "private"
+    directory.mkdir(mode=0o755)
+    directory.chmod(0o755)
     cache._write("git_repos", directory, {"available": False, "repos": []})
+    CHECK.assertEqual(directory.stat().st_mode & 0o777, 0o700)
+    directory.chmod(0o755)
     with cache_lease(directory / "git_repos.lease"):
         CHECK.assertEqual((directory / "git_repos.lease").stat().st_mode & 0o777, 0o600)
     CHECK.assertEqual((directory / "git_repos.json").stat().st_mode & 0o777, 0o600)

@@ -57,10 +57,7 @@ def run_doctor(
         })
 
     checks.append(_memory_facts_check(facts_count_fn))
-    memory = memory_status(memory_dir / "facts.db")
-    checks.append({"name": "Memory recovery", "ok": memory != "rebuilt", "status": memory,
-                   "critical": False, "detail": "inspect preserved quarantine before acknowledging recovery"
-                   if memory == "rebuilt" else memory})
+    checks.append(_memory_recovery_check(memory_dir / "facts.db"))
 
     internet_ok = internet_check_fn()
     checks.append({"name": "Internet", "ok": internet_ok, "detail": "available" if internet_ok else "not reachable"})
@@ -102,6 +99,17 @@ def run_doctor(
         pass
 
     return summarize_checks(checks)
+
+
+def _memory_recovery_check(path: Path) -> dict[str, Any]:
+    try:
+        memory = memory_status(path)
+    except OSError as exc:
+        return {"name": "Memory recovery", "ok": False, "status": "error", "critical": True,
+                "detail": f"{type(exc).__name__}: {exc}"}
+    detail = "inspect preserved quarantine before acknowledging recovery" if memory == "rebuilt" else memory
+    return {"name": "Memory recovery", "ok": memory != "rebuilt", "status": memory,
+            "critical": False, "detail": detail}
 
 
 def _memory_facts_check(facts_count_fn: Callable[[], int]) -> dict[str, Any]:

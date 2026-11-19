@@ -11,7 +11,7 @@ from typing import Any
 
 from aiohttp import web
 
-from arena.home import agent_home
+from arena.home import agent_home, default_home
 
 
 @dataclass(frozen=True)
@@ -76,6 +76,7 @@ def make_log_cleanup_runtime(ctx: LogCleanupContext) -> LogCleanupRuntime:
             for parent in (
                 Path.home() / "arena-agent" / "logs",
                 agent_home() / "logs",
+                default_home() / "logs",
                 ctx.app_dir / "logs",
             ):
                 lf = parent / name

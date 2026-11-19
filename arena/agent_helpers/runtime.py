@@ -26,10 +26,12 @@ def load_facts(query: str = "", limit: int = 50) -> list[dict]:
         return []
     q = query.lower()
     out = []
-    for ln in FACTS.read_text(encoding="utf-8").splitlines():
+    for raw_line in FACTS.read_bytes().split(b"\n"):
         try:
-            obj = json.loads(ln)
-        except Exception:
+            obj = json.loads(raw_line.decode("utf-8"))
+        except (UnicodeError, ValueError):
+            continue
+        if not isinstance(obj, dict):
             continue
         if q:
             hay = (str(obj.get("key", "")) + " "

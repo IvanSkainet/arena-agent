@@ -43,6 +43,7 @@ layer may import it (see the import-linter contracts in ``pyproject.toml``).
 """
 from __future__ import annotations
 
+import hashlib
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -85,11 +86,32 @@ def default_home() -> Path:
     return Path.home() / DATA_DIRNAME
 
 
+# Fixed fingerprints distinguish shipped examples from operator state.
+_SHIPPED_CONFIGURATION = {'mcp/mcp.json': 'ad92b392fedcaaed1f104384c734092dcf8b5ca56a3ee260916901de2d3e65cd',
+ 'mcp/registry.json': '57f930b7ef66e51782f3c903d62f4cfa72a7d47f5671badf444d2bf3a90fa5a1',
+ 'webhooks.json': '2119d4d751fb0d7b873d49a5e40e2b6f895eb1e83f90889d7483a3f45e707dd1'}
+
+
+def _state_file(root: Path, relative: str) -> bool:
+    path = root / relative
+    try:
+        if path.is_symlink():
+            return True
+        if not path.is_file():
+            return False
+        digest = _SHIPPED_CONFIGURATION.get(relative)
+        return digest is None or hashlib.sha256(path.read_bytes()).hexdigest() != digest
+    except OSError:
+        return True  # unreadable state must never be silently abandoned
+
+
 def _has_state(root: Path) -> bool:
-    fixed = ("memory/facts.db", "memory/facts.jsonl", "webhooks.json")
-    if any((root / name).is_file() for name in fixed):
+    fixed = ("memory/facts.db", "memory/facts.jsonl", "audit.jsonl", "capability-gaps.json",
+             *_SHIPPED_CONFIGURATION)
+    if any(_state_file(root, name) for name in fixed):
         return True
-    patterns = ("queue/*/*.json", "missions/*.json", "missions/*/mission.json", "relay/**/*.json")
+    patterns = ("queue/*/*.json", "missions/*.json", "missions/*/mission.json", "relay/**/*.json",
+                "code-runs/*", "mcp-servers/*")
     return any(any(root.glob(pattern)) for pattern in patterns)
 
 

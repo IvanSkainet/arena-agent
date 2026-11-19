@@ -123,3 +123,19 @@ def test_stalled_watchdog_is_not_ready_forever():
     CHECK.assertFalse(result["ok"])
     CHECK.assertFalse(result["checks"]["watchdog"])
     CHECK.assertEqual(_v2(watchdog=True, now=10)["status"], "healthy")
+
+
+def test_memory_status_permission_error_is_a_critical_diagnostic(monkeypatch):
+    from pathlib import Path
+
+    from arena.system import doctor
+
+    def denied(_path):
+        raise PermissionError("memory root inaccessible")
+
+    monkeypatch.setattr(doctor, "memory_status", denied)
+    check = doctor._memory_recovery_check(Path("unreadable/facts.db"))
+    CHECK.assertFalse(check["ok"])
+    CHECK.assertTrue(check["critical"])
+    CHECK.assertEqual(check["status"], "error")
+    CHECK.assertIn("PermissionError", check["detail"])
