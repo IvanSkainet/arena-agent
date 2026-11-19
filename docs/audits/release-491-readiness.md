@@ -82,14 +82,14 @@ Three individual test-only provider findings were reviewed and dispositioned
 with written reasons, not a directory exclusion or new allowed-issues threshold:
 
 - e6e5a6c7d2d4ae19c2c88ef11505c0db: the subprocess executes only the committed
-  workflow step plus a constant restricted gh stub using trusted test PATH.
-  No external command input or network CLI delegation is involved.
+    workflow step plus a constant restricted gh stub using trusted test PATH.
+    No external command input or network CLI delegation is involved.
 - 1df3e23631847739d7d40cd73ae12a0c: the test explicitly bootstraps the scripts
-  directory onto sys.path and imports the same sibling module instance used by
-  the CLI; executable withdrawal tests verify actual resolution.
+    directory onto sys.path and imports the same sibling module instance used by
+    the CLI; executable withdrawal tests verify actual resolution.
 - 7d41274f22aaff9333c6b88bed10728c: pytest is supplied by the hashlocked CI
-  development dependency installation, absent only in the provider resolver's
-  environment; this is not a missing runtime import.
+    development dependency installation, absent only in the provider resolver's
+    environment; this is not a missing runtime import.
 
 The normal imports and real shell regression are retained. The actual provider
 must recompute and report its result; these dispositions are not a fabricated
