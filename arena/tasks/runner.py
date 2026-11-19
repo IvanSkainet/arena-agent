@@ -113,6 +113,18 @@ def _reclaim_quietly(ctx_: TaskRunnerContext, when: str) -> None:
 
 
 
+def _truncate_output(stdout: str, stderr: str, limit: int) -> tuple[str, str, bool]:
+    """Apply the same output budget to both streams and report truncation."""
+    truncated = False
+    if len(stdout.encode("utf-8", "replace")) > limit:
+        stdout = stdout[:limit]
+        truncated = True
+    if len(stderr.encode("utf-8", "replace")) > limit:
+        stderr = stderr[:limit]
+        truncated = True
+    return stdout, stderr, truncated
+
+
 def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
     def task_ensure_dirs() -> None:
         for p in [ctx.inbox, ctx.running, ctx.done, ctx.failed]:
@@ -185,13 +197,7 @@ def make_task_runner_runtime(ctx: TaskRunnerContext) -> TaskRunnerRuntime:
             exit_code = 125
 
         duration = round(time.time() - t0, 3)
-        truncated = False
-        if len(stdout.encode("utf-8", "replace")) > max_output:
-            stdout = stdout[:max_output]
-            truncated = True
-        if len(stderr.encode("utf-8", "replace")) > max_output:
-            stderr = stderr[:max_output]
-            truncated = True
+        stdout, stderr, truncated = _truncate_output(stdout, stderr, max_output)
 
         state = "done" if exit_code == 0 else "failed"
         task.update({

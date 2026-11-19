@@ -40,6 +40,23 @@ def _err(ctx, msg: str, status: int) -> web.Response:
     return err_json(ctx, msg, status=status)
 
 
+def _view_bounds(view_range, total_lines: int) -> tuple[int, int]:
+    """Validate the optional inclusive one-based range independently of HTTP."""
+    if view_range is None:
+        return 1, total_lines
+    if not isinstance(view_range, list) or len(view_range) != 2:
+        raise ValueError("view_range must be [start, end] line numbers (1-indexed)")
+    try:
+        start, end = int(view_range[0]), int(view_range[1])
+    except (ValueError, TypeError) as exc:
+        raise ValueError("view_range values must be integers") from exc
+    if start < 1 or end < 1 or start > end:
+        raise ValueError(f"invalid view_range [{start}, {end}] — must be 1-indexed with start <= end")
+    if start > total_lines:
+        raise ValueError(f"start line {start} exceeds file length ({total_lines} lines)")
+    return start, min(end, total_lines)
+
+
 def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandlers:
     @authed(ctx, auto_record=False)
     async def handle_v1_fs_view(request: web.Request) -> web.Response:
@@ -68,33 +85,10 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
 
         lines = content.split("\n")
         total_lines = len(lines)
-        start, end = 1, total_lines
-        if view_range is not None:
-            if not isinstance(view_range, list) or len(view_range) != 2:
-                return _err(
-                    ctx,
-                    "view_range must be [start, end] line numbers (1-indexed)",
-                    400,
-                )
-            try:
-                start, end = int(view_range[0]), int(view_range[1])
-            except (ValueError, TypeError):
-                return _err(ctx, "view_range values must be integers", 400)
-            if start < 1 or end < 1 or start > end:
-                return _err(
-                    ctx,
-                    f"invalid view_range [{start}, {end}] — must be "
-                    f"1-indexed with start <= end",
-                    400,
-                )
-            if start > total_lines:
-                return _err(
-                    ctx,
-                    f"start line {start} exceeds file length "
-                    f"({total_lines} lines)",
-                    400,
-                )
-            end = min(end, total_lines)
+        try:
+            start, end = _view_bounds(view_range, total_lines)
+        except ValueError as exc:
+            return _err(ctx, str(exc), 400)
 
         selected = "\n".join(lines[start - 1:end])
         ctx.audit({"type": "file_view",

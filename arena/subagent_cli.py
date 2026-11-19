@@ -61,6 +61,22 @@ def _output_tail(path: Path, lines: int) -> str:
         return ""
 
 
+def _run_waiting(sd: Path, env: dict[str, str]) -> dict:
+    from arena.subagent_lifecycle import run
+
+    # Apply the same identity environment as a detached monitor.
+    previous = {key: os.environ.get(key) for key in ("ARENA_SUBAGENT_ID", "ARENA_SUBAGENT_NAME")}
+    try:
+        os.environ.update({key: env[key] for key in previous})
+        return run(sd)
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 def spawn(args) -> int:
     if args.timeout <= 0 or args.max_out <= 0:
         print("timeout and max-out must be positive", file=sys.stderr)
@@ -74,19 +90,7 @@ def spawn(args) -> int:
     write_private_json(sd / "meta.json", meta)
     env = _subagent_env(sid, meta["name"])
     if args.wait:
-        from arena.subagent_lifecycle import run
-
-        # Apply the same identity environment as a detached monitor.
-        previous = {key: os.environ.get(key) for key in ("ARENA_SUBAGENT_ID", "ARENA_SUBAGENT_NAME")}
-        try:
-            os.environ.update({key: env[key] for key in previous})
-            summary = run(sd)
-        finally:
-            for key, value in previous.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
+        summary = _run_waiting(sd, env)
     else:
         summary = {"id": sid, "name": meta["name"], "status": "spawned", "exit": None,
                    "paths": {"stdout": str(sd / "stdout.log"), "stderr": str(sd / "stderr.log"),
@@ -111,8 +115,8 @@ def list_cmd(_args) -> int:
             m = json.loads(meta_p.read_text())
             items.append({"id": m.get("id"), "name": m.get("name"), "status": m.get("status"),
                           "exit": m.get("exit"), "dur": m.get("duration_sec"), "created": m.get("created")})
-        except Exception:
-            pass
+        except (OSError, ValueError, AttributeError) as exc:
+            print(f"[subagent] Cannot read metadata {meta_p}: {exc}", file=sys.stderr)
     print(json.dumps(items, ensure_ascii=False, indent=2))
     return 0
 

@@ -352,6 +352,15 @@ def _stable_jsonl_read(jsonl_path: Path, start: int, expected_hash: str) -> tupl
     return payload, start + cut, hasher.hexdigest()
 
 
+def _valid_fact_scalars(item: dict) -> bool:
+    """Reject NULL keys and compound values before binding SQLite parameters."""
+    if item.get("key", "") is None:
+        return False
+    scalar_types = (str, int, float, type(None))
+    return all(isinstance(item.get(field), scalar_types)
+               for field in ("key", "value", "timestamp", "ts"))
+
+
 def _import_jsonl_line(conn: sqlite3.Connection, line: str) -> None:
     line = line.strip()
     if not line:
@@ -362,11 +371,8 @@ def _import_jsonl_line(conn: sqlite3.Connection, line: str) -> None:
         return  # a torn line is skipped, never fatal: the rest of the file is good
     if not isinstance(item, dict):
         return  # valid JSON scalars and arrays are not fact records
-    if item.get("key", "") is None:
-        return  # NOT NULL key violations must not strand following records
-    if any(not isinstance(item.get(field), (str, int, float, type(None)))
-           for field in ("key", "value", "timestamp", "ts")):
-        return  # JSON arrays/objects are not valid SQLite scalar bindings
+    if not _valid_fact_scalars(item):
+        return
     conn.execute(
         """
         INSERT INTO memory_facts (profile, key, value, tags, timestamp)
