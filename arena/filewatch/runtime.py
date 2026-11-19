@@ -112,47 +112,8 @@ def make_file_watch_runtime(ctx: FileWatchRuntimeContext) -> FileWatchRuntime:
         label: str = "",
         created_at: str = "",
     ) -> dict[str, Any]:
-        default = ctx.default_root() if callable(ctx.default_root) else ctx.default_root
-        root_path = Path(root or default).expanduser().resolve()
-        resolved, error, status = validate_watch_target(path, root=root_path, home=ctx.home)
-        if resolved is None:
-            return {"ok": False, "error": error, "status": status}
-        clean_patterns = [str(p).strip() for p in (patterns or []) if str(p).strip()][:20]
-        try:
-            if not resolved.exists():
-                return {"ok": False, "error": "path not found", "status": 404}
-            snapshot, truncated = _snapshot(
-                resolved, SnapshotPolicy(bool(recursive), clean_patterns, ctx.max_files_per_watch,
-                    (root_path, ctx.home)),
-            )
-        except (OSError, ValueError) as exc:
-            return {"ok": False, "error": f"watch path is not usable ({type(exc).__name__})", "status": 400}
-        wid = uuid.uuid4().hex[:10]
-        meta = {
-            "path": str(resolved),
-            "root": str(root_path),
-            "recursive": bool(recursive),
-            "patterns": clean_patterns,
-            "label": str(label or "").strip(),
-            "created_at": created_at or ctx.utc_now(),
-            "last_scan_ts": created_at or ctx.utc_now(),
-            "snapshot": snapshot,
-            "truncated": truncated,
-        }
-        with state["lock"]:
-            state["watchers"][wid] = meta
-        return {
-            "ok": True,
-            "id": wid,
-            "path": meta["path"],
-            "recursive": meta["recursive"],
-            "patterns": list(meta["patterns"]),
-            "label": meta["label"],
-            "created_at": meta["created_at"],
-            "last_scan_ts": meta["last_scan_ts"],
-            "file_count": len(meta["snapshot"]),
-            "truncated": truncated,
-        }
+        return _add_sync(ctx, state, path=path, root=root, recursive=recursive,
+                         patterns=patterns, label=label, created_at=created_at)
 
     def remove_sync(watch_id: str) -> dict[str, Any]:
         with state["lock"]:
@@ -171,6 +132,52 @@ def make_file_watch_runtime(ctx: FileWatchRuntimeContext) -> FileWatchRuntime:
             await asyncio.sleep(ctx.poll_interval_s)
 
     return FileWatchRuntime(list_sync=list_sync, add_sync=add_sync, remove_sync=remove_sync, loop=loop, state=state)
+
+
+def _add_sync(ctx: FileWatchRuntimeContext, state: dict, *, path: str,
+              root: str | Path | None, recursive: bool, patterns: list[str] | None,
+              label: str, created_at: str) -> dict[str, Any]:
+    default = ctx.default_root() if callable(ctx.default_root) else ctx.default_root
+    root_path = Path(root or default).expanduser().resolve()
+    resolved, error, status = validate_watch_target(path, root=root_path, home=ctx.home)
+    if resolved is None:
+        return {"ok": False, "error": error, "status": status}
+    clean_patterns = [str(p).strip() for p in (patterns or []) if str(p).strip()][:20]
+    try:
+        if not resolved.exists():
+            return {"ok": False, "error": "path not found", "status": 404}
+        snapshot, truncated = _snapshot(
+            resolved, SnapshotPolicy(bool(recursive), clean_patterns, ctx.max_files_per_watch,
+                (root_path, ctx.home)),
+        )
+    except (OSError, ValueError) as exc:
+        return {"ok": False, "error": f"watch path is not usable ({type(exc).__name__})", "status": 400}
+    wid = uuid.uuid4().hex[:10]
+    meta = {
+        "path": str(resolved),
+        "root": str(root_path),
+        "recursive": bool(recursive),
+        "patterns": clean_patterns,
+        "label": str(label or "").strip(),
+        "created_at": created_at or ctx.utc_now(),
+        "last_scan_ts": created_at or ctx.utc_now(),
+        "snapshot": snapshot,
+        "truncated": truncated,
+    }
+    with state["lock"]:
+        state["watchers"][wid] = meta
+    return {
+        "ok": True,
+        "id": wid,
+        "path": meta["path"],
+        "recursive": meta["recursive"],
+        "patterns": list(meta["patterns"]),
+        "label": meta["label"],
+        "created_at": meta["created_at"],
+        "last_scan_ts": meta["last_scan_ts"],
+        "file_count": len(meta["snapshot"]),
+        "truncated": truncated,
+    }
 
 
 async def _poll_watch(ctx: FileWatchRuntimeContext, wid: str, meta: dict, state: dict) -> None:

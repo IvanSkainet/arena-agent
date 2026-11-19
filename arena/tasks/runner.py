@@ -42,8 +42,7 @@ class TaskRunnerRuntime:
 def move_atomic(src: Path, dst: Path) -> None:
     """Atomically move a file, replacing destination if it exists."""
     try:
-        if dst.exists():
-            dst.unlink()
+        dst.unlink(missing_ok=True)
         src.rename(dst)
     except OSError:
         shutil.copy2(str(src), str(dst))

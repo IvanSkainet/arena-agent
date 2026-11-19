@@ -203,18 +203,22 @@ def test_empty_path_is_refused_not_crashed():
 # The jail must stay wired in
 # ---------------------------------------------------------------------------
 
-def test_every_fs_tool_routes_through_the_jail():
-    """A new fs.* branch added later must not bypass _jail()."""
-    src = Path(st.__file__).read_text(encoding="utf-8")
-    body = src.split("def call_tool", 1)[1]
-    for tool in ("fs.read", "fs.write", "fs.list"):
-        marker = f'if name == "{tool}":'
-        assert marker in body, f"{tool} branch vanished"
-        branch = body.split(marker, 1)[1].split('if name ==', 1)[0]
-        assert "_jail(" in branch, f"{tool} no longer routes through _jail()"
-        assert "os.path.expanduser(args" not in branch, (
-            f"{tool} went back to raw expanduser -- that is the original bug"
-        )
+def test_every_fs_tool_routes_through_the_jail(monkeypatch):
+    """Every registered fs tool must consult the jail before touching a path."""
+    visited = []
+
+    def refuse(raw):
+        visited.append(raw)
+        raise st.PathJailError("jail test refusal")
+
+    monkeypatch.setattr(st, "_jail", refuse)
+    tools = [name for name in st._TOOL_HANDLERS if name.startswith("fs.")]
+    assert {"fs.read", "fs.write", "fs.list"} <= set(tools)
+    for tool in tools:
+        result = st.call_tool(tool, {"path": "must-be-jailed", "content": "unused"})
+        assert result.get("isError") is True, tool
+        assert "jail test refusal" in _text(result), tool
+    assert visited == ["must-be-jailed"] * len(tools)
 
 
 def test_custom_state_root_is_retrievable_but_sensitive_paths_stay_blocked(tmp_path, monkeypatch):

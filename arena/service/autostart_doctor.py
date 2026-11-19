@@ -176,7 +176,7 @@ def repair_bare_python(root: Path) -> dict[str, Any]:
     changed = False
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith("python ") or stripped.startswith("python\t"):
+        if stripped.startswith(("python ", "python\t")):
             fixed.append(line.replace("python", _python_for_scheduler(), 1))
             changed = True
         else:
