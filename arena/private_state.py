@@ -23,7 +23,9 @@ def private_directory(path: Path) -> None:
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     for created in reversed(missing):
         created.chmod(0o700)
-    path.chmod(0o700)
+    # Tighten existing permissions without granting an owner permission that
+    # the operator deliberately removed (e.g. a read-only token directory).
+    path.chmod(0o700 if os.name == "nt" else path.stat().st_mode & 0o700)
 
 
 def write_private_json(path: Path, value: Any, *, replace: bool = True) -> None:
