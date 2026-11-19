@@ -450,7 +450,8 @@ def test_a_swap_before_the_first_stat_does_not_chmod_a_foreign_file(
 
     def swaps_right_after(src, dst, *args, **kwargs):
         result = real_replace(src, dst, *args, **kwargs)
-        if Path(dst) == target or (Path(dst) == Path(target.name) and kwargs.get("dst_dir_fd") is not None):
+        expected = target.name if kwargs.get("dst_dir_fd") is not None else target
+        if Path(dst) == Path(expected):
             real_replace(str(intruder), str(target))
         return result
 

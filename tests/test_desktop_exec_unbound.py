@@ -153,8 +153,6 @@ def test_timeout_promptly_removes_command_and_descendant(tmp_path):
     import json
     import time
 
-    import psutil
-
     marker = tmp_path / "process-identities.json"
     script = tmp_path / "sleeping child.py"
     script.write_text(
@@ -174,18 +172,37 @@ def test_timeout_promptly_removes_command_and_descendant(tmp_path):
         assert not result["ok"] and "timed out" in result["error"]
         assert elapsed < 10, f"timeout cleanup took {elapsed:.2f}s"
         identities = json.loads(marker.read_text())
-        deadline = time.monotonic() + 5
-        while any(psutil.pid_exists(pid) for pid, _created in identities) and time.monotonic() < deadline:
-            time.sleep(.02)
-        assert not any(psutil.pid_exists(pid) for pid, _created in identities)
+        _assert_processes_gone(identities)
     finally:
-        # Never signal a recycled numeric PID if an assertion failed.
-        if marker.exists():
-            for pid, created in json.loads(marker.read_text()):
-                try:
-                    process = psutil.Process(pid)
-                    if process.create_time() == created:
-                        process.kill()
-                        process.wait(timeout=5)
-                except psutil.NoSuchProcess:
-                    pass
+        _cleanup_test_processes(marker)
+
+
+def _assert_processes_gone(identities):
+    import time
+
+    import psutil
+
+    deadline = time.monotonic() + 5
+    while any(psutil.pid_exists(pid) for pid, _created in identities):
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(.02)
+    assert not any(psutil.pid_exists(pid) for pid, _created in identities)
+
+
+def _cleanup_test_processes(marker):
+    import json
+
+    import psutil
+
+    if not marker.exists():
+        return
+    # Never signal a recycled numeric PID if an assertion failed.
+    for pid, created in json.loads(marker.read_text()):
+        try:
+            process = psutil.Process(pid)
+            if process.create_time() == created:
+                process.kill()
+                process.wait(timeout=5)
+        except psutil.NoSuchProcess:
+            pass
