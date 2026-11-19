@@ -10,6 +10,7 @@ import os
 import tempfile
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -127,6 +128,16 @@ def pid_is_alive(pid: int) -> bool:
     return True
 
 
+@dataclass(frozen=True)
+class RecoveryContext:
+    failed: Path
+    done: Path
+    now_fn: Callable[[], str]
+    alive: Callable[[int], bool]
+    now_epoch: float
+    grace_seconds: int
+
+
 def reclaim_interrupted_tasks(
     *,
     running: Path,
@@ -165,10 +176,10 @@ def reclaim_interrupted_tasks(
         return {"ok": True, "reclaimed": reclaimed}
     failed.mkdir(parents=True, exist_ok=True, mode=0o700)
     failed.chmod(0o700)
-    now_epoch = time.time()
+    recovery = RecoveryContext(failed, done, now_fn, alive, time.time(), grace_seconds)
     for path in sorted(running.glob("*.json")):
         try:
-            task_id = _reclaim_one(path, failed, done, now_fn, alive, now_epoch, grace_seconds)
+            task_id = _reclaim_one(path, recovery)
         except OSError as exc:
             errors.append(f"{path.name}: {exc}")
             continue
@@ -180,8 +191,7 @@ def reclaim_interrupted_tasks(
     return result
 
 
-def _load_reclaim_candidate(path: Path, alive: Callable[[int], bool],
-                            now_epoch: float, grace_seconds: int) -> dict[str, Any] | None:
+def _load_reclaim_candidate(path: Path, recovery: RecoveryContext) -> dict[str, Any] | None:
     try:
         task = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -191,28 +201,27 @@ def _load_reclaim_candidate(path: Path, alive: Callable[[int], bool],
         return None
     pid = task.get("pid")
     if pid is None:
-        return task if _past_its_deadline(task, now_epoch, grace_seconds) else None
+        return task if _past_its_deadline(task, recovery.now_epoch, recovery.grace_seconds) else None
     if type(pid) is not int:
         return None
     if pid <= 0:
         return None
-    return None if alive(pid) else task
+    return None if recovery.alive(pid) else task
 
 
-def _reclaim_one(path: Path, failed: Path, done: Path, now_fn: Callable[[], str],
-                 alive: Callable[[int], bool], now_epoch: float, grace_seconds: int) -> str | None:
-    task = _load_reclaim_candidate(path, alive, now_epoch, grace_seconds)
+def _reclaim_one(path: Path, recovery: RecoveryContext) -> str | None:
+    task = _load_reclaim_candidate(path, recovery)
     if task is None:
         return None
-    if (done / path.name).exists() or (failed / path.name).exists():
+    if (recovery.done / path.name).exists() or (recovery.failed / path.name).exists():
         path.unlink(missing_ok=True)
         return None
     task["reason"] = "interrupted"
     task["state"] = "failed"
     if not isinstance(task.get("id"), str) or not task["id"]:
         task["id"] = path.stem
-    task["finished_at"] = now_fn()
-    if not _publish_failed_task(failed / path.name, task):
+    task["finished_at"] = recovery.now_fn()
+    if not _publish_failed_task(recovery.failed / path.name, task):
         return None  # an existing failed result or another sweeper won
     path.unlink()
     return task["id"]

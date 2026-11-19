@@ -41,9 +41,16 @@ def _matches(path: Path, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(path.name, pat) for pat in patterns)
 
 
-def _snapshot(path: Path, recursive: bool, patterns: list[str], max_files: int, *,
-              jail: tuple[Path, Path]) -> tuple[dict[str, tuple[int, int]], bool]:
-    root, home = jail
+@dataclass(frozen=True)
+class SnapshotPolicy:
+    recursive: bool
+    patterns: list[str]
+    max_files: int
+    jail: tuple[Path, Path]
+
+
+def _snapshot(path: Path, policy: SnapshotPolicy) -> tuple[dict[str, tuple[int, int]], bool]:
+    root, home = policy.jail
     files: dict[str, tuple[int, int]] = {}
     truncated = False
     if _resolve_target(str(path), root=root, home=home) is None:
@@ -52,15 +59,15 @@ def _snapshot(path: Path, recursive: bool, patterns: list[str], max_files: int, 
         st = path.stat()
         files[str(path)] = (st.st_mtime_ns, st.st_size)
         return files, False
-    iterator = path.rglob("*") if recursive else path.glob("*")
+    iterator = path.rglob("*") if policy.recursive else path.glob("*")
     for entry in iterator:
         if _resolve_target(str(entry), root=root, home=home) is None:
             continue
-        if not entry.is_file() or not _matches(entry, patterns):
+        if not entry.is_file() or not _matches(entry, policy.patterns):
             continue
         st = entry.stat()
         files[str(entry)] = (st.st_mtime_ns, st.st_size)
-        if len(files) >= max_files:
+        if len(files) >= policy.max_files:
             truncated = True
             break
     return files, truncated
@@ -114,8 +121,8 @@ def make_file_watch_runtime(ctx: FileWatchRuntimeContext) -> FileWatchRuntime:
             return {"ok": False, "error": "path not found", "status": 404}
         clean_patterns = [str(p).strip() for p in (patterns or []) if str(p).strip()][:20]
         snapshot, truncated = _snapshot(
-            resolved, bool(recursive), clean_patterns, ctx.max_files_per_watch,
-            jail=(root_path, ctx.home),
+            resolved, SnapshotPolicy(bool(recursive), clean_patterns, ctx.max_files_per_watch,
+                                     (root_path, ctx.home)),
         )
         wid = uuid.uuid4().hex[:10]
         meta = {
@@ -167,8 +174,8 @@ async def _poll_watch(ctx: FileWatchRuntimeContext, wid: str, meta: dict, state:
     path = Path(meta["path"])
     try:
         snapshot, truncated = _snapshot(
-            path, meta["recursive"], list(meta["patterns"]), ctx.max_files_per_watch,
-            jail=(Path(meta["root"]), ctx.home),
+            path, SnapshotPolicy(meta["recursive"], list(meta["patterns"]), ctx.max_files_per_watch,
+                                 (Path(meta["root"]), ctx.home)),
         )
     except FileNotFoundError:
         snapshot, truncated = {}, False
