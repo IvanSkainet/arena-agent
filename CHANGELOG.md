@@ -3,14 +3,14 @@
 ### Release-chain completion
 
 - Include the stabilization baseline documented below for the unpublished
-  v4.170.1 candidate; existing operator state is retained on upgrade from 4.170.0.
+    v4.170.1 candidate; existing operator state is retained on upgrade from 4.170.0.
 - Resolve draft release signing state by numeric release ID: GitHub's REST
-  by-tag lookup does not return drafts. Preserve all provenance, signature,
-  immutability and anonymous public-download checks.
+    by-tag lookup does not return drafts. Preserve all provenance, signature,
+    immutability and anonymous public-download checks.
 - Upgrade the hashlocked relock tool uv to 0.13.4, fixing
-  GHSA-hq85-5cpj-mr62 and GHSA-2cv4-cqwr-gwf7. Runtime dependencies are unchanged.
+    GHSA-hq85-5cpj-mr62 and GHSA-2cv4-cqwr-gwf7. Runtime dependencies are unchanged.
 - The v4.170.1 draft was withdrawn before publication. Its protected tag is
-  retained rather than rewritten; new accepted artifacts use v4.170.2.
+    retained rather than rewritten; new accepted artifacts use v4.170.2.
 
 ## v4.170.1 — unpublished candidate (withdrawn)
 

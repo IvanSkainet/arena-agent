@@ -273,6 +273,7 @@ def test_release_docs_state_the_real_asset_count():
         ("1/../../tags/v4.170.1", True, False, 1),
     ],
 )
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux workflow: executable regression is mandatory on Linux")
 def test_release_state_resolves_drafts_by_numeric_id(sign_job, tmp_path, case):
     """Execute the real shell step; REST by-tag returns 404 for draft releases."""
     import json
@@ -283,7 +284,7 @@ def test_release_state_resolves_drafts_by_numeric_id(sign_job, tmp_path, case):
     release_id, draft, immutable, expected_code = case
     bash = shutil.which("bash")
     if not bash or not shutil.which("jq"):
-        pytest.skip("release shell step requires bash and jq")
+        pytest.fail("mandatory Linux release shell regression requires bash and jq")
     step = next(s for s in sign_job["steps"] if s.get("id") == "state")
     output = tmp_path / "outputs.txt"
     env = os.environ.copy()

@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from release_version_contract import release_tag_parts
 
@@ -13,81 +14,130 @@ Fetch = Callable[[str], Any]
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
+def _require(condition: bool, message: str) -> None:
+    if not condition:
+        raise ValueError(message)
+
+
+def _object(value: Any, label: str) -> dict:
+    _require(isinstance(value, dict), f"{label} must be an object")
+    return value
+
+
+def _text(value: Any, label: str) -> str:
+    _require(isinstance(value, str), f"{label} must be a string")
+    _require(bool(value.strip()), f"{label} must not be empty")
+    return value
+
+
+def _digest(value: Any, label: str) -> None:
+    text = _text(value, label)
+    _require(bool(_SHA.fullmatch(text)), f"{label} must be an object digest")
+
+
+def _positive_integer(value: Any, label: str) -> None:
+    _require(type(value) is int, f"{label} must be an integer")
+    _require(value > 0, f"{label} must be positive")
+
+
+def _object_list(value: Any, label: str) -> list[dict]:
+    _require(isinstance(value, list), f"{label} must be an array")
+    return [_object(item, label) for item in value]
+
+
+def _unique_tags(entries: list[dict]) -> None:
+    tags = [_text(entry.get("tag"), "withdrawal tag") for entry in entries]
+    _require(len(set(tags)) == len(tags), "withdrawal tags must be unique")
+
+
 def _records() -> list[dict]:
     if not LEDGER.exists():
         return []
-    value = json.loads(LEDGER.read_text(encoding="utf-8"))
-    if not isinstance(value, dict) or type(value.get("schema_version")) is not int or value["schema_version"] != 1:
-        raise ValueError("invalid release withdrawal ledger schema")
-    entries = value.get("withdrawals")
-    if not isinstance(entries, list) or any(not isinstance(e, dict) for e in entries):
-        raise ValueError("withdrawals must be an array of records")
-    tags = [e.get("tag") for e in entries]
-    if any(not isinstance(t, str) for t in tags) or len(set(tags)) != len(tags):
-        raise ValueError("withdrawal tags must be unique strings")
+    value = _object(json.loads(LEDGER.read_text(encoding="utf-8")), "ledger")
+    _positive_integer(value.get("schema_version"), "ledger schema version")
+    _require(value["schema_version"] == 1, "invalid withdrawal ledger schema")
+    entries = _object_list(value.get("withdrawals"), "withdrawals")
+    _unique_tags(entries)
     return entries
 
 
 def _validated_record(entry: dict, repo: str) -> None:
-    if not release_tag_parts(str(entry.get("tag", ""))):
-        raise ValueError("withdrawal tag is not a strict release version")
-    for key in ("tag_object", "source_commit"):
-        if not isinstance(entry.get(key), str) or not _SHA.fullmatch(entry[key]):
-            raise ValueError(f"withdrawal {key} is not a commit/object digest")
-    for key in ("deleted_draft_id", "failed_signing_run"):
-        if type(entry.get(key)) is not int or entry[key] <= 0:
-            raise ValueError(f"withdrawal {key} must be a positive integer")
-    if entry.get("repository") != repo or not isinstance(entry.get("reason"), str) or not entry["reason"].strip():
-        raise ValueError("withdrawal needs the current repository and a reason")
-    if entry.get("was_draft") is not True:
-        raise ValueError("only a recorded unpublished draft can be withdrawn")
+    tag = _text(entry.get("tag"), "withdrawal tag")
+    _require(bool(release_tag_parts(tag)), "withdrawal tag is not a strict version")
+    _digest(entry.get("tag_object"), "tag object")
+    _digest(entry.get("source_commit"), "source commit")
+    _positive_integer(entry.get("deleted_draft_id"), "deleted draft ID")
+    _positive_integer(entry.get("failed_signing_run"), "failed signing run")
+    _require(entry.get("repository") == repo, "withdrawal repository mismatch")
+    _text(entry.get("reason"), "withdrawal reason")
+    _require(entry.get("was_draft") is True, "only an unpublished draft can be withdrawn")
 
 
-def _object_matches(value: Any, sha: str, kind: str) -> bool:
-    obj = value.get("object") if isinstance(value, dict) else None
-    return isinstance(obj, dict) and obj.get("sha") == sha and obj.get("type") == kind
+def _expect_fields(value: Any, expected: dict, label: str) -> dict:
+    obj = _object(value, label)
+    for key, required in expected.items():
+        _require(obj.get(key) == required, f"{label}: mismatched {key}")
+    return obj
+
+
+def _expect_git_target(value: dict, sha: str, kind: str) -> None:
+    _expect_fields(value.get("object"), {"sha": sha, "type": kind}, "Git target")
 
 
 def _verify_tag(entry: dict, fetch: Fetch) -> None:
-    ref = fetch("/git/ref/tags/" + entry["tag"])
-    if not _object_matches(ref, entry["tag_object"], "tag"):
-        raise ValueError("withdrawn annotated tag reference changed or is unavailable")
-    tag = fetch("/git/tags/" + entry["tag_object"])
-    if not isinstance(tag, dict) or tag.get("tag") != entry["tag"]:
-        raise ValueError("withdrawn tag object is unavailable or mismatched")
-    if not _object_matches(tag, entry["source_commit"], "commit"):
-        raise ValueError("withdrawn tag no longer identifies the recorded source")
+    ref = _object(fetch("/git/ref/tags/" + entry["tag"]), "tag reference")
+    _expect_git_target(ref, entry["tag_object"], "tag")
+    tag = _expect_fields(fetch("/git/tags/" + entry["tag_object"]), {"tag": entry["tag"]}, "annotated tag")
+    _expect_git_target(tag, entry["source_commit"], "commit")
 
 
 def _verify_failed_signer(entry: dict, fetch: Fetch) -> None:
-    run = fetch("/actions/runs/" + str(entry["failed_signing_run"]))
     expected = {
         "id": entry["failed_signing_run"], "head_sha": entry["source_commit"],
         "path": ".github/workflows/sign-release.yml", "event": "workflow_dispatch",
         "status": "completed", "conclusion": "failure",
     }
-    if not isinstance(run, dict) or any(run.get(k) != v for k, v in expected.items()):
-        raise ValueError("withdrawal signing failure evidence does not match")
-    repository = run.get("repository")
-    if not isinstance(repository, dict) or repository.get("full_name") != entry["repository"]:
-        raise ValueError("withdrawal signing evidence belongs to another repository")
+    run = _expect_fields(fetch("/actions/runs/" + str(entry["failed_signing_run"])), expected, "failed signer")
+    _expect_fields(run.get("repository"), {"full_name": entry["repository"]}, "signer repository")
+
+
+def _verify_deleted_release(entry: dict, fetch: Fetch) -> None:
+    endpoints = (
+        "/releases/" + str(entry["deleted_draft_id"]),
+        "/releases/tags/" + entry["tag"],
+    )
+    for endpoint in endpoints:
+        _require(fetch(endpoint) == {}, "withdrawn release still exists or absence is unproven")
+
+
+def _release_page(value: Any, tag: str) -> list[dict]:
+    releases = _object_list(value, "release enumeration")
+    tags = [_text(release.get("tag_name"), "release tag") for release in releases]
+    _require(tag not in tags, "withdrawn tag has a draft or published release")
+    return releases
 
 
 def _verify_no_release(entry: dict, fetch: Fetch) -> None:
-    # By-tag alone excludes drafts. Also prove the recorded draft is gone,
-    # and enumerate all releases (including drafts visible to the CI token).
-    for endpoint in ("/releases/" + str(entry["deleted_draft_id"]), "/releases/tags/" + entry["tag"]):
-        if fetch(endpoint) != {}:
-            raise ValueError("withdrawn release still exists or absence is unproven")
+    # By-tag alone excludes drafts. Prove the old draft was removed and
+    # enumerate releases, including drafts visible to the CI token.
+    _verify_deleted_release(entry, fetch)
     for page in range(1, 21):
-        releases = fetch(f"/releases?per_page=100&page={page}")
-        if not isinstance(releases, list) or any(not isinstance(r, dict) or not isinstance(r.get("tag_name"), str) for r in releases):
-            raise ValueError("cannot enumerate releases to verify withdrawal")
-        if any(r["tag_name"] == entry["tag"] for r in releases):
-            raise ValueError("withdrawn tag has a draft or published release")
+        releases = _release_page(fetch(f"/releases?per_page=100&page={page}"), entry["tag"])
         if len(releases) < 100:
             return
     raise ValueError("release enumeration incomplete; withdrawal is unproven")
+
+
+def _intermediate_patch(entry: dict, tree: tuple, published: tuple) -> bool:
+    version = release_tag_parts(entry["tag"])
+    return version[:2] == tree[:2] and published < version < tree
+
+
+def _verify_withdrawal(entry: dict, fetch: Fetch) -> None:
+    _verify_tag(entry, fetch)
+    _verify_failed_signer(entry, fetch)
+    _verify_no_release(entry, fetch)
+    print(f"  verified withdrawn unpublished patch: {entry['tag']}")
 
 
 def withdrawal_credit(tree: tuple, published: tuple, fetch: Fetch, repo: str) -> int:
@@ -97,12 +147,7 @@ def withdrawal_credit(tree: tuple, published: tuple, fetch: Fetch, repo: str) ->
     credit = 0
     for entry in _records():
         _validated_record(entry, repo)
-        version = release_tag_parts(entry["tag"])
-        if version[:2] != tree[:2] or not published < version < tree:
-            continue
-        _verify_tag(entry, fetch)
-        _verify_failed_signer(entry, fetch)
-        _verify_no_release(entry, fetch)
-        print(f"  verified withdrawn unpublished patch: {entry['tag']}")
-        credit += 1
+        if _intermediate_patch(entry, tree, published):
+            _verify_withdrawal(entry, fetch)
+            credit += 1
     return credit

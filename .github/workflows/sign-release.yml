@@ -284,7 +284,7 @@ jobs:
             --jq '[.assets[].name | select(endswith(".sig") or endswith(".pem"))] | length')
           if [ "$have" -ne 8 ]; then
             echo "::error::release $TAG is immutable and carries no" \
-                 "an incomplete signing set ($have of 8 files). They cannot be attached after publication;" \
+                "an incomplete signing set ($have of 8 files). They cannot be attached after publication;" \
                  "signatures cannot be attached after publication." \
                  "Sign the draft before publishing -- RELEASE.md step 9."
             exit 1
