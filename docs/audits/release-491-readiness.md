@@ -70,3 +70,27 @@ The version-sync job receives only actions:read to verify historical signer data
 Live owner-API validation: non-strict passes for 4.170.2 above published 4.170.0
 with the verified 4.170.1 withdrawal; --strict still fails until publication.
 Targeted withdrawal/release-gap/version/signing/JSON-contract suites pass.
+
+## Codacy individual review
+
+Actual code issues were fixed: explicitly checked import loader, non-optional
+shell executable after a failing dependency guard, bounded exception handling,
+explicit message construction, bool-rejecting integer validation, named pytest
+fixture aliases, and wrapped long test decorators. No scanner rule was disabled.
+
+Three individual test-only provider findings were reviewed and dispositioned
+with written reasons, not a directory exclusion or new allowed-issues threshold:
+
+- e6e5a6c7d2d4ae19c2c88ef11505c0db: the subprocess executes only the committed
+  workflow step plus a constant restricted gh stub using trusted test PATH.
+  No external command input or network CLI delegation is involved.
+- 1df3e23631847739d7d40cd73ae12a0c: the test explicitly bootstraps the scripts
+  directory onto sys.path and imports the same sibling module instance used by
+  the CLI; executable withdrawal tests verify actual resolution.
+- 7d41274f22aaff9333c6b88bed10728c: pytest is supplied by the hashlocked CI
+  development dependency installation, absent only in the provider resolver's
+  environment; this is not a missing runtime import.
+
+The normal imports and real shell regression are retained. The actual provider
+must recompute and report its result; these dispositions are not a fabricated
+success status and do not waive any of the 36 protected checks.

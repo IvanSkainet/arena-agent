@@ -14,8 +14,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import release_withdrawals as withdrawals  # noqa: E402 -- scripts path bootstrap.
 
 
-@pytest.fixture()
-def evidence(monkeypatch, tmp_path):
+@pytest.fixture(name="evidence")
+def _evidence_fixture(monkeypatch, tmp_path):
     ledger = json.loads((ROOT / "docs/audits/release-withdrawals.json").read_text())
     entry = ledger["withdrawals"][0]
     path = tmp_path / "withdrawals.json"
@@ -36,6 +36,8 @@ def evidence(monkeypatch, tmp_path):
         "/releases?per_page=100&page=1": [],
     }
     spec = importlib.util.spec_from_file_location("withdrawal_gate_probe", ROOT / "scripts/release_published_check.py")
+    if spec is None or spec.loader is None:
+        raise RuntimeError("release gate module has no import loader")
     gate = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(gate)
     monkeypatch.setattr(gate, "current_version", lambda: "4.170.2")
@@ -64,7 +66,10 @@ def test_active_or_published_patch_cannot_receive_credit(evidence):
     assert withdrawals.withdrawal_credit((4, 171, 0), (4, 170, 0), fetch, repo) == 0  # nosec B101 -- pytest regression oracle, not runtime authorization.
 
 
-@pytest.mark.parametrize("kind", ["tag_ref", "tag_source", "run_source", "run_workflow", "run_success", "run_repo", "draft_exists", "public_exists", "new_draft", "no_answer", "invalid_listing"])
+@pytest.mark.parametrize("kind", [
+    "tag_ref", "tag_source", "run_source", "run_workflow", "run_success", "run_repo",
+    "draft_exists", "public_exists", "new_draft", "no_answer", "invalid_listing",
+])
 def test_unproven_withdrawal_fails_closed(evidence, kind):
     gate, rows, entry = evidence
     changes = {

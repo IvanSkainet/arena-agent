@@ -177,10 +177,11 @@ def _version_problems(version: str, latest_tag: str, strict: bool) -> list[str]:
     if not latest:
         return [f"releases/latest tag {latest_tag!r} must match the strict vX.Y.Z contract"]
     if latest > tree:
-        return [
+        message = (
             f"releases/latest {latest_tag} is ahead of the source tree v{version}; "
             "published metadata cannot advertise code that master does not contain"
-        ]
+        )
+        return [message]
     if latest < tree:
         return _publication_debt(version, latest_tag, strict)
     return []
@@ -197,7 +198,7 @@ def main(argv: list[str]) -> int:
 
     try:
         latest = _api("/releases/latest")
-    except Exception as exc:  # noqa: BLE001 -- offline preflight semantics are unchanged
+    except (OSError, ValueError, RuntimeError) as exc:
         return _unavailable(tag, f"GitHub unreachable: {exc}", strict)
 
     if not isinstance(latest, dict):

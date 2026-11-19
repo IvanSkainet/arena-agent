@@ -36,8 +36,8 @@ WORKFLOW = REPO / ".github" / "workflows" / "sign-release.yml"
 yaml = pytest.importorskip("yaml")
 
 
-@pytest.fixture(scope="module")
-def wf() -> dict:
+@pytest.fixture(scope="module", name="wf")
+def _workflow_fixture() -> dict:
     assert WORKFLOW.exists(), "the release-signing workflow is missing"
     return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
 
@@ -47,8 +47,8 @@ def raw() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
 
 
-@pytest.fixture(scope="module")
-def sign_job(wf) -> dict:
+@pytest.fixture(scope="module", name="sign_job")
+def _sign_job_fixture(wf) -> dict:
     jobs = wf.get("jobs") or {}
     assert "sign" in jobs, f"expected a 'sign' job, found {list(jobs)}"
     return jobs["sign"]
@@ -284,7 +284,7 @@ def test_release_state_resolves_drafts_by_numeric_id(sign_job, tmp_path, case):
     release_id, draft, immutable, expected_code = case
     bash = shutil.which("bash")
     if not bash or not shutil.which("jq"):
-        pytest.fail("mandatory Linux release shell regression requires bash and jq")
+        raise RuntimeError("mandatory Linux release shell regression requires bash and jq")
     step = next(s for s in sign_job["steps"] if s.get("id") == "state")
     output = tmp_path / "outputs.txt"
     env = os.environ.copy()

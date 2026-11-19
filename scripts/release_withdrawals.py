@@ -36,7 +36,8 @@ def _digest(value: Any, label: str) -> None:
 
 
 def _positive_integer(value: Any, label: str) -> None:
-    _require(type(value) is int, f"{label} must be an integer")
+    _require(isinstance(value, int), f"{label} must be an integer")
+    _require(not isinstance(value, bool), f"{label} must not be a boolean")
     _require(value > 0, f"{label} must be positive")
 
 
