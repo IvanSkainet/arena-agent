@@ -5,17 +5,19 @@ import contextlib
 import time
 from pathlib import Path
 
-from arena.inventory.cache_lease import cache_lease
+from arena.inventory.cache_lease import lease_in_directory
+from arena.private_paths import pinned_directory
 
 
 @contextlib.contextmanager
 def journal_lock(path: Path, timeout: float = 30):
-    deadline = time.monotonic() + timeout
-    while True:
-        with cache_lease(path) as acquired:
-            if acquired:
-                yield
-                return
-        if time.monotonic() >= deadline:
-            raise TimeoutError("private journal is busy")
-        time.sleep(.01)
+    with pinned_directory(path.parent) as parent_fd:
+        deadline = time.monotonic() + timeout
+        while True:
+            with lease_in_directory(path, parent_fd) as acquired:
+                if acquired:
+                    yield parent_fd
+                    return
+            if time.monotonic() >= deadline:
+                raise TimeoutError("private journal is busy")
+            time.sleep(.01)

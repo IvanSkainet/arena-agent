@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import stat
 
 from arena.home import agent_home
 
@@ -17,7 +18,7 @@ from arena.mcp.ws_frames import (  # noqa: F401  # kept: re-export/dynamic (AGEN
     threading,
     time,
 )
-from arena.private_paths import pinned_directory
+from arena.private_paths import is_linked_path, pinned_directory
 from arena.private_state import private_directory
 from arena.windows_privacy import restrict_to_current_user
 
@@ -31,12 +32,14 @@ def _prepare_notify_queue(path: Path) -> None:
     with pinned_directory(path.parent) as parent_fd:
         if parent_fd is None:
             restrict_to_current_user(path.parent)
-            if path.is_symlink() or getattr(path, "is_junction", lambda: False)():
+            if is_linked_path(path):
                 raise OSError("refusing a linked notification queue")
         name = path if parent_fd is None else path.name
-        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0),
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
                         0o600, dir_fd=parent_fd)
         try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise OSError("notification queue must be a regular file")
             if parent_fd is not None:
                 os.fchmod(fd, 0o600)
             else:

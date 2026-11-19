@@ -156,7 +156,11 @@ def test_watch_route_registered():
     assert ("DELETE", "/v1/watch/files") in paths
 
 
-def test_watch_http_rejects_wrong_json_types_before_filesystem_access(tmp_path):
+def test_watch_http_rejects_wrong_json_types_before_filesystem_access(tmp_path, monkeypatch):
+    def forbidden_resolution(*args, **kwargs):
+        raise AssertionError("invalid options reached filesystem resolution")
+
+    monkeypatch.setattr("arena.filewatch.handlers.resolve_home_path", forbidden_resolution)
     runtime, _events = _runtime(tmp_path)
     handlers = make_file_watch_handlers(FileWatchHandlerContext(
         require_auth=lambda request: None,

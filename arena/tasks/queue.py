@@ -289,7 +289,10 @@ def _publish_failed_task(target: Path, task: dict[str, Any]) -> bool:
                 raise OSError("recovery publication parent changed")
             return installed
         finally:
-            unlink_staged(temporary, parent_fd)
+            try:
+                unlink_staged(temporary, parent_fd)
+            except FileNotFoundError:
+                pass
 
 
 def _link_failed_task(temporary: Path, target: Path, parent_fd: int | None) -> bool:

@@ -238,6 +238,7 @@ async def _cancellation_does_not_release_the_lock(
 
         first = asyncio.create_task(
             client.post("/v1/token/regenerate", headers=auth_header(TOKEN)))
+        second_request = None
         try:
             # Handshake with the actual writer: wall-clock sleeps can cancel
             # the HTTP request before it reaches the server on a busy host.
@@ -260,7 +261,12 @@ async def _cancellation_does_not_release_the_lock(
             release.set()
             if not first.done():
                 first.cancel()
-            await asyncio.gather(first, return_exceptions=True)
+            pending = [first]
+            if second_request is not None:
+                if not second_request.done():
+                    second_request.cancel()
+                pending.append(second_request)
+            await asyncio.gather(*pending, return_exceptions=True)
 
         on_disk = (tmp_path / "token.txt").read_text(encoding="utf-8").strip()
         in_memory = client.app[APP_CFG]["token"]

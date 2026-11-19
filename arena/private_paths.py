@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import os
 import secrets
+import stat
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -25,6 +26,15 @@ def _child_directory(parent_fd: int, name: str, flags: int) -> int:
         return os.open(name, flags, dir_fd=parent_fd)
 
 
+def is_linked_path(path: Path) -> bool:
+    """Reject all Windows reparse tags, including on Python before 3.12."""
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return False
+    return stat.S_ISLNK(metadata.st_mode) or bool(getattr(metadata, "st_reparse_tag", 0))
+
+
 def _windows_components(path: Path) -> None:
     current = Path(path.anchor)
     for part in path.parts[1:]:
@@ -33,7 +43,7 @@ def _windows_components(path: Path) -> None:
             current.mkdir(mode=0o700)
         except FileExistsError:
             pass
-        if current.is_symlink() or getattr(current, "is_junction", lambda: False)():
+        if is_linked_path(current):
             raise OSError("refusing a linked private parent")
         if not current.is_dir():
             raise NotADirectoryError(str(current))

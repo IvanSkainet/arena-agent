@@ -457,6 +457,16 @@ def test_manager_lifecycle(tmp_path, monkeypatch):
 
     monkeypatch.setattr(mcp_mod.subprocess, "Popen", lambda *a, **k: procs.pop(0))
 
+    def read_fixture_responses(client):
+        # This test covers the manager facade, not reader-thread scheduling.
+        # Complete finite fixture delivery before requesting another response;
+        # reader concurrency and EOF behavior have their own tests above.
+        for line in client.proc.stdout:
+            client._stdout_q.put_nowait(line)
+        client._stdout_q.put_nowait(None)
+
+    monkeypatch.setattr(mcp_mod.McpStdioClient, "_start_reader", read_fixture_responses)
+
     mgr = mcp_mod.McpClientManager(config_path=conf)
 
     mgr.get_client("srv1")

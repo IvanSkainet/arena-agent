@@ -38,10 +38,8 @@ def _missing_components(path: Path) -> tuple[Path, list[str]]:
 
 
 def _windows_private_directory(path: Path) -> None:
-    path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if path.is_symlink():
-        raise OSError("refusing a symlink private directory")
-    path.chmod(0o700)  # Deployment ACLs remain authoritative on Windows.
+    with pinned_directory(path):
+        path.chmod(0o700)  # Deployment ACLs remain authoritative on Windows.
 
 
 def _posix_private_components(parent: Path, missing: list[str]) -> None:
