@@ -20,6 +20,7 @@ from typing import Any
 from aiohttp import web
 
 from arena.app_keys import APP_CFG
+from arena.files.content_operations import _view_bounds, _write_new_content
 from arena.files.path_context import file_home
 from arena.files.sandbox import validate_create_target, validate_view_target
 from arena.handler_context import FileHandlerContext
@@ -38,36 +39,6 @@ def _err(ctx, msg: str, status: int) -> web.Response:
     explicitly."""
     ctx.record_request(is_error=True, count_request=False)
     return err_json(ctx, msg, status=status)
-
-
-def _line_number(value) -> int:
-    if isinstance(value, bool):
-        raise ValueError("boolean is not a line number")
-    if isinstance(value, float) and not value.is_integer():
-        raise ValueError("fractional or nonfinite line number")
-    return int(value)
-
-
-def _parse_view_range(view_range) -> tuple[int, int]:
-    if not isinstance(view_range, list) or len(view_range) != 2:
-        raise ValueError("view_range must be [start, end] line numbers (1-indexed)")
-    try:
-        start, end = (_line_number(value) for value in view_range)
-    except (ValueError, TypeError, OverflowError) as exc:
-        raise ValueError("view_range values must be integers") from exc
-    return start, end
-
-
-def _view_bounds(view_range, total_lines: int) -> tuple[int, int]:
-    """Validate the optional inclusive one-based range independently of HTTP."""
-    if view_range is None:
-        return 1, total_lines
-    start, end = _parse_view_range(view_range)
-    if not 1 <= start <= end:
-        raise ValueError(f"invalid view_range [{start}, {end}] — must be 1-indexed with start <= end")
-    if start > total_lines:
-        raise ValueError(f"start line {start} exceeds file length ({total_lines} lines)")
-    return start, min(end, total_lines)
 
 
 def _view_file(ctx: FileHandlerContext, request: web.Request, data: dict) -> web.Response:
@@ -140,28 +111,6 @@ def _create_file(ctx: FileHandlerContext, request: web.Request, data: dict) -> w
     return ctx.cors_json_response(
         {"ok": True, "path": str(target_path), "bytes": bytes_written},
     )
-
-
-def _write_new_content(target_path, content: str, encoding: str) -> tuple[int, str | None, int]:
-    if encoding == "base64":
-        import base64
-
-        try:
-            binary_content = base64.b64decode(content.strip())
-        except Exception:
-            return 0, "invalid base64 content", 400
-        try:
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            target_path.write_bytes(binary_content)
-            return len(binary_content), None, 200
-        except Exception:
-            return 0, "Internal error writing binary file", 500
-    try:
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        target_path.write_text(content, encoding="utf-8")
-        return len(content.encode("utf-8")), None, 200
-    except Exception:
-        return 0, "Internal error", 500
 
 
 def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandlers:

@@ -117,14 +117,14 @@ def _tool_fs_list(args: dict) -> dict:
 
 
 def _tool_browser_search(args: dict) -> dict:
-    rc, out, err = run_local([sys.executable, os.path.join(BIN, "py_browser.py"),
+    _rc, out, err = run_local([sys.executable, os.path.join(BIN, "py_browser.py"),
                                 "search", args["query"], "--n", str(args.get("n", 5))],
                                 timeout=30, utf8_child=True)
     return text_content(out or err)
 
 
 def _tool_browser_read(args: dict) -> dict:
-    rc, out, err = run_local([sys.executable, os.path.join(BIN, "py_browser.py"),
+    _rc, out, err = run_local([sys.executable, os.path.join(BIN, "py_browser.py"),
                                 "read", args["url"]], timeout=30, utf8_child=True)
     return text_content(out or err)
 
@@ -171,19 +171,19 @@ def _tool_browser_shot(args: dict) -> dict:
             r"C:\Program Files\LibreWolf\librewolf.exe",
         ]
     chrome_exe = next((shutil.which(c) or (c if os.path.exists(c) else None) for c in chrome_candidates if shutil.which(c) or os.path.exists(c)), None) or "chrome.exe"
-    rc, out, err = run_sd([chrome_exe, "--headless=new", "--no-sandbox", "--disable-gpu",
+    rc, _out, _err = run_sd([chrome_exe, "--headless=new", "--no-sandbox", "--disable-gpu",
                             f"--user-data-dir={ud}", "--window-size=1366,768",
                             f"--screenshot={png}", shot_url], timeout=45)
     return text_content(json.dumps({"ok": rc == 0, "screenshot": png, "url": shot_url}))
 
 
 def _tool_sys_status(args: dict) -> dict:
-    rc, out, err = run_local([os.path.join(BIN, "agentctl"), "sys", "status"], timeout=30)
+    _rc, out, err = run_local([os.path.join(BIN, "agentctl"), "sys", "status"], timeout=30)
     return text_content(out or err)
 
 
 def _tool_skill_list(args: dict) -> dict:
-    rc, out, err = run_local([os.path.join(BIN, "agentctl"), "skill", "list"], timeout=15)
+    _rc, out, err = run_local([os.path.join(BIN, "agentctl"), "skill", "list"], timeout=15)
     return text_content(out or err)
 
 
@@ -195,12 +195,12 @@ def _tool_skill_run(args: dict) -> dict:
 
 
 def _tool_hooks_list(args: dict) -> dict:
-    rc, out, err = run_local([sys.executable, os.path.join(BIN, "hooks_runner.py"), "list"], timeout=10)
+    _rc, out, err = run_local([sys.executable, os.path.join(BIN, "hooks_runner.py"), "list"], timeout=10)
     return text_content(out or err)
 
 
 def _tool_exec_snapshot(args: dict) -> dict:
-    rc, out, err = run_local([os.path.join(BIN, "agentctl"), "skill", "run", "system/sys-snapshot"], timeout=60)
+    _rc, out, err = run_local([os.path.join(BIN, "agentctl"), "skill", "run", "system/sys-snapshot"], timeout=60)
     return text_content(out or err)
 
 
@@ -211,24 +211,24 @@ def _tool_subagent_spawn(args: dict) -> dict:
     if args.get("wait", True):
         cmd_args += ["--wait"]
     cmd_args += ["--timeout", str(args.get("timeout", 300))]
-    rc, out, err = run_local(cmd_args, timeout=args.get("timeout", 300) + 30)
+    _rc, out, err = run_local(cmd_args, timeout=args.get("timeout", 300) + 30)
     return text_content(out or err)
 
 
 def _tool_subagent_list(args: dict) -> dict:
-    rc, out, err = run_local([sys.executable, os.path.join(BIN, "subagent.py"), "list"], timeout=10)
+    _rc, out, err = run_local([sys.executable, os.path.join(BIN, "subagent.py"), "list"], timeout=10)
     return text_content(out or err)
 
 
 def _tool_memory_recall(args: dict) -> dict:
     cmd_args = [sys.executable, os.path.join(BIN, "memory_recall.py"), "recall", args.get("query", ""),
                 "--top", str(args.get("top", 5))]
-    rc, out, err = run_local(cmd_args, timeout=15)
+    _rc, out, err = run_local(cmd_args, timeout=15)
     return text_content(out or err)
 
 
 def _tool_memory_digest(args: dict) -> dict:
-    rc, out, err = run_local([sys.executable, os.path.join(BIN, "memory_recall.py"), "digest"], timeout=15)
+    _rc, out, err = run_local([sys.executable, os.path.join(BIN, "memory_recall.py"), "digest"], timeout=15)
     return text_content(out or err)
 
 

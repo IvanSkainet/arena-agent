@@ -162,20 +162,22 @@ def _edit_hooks(ctx: FileHandlerContext) -> tuple[EditHooks | None, web.Response
     return EditHooks(create=create, apply=apply_, rollback=rollback), None
 
 
-async def _handle_v1_fs_edit(ctx: FileHandlerContext, request: web.Request) -> web.Response:
-    data, jerr = await parse_json_body(request, ctx)
-    if jerr is not None:
+async def _parse_edit_request(ctx: FileHandlerContext, request: web.Request
+                              ) -> tuple[dict | None, EditHooks | None, web.Response | None]:
+    data, error = await parse_json_body(request, ctx)
+    if error is not None:
         ctx.record_request(is_error=True, count_request=False)
-        return jerr
-    assert data is not None  # the guard above already proved this
-    hooks, unwired = _edit_hooks(ctx)
-    if unwired is not None:
-        return unwired
-    assert hooks is not None
+        return None, None, error
+    hooks, error = _edit_hooks(ctx)
+    return data, hooks, error
+
+
+async def _handle_v1_fs_edit(ctx: FileHandlerContext, request: web.Request) -> web.Response:
+    data, hooks, error = await _parse_edit_request(ctx, request)
+    if error is not None:
+        return error
+    assert data is not None and hooks is not None
     target = str(data.get("path", ""))
-    old_text = str(data.get("old_text", ""))
-    new_text = str(data.get("new_text", ""))
-    replace_all = bool(data.get("replace_all", False))
     target_path, err, status = validate_edit_target(
         target,
         root=request.app[APP_CFG]["root"],
@@ -185,14 +187,14 @@ async def _handle_v1_fs_edit(ctx: FileHandlerContext, request: web.Request) -> w
     if err:
         return _json_error(ctx, err, status)
     assert target_path is not None  # pyrefly 1.2: no union-of-tuple narrowing
-    return _perform_edit(ctx, hooks, target_path, old_text, new_text, replace_all,
-                         bool(data.get("preview", False)))
+    return _perform_edit(ctx, hooks, target_path, data)
 
 
-def _perform_edit(ctx: FileHandlerContext, hooks: EditHooks, target_path,
-                  old_text: str, new_text: str, replace_all: bool,
-                  preview_only: bool) -> web.Response:
-    if preview_only:
+def _perform_edit(ctx: FileHandlerContext, hooks: EditHooks, target_path, data: dict) -> web.Response:
+    old_text = str(data.get("old_text", ""))
+    new_text = str(data.get("new_text", ""))
+    replace_all = bool(data.get("replace_all", False))
+    if bool(data.get("preview", False)):
         result = hooks.create(
             target_path, old_text, new_text, replace_all=replace_all,
         )
@@ -217,6 +219,10 @@ def _perform_edit(ctx: FileHandlerContext, hooks: EditHooks, target_path,
         preview.pop("preview_id", None)
         return ctx.cors_json_response(preview)
     result = hooks.apply(preview["preview_id"])
+    return _applied_edit_response(ctx, result)
+
+
+def _applied_edit_response(ctx: FileHandlerContext, result: dict) -> web.Response:
     status = int(result.pop("status", 200))
     if not result.get("ok"):
         return _json_error(ctx, result.get("error", "apply failed"), status)
@@ -230,41 +236,22 @@ def _perform_edit(ctx: FileHandlerContext, hooks: EditHooks, target_path,
 
 
 async def _handle_v1_fs_edit_apply(ctx: FileHandlerContext, request: web.Request) -> web.Response:
-    data, jerr = await parse_json_body(request, ctx)
-    if jerr is not None:
-        ctx.record_request(is_error=True, count_request=False)
-        return jerr
-    assert data is not None  # the guard above already proved this
-    hooks, unwired = _edit_hooks(ctx)
-    if unwired is not None:
-        return unwired
-    assert hooks is not None
+    data, hooks, error = await _parse_edit_request(ctx, request)
+    if error is not None:
+        return error
+    assert data is not None and hooks is not None
     preview_id = str(data.get("preview_id", "")).strip()
     if not preview_id:
         return _json_error(ctx, "missing preview_id", 400)
     result = hooks.apply(preview_id)
-    status = int(result.pop("status", 200))
-    if not result.get("ok"):
-        return _json_error(ctx, result.get("error", "apply failed"), status)
-    ctx.audit({
-        "type": "file_edit", "path": result["path"],
-        "replacements": result["replacements"],
-        "bytes": result["bytes"], "rollback_id": result["rollback_id"],
-    })
-    ctx.record_request()
-    return ctx.cors_json_response(result)
+    return _applied_edit_response(ctx, result)
 
 
 async def _handle_v1_fs_edit_rollback(ctx: FileHandlerContext, request: web.Request) -> web.Response:
-    data, jerr = await parse_json_body(request, ctx)
-    if jerr is not None:
-        ctx.record_request(is_error=True, count_request=False)
-        return jerr
-    assert data is not None  # the guard above already proved this
-    hooks, unwired = _edit_hooks(ctx)
-    if unwired is not None:
-        return unwired
-    assert hooks is not None
+    data, hooks, error = await _parse_edit_request(ctx, request)
+    if error is not None:
+        return error
+    assert data is not None and hooks is not None
     rollback_id = str(data.get("rollback_id", "")).strip()
     if not rollback_id:
         return _json_error(ctx, "missing rollback_id", 400)

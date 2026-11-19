@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import fnmatch
 import threading
 import uuid
 from collections.abc import Callable
@@ -11,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.files.sandbox import validate_watch_target
+from arena.filewatch.snapshots import SnapshotPolicy, _snapshot
 
 
 @dataclass(frozen=True)
@@ -32,53 +32,6 @@ class FileWatchRuntime:
     remove_sync: Any
     loop: Any
     state: dict[str, Any]
-
-
-
-def _matches(path: Path, patterns: list[str]) -> bool:
-    if not patterns:
-        return True
-    return any(fnmatch.fnmatch(path.name, pat) for pat in patterns)
-
-
-@dataclass(frozen=True)
-class SnapshotPolicy:
-    recursive: bool
-    patterns: list[str]
-    max_files: int
-    jail: tuple[Path, Path]
-
-
-def _snapshot(path: Path, policy: SnapshotPolicy) -> tuple[dict[str, tuple[int, int]], bool]:
-    root, home = policy.jail
-    files: dict[str, tuple[int, int]] = {}
-    truncated = False
-    if _resolve_target(str(path), root=root, home=home) is None:
-        return files, False
-    if path.is_file():
-        st = path.stat()
-        files[str(path)] = (st.st_mtime_ns, st.st_size)
-        return files, False
-    iterator = path.rglob("*") if policy.recursive else path.glob("*")
-    for entry in iterator:
-        if _resolve_target(str(entry), root=root, home=home) is None:
-            continue
-        if not entry.is_file() or not _matches(entry, policy.patterns):
-            continue
-        st = entry.stat()
-        files[str(entry)] = (st.st_mtime_ns, st.st_size)
-        if len(files) >= policy.max_files:
-            truncated = True
-            break
-    return files, truncated
-
-
-
-def _resolve_target(target: str, *, root: Path, home: Path) -> Path | None:
-    """Use the same jail as the HTTP handler; never raise on an invalid path."""
-    resolved, _error, _status = validate_watch_target(target, root=root, home=home)
-    return resolved
-
 
 
 
@@ -112,8 +65,8 @@ def make_file_watch_runtime(ctx: FileWatchRuntimeContext) -> FileWatchRuntime:
         label: str = "",
         created_at: str = "",
     ) -> dict[str, Any]:
-        return _add_sync(ctx, state, path=path, root=root, recursive=recursive,
-                         patterns=patterns, label=label, created_at=created_at)
+        registration = WatchRegistration(path, root, recursive, patterns, label, created_at)
+        return _add_sync(ctx, state, registration)
 
     def remove_sync(watch_id: str) -> dict[str, Any]:
         with state["lock"]:
@@ -134,15 +87,31 @@ def make_file_watch_runtime(ctx: FileWatchRuntimeContext) -> FileWatchRuntime:
     return FileWatchRuntime(list_sync=list_sync, add_sync=add_sync, remove_sync=remove_sync, loop=loop, state=state)
 
 
-def _add_sync(ctx: FileWatchRuntimeContext, state: dict, *, path: str,
-              root: str | Path | None, recursive: bool, patterns: list[str] | None,
-              label: str, created_at: str) -> dict[str, Any]:
+def _clean_patterns(patterns: list[str] | None) -> list[str]:
+    return [str(pattern).strip() for pattern in (patterns or []) if str(pattern).strip()][:20]
+
+
+@dataclass(frozen=True)
+class WatchRegistration:
+    path: str
+    root: str | Path | None
+    recursive: bool
+    patterns: list[str] | None
+    label: str
+    created_at: str
+
+
+def _add_sync(ctx: FileWatchRuntimeContext, state: dict,
+              registration: WatchRegistration) -> dict[str, Any]:
+    path, root = registration.path, registration.root
+    recursive, patterns = registration.recursive, registration.patterns
+    label, created_at = registration.label, registration.created_at
     default = ctx.default_root() if callable(ctx.default_root) else ctx.default_root
     root_path = Path(root or default).expanduser().resolve()
     resolved, error, status = validate_watch_target(path, root=root_path, home=ctx.home)
     if resolved is None:
         return {"ok": False, "error": error, "status": status}
-    clean_patterns = [str(p).strip() for p in (patterns or []) if str(p).strip()][:20]
+    clean_patterns = _clean_patterns(patterns)
     try:
         if not resolved.exists():
             return {"ok": False, "error": "path not found", "status": 404}
