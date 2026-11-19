@@ -348,6 +348,7 @@ def test_remote_signing_set_is_complete_and_cryptographically_verified(sign_job)
     assert "sign-release\\.yml@" in script  # nosec B101 -- pytest contract, not a runtime access guard.
     assert 'cmp "dist/SHA256SUMS-${TAG}.txt" "verified-signatures/SHA256SUMS-${TAG}.txt"' in script  # nosec B101 -- test contract.
     assert steps.index(step) > next(i for i, s in enumerate(steps) if s["name"] == "Attach signatures to the release")  # nosec B101 -- test contract.
-    assert steps.index(step) < next(i for i, s in enumerate(steps) if s["name"] == "Anonymous end-to-end download & smoke verification")  # nosec B101 -- test contract.
+    anonymous_step = next(i for i, s in enumerate(steps) if s["name"] == "Anonymous end-to-end download & smoke verification")
+    assert steps.index(step) < anonymous_step  # nosec B101 -- test contract.
     immutable = next(s for s in steps if s["name"] == "Refuse to leave a published release unsigned")
     assert 'if [ "$have" -ne 8 ]' in immutable["run"]  # nosec B101 -- pytest contract, not a runtime access guard.
