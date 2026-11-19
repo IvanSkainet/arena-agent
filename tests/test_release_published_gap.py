@@ -18,6 +18,7 @@ were two.
 """
 from __future__ import annotations
 
+import http.client
 import importlib.util
 import sys
 from pathlib import Path
@@ -137,3 +138,21 @@ def test_the_readme_alias_asset_is_still_required(gate, monkeypatch, capsys):
     })
     assert gate.main([]) == 1
     assert "arena-agent.zip" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("strict", [False, True])
+@pytest.mark.parametrize("transport_error", [
+    http.client.IncompleteRead(b"partial", 100),
+    http.client.BadStatusLine("truncated status"),
+    http.client.RemoteDisconnected("peer closed"),
+])
+def test_http_transport_failure_preserves_offline_policy(monkeypatch, capsys, strict, transport_error):
+    checker = _load()
+
+    def unavailable_api(_path):
+        raise transport_error
+
+    monkeypatch.setattr(checker, "_api", unavailable_api)
+    result = checker.main(["--strict"] if strict else [])
+    assert result == (1 if strict else 0)
+    assert "GitHub unreachable" in capsys.readouterr().out

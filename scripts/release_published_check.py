@@ -20,6 +20,7 @@ where the network is present) an unpublished tag is an error.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import re
@@ -198,7 +199,7 @@ def main(argv: list[str]) -> int:
 
     try:
         latest = _api("/releases/latest")
-    except (OSError, ValueError, RuntimeError) as exc:
+    except (OSError, ValueError, RuntimeError, http.client.HTTPException) as exc:
         return _unavailable(tag, f"GitHub unreachable: {exc}", strict)
 
     if not isinstance(latest, dict):
