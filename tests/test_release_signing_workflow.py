@@ -344,10 +344,10 @@ def test_remote_signing_set_is_complete_and_cryptographically_verified(sign_job)
     assert 'cosign verify-blob "verified-signatures/$f"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
     assert '--signature "verified-signatures/${f}.sig"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
     assert '--certificate "verified-signatures/${f}.pem"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
-    assert re.search(r'--certificate-oidc-issuer\s+"https://token\.actions\.githubusercontent\.com"(?!\w)', script)  # nosec B101 -- pytest contract, not a runtime access guard.
+    assert re.search(r'--certificate-oidc-issuer\s+"https://token\.actions\.githubusercontent\.com"(?!\w)', script)  # nosec B101 -- test contract.
     assert "sign-release\\.yml@" in script  # nosec B101 -- pytest contract, not a runtime access guard.
-    assert 'cmp "dist/SHA256SUMS-${TAG}.txt" "verified-signatures/SHA256SUMS-${TAG}.txt"' in script  # nosec B101 -- pytest contract, not a runtime access guard.
-    assert steps.index(step) > next(i for i, s in enumerate(steps) if s["name"] == "Attach signatures to the release")  # nosec B101 -- pytest contract, not a runtime access guard.
-    assert steps.index(step) < next(i for i, s in enumerate(steps) if s["name"] == "Anonymous end-to-end download & smoke verification")  # nosec B101 -- pytest contract, not a runtime access guard.
+    assert 'cmp "dist/SHA256SUMS-${TAG}.txt" "verified-signatures/SHA256SUMS-${TAG}.txt"' in script  # nosec B101 -- test contract.
+    assert steps.index(step) > next(i for i, s in enumerate(steps) if s["name"] == "Attach signatures to the release")  # nosec B101 -- test contract.
+    assert steps.index(step) < next(i for i, s in enumerate(steps) if s["name"] == "Anonymous end-to-end download & smoke verification")  # nosec B101 -- test contract.
     immutable = next(s for s in steps if s["name"] == "Refuse to leave a published release unsigned")
     assert 'if [ "$have" -ne 8 ]' in immutable["run"]  # nosec B101 -- pytest contract, not a runtime access guard.
