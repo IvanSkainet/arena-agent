@@ -20,6 +20,9 @@ def measurement(tmp_path, monkeypatch):
     source.write_text("value = 1\n", encoding="utf-8")
     (root / "pyproject.toml").write_text('[tool.coverage.run]\nbranch = true\n', encoding="utf-8")
     output = tmp_path / "evidence"
+    # Measurement contracts use a synthetic Linux runner, even on Windows.
+    # CPU sampling is tested separately; never consume a host resource shim.
+    monkeypatch.setattr(bench, "cpu_seconds", lambda: None)
     monkeypatch.setattr(bench.platform, "system", lambda: "Linux")
     monkeypatch.setattr(bench, "fingerprint", lambda r: {"sample.py": source.read_text()})
     monkeypatch.setattr(bench.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout="source-head\n"))
@@ -655,3 +658,42 @@ def test_harness_stays_in_zero_survivor_mutation_gate():
     assert TARGETS[name] == ("tests/test_benchmark_runner.py",)
     baseline = json.loads((bench.ROOT / "scripts/mutation_baseline.json").read_text())
     assert baseline[name] == 0
+
+
+@pytest.mark.parametrize("seed", ["17 --override-ini=addopts=-x", "17;touch marker", "$(touch marker)", "--help"])
+def test_cli_rejects_injected_seed_before_starting_a_process(monkeypatch, tmp_path, seed):
+    def forbidden(*args, **kwargs):
+        pytest.fail("unparsed seed reached measurement")
+
+    monkeypatch.setattr(bench, "run", forbidden)
+    with pytest.raises(SystemExit) as caught:
+        bench.main(["--mode", "serial", "--seed=" + seed, "--output", str(tmp_path)])
+    assert caught.value.code == 2
+
+
+def test_output_option_metacharacters_remain_one_literal_argument(tmp_path):
+    output = tmp_path / "report --override-ini=addopts=-x;$(touch marker)"
+    argv = bench.command("serial", 17, output, "Linux")
+    assert f"--junitxml={output / 'junit.xml'}" in argv
+    assert "--override-ini=addopts=-x" not in argv
+    assert "--randomly-seed=17" in argv
+
+
+def test_coverage_library_failure_cannot_leave_a_passed_record(measurement, monkeypatch):
+    from coverage.exceptions import DataError
+
+    def unreadable(path):
+        raise DataError("corrupt diagnostic database")
+
+    monkeypatch.setattr(bench, "read_coverage", unreadable)
+    assert invoke(measurement) == 1
+    saved = report(measurement)
+    assert saved["state"] == "failed"
+    assert saved["exit"] == 1
+    assert saved["error"] == "incomplete measurement: DataError"
+
+
+def test_synthetic_linux_measurement_is_independent_of_windows_resource_shim(measurement, monkeypatch):
+    monkeypatch.setitem(sys.modules, "resource", SimpleNamespace())
+    assert invoke(measurement) == 0
+    assert report(measurement)["child_cpu_seconds"] is None

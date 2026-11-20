@@ -70,7 +70,7 @@ def test_fast_default_does_not_run_full_suite(harness):
 
 
 def test_parallel_missing_tool_is_a_failure(harness, monkeypatch):
-    preflight.CHECKS[0].needs = "fixture-absent-tool"
+    monkeypatch.setattr(preflight.CHECKS[0], "needs", "fixture-absent-tool")
     monkeypatch.setattr(preflight, "shutil", SimpleNamespace(which=lambda name: None))
     assert preflight.main(["--full", "--workers", "2"]) == 1
     assert harness == [[preflight.PY, "-m", "pytest", "--no-cov",

@@ -190,7 +190,7 @@ def _command(check: Check, workers: int) -> list[str]:
     return argv
 
 
-def main(argv: list[str] | None = None) -> int:
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument("--full", action="store_true", help="include the slow suite")
     ap.add_argument("--list", action="store_true")
@@ -202,6 +202,34 @@ def main(argv: list[str] | None = None) -> int:
     if args.workers == 2 and platform.system() != "Linux":
         ap.error("parallel preflight is validated only on Linux; use --workers 1")
 
+    return args
+
+
+def _run_check(c: Check, workers: int) -> str | None:
+    print(f"{c.name:26} ", end="", flush=True)
+    if c.needs and shutil.which(c.needs) is None:
+        # Fail closed. A skipped check that reads as a pass is how a
+        # green preflight ends in a red CI.
+        print(f"FAIL (missing tool: {c.needs})")
+        print(f"    why it matters: {c.why}")
+        return f"{c.name} (tool missing)"
+    t0 = time.time()
+    proc = subprocess.run(_command(c, workers), cwd=ROOT, capture_output=True, text=True)
+    el = time.time() - t0
+    if proc.returncode == 0:
+        print(f"ok ({el:.0f}s)")
+    else:
+        print(f"FAIL ({el:.0f}s)")
+        tail = (proc.stdout or "")[-1500:] + (proc.stderr or "")[-1500:]
+        for line in tail.strip().splitlines()[-12:]:
+            print(f"    {line}")
+        print(f"    why it matters: {c.why}")
+        return c.name
+    return None
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
     selected = [c for c in CHECKS if args.full or not c.slow]
 
     if args.list:
@@ -223,26 +251,9 @@ def main(argv: list[str] | None = None) -> int:
         failures.append("portability scan")
 
     for c in selected:
-        print(f"{c.name:26} ", end="", flush=True)
-        if c.needs and shutil.which(c.needs) is None:
-            # Fail closed. A skipped check that reads as a pass is how a
-            # green preflight ends in a red CI.
-            print(f"FAIL (missing tool: {c.needs})")
-            print(f"    why it matters: {c.why}")
-            failures.append(f"{c.name} (tool missing)")
-            continue
-        t0 = time.time()
-        proc = subprocess.run(_command(c, args.workers), cwd=ROOT, capture_output=True, text=True)
-        el = time.time() - t0
-        if proc.returncode == 0:
-            print(f"ok ({el:.0f}s)")
-        else:
-            print(f"FAIL ({el:.0f}s)")
-            tail = (proc.stdout or "")[-1500:] + (proc.stderr or "")[-1500:]
-            for line in tail.strip().splitlines()[-12:]:
-                print(f"    {line}")
-            print(f"    why it matters: {c.why}")
-            failures.append(c.name)
+        failure = _run_check(c, args.workers)
+        if failure is not None:
+            failures.append(failure)
 
     print(f"\ntotal {time.time() - t_all:.0f}s")
     if failures:

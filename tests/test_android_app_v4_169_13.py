@@ -183,7 +183,7 @@ def test_release_zip_refuses_untracked_files(tmp_path: Path, isolated_release_re
     import sys as _sys
 
     probe = isolated_release_repo / "_release_untracked_probe.txt"
-    probe.write_text("stray\n", encoding="utf-8")
+    probe.write_bytes(b"stray\n")
     try:
         proc = subprocess.run(
             [_sys.executable, str(isolated_release_repo / "scripts" / "make_release_zip.py"),
@@ -203,7 +203,7 @@ def test_release_zip_can_be_overridden_deliberately(tmp_path: Path, isolated_rel
     import sys as _sys
 
     probe = isolated_release_repo / "_release_untracked_probe2.txt"
-    probe.write_text("stray\n", encoding="utf-8")
+    probe.write_bytes(b"stray\n")
     try:
         proc = subprocess.run(
             [_sys.executable, str(isolated_release_repo / "scripts" / "make_release_zip.py"),

@@ -157,7 +157,8 @@ def test_a_valid_shard_is_not_rejected_as_malformed(tmp_path, monkeypatch):
     assert mod.main() == 1  # measurements refused, not malformed arguments
     assert calls == sorted(mod.TARGETS)[1::4]
     rows = json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))
-    assert rows and all(row["status"] == "error" for row in rows)
+    assert rows
+    assert all(row["status"] == "error" for row in rows)
 
 
 def test_shards_partition_the_target_list_exactly():

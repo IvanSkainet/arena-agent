@@ -164,6 +164,17 @@ def _report_arena_leaks(
             "undoing it; use monkeypatch.setenv so it is rolled back (#348)")
 
 
+def _report_worker_arena_leaks(session: pytest.Session) -> list[str]:
+    worker_leaks = session.config.stash.get(_WORKER_ARENA_LEAKS, [])
+    if worker_leaks:
+        reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+        if reporter is not None:
+            reporter.write_sep("=", "ARENA_* environment leaked in workers", red=True)
+            for name in sorted(set(worker_leaks)):
+                reporter.write_line(f"  {name}")
+    return worker_leaks
+
+
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     """Fail the run if the suite ended with a different `ARENA_*` set.
 
@@ -193,13 +204,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             session.config.workeroutput["arena_environment_leaks"] = sorted({
                 name for changed in leaked.values() for name in changed
             })
-    worker_leaks = session.config.stash.get(_WORKER_ARENA_LEAKS, [])
-    if worker_leaks:
-        reporter = session.config.pluginmanager.get_plugin("terminalreporter")
-        if reporter is not None:
-            reporter.write_sep("=", "ARENA_* environment leaked in workers", red=True)
-            for name in sorted(set(worker_leaks)):
-                reporter.write_line(f"  {name}")
+    worker_leaks = _report_worker_arena_leaks(session)
     if (leaked or worker_leaks) and exitstatus == 0:
         session.exitstatus = 1
 
@@ -852,7 +857,7 @@ def isolated_release_repo(tmp_path):
     (root / "scripts").mkdir(parents=True)
     shutil.copyfile(source / "scripts" / "make_release_zip.py",
                     root / "scripts" / "make_release_zip.py")
-    (root / "tracked.txt").write_text("release fixture\n", encoding="utf-8")
+    (root / "tracked.txt").write_bytes(b"release fixture\n")
     commands = [
         ["git", "-c", "init.templateDir=", "init", "--quiet"],
         ["git", "add", "scripts/make_release_zip.py", "tracked.txt"],

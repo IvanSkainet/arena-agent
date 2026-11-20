@@ -17,6 +17,8 @@ import time
 import xml.etree.ElementTree as ET  # nosec B405 -- own pytest UTF-8 report, DTD/ENTITY rejected by read_junit
 from pathlib import Path
 
+from coverage.exceptions import CoverageException
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -137,6 +139,51 @@ def execute(argv: list[str], *, root: Path, env: dict[str, str], log, timeout: i
         proc.wait()
 
 
+def write_coverage_config(root: Path, output: Path) -> None:
+    # Snapshot all existing coverage options, changing only the top-level
+    # invocation's data destination. COVERAGE_FILE would leak into nested
+    # pytest contract subprocesses and mix their statement/branch databases.
+    config = (root / "pyproject.toml").read_text(encoding="utf-8")
+    marker = "[tool.coverage.run]\n"
+    if config.count(marker) != 1:
+        raise ValueError("coverage configuration section is missing or ambiguous")
+    section = config.partition(marker)[2].partition("\n[")[0]
+    if any(line.strip().startswith("data_file") for line in section.splitlines()):
+        raise ValueError("explicit coverage data_file requires review")
+    config = config.replace(marker, marker + f'data_file = {json.dumps(str(output / ".coverage"))}\n')
+    (output / "coverage.toml").write_text(config, encoding="utf-8")
+
+
+def tool_versions() -> dict[str, str | None]:
+    versions = dict[str, str | None]()
+    for name in ("pytest", "pytest-xdist", "pytest-cov", "pytest-randomly", "coverage", "execnet",
+                 "mutmut", "pyrefly", "ruff"):
+        try:
+            versions[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            versions[name] = None
+    return versions
+
+
+def private_environment(scratch: Path, runner: str) -> dict[str, str]:
+    env = dict(os.environ)
+    for key in ("HOME", "TMPDIR", "TMP", "TEMP", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
+                "XDG_DATA_HOME", "XDG_STATE_HOME", "USERPROFILE"):
+        path = scratch / key.lower()
+        path.mkdir()
+        env[key] = str(path)
+    env.pop("COVERAGE_FILE", None)
+    env.update(ARENA_TEST_EXECUTION_GUARD="1", RUNNER_OS=runner)
+    return env
+
+
+def source_unchanged(root: Path, before: dict[str, str]) -> bool:
+    try:
+        return fingerprint(root) == before
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def run(root: Path, output: Path, *, mode: str, seed: int, timeout: int) -> int:
     if mode not in {"serial", "n2"} or timeout <= 0:
         raise ValueError("invalid mode or timeout")
@@ -151,32 +198,14 @@ def run(root: Path, output: Path, *, mode: str, seed: int, timeout: int) -> int:
         raise ValueError("source inventory is empty")
     # Exclusive directory creation prevents overwriting failed or partial evidence.
     output.mkdir(parents=True, exist_ok=False)
-    # Snapshot all existing coverage options, changing only the top-level
-    # invocation's data destination. COVERAGE_FILE would leak into nested
-    # pytest contract subprocesses and mix their statement/branch databases.
-    config = (root / "pyproject.toml").read_text(encoding="utf-8")
-    marker = "[tool.coverage.run]\n"
-    if config.count(marker) != 1:
-        raise ValueError("coverage configuration section is missing or ambiguous")
-    section = config.partition(marker)[2].partition("\n[")[0]
-    if any(line.strip().startswith("data_file") for line in section.splitlines()):
-        raise ValueError("explicit coverage data_file requires review")
-    config = config.replace(marker, marker + f'data_file = {json.dumps(str(output / ".coverage"))}\n')
-    (output / "coverage.toml").write_text(config, encoding="utf-8")
+    write_coverage_config(root, output)
     argv = command(mode, seed, output, runner)
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
                           capture_output=True, text=True, check=True, timeout=30).stdout.strip()
-    versions = dict[str, str | None]()
-    for name in ("pytest", "pytest-xdist", "pytest-cov", "pytest-randomly", "coverage", "execnet",
-                 "mutmut", "pyrefly", "ruff"):
-        try:
-            versions[name] = importlib.metadata.version(name)
-        except importlib.metadata.PackageNotFoundError:
-            versions[name] = None
     result = {"schema": 1, "state": "running", "source_head": head,
               "source_manifest": before, "mode": mode, "seed": seed,
               "command": argv, "platform": platform.platform(), "python": sys.version,
-              "versions": versions, "logical_cpus": os.cpu_count(),
+              "versions": tool_versions(), "logical_cpus": os.cpu_count(),
               "started_unix": time.time(), "peak_memory_bytes": None,
               "peak_memory_note": "not measured; no RSS estimate presented as physical peak",
               "locks": {n: before.get(n) for n in ("requirements-ci.txt", "requirements-mutation.lock")}}
@@ -186,15 +215,7 @@ def run(root: Path, output: Path, *, mode: str, seed: int, timeout: int) -> int:
     code = 1
     try:
         with tempfile.TemporaryDirectory(prefix="arena-benchmark-") as directory:
-            scratch = Path(directory)
-            env = dict(os.environ)
-            for key in ("HOME", "TMPDIR", "TMP", "TEMP", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
-                        "XDG_DATA_HOME", "XDG_STATE_HOME", "USERPROFILE"):
-                path = scratch / key.lower()
-                path.mkdir()
-                env[key] = str(path)
-            env.pop("COVERAGE_FILE", None)
-            env.update(ARENA_TEST_EXECUTION_GUARD="1", RUNNER_OS=runner)
+            env = private_environment(Path(directory), runner)
             # Do not set CI/GITHUB_ACTIONS: that can enable physical input tests.
             with (output / "pytest.log").open("w", encoding="utf-8") as log:
                 status = execute(argv, root=root, env=env, log=log, timeout=timeout)
@@ -210,17 +231,14 @@ def run(root: Path, output: Path, *, mode: str, seed: int, timeout: int) -> int:
     except KeyboardInterrupt:
         result["error"] = "interrupted; partial evidence retained"
         code = 130
-    except (OSError, ValueError, ET.ParseError) as error:
+    except (OSError, ValueError, ET.ParseError, CoverageException) as error:
         result["error"] = f"incomplete measurement: {type(error).__name__}"
         code = 1
     finally:
         result["wall_seconds"] = time.monotonic() - started
         end_cpu = cpu_seconds()
         result["child_cpu_seconds"] = end_cpu - cpu if cpu is not None and end_cpu is not None else None
-        try:
-            result["source_unchanged"] = fingerprint(root) == before
-        except (OSError, subprocess.SubprocessError):
-            result["source_unchanged"] = False
+        result["source_unchanged"] = source_unchanged(root, before)
         if not result["source_unchanged"]:
             code = code or 1
         result.update(state="passed" if code == 0 else "failed", exit=code,
