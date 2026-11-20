@@ -331,3 +331,78 @@ def test_a_leak_really_does_change_what_a_later_module_reads(
     assert alone.returncode == 0, (
         "the reader was expected to pass on its own -- if it fails here the "
         f"fixture is wrong, not the suite:\n{alone.stdout}")
+
+
+def _empty_session(*, worker=False):
+    from types import SimpleNamespace
+
+    config = SimpleNamespace(
+        stash=pytest.Stash(),
+        pluginmanager=SimpleNamespace(get_plugin=lambda name: None),
+    )
+    if worker:
+        config.workeroutput = {}
+    return SimpleNamespace(config=config, exitstatus=0)
+
+
+def test_worker_forwards_leak_names_without_secret_values(suite_conftest, monkeypatch):
+    session = _empty_session(worker=True)
+    monkeypatch.setattr(suite_conftest, "_arena_leaks_by_origin", lambda: {
+        "": {"ARENA_CONTRACT_LEAK": (None, "private-value-must-not-travel")},
+    })
+    suite_conftest.pytest_sessionfinish(session, 0)
+    assert session.exitstatus == 1
+    assert session.config.workeroutput == {
+        "arena_environment_leaks": ["ARENA_CONTRACT_LEAK"],
+    }
+
+
+def test_controller_rejects_a_worker_leak(suite_conftest, monkeypatch):
+    from types import SimpleNamespace
+
+    session = _empty_session()
+    monkeypatch.setattr(suite_conftest, "_arena_leaks_by_origin", lambda: {})
+    node = SimpleNamespace(config=session.config, workeroutput={
+        "arena_environment_leaks": ["ARENA_CONTRACT_LEAK"],
+    })
+    suite_conftest.pytest_testnodedown(node, None)
+    suite_conftest.pytest_sessionfinish(session, 0)
+    assert session.exitstatus == 1
+
+
+def test_controller_accepts_healthy_workers(suite_conftest, monkeypatch):
+    from types import SimpleNamespace
+
+    session = _empty_session()
+    monkeypatch.setattr(suite_conftest, "_arena_leaks_by_origin", lambda: {})
+    node = SimpleNamespace(config=session.config, workeroutput={})
+    suite_conftest.pytest_testnodedown(node, None)
+    suite_conftest.pytest_sessionfinish(session, 0)
+    assert session.exitstatus == 0
+
+
+@pytest.mark.parametrize("exitstatus", [1, 2, 3, 4, 5])
+def test_worker_leak_does_not_replace_an_existing_failure(suite_conftest, monkeypatch, exitstatus):
+    session = _empty_session(worker=True)
+    session.exitstatus = exitstatus
+    monkeypatch.setattr(suite_conftest, "_arena_leaks_by_origin", lambda: {
+        "fixture": {"ARENA_CONTRACT_LEAK": (None, "private-fixture-value")},
+    })
+    suite_conftest.pytest_sessionfinish(session, exitstatus)
+    assert session.exitstatus == exitstatus
+    assert session.config.workeroutput == {"arena_environment_leaks": ["ARENA_CONTRACT_LEAK"]}
+
+
+def test_controller_accumulates_leaks_across_worker_shutdowns(suite_conftest, monkeypatch):
+    from types import SimpleNamespace
+
+    session = _empty_session()
+    monkeypatch.setattr(suite_conftest, "_arena_leaks_by_origin", lambda: {})
+    for names in (["ARENA_CONTRACT_FIRST"], [], ["ARENA_CONTRACT_SECOND"]):
+        suite_conftest.pytest_testnodedown(SimpleNamespace(
+            config=session.config, workeroutput={"arena_environment_leaks": names}), None)
+    assert session.config.stash[suite_conftest._WORKER_ARENA_LEAKS] == [
+        "ARENA_CONTRACT_FIRST", "ARENA_CONTRACT_SECOND",
+    ]
+    suite_conftest.pytest_sessionfinish(session, 0)
+    assert session.exitstatus == 1

@@ -25,11 +25,13 @@ passed" must never look the same.
 Usage:
     python scripts/preflight.py            # everything except the slow suite
     python scripts/preflight.py --full     # + the whole pytest run
+    python scripts/preflight.py --full --workers 2  # Linux opt-in; serial remains default
     python scripts/preflight.py --list     # show what would run
 """
 from __future__ import annotations
 
 import argparse
+import platform
 import shutil
 import subprocess
 import sys
@@ -180,17 +182,31 @@ def _portability_scan() -> tuple[bool, list[str]]:
     return True, []
 
 
-def main() -> int:
+def _command(check: Check, workers: int) -> list[str]:
+    """Parallelize only the full pytest suite; never mutate shared check argv."""
+    argv = list(check.argv)
+    if check.name == "full suite" and workers == 2:
+        argv += ["-n", "2", "--max-worker-restart=0"]
+    return argv
+
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--full", action="store_true", help="include the slow suite")
     ap.add_argument("--list", action="store_true")
-    args = ap.parse_args()
+    ap.add_argument("--workers", type=int, choices=(1, 2), default=1,
+                    help="full-suite workers (default: 1; measured opt-in: 2 on Linux)")
+    args = ap.parse_args(argv)
+    if args.workers != 1 and not args.full:
+        ap.error("--workers 2 requires --full")
+    if args.workers == 2 and platform.system() != "Linux":
+        ap.error("parallel preflight is validated only on Linux; use --workers 1")
 
     selected = [c for c in CHECKS if args.full or not c.slow]
 
     if args.list:
         for c in selected:
-            print(f"  {c.name:26} {' '.join(c.argv[:4])}...")
+            print(f"  {c.name:26} {' '.join(_command(c, args.workers))}")
         return 0
 
     failures: list[str] = []
@@ -216,7 +232,7 @@ def main() -> int:
             failures.append(f"{c.name} (tool missing)")
             continue
         t0 = time.time()
-        proc = subprocess.run(c.argv, cwd=ROOT, capture_output=True, text=True)
+        proc = subprocess.run(_command(c, args.workers), cwd=ROOT, capture_output=True, text=True)
         el = time.time() - t0
         if proc.returncode == 0:
             print(f"ok ({el:.0f}s)")

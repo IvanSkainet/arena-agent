@@ -159,3 +159,5 @@
   - Защита границ реалмов: `validate_realm_path` блокирует ошибочные мутации Mortal-файлов в Afterlife (`Chaos Sea` / `Shining Abode`) и Afterlife-файлов в `Mortal World`.
   - Запись `validation_repair_ready.json` как в `game_state/control/`, так и в корень для гарантированной совместимости с валидатором C# клиента.
   - Синхронизирован `arena/game/boe_cli.py` и `arena/game/boe_handlers.py` с 28 изолированными паритетными тестами.
+
+- [ ] **T74 [DEVELOPMENT / MEASURED ACCELERATION]** Изолировать тестовые probe/baseline mutations; проверить collection/leak/coverage контракты под параллелизмом; измерить serial/n2 на нескольких seeds и платформах. Один собранный PR, без сокращения матрицы, security gates, coverage и без timeout/retry masking. План согласован владельцем; enrollment — отдельная следующая задача.

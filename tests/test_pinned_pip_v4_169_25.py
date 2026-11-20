@@ -26,6 +26,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 RATCHET = REPO_ROOT / "scripts" / "pinned_pip_ratchet.py"
@@ -613,3 +615,26 @@ def test_sensitive_name_gate_rejects_violating_source() -> None:
     ]
     compliant = "def _scanning_rows():\n    return []\n"
     assert _sensitive_function_names(compliant) == []
+
+
+@pytest.fixture(autouse=True)
+def _private_probe_inputs(request, monkeypatch):
+    """T74: route destructive scanner examples to a private full input tree."""
+    writers = {
+        'test_ratchet_catches_a_plain_unpinned_install',
+        'test_the_sfw_exemption_is_not_a_hole',
+        'test_legitimate_forms_are_not_flagged',
+        'test_multi_line_install_with_hashes_is_not_flagged',
+        'test_joining_continuations_does_not_hide_an_unpinned_install',
+        'test_a_commented_backslash_cannot_swallow_the_command_below_it',
+        'test_violation_points_at_the_line_the_command_starts_on',
+        'test_a_backslash_in_the_command_does_not_grant_an_exemption',
+        'test_ratchet_refuses_a_truncated_scan',
+    }
+    if request.node.name not in writers:
+        return
+    root = request.getfixturevalue("isolated_ratchet_repo")
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "REPO_ROOT", root)
+    monkeypatch.setattr(module, "WORKFLOWS", root / ".github" / "workflows")
+    monkeypatch.setattr(module, "RATCHET", root / "scripts" / "pinned_pip_ratchet.py")
