@@ -31,8 +31,8 @@ import pytest
 _REPOSITORY = Path(__file__).resolve().parents[1]
 
 
-@pytest.fixture
-def suite_conftest(request: pytest.FixtureRequest) -> ModuleType:
+@pytest.fixture(name="suite_conftest")
+def loaded_suite_conftest(request: pytest.FixtureRequest) -> ModuleType:
     """The live `tests/conftest.py`, as pytest loaded it.
 
     Not `from tests.conftest import ...`: `tests/` has no

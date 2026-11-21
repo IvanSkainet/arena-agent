@@ -35,6 +35,21 @@ def fingerprint(root: Path) -> dict[str, str]:
     }
 
 
+def junit_case(case: ET.Element) -> dict:
+    """Decode one report item without coupling it to suite counter validation."""
+    outcome = "passed"
+    reason = ""
+    for tag in ("error", "failure", "skipped"):
+        node = case.find(tag)
+        if node is not None:
+            outcome = tag
+            reason = node.get("message", "")
+            break
+    return {"id": [case.get("classname", ""), case.get("name", "")],
+            "outcome": outcome, "reason": reason,
+            "seconds": float(case.get("time", "0"))}
+
+
 def read_junit(path: Path) -> dict:
     # Pytest emits UTF-8. Reject DTD/entity declarations before parsing, rather
     # than accepting alternate encodings or expanding an embedded entity graph.
@@ -42,19 +57,7 @@ def read_junit(path: Path) -> dict:
     if "<!DOCTYPE" in text.upper() or "<!ENTITY" in text.upper():
         raise ValueError("JUnit declarations are not allowed")
     root = ET.fromstring(text)  # nosec B314 -- own pytest UTF-8 report; DTD/ENTITY declarations rejected above
-    cases = []
-    for case in root.iter("testcase"):
-        outcome = "passed"
-        reason = ""
-        for tag in ("error", "failure", "skipped"):
-            node = case.find(tag)
-            if node is not None:
-                outcome = tag
-                reason = node.get("message", "")
-                break
-        cases.append({"id": [case.get("classname", ""), case.get("name", "")],
-                      "outcome": outcome, "reason": reason,
-                      "seconds": float(case.get("time", "0"))})
+    cases = [junit_case(case) for case in root.iter("testcase")]
     if not cases:
         raise ValueError("JUnit contains no cases")
     suites = list(root.iter("testsuite"))
@@ -184,7 +187,8 @@ def source_unchanged(root: Path, before: dict[str, str]) -> bool:
         return False
 
 
-def run(root: Path, output: Path, *, mode: str, seed: int, timeout: int) -> int:
+def validate_request(root: Path, output: Path, mode: str, timeout: int) -> tuple[Path, Path]:
+    """Refuse unsupported measurement requests before creating any evidence."""
     if mode not in {"serial", "n2"} or timeout <= 0:
         raise ValueError("invalid mode or timeout")
     root, output = root.resolve(), output.resolve()
@@ -192,6 +196,11 @@ def run(root: Path, output: Path, *, mode: str, seed: int, timeout: int) -> int:
         raise ValueError("output must be outside the checkout")
     if platform.system() != "Linux":
         raise ValueError("measurement process cleanup is validated only on Linux")
+    return root, output
+
+
+def run(root: Path, output: Path, *, mode: str, seed: int, timeout: int) -> int:
+    root, output = validate_request(root, output, mode, timeout)
     runner = "Linux"
     before = fingerprint(root)
     if not before:

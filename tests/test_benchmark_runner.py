@@ -12,8 +12,8 @@ import pytest
 from arena.governance import benchmark_runner as bench
 
 
-@pytest.fixture
-def measurement(tmp_path, monkeypatch):
+@pytest.fixture(name="measurement")
+def measurement_fixture(tmp_path, monkeypatch):
     root = tmp_path / "source"
     root.mkdir()
     source = root / "sample.py"
@@ -23,7 +23,8 @@ def measurement(tmp_path, monkeypatch):
     # Measurement contracts use a synthetic Linux runner, even on Windows.
     # CPU sampling is tested separately; never consume a host resource shim.
     monkeypatch.setattr(bench, "cpu_seconds", lambda: None)
-    monkeypatch.setattr(bench.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(bench, "platform", SimpleNamespace(
+        system=lambda: "Linux", platform=lambda: "fixture-platform"))
     monkeypatch.setattr(bench, "fingerprint", lambda r: {"sample.py": source.read_text()})
     monkeypatch.setattr(bench.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout="source-head\n"))
     monkeypatch.setattr(bench, "read_coverage", lambda path: {"sample.py": {"lines": [1], "arcs": [[-1, 1]]}})
@@ -465,7 +466,7 @@ def test_data_file_in_report_section_is_not_misread_as_run_override(measurement)
 
 
 def test_measurement_creates_nested_external_output_directories(measurement):
-    root, output, source, calls = measurement
+    root, output, _, calls = measurement
     nested = output / "nested" / "run"
     # This test exercises directory preparation; refuse launching pytest once
     # the destination exists, keeping it separate from the suite's test engine.
@@ -555,12 +556,13 @@ def test_unavailable_cpu_endpoint_is_unknown_not_an_invented_metric(measurement,
     assert report(measurement)["child_cpu_seconds"] is None
 
 
-@pytest.mark.parametrize("error,code,message", [
+@pytest.mark.parametrize("failure_case", [
     (subprocess.TimeoutExpired("fixture", 1), 124, "pytest timeout; partial evidence retained, no retry"),
     (KeyboardInterrupt(), 130, "interrupted; partial evidence retained"),
     (OSError(), 1, "incomplete measurement: OSError"),
 ])
-def test_failure_record_retains_the_diagnostic_not_only_exit_code(measurement, monkeypatch, error, code, message):
+def test_failure_record_retains_the_diagnostic_not_only_exit_code(measurement, monkeypatch, failure_case):
+    error, code, message = failure_case
     def execute(*args, **kwargs):
         raise error
 
@@ -592,12 +594,13 @@ def test_invalid_junit_diagnostics_are_actionable(tmp_path, body, message):
     assert str(caught.value) == message
 
 
-@pytest.mark.parametrize("exists,arcs,message", [
+@pytest.mark.parametrize("coverage_case", [
     (False, False, "coverage database missing"),
     (True, False, "branch coverage missing"),
     (True, True, "coverage contains no measured files"),
 ])
-def test_invalid_coverage_diagnostics_are_actionable(tmp_path, monkeypatch, exists, arcs, message):
+def test_invalid_coverage_diagnostics_are_actionable(tmp_path, monkeypatch, coverage_case):
+    exists, arcs, message = coverage_case
     import coverage
 
     path = tmp_path / ".coverage"

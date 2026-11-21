@@ -6,8 +6,8 @@ import pytest
 from scripts import preflight
 
 
-@pytest.fixture
-def harness(monkeypatch):
+@pytest.fixture(name="harness")
+def preflight_harness(monkeypatch):
     checks = [preflight.Check("fast guard", ["guard"]),
               preflight.Check("full suite", [preflight.PY, "-m", "pytest", "--no-cov"], slow=True)]
     calls = []
