@@ -28,6 +28,8 @@ TESTS = REPO / "tests"
 
 # Modules that shell out to git and must therefore use the shared budget.
 GIT_MODULES = (
+    # Private release fixture consumer isolation regression.
+    "test_ratchet_repo_isolation.py",
     "test_readme_refresh_pr.py",
     "test_git_tools.py",
     "test_admin_proposal_core.py",

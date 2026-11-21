@@ -19,6 +19,7 @@
  "arena/exec/environment.py": 0,
  "arena/exec/interpreters.py": 0,
  "arena/files/sandbox.py": 0,
+ "arena/governance/benchmark_runner.py": 0,
  "arena/governance/firefox_tree_parity.py": 0,
  "arena/governance/pytest_execution_guard.py": 0,
  "arena/governance/reviewer_evidence.py": 0,

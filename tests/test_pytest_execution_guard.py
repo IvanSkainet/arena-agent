@@ -82,3 +82,46 @@ def test_pytest_hook_uses_runner_specific_floor(monkeypatch) -> None:
         f"test collection floor failed on Windows: collected {minimum - 1}, "
         f"required at least {minimum}"
     )
+
+
+def test_parallel_controller_rejects_short_worker_collection(monkeypatch):
+    monkeypatch.setenv("ARENA_TEST_EXECUTION_GUARD", "1")
+    monkeypatch.setenv("RUNNER_OS", "Linux")
+    with pytest.raises(pytest.exit.Exception, match="test collection floor failed") as caught:
+        guard.pytest_xdist_node_collection_finished(node=None, ids=["one"])
+    assert caught.value.returncode == 4
+
+
+def test_parallel_controller_accepts_complete_worker_collection(monkeypatch):
+    monkeypatch.setenv("ARENA_TEST_EXECUTION_GUARD", "1")
+    monkeypatch.setenv("RUNNER_OS", "Linux")
+    guard.pytest_xdist_node_collection_finished(
+        node=None, ids=["test"] * guard.collection_floors()["Linux"])
+
+
+def test_parallel_controller_is_disabled_without_opt_in(monkeypatch):
+    monkeypatch.delenv("ARENA_TEST_EXECUTION_GUARD", raising=False)
+    guard.pytest_xdist_node_collection_finished(node=None, ids=[])
+
+
+def test_parallel_worker_defers_floor_to_controller(monkeypatch):
+    monkeypatch.setenv("ARENA_TEST_EXECUTION_GUARD", "1")
+    guard.pytest_collection_finish(
+        SimpleNamespace(items=[], config=SimpleNamespace(workerinput={})))
+
+
+def test_parallel_controller_rejects_missing_runner_identity(monkeypatch):
+    monkeypatch.setenv("ARENA_TEST_EXECUTION_GUARD", "1")
+    monkeypatch.delenv("RUNNER_OS", raising=False)
+    with pytest.raises(pytest.exit.Exception) as caught:
+        guard.pytest_xdist_node_collection_finished(node=None, ids=[])
+    assert str(caught.value) == "unknown RUNNER_OS for test collection guard: <empty>"
+    assert caught.value.returncode == 4
+
+
+def test_parallel_hook_registers_without_xdist_hookspec():
+    # A serial-only plugin manager must accept this optional xdist hook.
+    # Real subprocess verdict contracts separately exercise xdist registration.
+    manager = pytest.PytestPluginManager()
+    manager.register(guard)
+    manager.check_pending()
