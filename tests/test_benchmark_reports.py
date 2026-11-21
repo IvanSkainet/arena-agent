@@ -129,5 +129,5 @@ def test_invalid_coverage_diagnostics_are_actionable(tmp_path, monkeypatch, cove
 def test_junit_durations_must_be_finite_and_nonnegative(tmp_path, duration):
     path = tmp_path / "junit.xml"
     path.write_text(f'<testsuite><testcase name="fixture" time="{duration}"/></testsuite>')
-    with pytest.raises(ValueError, match="duration"):
+    with pytest.raises(ValueError, match="^JUnit duration must be finite and nonnegative$"):
         bench.read_junit(path)

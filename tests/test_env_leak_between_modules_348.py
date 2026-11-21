@@ -35,11 +35,10 @@ _REPOSITORY = Path(__file__).resolve().parents[1]
 def loaded_suite_conftest(request: pytest.FixtureRequest) -> ModuleType:
     """The live `tests/conftest.py`, as pytest loaded it.
 
-    Not `from tests.conftest import ...`: `tests/` has no
-    `__init__.py`, so that statement builds a *second* module object
-    whose snapshot dicts are empty, and every assertion below would
-    pass by measuring nothing. Confirmed by inspection -- `conftest`
-    and `tests.conftest` were two distinct objects in `sys.modules`.
+    Resolve the plugin pytest actually registered rather than importing a
+    potentially distinct module object with empty snapshot dictionaries.
+    Historically `conftest` and `tests.conftest` could be distinct objects;
+    assertions against an unloaded copy would pass by measuring nothing.
     Same lookup, and same reason, as `test_no_network_guard_331.py`.
     """
     module = request.config.pluginmanager.get_plugin(
@@ -357,28 +356,18 @@ def test_worker_forwards_leak_names_without_secret_values(suite_conftest, monkey
     }
 
 
-def test_controller_rejects_a_worker_leak(suite_conftest, monkeypatch):
+@pytest.mark.parametrize("names,exitstatus", [([], 0), (["ARENA_CONTRACT_LEAK"], 1)])
+def test_controller_verdict_matches_worker_leaks(suite_conftest, monkeypatch, names, exitstatus):
     from types import SimpleNamespace
 
     session = _empty_session()
     monkeypatch.setattr(suite_conftest, "_arena_leaks_by_origin", lambda: {})
     node = SimpleNamespace(config=session.config, workeroutput={
-        "arena_environment_leaks": ["ARENA_CONTRACT_LEAK"],
+        "arena_environment_leaks": names,
     })
     suite_conftest.pytest_testnodedown(node, None)
     suite_conftest.pytest_sessionfinish(session, 0)
-    assert session.exitstatus == 1
-
-
-def test_controller_accepts_healthy_workers(suite_conftest, monkeypatch):
-    from types import SimpleNamespace
-
-    session = _empty_session()
-    monkeypatch.setattr(suite_conftest, "_arena_leaks_by_origin", lambda: {})
-    node = SimpleNamespace(config=session.config, workeroutput={})
-    suite_conftest.pytest_testnodedown(node, None)
-    suite_conftest.pytest_sessionfinish(session, 0)
-    assert session.exitstatus == 0
+    assert session.exitstatus == exitstatus
 
 
 @pytest.mark.parametrize("exitstatus", [1, 2, 3, 4, 5])

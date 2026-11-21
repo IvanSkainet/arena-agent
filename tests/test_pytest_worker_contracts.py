@@ -112,3 +112,19 @@ def test_verdict_contracts_ignore_parent_pytest_controls(tmp_path, monkeypatch, 
     result = _run(tmp_path, case="healthy", workers=0)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "2 passed" in result.stdout
+
+
+def test_console_pytest_finds_shared_helpers_without_pythonpath(tmp_path):
+    import shutil
+
+    executable = shutil.which("pytest")
+    assert executable is not None
+    env = dict(os.environ)
+    for control in ("PYTHONPATH", "PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTEST_DISABLE_PLUGIN_AUTOLOAD"):
+        env.pop(control, None)
+    result = subprocess.run(
+        [executable, "-o", "addopts=", "--no-cov", "--collect-only", "-q", str(ROOT / "tests/test_benchmark_reports.py")],
+        cwd=tmp_path, env=env, capture_output=True, text=True, check=False, timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "test_junit_durations_must_be_finite_and_nonnegative" in result.stdout

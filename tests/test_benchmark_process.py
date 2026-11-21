@@ -226,11 +226,9 @@ def test_real_sigint_cleans_owned_group(tmp_path, monkeypatch, entry):
     sender.start()
     try:
         argv = [sys.executable, "-c", leader]
+        run = (lambda: bench.execute(argv, root=tmp_path, env={}, log=None, timeout=15)) if entry == "execute-sigint" else (lambda: preflight._execute_full(argv, {}))
         with pytest.raises(KeyboardInterrupt):
-            if entry == "execute-sigint":
-                bench.execute(argv, root=tmp_path, env={}, log=None, timeout=15)
-            else:
-                preflight._execute_full(argv, {})
+            run()
         assert captured, "child readiness never reached"
         assert select.select(captured, [], [], 3)[0], "descendant survived cancellation cleanup"
     finally:
@@ -342,4 +340,41 @@ def test_descendant_gets_grace_after_leader_exit(tmp_path):
     )
     with (tmp_path / "child.log").open("w") as log:
         assert bench.execute([sys.executable, "-c", leader], root=tmp_path, env={}, log=log, timeout=10) == 0
+    assert marker.read_text() == "done"
+
+
+@pytest.mark.parametrize("stat,expected", [
+    ("55 (nested ) name) S 1 12345 0", True),
+    ("55 (child) S 1 54321 0", False),
+    ("12345 (leader) Z 1 12345 0", False),
+    ("55 (dead) X 1 12345 0", False),
+    ("invalid stat", False),
+])
+def test_live_group_scan_uses_last_name_delimiter_and_excludes_dead_members(monkeypatch, stat, expected):
+    entry = SimpleNamespace(read_text=lambda: stat)
+    monkeypatch.setattr(bench, "Path", lambda root: SimpleNamespace(glob=lambda pattern: [entry]))
+    assert bench.live_group_member(12345) is expected
+
+
+def test_live_group_scan_tolerates_exiting_member(monkeypatch):
+    def disappeared():
+        raise FileNotFoundError
+
+    entries = [SimpleNamespace(read_text=disappeared),
+               SimpleNamespace(read_text=lambda: "55 (child) S 1 12345 0")]
+    monkeypatch.setattr(bench, "Path", lambda root: SimpleNamespace(glob=lambda pattern: entries))
+    assert bench.live_group_member(12345) is True
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="POSIX default TERM disposition")
+def test_deferred_default_sigterm_is_delivered_after_teardown(tmp_path):
+    marker = tmp_path / "teardown-finished"
+    code = (
+        "import os,signal,pathlib; from arena.governance.benchmark_runner import defer_cancellation; "
+        "signal.signal(signal.SIGTERM,signal.SIG_DFL); "
+        f"exec(\"with defer_cancellation():\\n os.kill(os.getpid(),signal.SIGTERM)\\n pathlib.Path({str(marker)!r}).write_text('done')\")"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                            check=False, timeout=15)
+    assert result.returncode == -15, result.stdout + result.stderr
     assert marker.read_text() == "done"

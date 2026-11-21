@@ -41,3 +41,8 @@ def pytest_testnodedown(node, error) -> None:
     if names:
         current = node.config.stash.get(WORKER_ARENA_LEAKS, [])
         node.config.stash[WORKER_ARENA_LEAKS] = [*current, *names]
+
+
+def refuse_leaks(session, local, remote, exitstatus: int) -> None:
+    if (local or remote) and exitstatus == 0:
+        session.exitstatus = 1

@@ -44,7 +44,9 @@ def test_release_fixture_cannot_be_redirected_by_git_overrides(tmp_path, monkeyp
     monkeypatch.setenv("GIT_DIR", str(external))
     monkeypatch.setenv("GIT_WORK_TREE", str(worktree))
     monkeypatch.setenv("GIT_INDEX_FILE", str(index))
-    private = request.getfixturevalue("isolated_release_repo")
+    # Lookup must occur AFTER hostile environment setup, not fixture injection.
+    fixture_name = "isolated_release_repo"
+    private = request.getfixturevalue(fixture_name)
     assert (private / ".git").is_dir()
     assert not external.exists()
     assert not index.exists()

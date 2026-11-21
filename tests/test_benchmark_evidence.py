@@ -166,3 +166,45 @@ def test_atomic_save_never_removes_another_invocations_temporary(tmp_path):
     with pytest.raises(FileExistsError):
         bench.save(destination, {"state": "failed"})
     assert temporary.read_bytes() == b"owned by another invocation"
+
+
+def test_atomic_save_preserves_post_replacement_error_when_temp_is_already_gone(tmp_path, monkeypatch):
+    destination = tmp_path / "result.json"
+    original_chmod = Path.chmod
+
+    def refuse_final(path, mode):
+        if path == destination:
+            raise PermissionError("final permission failure")
+        return original_chmod(path, mode)
+
+    monkeypatch.setattr(Path, "chmod", refuse_final)
+    with pytest.raises(PermissionError, match="^final permission failure$"):
+        bench.save(destination, {"state": "failed"})
+    assert not destination.with_suffix(".tmp").exists()
+    assert json.loads(destination.read_text()) == {"state": "failed"}
+
+
+def test_empty_coverage_xml_diagnostic_is_precise(tmp_path):
+    path = tmp_path / "coverage.xml"
+    path.touch()
+    with pytest.raises(ValueError, match="^coverage XML is empty$"):
+        bench.require_coverage_xml(path)
+
+
+def test_xml_presence_probe_does_not_read_the_entire_large_report(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+
+    sizes = []
+
+    class Stream:
+        def read(self, size):
+            sizes.append(size)
+            return b"<"
+
+    @contextmanager
+    def open_probe(*args, **kwargs):
+        yield Stream()
+
+    monkeypatch.setattr(Path, "open", open_probe)
+    bench.require_coverage_xml(tmp_path / "coverage.xml")
+    assert sizes == [1]
