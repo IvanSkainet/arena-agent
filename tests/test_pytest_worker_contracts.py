@@ -65,10 +65,10 @@ def _run(tmp_path: Path, *, case: str, workers: int) -> subprocess.CompletedProc
         env.pop(control, None)
     if sys.platform != "linux":
         return subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True, check=False, timeout=60)
-    from arena.governance.benchmark_runner import execute
+    from arena.governance.benchmark_runner import ProcessContext, execute
 
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as log:
-        status = execute(command, root=tmp_path, env=env, log=log, timeout=60)
+        status = execute(command, context=ProcessContext(root=tmp_path, env=env), log=log, timeout=60)
         log.seek(0)
         return subprocess.CompletedProcess(command, status, log.read(), "")
 

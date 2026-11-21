@@ -61,11 +61,11 @@ def test_synthetic_linux_measurement_is_independent_of_windows_resource_shim(mea
 def test_measurement_does_not_inherit_operator_or_test_selection_controls(measurement, monkeypatch, name):
     monkeypatch.setenv(name, "fixture-private-control")
     assert invoke(measurement) == 0
-    assert name not in measurement[3][0][1]["env"]
+    assert name not in measurement[3][0][1]["context"].env
 
 
 
 def test_measurement_preserves_explicit_browser_skip_request(measurement, monkeypatch):
     monkeypatch.setenv("ARENA_SKIP_BROWSER_E2E", "1")
     assert invoke(measurement) == 0
-    assert measurement[3][0][1]["env"]["ARENA_SKIP_BROWSER_E2E"] == "1"
+    assert measurement[3][0][1]["context"].env["ARENA_SKIP_BROWSER_E2E"] == "1"

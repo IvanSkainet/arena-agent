@@ -142,8 +142,8 @@ def test_linux_full_suite_delegates_to_owned_lifecycle(monkeypatch):
     assert result.returncode == 4
     assert result.stdout == "fixture output\n"
     assert calls[0][1]["timeout"] is None
-    assert calls[0][1]["env"] == {"RUNNER_OS": "Linux"}
-    assert calls[0][1]["root"] == preflight.ROOT
+    assert calls[0][1]["context"].env == {"RUNNER_OS": "Linux"}
+    assert calls[0][1]["context"].root == preflight.ROOT
 
 
 @pytest.mark.parametrize("workers", [1, 2])

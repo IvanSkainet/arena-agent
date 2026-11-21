@@ -18,8 +18,10 @@ import time
 # nosemgrep: use-defused-xml -- own pytest UTF-8 report; read_junit rejects DTD/ENTITY declarations before parsing
 import xml.etree.ElementTree as ET  # nosec B405 -- own pytest UTF-8 report, DTD/ENTITY rejected by read_junit
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from threading import current_thread, main_thread
+from typing import IO
 
 from coverage.exceptions import CoverageException
 
@@ -79,14 +81,18 @@ def read_junit(path: Path) -> dict:
     # Pytest emits UTF-8. Reject DTD/entity declarations before parsing, rather
     # than accepting alternate encodings or expanding an embedded entity graph.
     text = path.read_text(encoding="utf-8")
-    if "<!DOCTYPE" in text.upper() or "<!ENTITY" in text.upper():
-        raise ValueError("JUnit declarations are not allowed")
+    reject_junit_declarations(text)
     root = ET.fromstring(text)  # nosec B314 -- own pytest UTF-8 report; DTD/ENTITY declarations rejected above
     cases, declared = junit_inventory(root)
     # pytest-subtests contributes to summary counters without emitting a new
     # testcase element. Preserve both counts; never equate them silently.
     return {"cases": cases, "count": len(cases),
             "declared_tests": sum(declared) if declared else None}
+
+
+def reject_junit_declarations(text: str) -> None:
+    if "<!DOCTYPE" in text.upper() or "<!ENTITY" in text.upper():
+        raise ValueError("JUnit declarations are not allowed")
 
 
 def junit_inventory(root: ET.Element) -> tuple[list[dict], list[int]]:
@@ -257,14 +263,25 @@ def cleanup_owned_process(proc: subprocess.Popen) -> int:
         return proc.wait()
 
 
-def execute(argv: list[str], *, root: Path, env: dict[str, str], log, timeout: float | None) -> int:
+@dataclass(frozen=True)
+class ProcessContext:
+    """The explicit checkout and child environment for one owned invocation."""
+
+    root: Path
+    env: dict[str, str]
+
+    def start(self, argv: list[str], log: IO | None) -> subprocess.Popen:
+        return subprocess.Popen(argv, cwd=self.root, env=self.env, stdout=log,
+                                stderr=subprocess.STDOUT, start_new_session=True)
+
+
+def execute(argv: list[str], *, context: ProcessContext, log, timeout: float | None) -> int:
     """Own a Linux process group until cleanup, including on interruption."""
     proc = None
     try:
         # Publish the child handle before a pending cancellation is delivered.
         with defer_cancellation():
-            proc = subprocess.Popen(argv, cwd=root, env=env, stdout=log,
-                                    stderr=subprocess.STDOUT, start_new_session=True)
+            proc = context.start(argv, log)
         wait_unreaped(proc.pid, timeout)
     except BaseException:
         if proc is not None:
@@ -331,13 +348,17 @@ def source_unchanged(root: Path, before: dict[str, str]) -> bool:
         return False
 
 
+def validate_output_location(root: Path, output: Path) -> None:
+    if output == root or root in output.parents:
+        raise ValueError("output must be outside the checkout")
+
+
 def validate_request(root: Path, output: Path, mode: str, timeout: int) -> tuple[Path, Path]:
     """Refuse unsupported measurement requests before creating any evidence."""
     if mode not in {"serial", "n2"} or timeout <= 0:
         raise ValueError("invalid mode or timeout")
     root, output = root.resolve(), output.resolve()
-    if output == root or root in output.parents:
-        raise ValueError("output must be outside the checkout")
+    validate_output_location(root, output)
     if platform.system() != "Linux":
         raise ValueError("measurement process cleanup is validated only on Linux")
     return root, output
@@ -415,7 +436,7 @@ def run(root: Path, output: Path, *, mode: str, seed: int, timeout: int) -> int:
             env = private_environment(Path(directory), runner)
             # Do not set CI/GITHUB_ACTIONS: that can enable physical input tests.
             with (output / "pytest.log").open("w", encoding="utf-8") as log:
-                status = execute(argv, root=root, env=env, log=log, timeout=timeout)
+                status = execute(argv, context=ProcessContext(root=root, env=env), log=log, timeout=timeout)
             code = status if status >= 0 else 1
         result["pytest_exit"] = code
         result["junit"] = read_junit(output / "junit.xml")

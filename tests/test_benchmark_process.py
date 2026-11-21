@@ -58,9 +58,9 @@ def test_owned_process_group_is_cleaned_up(monkeypatch, tmp_path, interrupted):
     monkeypatch.setattr(bench.os, "killpg", lambda pid, sig: calls.append((pid, sig)))
     if interrupted:
         with pytest.raises(subprocess.TimeoutExpired):
-            bench.execute(["fixture"], root=tmp_path, env={}, log=None, timeout=10)
+            bench.execute(["fixture"], context=bench.ProcessContext(root=tmp_path, env={}), log=None, timeout=10)
     else:
-        assert bench.execute(["fixture"], root=tmp_path, env={}, log=None, timeout=10) == 0
+        assert bench.execute(["fixture"], context=bench.ProcessContext(root=tmp_path, env={}), log=None, timeout=10) == 0
     assert calls == [("observe", 10), ("ownership", 12345),
                      (12345, bench.signal.SIGTERM), ("observe", 5),
                      (12345, bench.signal.SIGKILL), ("reap", 12345)]
@@ -70,8 +70,7 @@ def test_owned_process_group_is_cleaned_up(monkeypatch, tmp_path, interrupted):
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux process-group cleanup contract")
 def test_execute_real_successful_child(tmp_path):
     with (tmp_path / "child.log").open("w") as log:
-        assert bench.execute([sys.executable, "-c", 'print("fixture complete")'],
-                             root=tmp_path, env={}, log=log, timeout=10) == 0
+        assert bench.execute([sys.executable, "-c", 'print("fixture complete")'], context=bench.ProcessContext(root=tmp_path, env={}), log=log, timeout=10) == 0
     assert (tmp_path / "child.log").read_text().strip() == "fixture complete"
 
 
@@ -101,7 +100,7 @@ def test_real_group_leader_stays_unreaped_until_last_signal(monkeypatch, tmp_pat
 
     monkeypatch.setattr(bench.os, "killpg", killpg)
     with (tmp_path / "child.log").open("w") as log:
-        assert bench.execute([sys.executable, "-c", "pass"], root=tmp_path, env={}, log=log, timeout=10) == 0
+        assert bench.execute([sys.executable, "-c", "pass"], context=bench.ProcessContext(root=tmp_path, env={}), log=log, timeout=10) == 0
     assert [sig for _, sig in observed] == [bench.signal.SIGTERM, bench.signal.SIGKILL]
     with pytest.raises(ChildProcessError):
         bench.os.waitid(bench.os.P_PID, observed[0][0], bench.os.WEXITED | bench.os.WNOHANG | bench.os.WNOWAIT)
@@ -125,7 +124,7 @@ def test_interrupt_also_signals_before_reaping(monkeypatch, tmp_path):
     monkeypatch.setattr(bench.os, "waitid", lambda *a: None)
     monkeypatch.setattr(bench.os, "killpg", lambda pid, sig: calls.append(sig))
     with pytest.raises(KeyboardInterrupt):
-        bench.execute(["fixture"], root=tmp_path, env={}, log=None, timeout=10)
+        bench.execute(["fixture"], context=bench.ProcessContext(root=tmp_path, env={}), log=None, timeout=10)
     assert calls == [bench.signal.SIGTERM, bench.signal.SIGKILL, "reap"]
 
 
@@ -146,9 +145,9 @@ def test_real_descendant_cannot_outlive_owned_execution(tmp_path, timed_out):
     with (tmp_path / "execution.log").open("w") as log:
         if timed_out:
             with pytest.raises(subprocess.TimeoutExpired):
-                bench.execute([sys.executable, "-c", script], root=tmp_path, env={}, log=log, timeout=1)
+                bench.execute([sys.executable, "-c", script], context=bench.ProcessContext(root=tmp_path, env={}), log=log, timeout=1)
         else:
-            assert bench.execute([sys.executable, "-c", script], root=tmp_path, env={}, log=log, timeout=10) == 0
+            assert bench.execute([sys.executable, "-c", script], context=bench.ProcessContext(root=tmp_path, env={}), log=log, timeout=10) == 0
     pid = int(marker.read_text())
     deadline = time.monotonic() + 3
     while time.monotonic() < deadline:
@@ -163,12 +162,17 @@ def test_real_descendant_cannot_outlive_owned_execution(tmp_path, timed_out):
 
 
 
-def _interrupt_when_ready(marker, stop, captured, signum):
+def _interrupt_when_ready(marker, gate, captured, signum):
     import os
     import time
 
+    # Parent scheduling/Popen latency is not part of the child's readiness
+    # budget. Do not cancel a leader before its handle has been published.
+    while not gate.started.is_set():
+        if gate.stop.wait(0.02):
+            return
     deadline = time.monotonic() + 10
-    while not stop.wait(0.02):
+    while not gate.stop.wait(0.02):
         if time.monotonic() >= deadline:
             os.kill(os.getpid(), signum)  # Cancel even before the PID is known.
             return
@@ -194,7 +198,7 @@ def _reap_test_owned_groups(processes):
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux real cancellation contract")
 @pytest.mark.parametrize("entry", ["execute-sigint", "preflight-sigterm"])
-def test_real_sigint_cleans_owned_group(tmp_path, monkeypatch, entry):
+def test_real_sigint_cleans_owned_group(tmp_path, monkeypatch, entry, request):
     import os
     import select
     import signal
@@ -211,25 +215,37 @@ def test_real_sigint_cleans_owned_group(tmp_path, monkeypatch, entry):
     )
     leader = f"import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',{child!r}]); time.sleep(60)"
     processes, captured = [], []
+    started = threading.Event()
+    startup_log = tmp_path / "child-startup.log"
+    output = startup_log.open("w")
+    request.addfinalizer(output.close)
     original_popen = bench.subprocess.Popen
 
     def own(*args, **kwargs):
+        # _execute_full otherwise discards its anonymous log on interruption.
+        # Retain child startup failures rather than guessing that load caused it.
+        kwargs["stdout"] = output
         proc = original_popen(*args, **kwargs)
         processes.append(proc)  # The test directly owns the unreaped leader.
+        started.set()
         return proc
 
     monkeypatch.setattr(bench.subprocess, "Popen", own)
     signum = signal.SIGINT if entry == "execute-sigint" else signal.SIGTERM
     stop = threading.Event()
-    sender = threading.Thread(target=_interrupt_when_ready, args=(marker, stop, captured, signum))
+    sender = threading.Thread(target=_interrupt_when_ready, args=(marker, SimpleNamespace(started=started, stop=stop), captured, signum))
     previous = signal.signal(signal.SIGINT, signal.default_int_handler)
     sender.start()
     try:
         argv = [sys.executable, "-c", leader]
-        run = (lambda: bench.execute(argv, root=tmp_path, env={}, log=None, timeout=15)) if entry == "execute-sigint" else (lambda: preflight._execute_full(argv, {}))
+        run = (lambda: bench.execute(argv, context=bench.ProcessContext(root=tmp_path, env={}), log=None, timeout=15)) if entry == "execute-sigint" else (lambda: preflight._execute_full(argv, {}))
         with pytest.raises(KeyboardInterrupt):
             run()
-        assert captured, "child readiness never reached"
+        assert captured, (
+            f"child readiness never reached; leader states: "
+            f"{[(p.pid, p.returncode) for p in processes]}; "
+            f"startup output: {startup_log.read_text()}"
+        )
         assert select.select(captured, [], [], 3)[0], "descendant survived cancellation cleanup"
     finally:
         stop.set()
@@ -272,7 +288,7 @@ def test_second_sigint_is_deferred_until_kill_and_reap(monkeypatch, tmp_path, in
     previous = signal.signal(signal.SIGINT, signal.default_int_handler)
     try:
         with pytest.raises(KeyboardInterrupt) as caught:
-            bench.execute(["fixture"], root=tmp_path, env={}, log=None, timeout=10)
+            bench.execute(["fixture"], context=bench.ProcessContext(root=tmp_path, env={}), log=None, timeout=10)
         if initial_interruption:
             assert caught.value is original
         assert calls == [signal.SIGTERM, "grace finished", signal.SIGKILL, "reap"]
@@ -303,7 +319,7 @@ def test_startup_cancellation_cannot_lose_created_child(monkeypatch, tmp_path):
     previous = signal.signal(signal.SIGINT, signal.default_int_handler)
     try:
         with pytest.raises(KeyboardInterrupt):
-            bench.execute(["fixture"], root=tmp_path, env={}, log=None, timeout=10)
+            bench.execute(["fixture"], context=bench.ProcessContext(root=tmp_path, env={}), log=None, timeout=10)
         assert calls == [signal.SIGTERM, signal.SIGKILL, "reap"]
     finally:
         signal.signal(signal.SIGINT, previous)
@@ -318,7 +334,9 @@ def test_missing_readiness_still_cancels_without_a_descendant_pid(tmp_path, monk
     with monkeypatch.context() as patch:
         patch.setattr(time, "monotonic", lambda: next(ticks))
         patch.setattr(os, "kill", lambda pid, sig: calls.append((pid, sig)))
-        _interrupt_when_ready(tmp_path / "absent.pid", SimpleNamespace(wait=lambda delay: False), [], 2)
+        _interrupt_when_ready(tmp_path / "absent.pid", SimpleNamespace(
+            started=SimpleNamespace(is_set=lambda: True),
+            stop=SimpleNamespace(wait=lambda delay: False)), [], 2)
     assert calls == [(os.getpid(), 2)]
 
 
@@ -339,7 +357,7 @@ def test_descendant_gets_grace_after_leader_exit(tmp_path):
         "exec('while not ready.exists(): time.sleep(0.01)')"
     )
     with (tmp_path / "child.log").open("w") as log:
-        assert bench.execute([sys.executable, "-c", leader], root=tmp_path, env={}, log=log, timeout=10) == 0
+        assert bench.execute([sys.executable, "-c", leader], context=bench.ProcessContext(root=tmp_path, env={}), log=log, timeout=10) == 0
     assert marker.read_text() == "done"
 
 
@@ -415,5 +433,63 @@ def test_failed_popen_preserves_original_exception_without_cleanup(monkeypatch, 
     monkeypatch.setattr(bench.subprocess, "Popen", refuse)
     monkeypatch.setattr(bench, "cleanup_owned_process", lambda proc: pytest.fail("no child was created"))
     with pytest.raises(OSError) as caught:
-        bench.execute(["fixture"], root=tmp_path, env={}, log=None, timeout=10)
+        bench.execute(["fixture"], context=bench.ProcessContext(root=tmp_path, env={}), log=None, timeout=10)
     assert caught.value is original
+
+
+def test_process_context_preserves_explicit_spawn_contract(tmp_path, monkeypatch):
+    from dataclasses import FrozenInstanceError
+
+    env = {"PATH": "/fixture/bin"}
+    argv = ["/fixture/python", "-c", "pass"]
+    log = object()
+    child = object()
+    calls = []
+
+    def popen(command, **kwargs):
+        calls.append((command, kwargs))
+        return child
+
+    monkeypatch.setattr(bench.subprocess, "Popen", popen)
+    context = bench.ProcessContext(root=tmp_path, env=env)
+    assert context.start(argv, log) is child
+    assert calls == [(argv, {"cwd": tmp_path, "env": env, "stdout": log,
+                            "stderr": subprocess.STDOUT, "start_new_session": True})]
+    assert calls[0][0] is argv
+    assert calls[0][1]["env"] is env
+    with pytest.raises(FrozenInstanceError):
+        setattr(context, "root", tmp_path / "other")
+
+
+def test_child_readiness_clock_starts_only_after_leader_publication(tmp_path, monkeypatch):
+    import os
+    import time
+
+    published = []
+    observed = []
+    ticks = iter([100.0, 111.0])
+
+    def clock():
+        assert published, "parent scheduling consumed the child readiness budget"
+        return next(ticks)
+
+    def wait(delay):
+        assert delay == 0.02
+        published.append(True)
+        return False
+
+    monkeypatch.setattr(time, "monotonic", clock)
+    monkeypatch.setattr(os, "kill", lambda pid, sig: observed.append((pid, sig)))
+    gate = SimpleNamespace(started=SimpleNamespace(is_set=lambda: bool(published)),
+                           stop=SimpleNamespace(wait=wait))
+    _interrupt_when_ready(tmp_path / "absent.pid", gate, [], 2)
+    assert observed == [(os.getpid(), 2)]
+
+
+def test_readiness_sender_stops_if_launch_failed_before_publication(tmp_path, monkeypatch):
+    import os
+
+    monkeypatch.setattr(os, "kill", lambda *a: pytest.fail("no owned child to cancel"))
+    gate = SimpleNamespace(started=SimpleNamespace(is_set=lambda: False),
+                           stop=SimpleNamespace(wait=lambda delay: True))
+    _interrupt_when_ready(tmp_path / "absent.pid", gate, [], 2)

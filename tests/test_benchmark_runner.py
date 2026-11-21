@@ -22,7 +22,7 @@ def test_complete_measurement_preserves_command_outcomes_and_private_paths(measu
     assert result["junit"]["cases"][1]["reason"] == "fixture reason"
     assert result["command"][-3:] == ["-n", "2", "--max-worker-restart=0"]
     assert "--cov-fail-under=51" in result["command"]
-    env = measurement[3][0][1]["env"]
+    env = measurement[3][0][1]["context"].env
     assert env["ARENA_TEST_EXECUTION_GUARD"] == "1"
     assert env["RUNNER_OS"] == "Linux"
     assert "COVERAGE_FILE" not in env
@@ -95,7 +95,7 @@ def test_coverage_destination_is_not_exported_to_nested_commands(measurement, mo
     config = Coverage(config_file=str(measurement[1] / "coverage.toml")).config
     assert config.data_file == str(measurement[1] / ".coverage")
     assert config.branch is True
-    assert "COVERAGE_FILE" not in measurement[3][0][1]["env"]
+    assert "COVERAGE_FILE" not in measurement[3][0][1]["context"].env
 
 
 
@@ -236,7 +236,7 @@ def test_record_schema_times_private_environment_and_outcomes_are_complete(measu
     healthy = bench.execute
 
     def execute(argv, **kwargs):
-        env = kwargs["env"]
+        env = kwargs["context"].env
         keys = ("HOME", "TMPDIR", "TMP", "TEMP", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
                 "XDG_DATA_HOME", "XDG_STATE_HOME", "USERPROFILE")
         paths = [Path(env[key]) for key in keys]

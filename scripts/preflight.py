@@ -217,12 +217,12 @@ def _execute_full(argv: list[str], env: dict[str, str]) -> subprocess.CompletedP
     """Linux owns the full pytest process group through interruption cleanup."""
     if platform.system() != "Linux":
         return subprocess.run(argv, cwd=ROOT, env=env, capture_output=True, text=True, check=False)
-    from arena.governance.benchmark_runner import execute
+    from arena.governance.benchmark_runner import ProcessContext, execute
 
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as log:
         previous = signal.signal(signal.SIGTERM, signal.default_int_handler)
         try:
-            status = execute(argv, root=ROOT, env=env, log=log, timeout=None)
+            status = execute(argv, context=ProcessContext(root=ROOT, env=env), log=log, timeout=None)
         finally:
             signal.signal(signal.SIGTERM, previous)
         log.seek(0)
