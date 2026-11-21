@@ -43,13 +43,10 @@ def pytest_collection_finish(session: Any) -> None:
 
 @pytest.hookimpl(optionalhook=True)
 def pytest_xdist_node_collection_finished(node: Any, ids: list[str]) -> None:
-    """
-    Enforce each full worker inventory before parallel execution proceeds.
-
-    Optional hook keeps serial installs independent of pytest-xdist. The
-    controller owns the refusal so a short collection stays a clear usage
-    error rather than becoming an xdist internal worker-finished assertion.
-    """
+    """Enforce each full worker inventory before parallel execution proceeds."""
+    # Optional hook keeps serial installs independent of pytest-xdist. The
+    # controller owns the refusal so a short collection stays a clear usage
+    # error rather than becoming an xdist internal worker-finished assertion.
     if os.environ.get("ARENA_TEST_EXECUTION_GUARD") != "1":
         return
     error = collection_error(

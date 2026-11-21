@@ -275,6 +275,7 @@ def test_record_schema_times_private_environment_and_outcomes_are_complete(measu
 ])
 def test_failure_record_retains_the_diagnostic_not_only_exit_code(measurement, monkeypatch, failure_case):
     error, code, message = failure_case
+
     def execute(*args, **kwargs):
         raise error
 

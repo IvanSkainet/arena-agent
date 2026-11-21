@@ -87,7 +87,8 @@ def test_real_pytest_verdicts(tmp_path, case, workers):
     elif case == "worker-crash":
         if workers:
             assert result.returncode == 1, output
-            assert "crashed" in output and "test_two" in output, output
+            assert "crashed" in output, output
+            assert "test_two" in output, output
         else:
             assert result.returncode == 23, output
     else:

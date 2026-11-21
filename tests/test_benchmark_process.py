@@ -126,6 +126,14 @@ def test_interrupt_also_signals_before_reaping(monkeypatch, tmp_path):
     assert calls == [bench.signal.SIGTERM, bench.signal.SIGKILL, "reap"]
 
 
+def _descendant_exited(pid):
+    try:
+        state = Path(f"/proc/{pid}/stat").read_text().split(") ", 1)[1].split()[0]
+    except (FileNotFoundError, ProcessLookupError):
+        return True  # procfs can return ENOENT or ESRCH during exit/reaping.
+    return state == "Z"  # Dead orphan awaits the container init's reap.
+
+
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux process group contract")
 @pytest.mark.parametrize("timed_out", [False, True])
 def test_real_descendant_cannot_outlive_owned_execution(tmp_path, timed_out):
@@ -148,11 +156,7 @@ def test_real_descendant_cannot_outlive_owned_execution(tmp_path, timed_out):
     pid = int(marker.read_text())
     deadline = time.monotonic() + 3
     while time.monotonic() < deadline:
-        try:
-            state = Path(f"/proc/{pid}/stat").read_text().split(") ", 1)[1].split()[0]
-        except FileNotFoundError:
-            return
-        if state == "Z":  # Dead orphan awaits the container init's reap.
+        if _descendant_exited(pid):
             return
         time.sleep(0.02)
     pytest.fail("owned descendant remained alive after cleanup")
@@ -198,6 +202,30 @@ def _reap_test_owned_groups(processes):
         proc.wait(timeout=5)
 
 
+def _require_pidfd():
+    import os
+    import signal
+
+    if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
+        pytest.skip("pidfd API unavailable")
+    try:
+        descriptor = os.pidfd_open(os.getpid())
+    except OSError as error:
+        pytest.skip(f"pidfd unsupported by this kernel: {error.errno}")
+    else:
+        os.close(descriptor)
+
+
+def _descendant_leader(marker):
+    child = (
+        "import os,pathlib,signal,time; "
+        "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+        f"ready=pathlib.Path({str(marker)!r}); pending=ready.with_suffix('.tmp'); "
+        "pending.write_text(str(os.getpid())); pending.replace(ready); time.sleep(60)"
+    )
+    return f"import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',{child!r}]); time.sleep(60)"
+
+
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux real cancellation contract")
 @pytest.mark.parametrize("entry", ["execute-sigint", "preflight-sigterm"])
 def test_real_sigint_cleans_owned_group(tmp_path, monkeypatch, entry, request):
@@ -208,22 +236,9 @@ def test_real_sigint_cleans_owned_group(tmp_path, monkeypatch, entry, request):
 
     from scripts import preflight
 
-    if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
-        pytest.skip("pidfd API unavailable")
-    try:
-        descriptor = os.pidfd_open(os.getpid())
-    except OSError as error:
-        pytest.skip(f"pidfd unsupported by this kernel: {error.errno}")
-    os.close(descriptor)
-
+    _require_pidfd()
     marker = tmp_path / "child.pid"
-    child = (
-        "import os,pathlib,signal,time; "
-        "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
-        f"ready=pathlib.Path({str(marker)!r}); pending=ready.with_suffix('.tmp'); "
-        "pending.write_text(str(os.getpid())); pending.replace(ready); time.sleep(60)"
-    )
-    leader = f"import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',{child!r}]); time.sleep(60)"
+    leader = _descendant_leader(marker)
     processes, captured = [], []
     started = threading.Event()
     startup_log = tmp_path / "child-startup.log"
@@ -535,7 +550,9 @@ def test_cancellation_at_cleanup_handoff_still_reaps_owned_process(monkeypatch, 
     fired = []
 
     def trace(frame, event, arg):
-        if frame.f_code is bench.execute.__code__ and event == "line" and frame.f_lineno == handoff:
+        if frame.f_code is not bench.execute.__code__:
+            return trace
+        if (event, frame.f_lineno) == ("line", handoff):
             fired.append(True)
             raise KeyboardInterrupt("handoff cancellation")
         return trace
@@ -550,3 +567,27 @@ def test_cancellation_at_cleanup_handoff_still_reaps_owned_process(monkeypatch, 
     assert fired == [True]
     assert calls == [bench.signal.SIGTERM, bench.signal.SIGKILL, "reap"]
     assert child.returncode == -9
+
+
+@pytest.mark.parametrize("error", [FileNotFoundError(), ProcessLookupError()])
+def test_descendant_exit_probe_handles_procfs_disappearance(monkeypatch, error):
+    def disappear(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(Path, "read_text", disappear)
+    assert _descendant_exited(12345) is True
+
+
+@pytest.mark.parametrize("state,expected", [("Z", True), ("S", False)])
+def test_descendant_exit_probe_never_accepts_a_live_state(monkeypatch, state, expected):
+    monkeypatch.setattr(Path, "read_text", lambda *a, **kw: f"12345 (fixture) {state} 1 2 3")
+    assert _descendant_exited(12345) is expected
+
+
+def test_descendant_exit_probe_does_not_hide_permission_failures(monkeypatch):
+    def refuse(*args, **kwargs):
+        raise PermissionError("cannot inspect descendant")
+
+    monkeypatch.setattr(Path, "read_text", refuse)
+    with pytest.raises(PermissionError, match="^cannot inspect descendant$"):
+        _descendant_exited(12345)
