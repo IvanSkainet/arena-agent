@@ -2,7 +2,7 @@
 
 <!-- pr-review-surfaces: review-threads,submitted-reviews,ordinary-pr-comments,check-rollup -->
 <!-- pr-review-dispositions: accepted,partially-accepted,rejected,duplicate,follow-up,noise -->
-<!-- pr-review-apps: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor,cubic,codescene;pending=deepsource;required-master=coderabbit,cubic,sonarqube-cloud,codacy,codescene,codefactor;exact-head-required -->
+<!-- pr-review-apps: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor,cubic,codescene;pending=deepsource;required-master=coderabbit,sonarqube-cloud,codacy,codescene,codefactor;exact-head-required -->
 
 Automated review is evidence, not authority. A green check does not prove the
 change works, and a bot-authored patch does not become correct because another
@@ -21,7 +21,7 @@ available.
 | Integration | Role | Merge status |
 |---|---|---|
 | CodeRabbit | Manually triggered semantic review for high-risk changes; benchmark strength was exact DNS-rebinding analysis. | Required by current master rules; quota/rate limits are not semantic approval. Never merge autofixes without re-deriving and testing the invariant. |
-| cubic | Exact-head semantic review of correctness, isolation and evidence contracts. | Required by current master rules; findings need tested dispositions, and missing/quota-limited output is not approval. |
+| cubic | Optional semantic review of correctness, isolation and evidence contracts when quota is available. | Removed from required contexts by explicit operator approval after monthly quota exhaustion; previous findings remain actionable and absent review is not approval. |
 | CodeScene | Structural code-health and maintainability analysis of the PR delta. | Required by current master rules; meet the gate or obtain a separately approved rule change, never silently suppress it. |
 | Qodo | Independent semantic/cross-file review. Benchmark found insecure TLS and a cross-file release-packaging concern. | Informational trial; automatic commits/autofix remain disabled and every finding is revalidated. |
 | SonarQube Cloud | Whole-tree and PR-delta static analysis with low content permission. | Required by current master rules. Validate findings and satisfy the required Quality Gate without bypass. |
@@ -119,7 +119,16 @@ Before merge, record:
 Live branch rules are authoritative for required contexts, including AI and
 vendor checks. Reviewer role descriptions never override those requirements.
 Re-read the rules for the target branch before each merge: the current master
-rules require CodeRabbit, cubic, SonarCloud, Codacy, CodeScene and CodeFactor,
+rules require CodeRabbit, SonarCloud, Codacy, CodeScene and CodeFactor,
 alongside deterministic and security gates. Missing, neutral or quota-limited
 review output must not be described as semantic approval or used to bypass a
 required context. Rule changes require separate explicit operator approval.
+
+### Operator-authorized cubic quota decision
+
+The operator explicitly chose to proceed without a new cubic review after its
+monthly free quota was exhausted. Only `cubic · AI code reviewer` was removed
+from master ruleset `20321570` (36 → 35 required contexts). Every other required
+context, strict mode, PR/thread-resolution rules, and bypass actors were verified
+unchanged. No paid usage was authorized and previous findings were not dismissed.
+[Public before/after audit](https://github.com/IvanSkainet/arena-agent/pull/495#issuecomment-7066662384).

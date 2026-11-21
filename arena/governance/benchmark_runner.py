@@ -365,7 +365,7 @@ def validate_request(root: Path, output: Path, mode: str, timeout: int) -> tuple
 
 
 def initialize_measurement(root: Path, output: Path, *,
-                           mode: str, seed: int) -> tuple[dict, list[str], dict[str, str]]:
+                           mode: str, seed: int) -> tuple[dict, list[str]]:
     """Persist startup evidence even when configuration or metadata fails."""
     destination = output / "result.json"
     result = {"schema": 1, "state": "running", "started_unix": time.time()}
@@ -397,17 +397,30 @@ def initialize_measurement(root: Path, output: Path, *,
         finally:
             save(destination, result)
         raise
-    return result, argv, before
+    return result, argv
 
 
-def finalize_measurement(root: Path, output: Path, before: dict[str, str], result: dict,
-                         *, started: float, cpu: float | None, code: int) -> int:
+@dataclass(frozen=True)
+class MeasurementClock:
+    started: float
+    cpu: float | None
+
+
+@dataclass(frozen=True)
+class MeasurementOptions:
+    mode: str
+    seed: int
+    timeout: int
+
+
+def finalize_measurement(root: Path, output: Path, result: dict, clock: MeasurementClock) -> int:
     """Validate immutable source identity and persist the final verdict."""
     destination = output / "result.json"
-    result["wall_seconds"] = time.monotonic() - started
+    code = result["exit"]
+    result["wall_seconds"] = time.monotonic() - clock.started
     end_cpu = cpu_seconds()
-    result["child_cpu_seconds"] = end_cpu - cpu if cpu is not None and end_cpu is not None else None
-    result["source_unchanged"] = source_unchanged(root, before)
+    result["child_cpu_seconds"] = end_cpu - clock.cpu if clock.cpu is not None and end_cpu is not None else None
+    result["source_unchanged"] = source_unchanged(root, result["source_manifest"])
     if not result["source_unchanged"]:
         code = code or 1
     result.update(state="passed" if code == 0 else "failed", exit=code,
@@ -422,21 +435,21 @@ def finalize_measurement(root: Path, output: Path, before: dict[str, str], resul
     return code
 
 
-def run(root: Path, output: Path, *, mode: str, seed: int, timeout: int) -> int:
-    root, output = validate_request(root, output, mode, timeout)
+def run(root: Path, output: Path, *, options: MeasurementOptions) -> int:
+    root, output = validate_request(root, output, options.mode, options.timeout)
     runner = "Linux"
     # Exclusive directory creation prevents overwriting failed or partial evidence.
     output.mkdir(parents=True, exist_ok=False, mode=0o700)
     output.chmod(0o700)
-    result, argv, before = initialize_measurement(root, output, mode=mode, seed=seed)
-    started, cpu = time.monotonic(), cpu_seconds()
+    result, argv = initialize_measurement(root, output, mode=options.mode, seed=options.seed)
+    clock = MeasurementClock(time.monotonic(), cpu_seconds())
     code = 1
     try:
         with tempfile.TemporaryDirectory(prefix="arena-benchmark-") as directory:
             env = private_environment(Path(directory), runner)
             # Do not set CI/GITHUB_ACTIONS: that can enable physical input tests.
             with (output / "pytest.log").open("w", encoding="utf-8") as log:
-                status = execute(argv, context=ProcessContext(root=root, env=env), log=log, timeout=timeout)
+                status = execute(argv, context=ProcessContext(root=root, env=env), log=log, timeout=options.timeout)
             code = status if status >= 0 else 1
         result["pytest_exit"] = code
         result["junit"] = read_junit(output / "junit.xml")
@@ -454,7 +467,8 @@ def run(root: Path, output: Path, *, mode: str, seed: int, timeout: int) -> int:
         result["error"] = f"incomplete measurement: {type(error).__name__}"
         code = 1
     finally:
-        code = finalize_measurement(root, output, before, result, started=started, cpu=cpu, code=code)
+        result["exit"] = code
+        code = finalize_measurement(root, output, result, clock)
     return code
 
 
@@ -473,7 +487,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         for sig in previous:
             signal.signal(sig, signal.default_int_handler)
-        return run(ROOT, args.output, mode=args.mode, seed=args.seed, timeout=args.timeout)
+        return run(ROOT, args.output, options=MeasurementOptions(mode=args.mode, seed=args.seed, timeout=args.timeout))
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         parser.error(f"cannot start measurement: {type(error).__name__}")
     finally:

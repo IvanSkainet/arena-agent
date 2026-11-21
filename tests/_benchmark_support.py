@@ -44,7 +44,7 @@ def measurement_fixture(tmp_path, monkeypatch):
 
 def invoke(measurement):
     root, output, _, _ = measurement
-    return bench.run(root, output, mode="n2", seed=17, timeout=60)
+    return bench.run(root, output, options=bench.MeasurementOptions(mode="n2", seed=17, timeout=60))
 
 
 

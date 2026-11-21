@@ -14,11 +14,15 @@
 ## Действующая merge policy
 
 Исторические оценки и рекомендации ниже не изменяют живые branch rules.
-Текущий `master` требует CodeRabbit, cubic, SonarCloud, Codacy, CodeScene и
+Текущий `master` требует CodeRabbit, SonarCloud, Codacy, CodeScene и
 CodeFactor. Их отсутствие, отказ или quota-limited ответ нельзя выдавать за
 одобрение либо обходить. Qodo и Sourcery остаются дополнительными review
 поверхностями. Изменение required contexts требует отдельного согласования
 оператора; историческая probation CodeFactor такого разрешения не даёт.
+
+cubic переведён в optional по явному решению оператора после исчерпания
+месячной квоты. Это не разрешение пропускать другие обязательные проверки
+или закрывать прошлые findings. [Аудит изменения ruleset](https://github.com/IvanSkainet/arena-agent/pull/495#issuecomment-7066662384).
 
 ## Что УЖЕ стоит (не дублировать)
 
@@ -107,14 +111,14 @@ e2e-installed — естественное продолжение «продви
 | 5 | Codecov | P3 | PR comment | **РАБОТАЕТ** 2026-08-02: codecov-action v7.0.0 SHA-pinned, token-auth, 15 legs upload, statuses informational-only. Первое покрытие: **52.75%** (20185/38261). Badge в обоих README |
 | 6 | Renovate | P3 | PR queue | после автоматизации regen-lock |
 | 7 | SonarQube Cloud / Codacy | required by live master rules | PR/static baseline | **Обязательные проверки; rule-level triage без bulk dismissals и обхода gate** |
-| 8 | Review Apps | live rules + semantic review | PR review | **CodeRabbit, cubic, CodeScene и CodeFactor required; Qodo/Sourcery дополнительные; DeepSource pending vendor** |
+| 8 | Review Apps | live rules + semantic review | PR review | **CodeRabbit, CodeScene и CodeFactor required; cubic optional after explicit operator quota decision; Qodo/Sourcery дополнительные; DeepSource pending vendor** |
 
 Статус: P1 выполнен (harden-runner@bf7454d egress-policy: audit как первый
 шаг 29 jobs). Остальное ждёт явного решения пользователя.
 
 ## Перекалибровка AI-review по живым PR (2026-08-14, Asia/Yekaterinburg)
 
-<!-- ai-review-policy: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor,cubic,codescene;pending=deepsource;required-master=coderabbit,cubic,sonarqube-cloud,codacy,codescene,codefactor;exact-head-required -->
+<!-- ai-review-policy: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor,cubic,codescene;pending=deepsource;required-master=coderabbit,sonarqube-cloud,codacy,codescene,codefactor;exact-head-required -->
 
 Старый вывод «Sourcery ≈100% false-positive» смешивал два разных режима:
 массовые диагностики по историческому дереву и текущий review конкретного PR.

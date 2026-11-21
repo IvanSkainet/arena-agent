@@ -59,7 +59,7 @@ def test_output_cannot_overwrite_evidence_or_enter_checkout(measurement):
         invoke(measurement)
     assert (measurement[1] / "result.json").read_bytes() == original
     with pytest.raises(ValueError, match="outside"):
-        bench.run(measurement[0], measurement[0] / "evidence", mode="serial", seed=17, timeout=1)
+        bench.run(measurement[0], measurement[0] / "evidence", options=bench.MeasurementOptions(mode="serial", seed=17, timeout=1))
 
 
 
@@ -71,7 +71,7 @@ def test_measurement_creates_nested_external_output_directories(measurement):
     config = root / "pyproject.toml"
     config.write_text("no coverage section")
     with pytest.raises(ValueError, match="coverage configuration section"):
-        bench.run(root, nested, mode="serial", seed=17, timeout=60)
+        bench.run(root, nested, options=bench.MeasurementOptions(mode="serial", seed=17, timeout=60))
     assert nested.is_dir()
     assert calls == []
 

@@ -162,15 +162,21 @@ def test_real_descendant_cannot_outlive_owned_execution(tmp_path, timed_out):
 
 
 
+def _await_leader_publication(gate):
+    while not gate.started.is_set():
+        if gate.stop.wait(0.02):
+            return False
+    return True
+
+
 def _interrupt_when_ready(marker, gate, captured, signum):
     import os
     import time
 
     # Parent scheduling/Popen latency is not part of the child's readiness
     # budget. Do not cancel a leader before its handle has been published.
-    while not gate.started.is_set():
-        if gate.stop.wait(0.02):
-            return
+    if not _await_leader_publication(gate):
+        return
     deadline = time.monotonic() + 10
     while not gate.stop.wait(0.02):
         if time.monotonic() >= deadline:

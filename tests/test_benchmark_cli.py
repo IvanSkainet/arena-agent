@@ -63,7 +63,7 @@ def test_default_root_is_the_repository_not_its_parent():
 @pytest.mark.parametrize("mode,timeout", [("auto", 60), ("serial", 0), ("n2", -1)])
 def test_api_rejects_invalid_mode_or_timeout_without_starting(measurement, mode, timeout):
     with pytest.raises(ValueError, match="^invalid mode or timeout$"):
-        bench.run(measurement[0], measurement[1], mode=mode, seed=17, timeout=timeout)
+        bench.run(measurement[0], measurement[1], options=bench.MeasurementOptions(mode=mode, seed=17, timeout=timeout))
     assert measurement[3] == []
 
 
@@ -98,7 +98,7 @@ def test_parallel_cli_passes_valid_parameters_and_default_budget(monkeypatch, tm
     def run(root, output, **kwargs):
         assert root == bench.ROOT
         assert output == tmp_path
-        assert kwargs == {"mode": "n2", "seed": 271, "timeout": 1800 if timeout is None else timeout}
+        assert kwargs == {"options": bench.MeasurementOptions(mode="n2", seed=271, timeout=1800 if timeout is None else timeout)}
         return 0
 
     monkeypatch.setattr(bench, "run", run)

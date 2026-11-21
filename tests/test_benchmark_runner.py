@@ -137,7 +137,7 @@ def test_nested_statement_coverage_does_not_pollute_parent_branch_data(tmp_path,
 
     monkeypatch.setattr(bench, "command", command)
     output = tmp_path / "evidence"
-    assert bench.run(root, output, mode="serial", seed=17, timeout=60) == 0
+    assert bench.run(root, output, options=bench.MeasurementOptions(mode="serial", seed=17, timeout=60)) == 0
     result = json.loads((output / "result.json").read_text())
     assert result["state"] == "passed"
     assert result["junit"]["count"] == 1
@@ -310,7 +310,7 @@ def test_refusal_diagnostics_do_not_obscure_the_cause(measurement, monkeypatch, 
     else:
         monkeypatch.setattr(bench, "fingerprint", lambda root: {})
     with pytest.raises(ValueError) as caught:
-        bench.run(root, output, mode="serial", seed=17, timeout=60)
+        bench.run(root, output, options=bench.MeasurementOptions(mode="serial", seed=17, timeout=60))
     assert str(caught.value) == message
 
 
@@ -460,3 +460,14 @@ def test_initial_inventory_failure_is_recorded_before_launch(measurement, monkey
     assert report(measurement)["state"] == "failed"
     assert report(measurement)["exit"] == (130 if isinstance(error, KeyboardInterrupt) else 1)
     assert measurement[3] == []
+
+
+@pytest.mark.parametrize("record,field", [
+    (bench.MeasurementOptions(mode="n2", seed=271, timeout=60), "mode"),
+    (bench.MeasurementClock(started=10.0, cpu=1.0), "started"),
+])
+def test_measurement_configuration_and_clock_cannot_be_rebound(record, field):
+    from dataclasses import FrozenInstanceError
+
+    with pytest.raises(FrozenInstanceError):
+        setattr(record, field, None)

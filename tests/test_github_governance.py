@@ -167,7 +167,7 @@ def test_automated_review_triage_reads_every_surface_and_records_disposition() -
     ) in text
     assert (
         "pr-review-apps: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor,cubic,codescene;"
-        "pending=deepsource;required-master=coderabbit,cubic,sonarqube-cloud,codacy,codescene,codefactor;exact-head-required"
+        "pending=deepsource;required-master=coderabbit,sonarqube-cloud,codacy,codescene,codefactor;exact-head-required"
     ) in text
     assert "## Validate before resolving" in text
     assert "## Generated autofix branches" in text
@@ -175,7 +175,7 @@ def test_automated_review_triage_reads_every_surface_and_records_disposition() -
     survey = APP_SURVEY.read_text(encoding="utf-8")
     assert (
         "ai-review-policy: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor,cubic,codescene;"
-        "pending=deepsource;required-master=coderabbit,cubic,sonarqube-cloud,codacy,codescene,codefactor;exact-head-required"
+        "pending=deepsource;required-master=coderabbit,sonarqube-cloud,codacy,codescene,codefactor;exact-head-required"
     ) in survey
     assert "reviewer-benchmark-67.md" in survey
 
