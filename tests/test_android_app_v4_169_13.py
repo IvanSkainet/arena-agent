@@ -215,15 +215,14 @@ def test_release_zip_can_be_overridden_deliberately(tmp_path: Path, isolated_rel
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert (tmp_path / "out.zip").exists()
 
-
-# --- v4.169.19: the boot script started a second copy and died ------------
-
     import zipfile
 
     with zipfile.ZipFile(tmp_path / "out.zip") as archive:
         assert archive.read("arena-bridge/tracked.txt") == b"release fixture\n"
         assert archive.read("arena-bridge/_release_untracked_probe2.txt") == b"stray\n"
 
+
+# --- v4.169.19: the boot script started a second copy and died ------------
 
 def test_boot_script_refuses_to_start_a_second_copy() -> None:
     """A dead bridge that looks started is worse than one that admits it.

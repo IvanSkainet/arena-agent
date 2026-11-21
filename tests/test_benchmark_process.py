@@ -30,7 +30,6 @@ def test_wait_observation_respects_exact_deadline_and_poll_interval(monkeypatch,
         assert sleeps == []
 
 
-
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux process-group cleanup contract")
 @pytest.mark.parametrize("interrupted", [False, True])
 def test_owned_process_group_is_cleaned_up(monkeypatch, tmp_path, interrupted):
@@ -66,13 +65,13 @@ def test_owned_process_group_is_cleaned_up(monkeypatch, tmp_path, interrupted):
                      (12345, bench.signal.SIGKILL), ("reap", 12345)]
 
 
-
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux process-group cleanup contract")
 def test_execute_real_successful_child(tmp_path):
     with (tmp_path / "child.log").open("w") as log:
-        assert bench.execute([sys.executable, "-c", 'print("fixture complete")'], context=bench.ProcessContext(root=tmp_path, env={}), log=log, timeout=10) == 0
+        assert bench.execute(
+            [sys.executable, "-c", 'print("fixture complete")'],
+            context=bench.ProcessContext(root=tmp_path, env={}), log=log, timeout=10) == 0
     assert (tmp_path / "child.log").read_text().strip() == "fixture complete"
-
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux waitid ownership contract")
@@ -84,7 +83,6 @@ def test_group_is_never_signalled_after_ownership_was_lost(monkeypatch, tmp_path
     monkeypatch.setattr(bench.os, "killpg", lambda *a: pytest.fail("signalled an unowned group"))
     with pytest.raises(ChildProcessError):
         bench.cleanup_owned_process(SimpleNamespace(pid=12345))
-
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux waitid ownership contract")
@@ -106,7 +104,6 @@ def test_real_group_leader_stays_unreaped_until_last_signal(monkeypatch, tmp_pat
         bench.os.waitid(bench.os.P_PID, observed[0][0], bench.os.WEXITED | bench.os.WNOHANG | bench.os.WNOWAIT)
 
 
-
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux owned interruption contract")
 def test_interrupt_also_signals_before_reaping(monkeypatch, tmp_path):
     calls = []
@@ -119,14 +116,14 @@ def test_interrupt_also_signals_before_reaping(monkeypatch, tmp_path):
         calls.append("reap")
         return -15
 
-    monkeypatch.setattr(bench.subprocess, "Popen", lambda *a, **kw: SimpleNamespace(pid=12345, wait=reap))
+    child = SimpleNamespace(pid=12345, wait=reap, returncode=None)
+    monkeypatch.setattr(bench.subprocess, "Popen", lambda *a, **kw: child)
     monkeypatch.setattr(bench, "wait_unreaped", observe)
     monkeypatch.setattr(bench.os, "waitid", lambda *a: None)
     monkeypatch.setattr(bench.os, "killpg", lambda pid, sig: calls.append(sig))
     with pytest.raises(KeyboardInterrupt):
         bench.execute(["fixture"], context=bench.ProcessContext(root=tmp_path, env={}), log=None, timeout=10)
     assert calls == [bench.signal.SIGTERM, bench.signal.SIGKILL, "reap"]
-
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux process group contract")
@@ -159,7 +156,6 @@ def test_real_descendant_cannot_outlive_owned_execution(tmp_path, timed_out):
             return
         time.sleep(0.02)
     pytest.fail("owned descendant remained alive after cleanup")
-
 
 
 def _await_leader_publication(gate):
@@ -212,6 +208,14 @@ def test_real_sigint_cleans_owned_group(tmp_path, monkeypatch, entry, request):
 
     from scripts import preflight
 
+    if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
+        pytest.skip("pidfd API unavailable")
+    try:
+        descriptor = os.pidfd_open(os.getpid())
+    except OSError as error:
+        pytest.skip(f"pidfd unsupported by this kernel: {error.errno}")
+    os.close(descriptor)
+
     marker = tmp_path / "child.pid"
     child = (
         "import os,pathlib,signal,time; "
@@ -244,7 +248,11 @@ def test_real_sigint_cleans_owned_group(tmp_path, monkeypatch, entry, request):
     sender.start()
     try:
         argv = [sys.executable, "-c", leader]
-        run = (lambda: bench.execute(argv, context=bench.ProcessContext(root=tmp_path, env={}), log=None, timeout=15)) if entry == "execute-sigint" else (lambda: preflight._execute_full(argv, {}))
+        run = (
+            (lambda: bench.execute(argv, context=bench.ProcessContext(root=tmp_path, env={}),
+                                   log=None, timeout=15))
+            if entry == "execute-sigint" else (lambda: preflight._execute_full(argv, {}))
+        )
         with pytest.raises(KeyboardInterrupt):
             run()
         assert captured, (
@@ -285,9 +293,11 @@ def test_second_sigint_is_deferred_until_kill_and_reap(monkeypatch, tmp_path, in
 
     def reap():
         calls.append("reap")
+        child.returncode = -9
         return -9
 
-    monkeypatch.setattr(bench.subprocess, "Popen", lambda *a, **kw: SimpleNamespace(pid=12345, wait=reap))
+    child = SimpleNamespace(pid=12345, wait=reap, returncode=None)
+    monkeypatch.setattr(bench.subprocess, "Popen", lambda *a, **kw: child)
     monkeypatch.setattr(bench, "wait_unreaped", observe)
     monkeypatch.setattr(bench.os, "waitid", lambda *a: None)
     monkeypatch.setattr(bench.os, "killpg", lambda pid, sig: calls.append(sig))
@@ -312,12 +322,14 @@ def test_startup_cancellation_cannot_lose_created_child(monkeypatch, tmp_path):
 
     def reap():
         calls.append("reap")
+        child.returncode = -9
         return -9
 
     def create(*args, **kwargs):
         os.kill(os.getpid(), signal.SIGINT)
-        return SimpleNamespace(pid=12345, wait=reap)
+        return child
 
+    child = SimpleNamespace(pid=12345, wait=reap, returncode=None)
     monkeypatch.setattr(bench.subprocess, "Popen", create)
     monkeypatch.setattr(bench, "wait_unreaped", lambda *a: None)
     monkeypatch.setattr(bench.os, "waitid", lambda *a: None)
@@ -499,3 +511,42 @@ def test_readiness_sender_stops_if_launch_failed_before_publication(tmp_path, mo
     gate = SimpleNamespace(started=SimpleNamespace(is_set=lambda: False),
                            stop=SimpleNamespace(wait=lambda delay: True))
     _interrupt_when_ready(tmp_path / "absent.pid", gate, [], 2)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux process cleanup handoff")
+def test_cancellation_at_cleanup_handoff_still_reaps_owned_process(monkeypatch, tmp_path):
+    import inspect
+
+    calls = []
+    child = SimpleNamespace(pid=12345, returncode=None)
+
+    def reap():
+        calls.append("reap")
+        child.returncode = -9
+        return -9
+
+    child.wait = reap
+    monkeypatch.setattr(bench.subprocess, "Popen", lambda *a, **kw: child)
+    monkeypatch.setattr(bench, "wait_unreaped", lambda *a: None)
+    monkeypatch.setattr(bench.os, "waitid", lambda *a: None)
+    monkeypatch.setattr(bench.os, "killpg", lambda pid, sig: calls.append(sig))
+    lines, start = inspect.getsourcelines(bench.execute)
+    handoff = start + next(i for i, line in enumerate(lines) if "return cleanup_owned_process(proc)" in line)
+    fired = []
+
+    def trace(frame, event, arg):
+        if frame.f_code is bench.execute.__code__ and event == "line" and frame.f_lineno == handoff:
+            fired.append(True)
+            raise KeyboardInterrupt("handoff cancellation")
+        return trace
+
+    previous = sys.gettrace()
+    try:
+        sys.settrace(trace)
+        with pytest.raises(KeyboardInterrupt, match="handoff cancellation"):
+            bench.execute(["fixture"], context=bench.ProcessContext(root=tmp_path, env={}), log=None, timeout=10)
+    finally:
+        sys.settrace(previous)
+    assert fired == [True]
+    assert calls == [bench.signal.SIGTERM, bench.signal.SIGKILL, "reap"]
+    assert child.returncode == -9

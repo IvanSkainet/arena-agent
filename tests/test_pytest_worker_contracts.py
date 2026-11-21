@@ -85,7 +85,11 @@ def test_real_pytest_verdicts(tmp_path, case, workers):
         assert result.returncode == 4, output
         assert "test collection floor failed" in output
     elif case == "worker-crash":
-        assert result.returncode != 0, output
+        if workers:
+            assert result.returncode == 1, output
+            assert "crashed" in output and "test_two" in output, output
+        else:
+            assert result.returncode == 23, output
     else:
         assert result.returncode == 1, output
         expected = {

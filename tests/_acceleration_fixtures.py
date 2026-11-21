@@ -6,7 +6,8 @@ import pytest
 
 @pytest.fixture
 def isolated_ratchet_repo(tmp_path):
-    """T74: private, complete scanner inputs; probes never touch the checkout.
+    """
+    T74: private, complete scanner inputs; probes never touch the checkout.
 
     Keep real sources and baselines, including scan-size safeguards. Each test
     owns its copy: sharing a writable session copy would recreate the race.
@@ -30,7 +31,7 @@ def isolated_ratchet_repo(tmp_path):
 
 
 @pytest.fixture
-def isolated_release_repo(tmp_path):
+def isolated_release_repo(tmp_path, monkeypatch):
     """T74: real Git index and release builder without touching the checkout."""
     import shutil
     import subprocess
@@ -49,7 +50,13 @@ def isolated_release_repo(tmp_path):
          "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "fixture"],
     ]
     # Repository/index/worktree overrides must never redirect a private fixture.
-    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    for key in tuple(os.environ):
+        if key.startswith("GIT_"):
+            monkeypatch.delenv(key)
+    for key, value in {"GIT_CONFIG_GLOBAL": os.devnull,
+                       "GIT_CONFIG_SYSTEM": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}.items():
+        monkeypatch.setenv(key, value)
+    env = dict(os.environ)
     for argv in commands:
         subprocess.run(argv, cwd=root, env=env, check=True, capture_output=True, timeout=30)
     return root

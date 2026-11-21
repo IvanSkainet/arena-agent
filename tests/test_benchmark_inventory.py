@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -38,8 +39,12 @@ def test_fingerprint_hashes_real_contents_and_uses_complete_git_inventory(tmp_pa
 
     monkeypatch.setattr(bench.subprocess, "run", listing)
     assert bench.fingerprint(tmp_path) == {
-        "new file.py": hashlib.sha256(json.dumps({"mode": (tmp_path / "new file.py").stat().st_mode & 0o7777}, sort_keys=True).encode() + b"\0new source\n").hexdigest(),
-        "tracked.py": hashlib.sha256(json.dumps({"mode": (tmp_path / "tracked.py").stat().st_mode & 0o7777}, sort_keys=True).encode() + b"\0tracked source\n").hexdigest(),
+        "new file.py": hashlib.sha256(
+            json.dumps({"mode": (tmp_path / "new file.py").stat().st_mode & 0o7777},
+                       sort_keys=True).encode() + b"\0new source\n").hexdigest(),
+        "tracked.py": hashlib.sha256(
+            json.dumps({"mode": (tmp_path / "tracked.py").stat().st_mode & 0o7777},
+                       sort_keys=True).encode() + b"\0tracked source\n").hexdigest(),
     }
 
 
@@ -119,3 +124,26 @@ def test_source_digest_uses_reproducible_manifest_metadata_schema(tmp_path):
     expected = hashlib.sha256(json.dumps(metadata, sort_keys=True).encode("utf-8")
                               + b"\0fixture content").hexdigest()
     assert bench.source_digest(tmp_path, "link") == expected
+
+
+@pytest.mark.parametrize("when", ["startup", "final"])
+def test_symlink_resolution_runtime_error_is_inventory_failure(tmp_path, monkeypatch, when):
+    path = tmp_path / "link"
+    try:
+        path.symlink_to("link")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    original = Path.resolve
+
+    def resolve(self, *args, **kwargs):
+        if self == path:
+            raise RuntimeError("symlink loop on Python 3.10-3.12")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+    if when == "startup":
+        with pytest.raises(ValueError, match="^source symlink cannot be resolved$"):
+            bench.source_digest(tmp_path, "link")
+    else:
+        monkeypatch.setattr(bench.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout=b"link\0"))
+        assert bench.source_unchanged(tmp_path, {"link": "before"}) is False

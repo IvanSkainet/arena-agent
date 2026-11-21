@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._git_budget import git_timeout
+
 
 @pytest.mark.parametrize("relative", [
     "scripts/global_patch_baseline.json",
@@ -51,3 +53,24 @@ def test_release_fixture_cannot_be_redirected_by_git_overrides(tmp_path, monkeyp
     assert not external.exists()
     assert not index.exists()
     assert list(worktree.iterdir()) == []
+
+
+def test_release_fixture_ignores_host_hooks_and_sanitizes_consumers(tmp_path, monkeypatch, request):
+    import os
+    import subprocess
+
+    hook = tmp_path / "hooks"
+    hook.mkdir()
+    (hook / "pre-commit").write_text("#!/bin/sh\nexit 99\n")
+    (hook / "pre-commit").chmod(0o700)
+    config = tmp_path / "host.gitconfig"
+    config.write_text(f'[core]\n hooksPath = "{hook.as_posix()}"\n')
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "host.git"))
+    private = request.getfixturevalue("isolated_release_repo")
+    assert os.environ["GIT_CONFIG_GLOBAL"] == os.devnull
+    assert os.environ["GIT_CONFIG_SYSTEM"] == os.devnull
+    assert "GIT_DIR" not in os.environ
+    result = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=private,
+                            capture_output=True, text=True, check=True, timeout=git_timeout())
+    assert Path(result.stdout.strip()).resolve() == private.resolve()

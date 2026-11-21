@@ -12,13 +12,18 @@ from tests._benchmark_support import invoke, measurement_fixture as measurement_
 @pytest.mark.parametrize("content", [None, "broken XML", "<testsuites/>"])
 def test_missing_malformed_or_empty_junit_fails_closed(measurement, monkeypatch, content):
     def execute(*args, **kwargs):
+        (measurement[1] / "coverage.xml").write_text("<coverage/>")
         if content is not None:
             (measurement[1] / "junit.xml").write_text(content)
         return 0
 
     monkeypatch.setattr(bench, "execute", execute)
     assert invoke(measurement) == 1
-    assert report(measurement)["state"] == "failed"
+    data = report(measurement)
+    assert data["state"] == "failed"
+    assert data["error"] == "incomplete measurement: " + {
+        None: "FileNotFoundError", "broken XML": "ParseError", "<testsuites/>": "ValueError",
+    }[content]
 
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+import xml.etree.ElementTree as element_tree
 from pathlib import Path
 
 import pytest
@@ -187,24 +188,23 @@ def test_atomic_save_preserves_post_replacement_error_when_temp_is_already_gone(
 def test_empty_coverage_xml_diagnostic_is_precise(tmp_path):
     path = tmp_path / "coverage.xml"
     path.touch()
-    with pytest.raises(ValueError, match="^coverage XML is empty$"):
+    with pytest.raises(ValueError, match="^XML report is empty$"):
         bench.require_coverage_xml(path)
 
 
-def test_xml_presence_probe_does_not_read_the_entire_large_report(tmp_path, monkeypatch):
-    from contextlib import contextmanager
+@pytest.mark.parametrize("content", [
+    "<coverage", "not XML", "<testsuites/>",
+    '<!DOCTYPE coverage [<!ENTITY x "unsafe">]><coverage>&x;</coverage>',
+])
+def test_coverage_xml_must_be_well_formed_and_entity_free(tmp_path, content):
+    path = tmp_path / "coverage.xml"
+    path.write_text(content, encoding="utf-8")
+    with pytest.raises((ValueError, element_tree.ParseError)):
+        bench.require_coverage_xml(path)
 
-    sizes = []
 
-    class Stream:
-        def read(self, size):
-            sizes.append(size)
-            return b"<"
-
-    @contextmanager
-    def open_probe(*args, **kwargs):
-        yield Stream()
-
-    monkeypatch.setattr(Path, "open", open_probe)
-    bench.require_coverage_xml(tmp_path / "coverage.xml")
-    assert sizes == [1]
+def test_coverage_xml_wrong_root_has_a_precise_diagnostic(tmp_path):
+    path = tmp_path / "coverage.xml"
+    path.write_text("<testsuites/>", encoding="utf-8")
+    with pytest.raises(ValueError, match="^coverage XML has an invalid root$"):
+        bench.require_coverage_xml(path)

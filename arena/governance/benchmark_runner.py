@@ -16,7 +16,7 @@ import tempfile
 import time
 
 # nosemgrep: use-defused-xml -- own pytest UTF-8 report; read_junit rejects DTD/ENTITY declarations before parsing
-import xml.etree.ElementTree as ET  # nosec B405 -- own pytest UTF-8 report, DTD/ENTITY rejected by read_junit
+import xml.etree.ElementTree as element_tree  # nosec B405 -- own pytest UTF-8 report, DTD/ENTITY rejected by read_junit
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,7 +47,10 @@ def source_digest(root: Path, name: str) -> str:
     info = path.lstat()  # A deleted tracked entry invalidates the inventory.
     metadata: dict[str, object] = {"mode": stat.S_IMODE(info.st_mode)}
     if stat.S_ISLNK(info.st_mode):
-        resolved = path.resolve()  # path.stat below also rejects dangling targets.
+        try:
+            resolved = path.resolve()  # path.stat below also rejects dangling targets.
+        except RuntimeError as error:  # pathlib on Python 3.10–3.12
+            raise ValueError("source symlink cannot be resolved") from error
         if root not in resolved.parents:
             raise ValueError("source symlink escapes the checkout")
         metadata["target"] = os.readlink(path)
@@ -60,7 +63,7 @@ def source_digest(root: Path, name: str) -> str:
     return hashlib.sha256(header + b"\0" + path.read_bytes()).hexdigest()
 
 
-def junit_case(case: ET.Element) -> dict:
+def junit_case(case: element_tree.Element) -> dict:
     """Decode one report item without coupling it to suite counter validation."""
     outcome = "passed"
     reason = ""
@@ -77,13 +80,17 @@ def junit_case(case: ET.Element) -> dict:
             "outcome": outcome, "reason": reason, "seconds": seconds}
 
 
-def read_junit(path: Path) -> dict:
-    # Pytest emits UTF-8. Reject DTD/entity declarations before parsing, rather
-    # than accepting alternate encodings or expanding an embedded entity graph.
+def read_report_xml(path: Path) -> element_tree.Element:
+    """Parse only UTF-8 reports without any DTD or entity declarations."""
     text = path.read_text(encoding="utf-8")
+    if not text:
+        raise ValueError("XML report is empty")
     reject_junit_declarations(text)
-    root = ET.fromstring(text)  # nosec B314 -- own pytest UTF-8 report; DTD/ENTITY declarations rejected above
-    cases, declared = junit_inventory(root)
+    return element_tree.fromstring(text)  # nosec B314 -- UTF-8 only; DTD/ENTITY declarations rejected above
+
+
+def read_junit(path: Path) -> dict:
+    cases, declared = junit_inventory(read_report_xml(path))
     # pytest-subtests contributes to summary counters without emitting a new
     # testcase element. Preserve both counts; never equate them silently.
     return {"cases": cases, "count": len(cases),
@@ -95,7 +102,7 @@ def reject_junit_declarations(text: str) -> None:
         raise ValueError("JUnit declarations are not allowed")
 
 
-def junit_inventory(root: ET.Element) -> tuple[list[dict], list[int]]:
+def junit_inventory(root: element_tree.Element) -> tuple[list[dict], list[int]]:
     cases = [junit_case(case) for case in root.iter("testcase")]
     if not cases:
         raise ValueError("JUnit contains no cases")
@@ -128,9 +135,9 @@ def coverage_file(data, name: str) -> dict:
 
 def require_coverage_xml(path: Path) -> None:
     """A completed measurement must retain a readable nonempty XML report."""
-    with path.open("rb") as stream:
-        if not stream.read(1):
-            raise ValueError("coverage XML is empty")
+    root = read_report_xml(path)
+    if root.tag != "coverage":
+        raise ValueError("coverage XML has an invalid root")
 
 
 def save(path: Path, result: dict) -> None:
@@ -283,14 +290,15 @@ def execute(argv: list[str], *, context: ProcessContext, log, timeout: float | N
         with defer_cancellation():
             proc = context.start(argv, log)
         wait_unreaped(proc.pid, timeout)
+        with defer_cancellation():
+            return cleanup_owned_process(proc)
     except BaseException:
-        if proc is not None:
+        if proc is not None and getattr(proc, "returncode", None) is None:
             try:
                 cleanup_owned_process(proc)
             except KeyboardInterrupt:
                 pass  # Teardown finished; preserve the original cancellation.
         raise
-    return cleanup_owned_process(proc)
 
 
 def write_coverage_config(root: Path, output: Path) -> None:
@@ -463,7 +471,7 @@ def run(root: Path, output: Path, *, options: MeasurementOptions) -> int:
     except KeyboardInterrupt:
         result["error"] = "interrupted; partial evidence retained"
         code = 130
-    except (OSError, ValueError, ET.ParseError, CoverageException) as error:
+    except (OSError, ValueError, element_tree.ParseError, CoverageException) as error:
         result["error"] = f"incomplete measurement: {type(error).__name__}"
         code = 1
     finally:

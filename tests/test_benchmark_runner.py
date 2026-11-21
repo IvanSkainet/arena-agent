@@ -430,7 +430,7 @@ def test_final_inventory_validation_error_saves_a_failed_record(measurement, mon
     assert report(measurement)["state"] == "failed"
 
 
-@pytest.mark.parametrize("failure", ["missing", "empty"])
+@pytest.mark.parametrize("failure", ["missing", "empty", "malformed"])
 def test_success_requires_a_readable_xml_coverage_artifact(measurement, monkeypatch, failure):
     original = bench.execute
 
@@ -440,7 +440,7 @@ def test_success_requires_a_readable_xml_coverage_artifact(measurement, monkeypa
         if failure == "missing":
             xml.unlink()
         else:
-            xml.write_bytes(b"")
+            xml.write_bytes(b"<coverage" if failure == "malformed" else b"")
         return status
 
     monkeypatch.setattr(bench, "execute", execute)

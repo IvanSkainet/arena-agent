@@ -120,8 +120,7 @@ def test_real_preflight_rejects_truncated_full_suite(tmp_path, workers, capsys):
     test_file = tmp_path / "test_too_short.py"
     test_file.write_text("def test_one():\n    assert True\n", encoding="utf-8")
     check = preflight.Check("full suite", [sys.executable, "-m", "pytest", "--no-cov",
-                                         "-p", "no:randomly", "-c", str(config), str(test_file),
-                                         "--timeout=10"], slow=True)
+                                         "-p", "no:randomly", "-c", str(config), str(test_file)], slow=True)
     assert preflight._run_check(check, workers) == "full suite"
     assert "test collection floor failed" in capsys.readouterr().out
 
@@ -173,6 +172,7 @@ def test_full_suite_installs_and_restores_sigterm_cancellation(monkeypatch, inte
     from arena.governance import benchmark_runner
 
     original = signal.getsignal(signal.SIGTERM)
+
     def sentinel(signum, frame):
         return None
 

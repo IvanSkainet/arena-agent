@@ -31,8 +31,12 @@ def test_private_environment_preserves_only_documented_os_and_locale_controls(tm
 
 
 def test_cpu_measurement_sums_child_user_and_system_time(monkeypatch):
+    def getrusage(who):
+        assert who == "child-fixture"
+        return SimpleNamespace(ru_utime=1.5, ru_stime=2.25)
+
     monkeypatch.setitem(sys.modules, "resource", SimpleNamespace(
-        RUSAGE_CHILDREN="child-fixture", getrusage=lambda who: SimpleNamespace(ru_utime=1.5, ru_stime=2.25)))
+        RUSAGE_CHILDREN="child-fixture", getrusage=getrusage))
     assert bench.cpu_seconds() == 3.75
     monkeypatch.setitem(sys.modules, "resource", None)
     assert bench.cpu_seconds() is None

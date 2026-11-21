@@ -8,12 +8,14 @@ import pytest
 
 from arena.governance import benchmark_runner as bench
 
+SAMPLE_SOURCE = "sample.py"
+
 
 @pytest.fixture(name="measurement")
 def measurement_fixture(tmp_path, monkeypatch):
     root = tmp_path / "source"
     root.mkdir()
-    source = root / "sample.py"
+    source = root / SAMPLE_SOURCE
     source.write_text("value = 1\n", encoding="utf-8")
     (root / "pyproject.toml").write_text('[tool.coverage.run]\nbranch = true\n', encoding="utf-8")
     output = tmp_path / "evidence"
@@ -22,9 +24,9 @@ def measurement_fixture(tmp_path, monkeypatch):
     monkeypatch.setattr(bench, "cpu_seconds", lambda: None)
     monkeypatch.setattr(bench, "platform", SimpleNamespace(
         system=lambda: "Linux", platform=lambda: "fixture-platform"))
-    monkeypatch.setattr(bench, "fingerprint", lambda r: {"sample.py": source.read_text()})
+    monkeypatch.setattr(bench, "fingerprint", lambda r: {SAMPLE_SOURCE: source.read_text()})
     monkeypatch.setattr(bench.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout="source-head\n"))
-    monkeypatch.setattr(bench, "read_coverage", lambda path: {"sample.py": {"lines": [1], "arcs": [[-1, 1]]}})
+    monkeypatch.setattr(bench, "read_coverage", lambda path: {SAMPLE_SOURCE: {"lines": [1], "arcs": [[-1, 1]]}})
     calls = []
 
     def execute(argv, **kwargs):

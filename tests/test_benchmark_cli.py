@@ -12,9 +12,13 @@ from tests._benchmark_support import invoke, measurement_fixture as measurement_
 
 def test_serial_command_has_no_parallel_flags(tmp_path):
     argv = bench.command("serial", 271, tmp_path, "Linux")
-    assert argv[-2:] == ["-p", "no:xdist"]
-    assert "-n" not in argv
-    assert "--cov-fail-under=51" in argv
+    assert argv == [
+        sys.executable, "-m", "pytest", "-q", "-p", "arena.governance.pytest_execution_guard",
+        "--randomly-seed=271", "--cov-fail-under=51",
+        f"--junitxml={tmp_path / 'junit.xml'}", "--cov-report=term",
+        f"--cov-report=xml:{tmp_path / 'coverage.xml'}", f"--cov-config={tmp_path / 'coverage.toml'}",
+        "-p", "no:xdist",
+    ]
     parallel = bench.command("n2", 271, tmp_path, "Linux")
     assert parallel[-3:] == ["-n", "2", "--max-worker-restart=0"]
 
