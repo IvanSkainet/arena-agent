@@ -231,6 +231,7 @@ Area Network (LAN) webhooks are stated explicitly.
 | `ARENA_SECRETS_PATH` | security | exact | Relocates the secrets store outside its default path. |
 | `ARENA_SERVICE_NAME` | operational | exact | Overrides the Windows service name. |
 | `ARENA_SMOKE_SERIAL` | operational | exact | Selects the Android device serial used by release smoke scripts. |
+| `ARENA_SKIP_BROWSER_E2E` | internal | exact | Explicitly skips browser E2E in disposable development measurements; does not enable live input. |
 | `ARENA_SOURCE_COMMIT` | internal | exact | Records the exact source commit in packaged release provenance. |
 | `ARENA_SUBAGENT_ID` | internal | exact | Supplies the child subagent identity to the subagent launcher. |
 | `ARENA_SUBAGENT_NAME` | internal | exact | Supplies the child subagent display name to the subagent launcher. |

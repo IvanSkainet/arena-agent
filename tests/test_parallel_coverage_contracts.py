@@ -29,9 +29,10 @@ def test_journal_contention_is_covered_without_real_sleep(monkeypatch, expires):
     monkeypatch.setattr(file_lock, "time", SimpleNamespace(
         monotonic=lambda: next(ticks), sleep=sleeps.append))
     if expires:
+        journal = Path("private/journal")
         with pytest.raises(TimeoutError, match="private journal is busy"):
-            with file_lock.journal_lock(Path("private/journal"), timeout=1):
-                pytest.fail("a held lease must not enter the journal")
+            with file_lock.journal_lock(journal, timeout=1):
+                pass  # Entering without the timeout makes pytest.raises fail.
         assert len(attempts) == 1
         assert sleeps == []
     else:

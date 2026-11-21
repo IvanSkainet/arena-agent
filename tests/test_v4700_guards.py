@@ -312,8 +312,21 @@ def _private_probe_inputs(request, monkeypatch):
         'test_dead_dispatch_catches_dead_reference',
         'test_handler_signature_catches_missing_ctx',
     }
-    if request.node.name not in writers:
+    if request.node.originalname not in writers:
         return
     root = request.getfixturevalue("isolated_ratchet_repo")
     module = sys.modules[__name__]
     monkeypatch.setattr(module, "REPO", root)
+
+
+def test_parameterized_probe_still_uses_private_inputs(monkeypatch):
+    from types import SimpleNamespace
+
+    private = Path("fixture-private-repo")
+    request = SimpleNamespace(
+        node=SimpleNamespace(name="test_dead_dispatch_catches_dead_reference[case]",
+                             originalname="test_dead_dispatch_catches_dead_reference"),
+        getfixturevalue=lambda name: private,
+    )
+    _private_probe_inputs.__wrapped__(request, monkeypatch)
+    assert REPO == private

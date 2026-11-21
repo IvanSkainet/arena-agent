@@ -406,3 +406,21 @@ def test_controller_accumulates_leaks_across_worker_shutdowns(suite_conftest, mo
     ]
     suite_conftest.pytest_sessionfinish(session, 0)
     assert session.exitstatus == 1
+
+
+def test_worker_leak_diagnostic_never_renders_secret_values(suite_conftest, monkeypatch):
+    from types import SimpleNamespace
+
+    lines = []
+    reporter = SimpleNamespace(write_sep=lambda *a, **kw: None, write_line=lines.append)
+    session = _empty_session(worker=True)
+    session.config.pluginmanager.get_plugin = lambda name: reporter
+    monkeypatch.setattr(suite_conftest, "_arena_leaks_by_origin", lambda: {
+        "fixture": {"ARENA_CONTRACT_LEAK": ("private-before", "private-after")},
+    })
+    suite_conftest.pytest_sessionfinish(session, 0)
+    output = "\n".join(lines)
+    assert "private-before" not in output
+    assert "private-after" not in output
+    assert session.exitstatus == 1
+    assert session.config.workeroutput["arena_environment_leaks"] == ["ARENA_CONTRACT_LEAK"]

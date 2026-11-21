@@ -31,10 +31,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -185,6 +187,8 @@ def _portability_scan() -> tuple[bool, list[str]]:
 def _command(check: Check, workers: int) -> list[str]:
     """Parallelize only the full pytest suite; never mutate shared check argv."""
     argv = list(check.argv)
+    if check.name == "full suite":
+        argv += ["-p", "arena.governance.pytest_execution_guard"]
     if check.name == "full suite" and workers == 2:
         argv += ["-n", "2", "--max-worker-restart=0"]
     return argv
@@ -205,6 +209,18 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return args
 
 
+def _execute_full(argv: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    """Linux owns the full pytest process group through interruption cleanup."""
+    if platform.system() != "Linux":
+        return subprocess.run(argv, cwd=ROOT, env=env, capture_output=True, text=True, check=False)
+    from arena.governance.benchmark_runner import execute
+
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as log:
+        status = execute(argv, root=ROOT, env=env, log=log, timeout=None)
+        log.seek(0)
+        return subprocess.CompletedProcess(argv, status, log.read(), "")
+
+
 def _run_check(c: Check, workers: int) -> str | None:
     print(f"{c.name:26} ", end="", flush=True)
     if c.needs and shutil.which(c.needs) is None:
@@ -214,18 +230,41 @@ def _run_check(c: Check, workers: int) -> str | None:
         print(f"    why it matters: {c.why}")
         return f"{c.name} (tool missing)"
     t0 = time.time()
-    proc = subprocess.run(_command(c, workers), cwd=ROOT, capture_output=True, text=True)
+    argv = _command(c, workers)
+    if c.name == "full suite":
+        runner_os = {"Darwin": "macOS"}.get(platform.system(), platform.system())
+        env = dict(os.environ, ARENA_TEST_EXECUTION_GUARD="1", RUNNER_OS=runner_os)
+        proc = _execute_full(argv, env)
+    else:
+        proc = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, env=None, check=False)
     el = time.time() - t0
     if proc.returncode == 0:
         print(f"ok ({el:.0f}s)")
     else:
         print(f"FAIL ({el:.0f}s)")
         tail = (proc.stdout or "")[-1500:] + (proc.stderr or "")[-1500:]
-        for line in tail.strip().splitlines()[-12:]:
+        # Merged child streams can put an early refusal before buffered stdout.
+        head = [line[:250] for line in (proc.stdout or "").splitlines()[:2]]
+        for line in dict.fromkeys([*head, *tail.strip().splitlines()[-12:]]):
             print(f"    {line}")
         print(f"    why it matters: {c.why}")
         return c.name
     return None
+
+
+def _portability_failures() -> list[str]:
+    """Report the portability gate without mixing it with check scheduling."""
+    ok, bad = _portability_scan()
+    print(f"{'portability scan':26} ", end="", flush=True)
+    if ok:
+        print("ok")
+    else:
+        print("FAIL")
+        for b in bad:
+            print(f"    {b}")
+        return ["portability scan"]
+
+    return []
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -237,18 +276,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {c.name:26} {' '.join(_command(c, args.workers))}")
         return 0
 
-    failures: list[str] = []
     t_all = time.time()
-
-    ok, bad = _portability_scan()
-    print(f"{'portability scan':26} ", end="", flush=True)
-    if ok:
-        print("ok")
-    else:
-        print("FAIL")
-        for b in bad:
-            print(f"    {b}")
-        failures.append("portability scan")
+    failures = _portability_failures()
 
     for c in selected:
         failure = _run_check(c, args.workers)

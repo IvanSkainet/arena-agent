@@ -197,13 +197,14 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     """
     leaked = _arena_leaks_by_origin()
     if leaked:
-        _report_arena_leaks(session, leaked)
         if hasattr(session.config, "workeroutput"):
             # xdist does not propagate an arbitrary worker sessionfinish
             # exitstatus=1 as a failed test. Forward names, never secret values.
             session.config.workeroutput["arena_environment_leaks"] = sorted({
                 name for changed in leaked.values() for name in changed
             })
+        else:
+            _report_arena_leaks(session, leaked)
     worker_leaks = _report_worker_arena_leaks(session)
     if (leaked or worker_leaks) and exitstatus == 0:
         session.exitstatus = 1

@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -60,7 +61,14 @@ def _run(tmp_path: Path, *, case: str, workers: int) -> subprocess.CompletedProc
     else:
         command += ["--no-cov"]
     env = dict(os.environ, ARENA_TEST_EXECUTION_GUARD="1", RUNNER_OS="Linux", PYTHONPATH=str(ROOT))
-    return subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
+    if sys.platform != "linux":
+        return subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
+    from arena.governance.benchmark_runner import execute
+
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as log:
+        status = execute(command, root=tmp_path, env=env, log=log, timeout=60)
+        log.seek(0)
+        return subprocess.CompletedProcess(command, status, log.read(), "")
 
 
 @pytest.mark.parametrize("workers", [0, 2])

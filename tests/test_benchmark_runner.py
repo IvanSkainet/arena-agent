@@ -12,6 +12,95 @@ import pytest
 from arena.governance import benchmark_runner as bench
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux waitid polling contract")
+@pytest.mark.parametrize("timeout", [None, 1])
+def test_wait_observation_respects_exact_deadline_and_poll_interval(monkeypatch, timeout):
+    ticks = iter([10.0, 11.0])
+    observations = iter([None, object()])
+    sleeps = []
+    monkeypatch.setattr(bench.os, "waitid", lambda *args: next(observations))
+    monkeypatch.setattr(bench, "time", SimpleNamespace(monotonic=lambda: next(ticks), sleep=sleeps.append))
+    if timeout is None:
+        bench.wait_unreaped(12345, timeout)
+        assert sleeps == [0.02]
+    else:
+        with pytest.raises(subprocess.TimeoutExpired) as caught:
+            bench.wait_unreaped(12345, timeout)
+        assert caught.value.timeout == 1
+        assert caught.value.cmd == "12345"
+        assert sleeps == []
+
+
+def test_private_environment_preserves_only_documented_os_and_locale_controls(tmp_path, monkeypatch):
+    allowed = ["PATH", "LANG", "LANGUAGE", "TZ", "TERM", "SHELL", "SYSTEMROOT", "WINDIR",
+               "PATHEXT", "COMSPEC", "SSL_CERT_FILE", "SSL_CERT_DIR", "LC_ALL", "LC_MESSAGES"]
+    values = {key: f"fixture-{key}" for key in allowed}
+    monkeypatch.setattr(bench, "os", SimpleNamespace(environ={**values, "UNLISTED_CONTROL": "refused"}))
+    actual = bench.private_environment(tmp_path, "Linux")
+    assert {key: actual[key] for key in allowed} == values
+    assert "UNLISTED_CONTROL" not in actual
+    assert actual["ARENA_TEST_EXECUTION_GUARD"] == "1"
+    assert actual["RUNNER_OS"] == "Linux"
+    if sys.platform != "win32":
+        import stat
+
+        paths = [Path(value) for key, value in actual.items() if value.startswith(str(tmp_path))]
+        assert paths
+        assert all(stat.S_IMODE(path.stat().st_mode) == 0o700 for path in paths)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX creation permissions")
+def test_json_is_private_at_creation_and_before_atomic_replacement(tmp_path, monkeypatch):
+    import os
+    import stat
+
+    output = tmp_path / "result.json"
+    original_open = bench.os.open
+    original_replace = Path.replace
+    observed = []
+
+    def create(path, flags, mode):
+        assert mode == 0o600
+        descriptor = original_open(path, flags, mode)
+        observed.append(stat.S_IMODE(os.fstat(descriptor).st_mode))
+        return descriptor
+
+    def replace(path, target):
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        return original_replace(path, target)
+
+    monkeypatch.setattr(bench.os, "open", create)
+    monkeypatch.setattr(Path, "replace", replace)
+    bench.save(output, {"state": "failed"})
+    assert observed == [0o600]
+    assert json.loads(output.read_text()) == {"state": "failed"}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX directory permissions")
+def test_nested_evidence_directories_are_finalized_private(tmp_path):
+    import stat
+
+    nested = tmp_path / "nested"
+    nested.mkdir(mode=0o755)
+    (nested / "report").write_text("fixture")
+    bench.private_evidence(tmp_path)
+    assert stat.S_IMODE(nested.stat().st_mode) == 0o700
+    assert stat.S_IMODE((nested / "report").stat().st_mode) == 0o600
+
+
+def test_symlink_resolved_target_mode_is_part_of_source_identity(tmp_path):
+    target = tmp_path / "target"
+    target.write_bytes(b"same content")
+    link = tmp_path / "entry"
+    try:
+        link.symlink_to(target.name)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    before = bench.source_digest(tmp_path, link.name)
+    target.chmod(target.stat().st_mode ^ 0o100)
+    assert bench.source_digest(tmp_path, link.name) != before
+
+
 @pytest.fixture(name="measurement")
 def measurement_fixture(tmp_path, monkeypatch):
     root = tmp_path / "source"
@@ -185,27 +274,31 @@ def test_owned_process_group_is_cleaned_up(monkeypatch, tmp_path, interrupted):
     class Process:
         pid = 12345
 
-        def wait(self, timeout=None):
-            calls.append(("wait", timeout))
-            if interrupted and timeout == 10:
-                raise subprocess.TimeoutExpired("fixture", 10)
+        def wait(self):
+            calls.append(("reap", self.pid))
             return 0
+
+    def observe(pid, timeout):
+        calls.append(("observe", timeout))
+        if interrupted and timeout == 10:
+            raise subprocess.TimeoutExpired("fixture", 10)
 
     def popen(argv, **kwargs):
         assert kwargs["start_new_session"] is True
         return Process()
 
     monkeypatch.setattr(bench.subprocess, "Popen", popen)
+    monkeypatch.setattr(bench, "wait_unreaped", observe)
+    monkeypatch.setattr(bench.os, "waitid", lambda *a: calls.append(("ownership", a[1])))
     monkeypatch.setattr(bench.os, "killpg", lambda pid, sig: calls.append((pid, sig)))
     if interrupted:
         with pytest.raises(subprocess.TimeoutExpired):
             bench.execute(["fixture"], root=tmp_path, env={}, log=None, timeout=10)
     else:
         assert bench.execute(["fixture"], root=tmp_path, env={}, log=None, timeout=10) == 0
-    assert (12345, bench.signal.SIGTERM) in calls
-    assert (12345, bench.signal.SIGKILL) in calls
-    assert ("wait", 5) in calls
-    assert calls[-1] == ("wait", None)
+    assert calls == [("observe", 10), ("ownership", 12345),
+                     (12345, bench.signal.SIGTERM), ("observe", 5),
+                     (12345, bench.signal.SIGKILL), ("reap", 12345)]
 
 
 @pytest.mark.parametrize("args", [[], ["--mode", "auto"],
@@ -328,17 +421,16 @@ def test_fingerprint_hashes_real_contents_and_uses_complete_git_inventory(tmp_pa
 
     (tmp_path / "tracked.py").write_bytes(b"tracked source\n")
     (tmp_path / "new file.py").write_bytes(b"new source\n")
-    (tmp_path / "directory").mkdir()
 
     def listing(argv, **kwargs):
         assert argv == ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"]
         assert kwargs == {"cwd": tmp_path, "capture_output": True, "check": True, "timeout": 30}
-        return SimpleNamespace(stdout=b"tracked.py\0new file.py\0tracked.py\0missing.py\0directory\0")
+        return SimpleNamespace(stdout=b"tracked.py\0new file.py\0tracked.py\0")
 
     monkeypatch.setattr(bench.subprocess, "run", listing)
     assert bench.fingerprint(tmp_path) == {
-        "new file.py": hashlib.sha256(b"new source\n").hexdigest(),
-        "tracked.py": hashlib.sha256(b"tracked source\n").hexdigest(),
+        "new file.py": hashlib.sha256(json.dumps({"mode": (tmp_path / "new file.py").stat().st_mode & 0o7777}, sort_keys=True).encode() + b"\0new source\n").hexdigest(),
+        "tracked.py": hashlib.sha256(json.dumps({"mode": (tmp_path / "tracked.py").stat().st_mode & 0o7777}, sort_keys=True).encode() + b"\0tracked source\n").hexdigest(),
     }
 
 
@@ -700,3 +792,342 @@ def test_synthetic_linux_measurement_is_independent_of_windows_resource_shim(mea
     monkeypatch.setitem(sys.modules, "resource", SimpleNamespace())
     assert invoke(measurement) == 0
     assert report(measurement)["child_cpu_seconds"] is None
+
+
+@pytest.mark.parametrize("name", ["ARENA_TOKEN", "ARENA_STATE_HOME", "ARENA_TEST_LIVE_DEVICE",
+                                 "ARENA_E2E_WHEEL", "CI", "GITHUB_ACTIONS", "PYTEST_ADDOPTS",
+                                 "GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY", "PYTEST_PLUGINS"])
+def test_measurement_does_not_inherit_operator_or_test_selection_controls(measurement, monkeypatch, name):
+    monkeypatch.setenv(name, "fixture-private-control")
+    assert invoke(measurement) == 0
+    assert name not in measurement[3][0][1]["env"]
+
+
+def test_measurement_preserves_explicit_browser_skip_request(measurement, monkeypatch):
+    monkeypatch.setenv("ARENA_SKIP_BROWSER_E2E", "1")
+    assert invoke(measurement) == 0
+    assert measurement[3][0][1]["env"]["ARENA_SKIP_BROWSER_E2E"] == "1"
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux waitid ownership contract")
+def test_group_is_never_signalled_after_ownership_was_lost(monkeypatch, tmp_path):
+    def lost(*args):
+        raise ChildProcessError("already reaped")
+
+    monkeypatch.setattr(bench.os, "waitid", lost)
+    monkeypatch.setattr(bench.os, "killpg", lambda *a: pytest.fail("signalled an unowned group"))
+    with pytest.raises(ChildProcessError):
+        bench.cleanup_owned_process(SimpleNamespace(pid=12345))
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux waitid ownership contract")
+def test_real_group_leader_stays_unreaped_until_last_signal(monkeypatch, tmp_path):
+    real_killpg = bench.os.killpg
+    observed = []
+
+    def killpg(pid, sig):
+        # ECHILD here would mean the PID could have been recycled.
+        bench.os.waitid(bench.os.P_PID, pid, bench.os.WEXITED | bench.os.WNOHANG | bench.os.WNOWAIT)
+        observed.append((pid, sig))
+        real_killpg(pid, sig)
+
+    monkeypatch.setattr(bench.os, "killpg", killpg)
+    with (tmp_path / "child.log").open("w") as log:
+        assert bench.execute([sys.executable, "-c", "pass"], root=tmp_path, env={}, log=log, timeout=10) == 0
+    assert [sig for _, sig in observed] == [bench.signal.SIGTERM, bench.signal.SIGKILL]
+    with pytest.raises(ChildProcessError):
+        bench.os.waitid(bench.os.P_PID, observed[0][0], bench.os.WEXITED | bench.os.WNOHANG | bench.os.WNOWAIT)
+
+
+@pytest.mark.parametrize("kind", ["missing", "directory", "dangling"])
+def test_git_inventory_cannot_silently_omit_an_entry(tmp_path, monkeypatch, kind):
+    path = tmp_path / "entry"
+    if kind == "directory":
+        path.mkdir()
+    elif kind == "dangling":
+        try:
+            path.symlink_to("absent")
+        except OSError:
+            pytest.skip("symlink creation unavailable")
+    monkeypatch.setattr(bench.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout=b"entry\0"))
+    with pytest.raises((OSError, ValueError)):
+        bench.fingerprint(tmp_path)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX mode identity")
+def test_source_mode_change_invalidates_identical_content(tmp_path):
+    path = tmp_path / "entry"
+    path.write_bytes(b"same source")
+    before = bench.source_digest(tmp_path, "entry")
+    path.chmod(path.stat().st_mode ^ 0o100)
+    assert bench.source_digest(tmp_path, "entry") != before
+
+
+def test_symlink_target_change_invalidates_identical_content(tmp_path):
+    for name in ["one", "two"]:
+        (tmp_path / name).write_bytes(b"identical")
+    link = tmp_path / "entry"
+    try:
+        link.symlink_to("one")
+    except OSError:
+        pytest.skip("symlink creation unavailable")
+    before = bench.source_digest(tmp_path, "entry")
+    link.unlink()
+    link.symlink_to("two")
+    assert bench.source_digest(tmp_path, "entry") != before
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission contract")
+def test_retained_evidence_is_private_even_with_permissive_umask(measurement):
+    import os
+    import stat
+
+    old = os.umask(0)
+    try:
+        assert invoke(measurement) == 0
+    finally:
+        os.umask(old)
+    output = measurement[1]
+    assert stat.S_IMODE(output.stat().st_mode) == 0o700
+    assert all(stat.S_IMODE(path.stat().st_mode) == 0o600 for path in output.iterdir())
+
+
+def test_evidence_privacy_refuses_links_without_changing_target(tmp_path):
+    target = tmp_path / "outside"
+    target.write_text("private target")
+    mode = target.stat().st_mode
+    output = tmp_path / "evidence"
+    output.mkdir()
+    try:
+        (output / "report").symlink_to(target)
+    except OSError:
+        pytest.skip("symlink creation unavailable")
+    with pytest.raises(ValueError, match="^evidence contains a symlink$"):
+        bench.private_evidence(output)
+    assert target.stat().st_mode == mode
+    assert target.read_text() == "private target"
+
+
+@pytest.mark.parametrize("failure", ["configuration", "metadata"])
+def test_startup_failure_retains_a_failed_record_without_reusing_directory(measurement, monkeypatch, failure):
+    root, output, _, _ = measurement
+    if failure == "configuration":
+        (root / "pyproject.toml").write_text("# no coverage section\n")
+        error_type = ValueError
+    else:
+        def fail(*args, **kwargs):
+            raise subprocess.CalledProcessError(1, ["git"])
+        monkeypatch.setattr(bench.subprocess, "run", fail)
+        error_type = subprocess.CalledProcessError
+    with pytest.raises(error_type):
+        invoke(measurement)
+    saved = report(measurement)
+    assert saved["state"] == "failed"
+    assert saved["exit"] == 1
+    assert saved["error"] == f"initialization failed: {error_type.__name__}"
+    original = (output / "result.json").read_bytes()
+    with pytest.raises(FileExistsError):
+        invoke(measurement)
+    assert (output / "result.json").read_bytes() == original
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux owned interruption contract")
+def test_interrupt_also_signals_before_reaping(monkeypatch, tmp_path):
+    calls = []
+
+    def observe(pid, timeout):
+        if timeout == 10:
+            raise KeyboardInterrupt
+
+    def reap():
+        calls.append("reap")
+        return -15
+
+    monkeypatch.setattr(bench.subprocess, "Popen", lambda *a, **kw: SimpleNamespace(pid=12345, wait=reap))
+    monkeypatch.setattr(bench, "wait_unreaped", observe)
+    monkeypatch.setattr(bench.os, "waitid", lambda *a: None)
+    monkeypatch.setattr(bench.os, "killpg", lambda pid, sig: calls.append(sig))
+    with pytest.raises(KeyboardInterrupt):
+        bench.execute(["fixture"], root=tmp_path, env={}, log=None, timeout=10)
+    assert calls == [bench.signal.SIGTERM, bench.signal.SIGKILL, "reap"]
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux process group contract")
+@pytest.mark.parametrize("timed_out", [False, True])
+def test_real_descendant_cannot_outlive_owned_execution(tmp_path, timed_out):
+    import time
+
+    marker = tmp_path / "descendant.pid"
+    child = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
+    script = (
+        "import subprocess,sys,time,pathlib; "
+        f"p=subprocess.Popen([sys.executable,'-c',{child!r}]); "
+        f"pathlib.Path({str(marker)!r}).write_text(str(p.pid)); "
+        + ("time.sleep(60)" if timed_out else "time.sleep(0.2)")
+    )
+    with (tmp_path / "execution.log").open("w") as log:
+        if timed_out:
+            with pytest.raises(subprocess.TimeoutExpired):
+                bench.execute([sys.executable, "-c", script], root=tmp_path, env={}, log=log, timeout=1)
+        else:
+            assert bench.execute([sys.executable, "-c", script], root=tmp_path, env={}, log=log, timeout=10) == 0
+    pid = int(marker.read_text())
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        try:
+            state = Path(f"/proc/{pid}/stat").read_text().split(") ", 1)[1].split()[0]
+        except FileNotFoundError:
+            return
+        if state == "Z":  # Dead orphan awaits the container init's reap.
+            return
+        time.sleep(0.02)
+    pytest.fail("owned descendant remained alive after cleanup")
+
+
+def test_finalization_failure_still_saves_failed_record(measurement, monkeypatch):
+    def refuse(output):
+        raise ValueError("unsafe evidence")
+
+    monkeypatch.setattr(bench, "private_evidence", refuse)
+    assert invoke(measurement) == 1
+    result = report(measurement)
+    assert result["state"] == "failed"
+    assert result["error"] == "evidence finalization failed: ValueError"
+
+
+@pytest.mark.parametrize("error", [KeyboardInterrupt(), RuntimeError("fixture startup fault")])
+def test_startup_interruption_or_unexpected_fault_is_recorded(measurement, monkeypatch, error):
+    def fail(*args):
+        raise error
+
+    monkeypatch.setattr(bench, "write_coverage_config", fail)
+    with pytest.raises(type(error)):
+        invoke(measurement)
+    result = report(measurement)
+    assert result["state"] == "failed"
+    assert result["exit"] == (130 if isinstance(error, KeyboardInterrupt) else 1)
+    assert result["error"] == f"initialization failed: {type(error).__name__}"
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux real SIGINT contract")
+def test_real_sigint_cleans_owned_group(tmp_path):
+    import os
+    import signal
+    import time
+
+    marker = tmp_path / "child.pid"
+    child = "import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(60)"
+    leader = (
+        "import pathlib,subprocess,sys,time; "
+        f"p=subprocess.Popen([sys.executable,'-c',{child!r}]); "
+        f"pathlib.Path({str(marker)!r}).write_text(str(p.pid)); time.sleep(60)"
+    )
+    owner = (
+        "import signal; signal.signal(signal.SIGINT, signal.default_int_handler); "
+        "from pathlib import Path; from arena.governance.benchmark_runner import execute; "
+        f"execute([{sys.executable!r},'-c',{leader!r}], root=Path({str(tmp_path)!r}), "
+        "env={},log=None,timeout=30)"
+    )
+    proc = subprocess.Popen([sys.executable, "-c", owner], stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, start_new_session=True)
+    pid = None
+    try:
+        deadline = time.monotonic() + 10
+        while not marker.exists() and time.monotonic() < deadline:
+            assert proc.poll() is None, "owner exited before child startup"
+            time.sleep(0.02)
+        assert marker.exists(), "child startup timed out"
+        pid = int(marker.read_text())
+        os.kill(proc.pid, signal.SIGINT)
+        assert proc.wait(timeout=10) != 0
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            try:
+                state = Path(f"/proc/{pid}/stat").read_text().split(") ", 1)[1].split()[0]
+            except FileNotFoundError:
+                return
+            if state == "Z":
+                return
+            time.sleep(0.02)
+        pytest.fail("descendant survived SIGINT cleanup")
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+        if pid is not None:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+def test_initial_record_is_complete_before_configuration_starts(measurement, monkeypatch):
+    original = bench.write_coverage_config
+    observed = []
+
+    def configure(root, output):
+        record = json.loads((output / "result.json").read_text())
+        assert set(record) == {"schema", "state", "started_unix"}
+        assert record["schema"] == 1
+        assert record["state"] == "running"
+        assert isinstance(record["started_unix"], float)
+        observed.append(True)
+        original(root, output)
+
+    monkeypatch.setattr(bench, "write_coverage_config", configure)
+    assert invoke(measurement) == 0
+    assert observed == [True]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX creation permissions")
+def test_evidence_directory_is_private_before_any_chmod(measurement, monkeypatch):
+    import stat
+
+    original = Path.mkdir
+    output = measurement[1]
+    observed = []
+
+    def mkdir(path, *args, **kwargs):
+        original(path, *args, **kwargs)
+        if path == output:
+            observed.append(stat.S_IMODE(path.stat().st_mode))
+            assert observed[-1] == 0o700
+
+    monkeypatch.setattr(Path, "mkdir", mkdir)
+    assert invoke(measurement) == 0
+    assert observed == [0o700]
+
+
+def test_source_digest_reports_external_links_and_nonfiles_precisely(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "directory").mkdir()
+    with pytest.raises(ValueError, match="^source inventory contains a non-file entry$"):
+        bench.source_digest(root, "directory")
+    outside = tmp_path / "external"
+    outside.write_text("fixture")
+    try:
+        (root / "link").symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    with pytest.raises(ValueError, match="^source symlink escapes the checkout$"):
+        bench.source_digest(root, "link")
+
+
+def test_source_digest_uses_reproducible_manifest_metadata_schema(tmp_path):
+    import hashlib
+    import stat
+
+    target = tmp_path / "target"
+    target.write_bytes(b"fixture content")
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(target.name)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    # Independent schema oracle: manifest hashes must not drift across invocations.
+    metadata = {"mode": stat.S_IMODE(link.lstat().st_mode), "target": "target",
+                "target_mode": stat.S_IMODE(target.stat().st_mode)}
+    expected = hashlib.sha256(json.dumps(metadata, sort_keys=True).encode("utf-8")
+                              + b"\0fixture content").hexdigest()
+    assert bench.source_digest(tmp_path, "link") == expected

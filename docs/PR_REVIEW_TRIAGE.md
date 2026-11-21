@@ -10,8 +10,9 @@ bot approved it.
 
 This procedure applies to every non-trivial pull request. Release, security,
 workflow, protocol, and cross-repository changes require every available
-configured reviewer surface to be read, but quota-skipped/unavailable Apps are
-recorded as no signal rather than treated as blockers. A manual CodeRabbit or
+configured reviewer surface to be read. Quota-skipped/unavailable Apps are
+recorded as no review signal, never as approval. If an App's context is required
+by live branch rules, its absence or non-passing status still blocks merge. A manual CodeRabbit or
 Qodo review is preferred for high-risk changes when its independent quota is
 available.
 
@@ -19,13 +20,13 @@ available.
 
 | Integration | Role | Merge status |
 |---|---|---|
-| CodeRabbit | Manually triggered semantic review for high-risk changes; benchmark strength was exact DNS-rebinding analysis. | Informational; one-review rolling quota observed. Never merge autofixes without re-deriving and testing the invariant. |
+| CodeRabbit | Manually triggered semantic review for high-risk changes; benchmark strength was exact DNS-rebinding analysis. | Required by current master rules; quota/rate limits are not semantic approval. Never merge autofixes without re-deriving and testing the invariant. |
 | Qodo | Independent semantic/cross-file review. Benchmark found insecure TLS and a cross-file release-packaging concern. | Informational trial; automatic commits/autofix remain disabled and every finding is revalidated. |
-| SonarQube Cloud | Whole-tree and PR-delta static analysis with low content permission. | Informational; legacy baseline and PR Quality Gate are not required until rule-level precision is measured. |
-| Codacy | Multi-analyzer static analysis and independent quota. | Informational/manual disposition; duplicate annotations are collapsed by root location before counting. |
+| SonarQube Cloud | Whole-tree and PR-delta static analysis with low content permission. | Required by current master rules. Validate findings and satisfy the required Quality Gate without bypass. |
+| Codacy | Multi-analyzer static analysis and independent quota. | Required by current master rules; manually validate findings and collapse duplicate annotations by root location before counting. |
 | Sourcery | Automatic maintainability/test-completeness review when quota exists. | Informational; exact-head rate-limit reviews count as no signal. |
 | DeepSource | Historical signal exists, but current analyses are quota-skipped and the vendor dashboard is Cloudflare-blocked for the owner. | Keep pending vendor response; skipped checks are no signal. |
-| CodeFactor | Fast independent static quota; benchmark recall was low with one control false positive and high App permission cost. | Informational 10-real-PR probation; remove if it adds no unique accepted finding. |
+| CodeFactor | Fast independent static quota; benchmark recall was low with one control false positive and high App permission cost. | Required by current master rules. The historical 10-real-PR probation is not authorization to remove or bypass this requirement. |
 
 Functional overlap is allowed because independent quotas improve availability.
 Every App must still justify its false-positive, permission, cost, and failure-mode
@@ -113,5 +114,10 @@ Before merge, record:
 - required checks for that exact head;
 - live evidence when the change affects a real external boundary.
 
-AI checks remain informational. Branch rules, deterministic tests, security
-checks, and live acceptance remain the merge authority.
+Live branch rules are authoritative for required contexts, including AI and
+vendor checks. Reviewer role descriptions never override those requirements.
+Re-read the rules for the target branch before each merge: the current master
+rules require CodeRabbit, cubic, SonarCloud, Codacy, CodeScene and CodeFactor,
+alongside deterministic and security gates. Missing, neutral or quota-limited
+review output must not be described as semantic approval or used to bypass a
+required context. Rule changes require separate explicit operator approval.

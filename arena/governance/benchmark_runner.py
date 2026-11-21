@@ -8,6 +8,7 @@ import json
 import os
 import platform
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -29,10 +30,29 @@ def fingerprint(root: Path) -> dict[str, str]:
         cwd=root, capture_output=True, check=True, timeout=30,
     )
     return {
-        name: hashlib.sha256((root / name).read_bytes()).hexdigest()
+        name: source_digest(root, name)
         for name in sorted(set(listing.stdout.decode().split("\0")))
-        if name and (root / name).is_file()
+        if name
     }
+
+
+def source_digest(root: Path, name: str) -> str:
+    """Hash content and source identity; never silently omit a Git entry."""
+    path = root / name
+    info = path.lstat()  # A deleted tracked entry invalidates the inventory.
+    metadata: dict[str, object] = {"mode": stat.S_IMODE(info.st_mode)}
+    if stat.S_ISLNK(info.st_mode):
+        resolved = path.resolve()  # path.stat below also rejects dangling targets.
+        if root not in resolved.parents:
+            raise ValueError("source symlink escapes the checkout")
+        metadata["target"] = os.readlink(path)
+        info = path.stat()
+        metadata["target_mode"] = stat.S_IMODE(info.st_mode)
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError("source inventory contains a non-file entry")
+    # Keys are inserted in canonical mode/target/target_mode order.
+    header = json.dumps(metadata).encode("utf-8")
+    return hashlib.sha256(header + b"\0" + path.read_bytes()).hexdigest()
 
 
 def junit_case(case: ET.Element) -> dict:
@@ -91,8 +111,21 @@ def read_coverage(path: Path) -> dict:
 
 def save(path: Path, result: dict) -> None:
     temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        stream.write(json.dumps(result, indent=2) + "\n")
+    temporary.chmod(0o600)
     temporary.replace(path)
+    path.chmod(0o600)
+
+
+def private_evidence(output: Path) -> None:
+    """Finalize retained evidence permissions without following source links."""
+    for path in output.rglob("*"):
+        kind = path.lstat().st_mode
+        if stat.S_ISLNK(kind):
+            raise ValueError("evidence contains a symlink")
+        path.chmod(0o700 if stat.S_ISDIR(kind) else 0o600)
 
 
 def cpu_seconds() -> float | None:
@@ -118,28 +151,42 @@ def command(mode: str, seed: int, output: Path, runner: str) -> list[str]:
     return argv
 
 
-def execute(argv: list[str], *, root: Path, env: dict[str, str], log, timeout: int) -> int:
-    """Own a Linux process group; a timeout must not leave xdist workers alive."""
+def wait_unreaped(pid: int, timeout: float | None) -> None:
+    """Observe exit without releasing the PID/PGID ownership reservation."""
+    started = time.monotonic()
+    while os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+        if timeout is not None and time.monotonic() - started >= timeout:
+            raise subprocess.TimeoutExpired(str(pid), timeout)
+        time.sleep(0.02)
+
+
+def cleanup_owned_process(proc: subprocess.Popen) -> int:
+    # A zombie leader still reserves its PID. Never reap it before the last
+    # group signal: an unrelated group could otherwise reuse that number.
+    # ECHILD means ownership was lost: propagate, without signaling that PGID.
+    os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(proc.pid, sig)
+        except ProcessLookupError:
+            pass
+        if sig == signal.SIGTERM:
+            try:
+                wait_unreaped(proc.pid, 5)
+            except subprocess.TimeoutExpired:
+                pass
+    return proc.wait()
+
+
+def execute(argv: list[str], *, root: Path, env: dict[str, str], log, timeout: float | None) -> int:
+    """Own a Linux process group until cleanup, including on interruption."""
     proc = subprocess.Popen(argv, cwd=root, env=env, stdout=log,
                             stderr=subprocess.STDOUT, start_new_session=True)
     try:
-        return proc.wait(timeout=timeout)
+        wait_unreaped(proc.pid, timeout)
     finally:
-        # Also clean up descendants after normal exit; a surviving grandchild
-        # must not contaminate the following serial/parallel measurement.
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            pass
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        proc.wait()
+        status = cleanup_owned_process(proc)
+    return status
 
 
 def write_coverage_config(root: Path, output: Path) -> None:
@@ -169,13 +216,19 @@ def tool_versions() -> dict[str, str | None]:
 
 
 def private_environment(scratch: Path, runner: str) -> dict[str, str]:
-    env = dict(os.environ)
+    # Carry OS/tool lookup and locale only, not operator credentials, live
+    # endpoints, pytest filters/plugins, or CI-only physical-input controls.
+    allowed = {"PATH", "LANG", "LANGUAGE", "TZ", "TERM", "SHELL", "SYSTEMROOT",
+               "WINDIR", "PATHEXT", "COMSPEC", "SSL_CERT_FILE", "SSL_CERT_DIR"}
+    env = {key: value for key, value in os.environ.items()
+           if key in allowed or key.startswith("LC_")}
+    if "ARENA_SKIP_BROWSER_E2E" in os.environ:
+        env["ARENA_SKIP_BROWSER_E2E"] = os.environ["ARENA_SKIP_BROWSER_E2E"]
     for key in ("HOME", "TMPDIR", "TMP", "TEMP", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
                 "XDG_DATA_HOME", "XDG_STATE_HOME", "USERPROFILE"):
         path = scratch / key.lower()
-        path.mkdir()
+        path.mkdir(mode=0o700)
         env[key] = str(path)
-    env.pop("COVERAGE_FILE", None)
     env.update(ARENA_TEST_EXECUTION_GUARD="1", RUNNER_OS=runner)
     return env
 
@@ -199,6 +252,61 @@ def validate_request(root: Path, output: Path, mode: str, timeout: int) -> tuple
     return root, output
 
 
+def initialize_measurement(root: Path, output: Path, before: dict[str, str], *,
+                           mode: str, seed: int, runner: str) -> tuple[dict, list[str]]:
+    """Persist startup evidence even when configuration or metadata fails."""
+    destination = output / "result.json"
+    result = {"schema": 1, "state": "running", "started_unix": time.time()}
+    save(destination, result)
+    try:
+        write_coverage_config(root, output)
+        argv = command(mode, seed, output, runner)
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
+                              capture_output=True, text=True, check=True, timeout=30).stdout.strip()
+        result = {"schema": 1, "state": "running", "source_head": head,
+                  "source_manifest": before, "mode": mode, "seed": seed,
+                  "command": argv, "platform": platform.platform(), "python": sys.version,
+                  "versions": tool_versions(), "logical_cpus": os.cpu_count(),
+                  "started_unix": result["started_unix"], "peak_memory_bytes": None,
+                  "peak_memory_note": "not measured; no RSS estimate presented as physical peak",
+                  "locks": {n: before.get(n) for n in ("requirements-ci.txt", "requirements-mutation.lock")}}
+        save(destination, result)
+    except BaseException as error:
+        # Record startup interruption and unexpected faults, then preserve the
+        # original exception; a partial startup must never look still running.
+        result.update(state="failed", exit=130 if isinstance(error, KeyboardInterrupt) else 1,
+                      error=f"initialization failed: {type(error).__name__}",
+                      completed_unix=time.time())
+        try:
+            private_evidence(output)
+        finally:
+            save(destination, result)
+        raise
+    return result, argv
+
+
+def finalize_measurement(root: Path, output: Path, before: dict[str, str], result: dict,
+                         *, started: float, cpu: float | None, code: int) -> int:
+    """Validate immutable source identity and persist the final verdict."""
+    destination = output / "result.json"
+    result["wall_seconds"] = time.monotonic() - started
+    end_cpu = cpu_seconds()
+    result["child_cpu_seconds"] = end_cpu - cpu if cpu is not None and end_cpu is not None else None
+    result["source_unchanged"] = source_unchanged(root, before)
+    if not result["source_unchanged"]:
+        code = code or 1
+    result.update(state="passed" if code == 0 else "failed", exit=code,
+                  completed_unix=time.time())
+    try:
+        private_evidence(output)
+    except (OSError, ValueError) as error:
+        code = code or 1
+        result.update(state="failed", exit=code,
+                      error=f"evidence finalization failed: {type(error).__name__}")
+    save(destination, result)
+    return code
+
+
 def run(root: Path, output: Path, *, mode: str, seed: int, timeout: int) -> int:
     root, output = validate_request(root, output, mode, timeout)
     runner = "Linux"
@@ -206,20 +314,9 @@ def run(root: Path, output: Path, *, mode: str, seed: int, timeout: int) -> int:
     if not before:
         raise ValueError("source inventory is empty")
     # Exclusive directory creation prevents overwriting failed or partial evidence.
-    output.mkdir(parents=True, exist_ok=False)
-    write_coverage_config(root, output)
-    argv = command(mode, seed, output, runner)
-    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
-                          capture_output=True, text=True, check=True, timeout=30).stdout.strip()
-    result = {"schema": 1, "state": "running", "source_head": head,
-              "source_manifest": before, "mode": mode, "seed": seed,
-              "command": argv, "platform": platform.platform(), "python": sys.version,
-              "versions": tool_versions(), "logical_cpus": os.cpu_count(),
-              "started_unix": time.time(), "peak_memory_bytes": None,
-              "peak_memory_note": "not measured; no RSS estimate presented as physical peak",
-              "locks": {n: before.get(n) for n in ("requirements-ci.txt", "requirements-mutation.lock")}}
-    destination = output / "result.json"
-    save(destination, result)
+    output.mkdir(parents=True, exist_ok=False, mode=0o700)
+    output.chmod(0o700)
+    result, argv = initialize_measurement(root, output, before, mode=mode, seed=seed, runner=runner)
     started, cpu = time.monotonic(), cpu_seconds()
     code = 1
     try:
@@ -244,15 +341,7 @@ def run(root: Path, output: Path, *, mode: str, seed: int, timeout: int) -> int:
         result["error"] = f"incomplete measurement: {type(error).__name__}"
         code = 1
     finally:
-        result["wall_seconds"] = time.monotonic() - started
-        end_cpu = cpu_seconds()
-        result["child_cpu_seconds"] = end_cpu - cpu if cpu is not None and end_cpu is not None else None
-        result["source_unchanged"] = source_unchanged(root, before)
-        if not result["source_unchanged"]:
-            code = code or 1
-        result.update(state="passed" if code == 0 else "failed", exit=code,
-                      completed_unix=time.time())
-        save(destination, result)
+        code = finalize_measurement(root, output, before, result, started=started, cpu=cpu, code=code)
     return code
 
 

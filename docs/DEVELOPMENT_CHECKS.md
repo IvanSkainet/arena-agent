@@ -2,7 +2,7 @@
 
 ## Local iteration
 
-Install the hash-locked CI environment and the project, following CONTRIBUTING.md:
+Install the hash-locked CI test environment, then the project, as shown below:
 
 ```sh
 python -m pip install --require-hashes -r requirements-ci.txt
@@ -50,22 +50,19 @@ use `-n auto` based only on logical CPU count. If memory is constrained, keep
 
 ## Coverage-enforced diagnostic run
 
-For a full Linux diagnostic comparable in shape to the test command in CI:
+Use the isolated Linux measurement entry point, with a new output directory
+outside the checkout:
 
 ```sh
-RUNNER_OS=Linux ARENA_TEST_EXECUTION_GUARD=1 python -m pytest \
-  -p arena.governance.pytest_execution_guard \
-  --cov-fail-under=51 --randomly-seed=17 \
-  -n 2 --max-worker-restart=0 --junitxml=/path/outside/checkout/run.xml
+python scripts/benchmark_tests.py --mode n2 --seed 17 \
+    --output /tmp/arena-measurements/n2-17
 ```
 
-Use a real, existing output directory. Keep the same dependencies, optional
-tools, source tree, coverage options and seed when comparing against serial
-(`-p no:xdist`, without `-n` or `--max-worker-restart`). Give each run a fresh
-HOME/TMP/XDG on Linux and run pairs sequentially, alternating their order.
-Record environment differences and skipped-test reasons. Do not set `CI=1` on a
-personal machine merely to resemble hosted CI: some CI-only tests exercise real
-input devices. Never benchmark through the owner's live bridge.
+This arms the collection floor and coverage threshold and redirects the JUnit,
+coverage XML and database to retained evidence. Use `--mode serial` for its
+serial counterpart. Do not set `CI=1` to imitate hosted CI: some CI-only tests
+exercise physical input devices. Never benchmark through the owner's live bridge.
+Keep the same source tree, dependencies and seed for sequential comparisons.
 
 ## Safety contracts
 
@@ -121,9 +118,10 @@ pairs, alternate order, and repeat each of seeds 17, 271 and 20261119 twice for
 an experiment matching the local matrix design. Run sequentially, not in two
 terminals. No success or speedup is inferred from a single command.
 
-Each directory contains `result.json`, `pytest.log`, `junit.xml`, `coverage.xml`
+A successful run directory contains `result.json`, `pytest.log`, `junit.xml`, `coverage.xml`
 and `.coverage`, plus `coverage.toml` (the existing coverage settings with an
-isolated data destination). The runner does not export `COVERAGE_FILE` to nested
+isolated data destination). Failed or interrupted runs may retain only partial
+evidence; absence of artifacts is not success. The runner does not export `COVERAGE_FILE` to nested
 pytest commands: their diagnostic coverage must not contaminate the parent run.
 The JSON retains source HEAD and hashes (including unignored
 new files), package versions, lock hashes, command, wall/child CPU times, case
@@ -132,8 +130,11 @@ explicitly unknown, not a sampled RSS estimate. CPU count is logical CPU count,
 not an assertion about container CPU quota. Hardware/container limits must be
 recorded separately when comparing different hosts. Raw reports can contain
 application/test output: treat the evidence as private and inspect before sharing.
-The harness never dumps environment variables, but does inherit the caller's
-configuration. Use a disposable development environment, never the live bridge.
+The harness uses an explicit OS/tool-lookup/locale environment allowlist. It
+does not inherit operator credentials, Arena paths or live-test controls,
+CI/GITHUB_ACTIONS, or hidden PYTEST_* selection/plugin options. The explicit
+browser-E2E skip request is preserved. This is not a sandbox for hostile test
+code: use a disposable development environment, never the live bridge.
 
 A `running` record is saved before pytest starts. Timeout, interruption, missing
 reports, malformed/empty JUnit, contradictory JUnit counters, failing pytest

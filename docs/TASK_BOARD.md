@@ -59,6 +59,8 @@
 
 ## Очередь задач (Queue)
 
+- [ ] **T74 [DEVELOPMENT / MEASURED ACCELERATION]** Изолировать тестовые probe/baseline mutations; проверить collection/leak/coverage контракты под параллелизмом; измерить serial/n2 на нескольких seeds и платформах. Один собранный PR, без сокращения матрицы, security gates, coverage и без timeout/retry masking. План согласован владельцем; enrollment — отдельная следующая задача.
+
 - [ ] **T54 [EXEC / ENV BLOCKLIST]** ([#64](https://github.com/IvanSkainet/arena-agent/issues/64), PR [#70](https://github.com/IvanSkainet/arena-agent/pull/70)) Заменить substring-блоклист env в `/v1/exec` и `/v1/exec/stream` на политику в `arena/exec/environment.py`: точный (case-insensitive) denylist имён, выбирающих *что исполняется* (PATH, COMSPEC, BASH_ENV, LD_PRELOAD, APPINIT_DLLS, …), плюс substring-семейства секретов; ARENA_TOKEN не может быть переопределён вызывающим. Расположение пользовательских данных (TEMP, APPDATA, USERPROFILE) — отдельный инвариант и сознательно не блокируется. Sabotage: подмена PATH/COMSPEC из caller env не доходит до дочернего процесса (`tests/test_exec_env_gate.py`), benign-переменные проходят.
 - [x] **T37 [GOVERNANCE / GITHUB]** ([#8](https://github.com/IvanSkainet/arena-agent/issues/8)) Значимые изменения переведены на Issue → branch → PR: структурированные Issue Forms и PR template, стабильные aggregate checks и активный ruleset `master` без обязательного внешнего approval/merge queue.
   - PR [#15](https://github.com/IvanSkainet/arena-agent/pull/15), [#17](https://github.com/IvanSkainet/arena-agent/pull/17) и [#18](https://github.com/IvanSkainet/arena-agent/pull/18) merged; ruleset `20321570` active, approvals=0, bypass actors отсутствуют, четыре required checks закреплены за GitHub Actions.
@@ -159,5 +161,3 @@
   - Защита границ реалмов: `validate_realm_path` блокирует ошибочные мутации Mortal-файлов в Afterlife (`Chaos Sea` / `Shining Abode`) и Afterlife-файлов в `Mortal World`.
   - Запись `validation_repair_ready.json` как в `game_state/control/`, так и в корень для гарантированной совместимости с валидатором C# клиента.
   - Синхронизирован `arena/game/boe_cli.py` и `arena/game/boe_handlers.py` с 28 изолированными паритетными тестами.
-
-- [ ] **T74 [DEVELOPMENT / MEASURED ACCELERATION]** Изолировать тестовые probe/baseline mutations; проверить collection/leak/coverage контракты под параллелизмом; измерить serial/n2 на нескольких seeds и платформах. Один собранный PR, без сокращения матрицы, security gates, coverage и без timeout/retry masking. План согласован владельцем; enrollment — отдельная следующая задача.
