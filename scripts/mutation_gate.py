@@ -230,6 +230,13 @@ TARGETS: dict[str, tuple[str, ...]] = {
     ),
     "arena/governance/benchmark_runner.py": (
         "tests/test_benchmark_runner.py",
+        "tests/test_benchmark_process.py",
+        "tests/test_benchmark_reports.py",
+        "tests/test_benchmark_inventory.py",
+        "tests/test_benchmark_environment.py",
+        "tests/test_benchmark_cli.py",
+        "tests/test_benchmark_evidence.py",
+        "tests/_benchmark_support.py",
     ),
     "arena/governance/pytest_execution_guard.py": (
         "tests/test_pytest_execution_guard.py",

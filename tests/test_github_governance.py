@@ -166,16 +166,16 @@ def test_automated_review_triage_reads_every_surface_and_records_disposition() -
         "accepted,partially-accepted,rejected,duplicate,follow-up,noise"
     ) in text
     assert (
-        "pr-review-apps: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor;"
-        "pending=deepsource;codefactor-probation=10-prs;exact-head-required"
+        "pr-review-apps: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor,cubic,codescene;"
+        "pending=deepsource;required-master=coderabbit,cubic,sonarqube-cloud,codacy,codescene,codefactor;exact-head-required"
     ) in text
     assert "## Validate before resolving" in text
     assert "## Generated autofix branches" in text
 
     survey = APP_SURVEY.read_text(encoding="utf-8")
     assert (
-        "ai-review-policy: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor;"
-        "pending=deepsource;codefactor-probation=10-prs;exact-head-required"
+        "ai-review-policy: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor,cubic,codescene;"
+        "pending=deepsource;required-master=coderabbit,cubic,sonarqube-cloud,codacy,codescene,codefactor;exact-head-required"
     ) in survey
     assert "reviewer-benchmark-67.md" in survey
 

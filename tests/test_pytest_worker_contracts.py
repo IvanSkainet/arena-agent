@@ -61,8 +61,10 @@ def _run(tmp_path: Path, *, case: str, workers: int) -> subprocess.CompletedProc
     else:
         command += ["--no-cov"]
     env = dict(os.environ, ARENA_TEST_EXECUTION_GUARD="1", RUNNER_OS="Linux", PYTHONPATH=str(ROOT))
+    for control in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTEST_DISABLE_PLUGIN_AUTOLOAD"):
+        env.pop(control, None)
     if sys.platform != "linux":
-        return subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
+        return subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True, check=False, timeout=60)
     from arena.governance.benchmark_runner import execute
 
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as log:
@@ -98,3 +100,15 @@ def test_mismatched_worker_collection_is_rejected(tmp_path):
     result = _run(tmp_path, case="mismatched-collection", workers=2)
     assert result.returncode == 1, result.stdout + result.stderr
     assert "Different tests were collected" in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("control,value", [
+    ("PYTEST_ADDOPTS", "-k nonexistent_contract_case"),
+    ("PYTEST_PLUGINS", "nonexistent_contract_plugin"),
+    ("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1"),
+])
+def test_verdict_contracts_ignore_parent_pytest_controls(tmp_path, monkeypatch, control, value):
+    monkeypatch.setenv(control, value)
+    result = _run(tmp_path, case="healthy", workers=0)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "2 passed" in result.stdout

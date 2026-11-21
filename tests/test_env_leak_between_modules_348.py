@@ -419,8 +419,17 @@ def test_worker_leak_diagnostic_never_renders_secret_values(suite_conftest, monk
         "fixture": {"ARENA_CONTRACT_LEAK": ("private-before", "private-after")},
     })
     suite_conftest.pytest_sessionfinish(session, 0)
-    output = "\n".join(lines)
-    assert "private-before" not in output
-    assert "private-after" not in output
+    assert lines == []  # Worker never invokes a value-bearing reporter.
     assert session.exitstatus == 1
     assert session.config.workeroutput["arena_environment_leaks"] == ["ARENA_CONTRACT_LEAK"]
+    controller = _empty_session()
+    controller.config.pluginmanager.get_plugin = lambda name: reporter
+    monkeypatch.setattr(suite_conftest, "_arena_leaks_by_origin", lambda: {})
+    suite_conftest.pytest_testnodedown(SimpleNamespace(
+        config=controller.config, workeroutput=session.config.workeroutput), None)
+    suite_conftest.pytest_sessionfinish(controller, 0)
+    output = "\n".join(lines)
+    assert "ARENA_CONTRACT_LEAK" in output
+    assert "private-before" not in output
+    assert "private-after" not in output
+    assert controller.exitstatus == 1

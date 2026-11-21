@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import importlib.metadata
 import json
+import math
 import os
 import platform
 import signal
@@ -16,7 +17,9 @@ import time
 
 # nosemgrep: use-defused-xml -- own pytest UTF-8 report; read_junit rejects DTD/ENTITY declarations before parsing
 import xml.etree.ElementTree as ET  # nosec B405 -- own pytest UTF-8 report, DTD/ENTITY rejected by read_junit
+from contextlib import contextmanager
 from pathlib import Path
+from threading import current_thread, main_thread
 
 from coverage.exceptions import CoverageException
 
@@ -65,9 +68,11 @@ def junit_case(case: ET.Element) -> dict:
             outcome = tag
             reason = node.get("message", "")
             break
+    seconds = float(case.get("time", "0"))
+    if not math.isfinite(seconds) or seconds < 0:
+        raise ValueError("JUnit duration must be finite and nonnegative")
     return {"id": [case.get("classname", ""), case.get("name", "")],
-            "outcome": outcome, "reason": reason,
-            "seconds": float(case.get("time", "0"))}
+            "outcome": outcome, "reason": reason, "seconds": seconds}
 
 
 def read_junit(path: Path) -> dict:
@@ -100,23 +105,37 @@ def read_coverage(path: Path) -> dict:
     data.read()
     if not data.has_arcs():
         raise ValueError("branch coverage missing")
-    files = {}
-    for name in sorted(data.measured_files()):
-        files[name] = {"lines": sorted(data.lines(name) or []),
-                       "arcs": sorted(data.arcs(name) or [])}
+    files = {name: coverage_file(data, name) for name in sorted(data.measured_files())}
     if not files:
         raise ValueError("coverage contains no measured files")
     return files
 
 
+def coverage_file(data, name: str) -> dict:
+    """Normalize one file's optional coverage arrays without rounding arcs."""
+    return {"lines": sorted(data.lines(name) or []), "arcs": sorted(data.arcs(name) or [])}
+
+
+def require_coverage_xml(path: Path) -> None:
+    """A completed measurement must retain a readable nonempty XML report."""
+    with path.open("rb") as stream:
+        if not stream.read(1):
+            raise ValueError("coverage XML is empty")
+
+
 def save(path: Path, result: dict) -> None:
     temporary = path.with_suffix(".tmp")
     descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-        stream.write(json.dumps(result, indent=2) + "\n")
-    temporary.chmod(0o600)
-    temporary.replace(path)
-    path.chmod(0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps(result, indent=2) + "\n")
+        temporary.chmod(0o600)
+        temporary.replace(path)
+        path.chmod(0o600)
+    except BaseException:
+        # os.open succeeded exclusively: only this invocation owns this temp.
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def private_evidence(output: Path) -> None:
@@ -160,33 +179,92 @@ def wait_unreaped(pid: int, timeout: float | None) -> None:
         time.sleep(0.02)
 
 
+def signal_group(pid: int, sig: signal.Signals) -> None:
+    """Signal a still-owned group; an already-empty group is harmless."""
+    try:
+        os.killpg(pid, sig)
+    except ProcessLookupError:
+        pass
+
+
+@contextmanager
+def defer_cancellation():
+    """Finish group teardown before delivering another process cancellation."""
+    pending = []
+    previous = {}
+
+    def remember(signum, frame):
+        pending.append(signum)
+
+    if current_thread() is main_thread():
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            previous[sig] = signal.signal(sig, remember)
+    try:
+        yield
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+        if pending:
+            sig = pending[0]
+            handler = previous[sig]
+            if callable(handler):
+                handler(sig, None)
+            elif handler == signal.SIG_DFL:
+                signal.raise_signal(sig)
+
+
+def live_group_member(pid: int) -> bool:
+    """Linux procfs distinguishes live descendants from the reserved zombie leader."""
+    for entry in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            fields = entry.read_text().rsplit(")", 1)[1].split()
+            if int(fields[2]) == pid and fields[0] not in {"Z", "X"}:
+                return True
+        except (OSError, ValueError, IndexError):
+            # A process may disappear while scanning; never signal it by PID.
+            continue
+    return False
+
+
+def wait_group_grace(pid: int, deadline: float) -> None:
+    while time.monotonic() < deadline and live_group_member(pid):
+        time.sleep(0.02)
+
+
 def cleanup_owned_process(proc: subprocess.Popen) -> int:
     # A zombie leader still reserves its PID. Never reap it before the last
     # group signal: an unrelated group could otherwise reuse that number.
     # ECHILD means ownership was lost: propagate, without signaling that PGID.
-    os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
-    for sig in (signal.SIGTERM, signal.SIGKILL):
+    with defer_cancellation():
+        os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        deadline = time.monotonic() + 5
+        signal_group(proc.pid, signal.SIGTERM)
         try:
-            os.killpg(proc.pid, sig)
-        except ProcessLookupError:
+            wait_unreaped(proc.pid, 5)
+        except subprocess.TimeoutExpired:
             pass
-        if sig == signal.SIGTERM:
-            try:
-                wait_unreaped(proc.pid, 5)
-            except subprocess.TimeoutExpired:
-                pass
-    return proc.wait()
+        wait_group_grace(proc.pid, deadline)
+        signal_group(proc.pid, signal.SIGKILL)
+        return proc.wait()
 
 
 def execute(argv: list[str], *, root: Path, env: dict[str, str], log, timeout: float | None) -> int:
     """Own a Linux process group until cleanup, including on interruption."""
-    proc = subprocess.Popen(argv, cwd=root, env=env, stdout=log,
-                            stderr=subprocess.STDOUT, start_new_session=True)
+    proc = None
     try:
+        # Publish the child handle before a pending cancellation is delivered.
+        with defer_cancellation():
+            proc = subprocess.Popen(argv, cwd=root, env=env, stdout=log,
+                                    stderr=subprocess.STDOUT, start_new_session=True)
         wait_unreaped(proc.pid, timeout)
-    finally:
-        status = cleanup_owned_process(proc)
-    return status
+    except BaseException:
+        if proc is not None:
+            try:
+                cleanup_owned_process(proc)
+            except KeyboardInterrupt:
+                pass  # Teardown finished; preserve the original cancellation.
+        raise
+    return cleanup_owned_process(proc)
 
 
 def write_coverage_config(root: Path, output: Path) -> None:
@@ -204,15 +282,19 @@ def write_coverage_config(root: Path, output: Path) -> None:
     (output / "coverage.toml").write_text(config, encoding="utf-8")
 
 
+def tool_version(name: str) -> str | None:
+    """Retain unknown versions as unknown rather than inventing a tool."""
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
 def tool_versions() -> dict[str, str | None]:
-    versions = dict[str, str | None]()
-    for name in ("pytest", "pytest-xdist", "pytest-cov", "pytest-randomly", "coverage", "execnet",
-                 "mutmut", "pyrefly", "ruff"):
-        try:
-            versions[name] = importlib.metadata.version(name)
-        except importlib.metadata.PackageNotFoundError:
-            versions[name] = None
-    return versions
+    return {name: tool_version(name) for name in (
+        "pytest", "pytest-xdist", "pytest-cov", "pytest-randomly", "coverage", "execnet",
+        "mutmut", "pyrefly", "ruff",
+    )}
 
 
 def private_environment(scratch: Path, runner: str) -> dict[str, str]:
@@ -236,7 +318,7 @@ def private_environment(scratch: Path, runner: str) -> dict[str, str]:
 def source_unchanged(root: Path, before: dict[str, str]) -> bool:
     try:
         return fingerprint(root) == before
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, ValueError, subprocess.SubprocessError):
         return False
 
 
@@ -252,15 +334,18 @@ def validate_request(root: Path, output: Path, mode: str, timeout: int) -> tuple
     return root, output
 
 
-def initialize_measurement(root: Path, output: Path, before: dict[str, str], *,
-                           mode: str, seed: int, runner: str) -> tuple[dict, list[str]]:
+def initialize_measurement(root: Path, output: Path, *,
+                           mode: str, seed: int) -> tuple[dict, list[str], dict[str, str]]:
     """Persist startup evidence even when configuration or metadata fails."""
     destination = output / "result.json"
     result = {"schema": 1, "state": "running", "started_unix": time.time()}
     save(destination, result)
     try:
+        before = fingerprint(root)
+        if not before:
+            raise ValueError("source inventory is empty")
         write_coverage_config(root, output)
-        argv = command(mode, seed, output, runner)
+        argv = command(mode, seed, output, "Linux")
         head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
                               capture_output=True, text=True, check=True, timeout=30).stdout.strip()
         result = {"schema": 1, "state": "running", "source_head": head,
@@ -282,7 +367,7 @@ def initialize_measurement(root: Path, output: Path, before: dict[str, str], *,
         finally:
             save(destination, result)
         raise
-    return result, argv
+    return result, argv, before
 
 
 def finalize_measurement(root: Path, output: Path, before: dict[str, str], result: dict,
@@ -310,13 +395,10 @@ def finalize_measurement(root: Path, output: Path, before: dict[str, str], resul
 def run(root: Path, output: Path, *, mode: str, seed: int, timeout: int) -> int:
     root, output = validate_request(root, output, mode, timeout)
     runner = "Linux"
-    before = fingerprint(root)
-    if not before:
-        raise ValueError("source inventory is empty")
     # Exclusive directory creation prevents overwriting failed or partial evidence.
     output.mkdir(parents=True, exist_ok=False, mode=0o700)
     output.chmod(0o700)
-    result, argv = initialize_measurement(root, output, before, mode=mode, seed=seed, runner=runner)
+    result, argv, before = initialize_measurement(root, output, mode=mode, seed=seed)
     started, cpu = time.monotonic(), cpu_seconds()
     code = 1
     try:
@@ -329,6 +411,7 @@ def run(root: Path, output: Path, *, mode: str, seed: int, timeout: int) -> int:
         result["pytest_exit"] = code
         result["junit"] = read_junit(output / "junit.xml")
         result["coverage"] = read_coverage(output / ".coverage")
+        require_coverage_xml(output / "coverage.xml")
         if any(c["outcome"] in {"failure", "error"} for c in result["junit"]["cases"]):
             code = code or 1
     except subprocess.TimeoutExpired:

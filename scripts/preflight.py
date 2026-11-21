@@ -34,6 +34,7 @@ import argparse
 import os
 import platform
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -41,6 +42,8 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 class Check:
@@ -54,6 +57,7 @@ class Check:
 
 
 PY = sys.executable
+FULL_SUITE = "full suite"
 
 CHECKS: list[Check] = [
     Check("ruff ratchet", [PY, "scripts/lint_ratchet.py"],
@@ -153,7 +157,7 @@ CHECKS: list[Check] = [
         "tests/test_no_version_badge_writer.py",
     ], why="the gates most likely to be platform-specific; /proc use here "
            "reddened the whole macOS matrix once (6ba7b06a)"),
-    Check("full suite", [PY, "-m", "pytest", "-p", "no:randomly", "--no-cov", "-q"],
+    Check(FULL_SUITE, [PY, "-m", "pytest", "-p", "no:randomly", "--no-cov", "-q"],
           why="everything else", slow=True),
 ]
 
@@ -187,9 +191,9 @@ def _portability_scan() -> tuple[bool, list[str]]:
 def _command(check: Check, workers: int) -> list[str]:
     """Parallelize only the full pytest suite; never mutate shared check argv."""
     argv = list(check.argv)
-    if check.name == "full suite":
+    if check.name == FULL_SUITE:
         argv += ["-p", "arena.governance.pytest_execution_guard"]
-    if check.name == "full suite" and workers == 2:
+    if check.name == FULL_SUITE and workers == 2:
         argv += ["-n", "2", "--max-worker-restart=0"]
     return argv
 
@@ -216,9 +220,23 @@ def _execute_full(argv: list[str], env: dict[str, str]) -> subprocess.CompletedP
     from arena.governance.benchmark_runner import execute
 
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as log:
-        status = execute(argv, root=ROOT, env=env, log=log, timeout=None)
+        previous = signal.signal(signal.SIGTERM, signal.default_int_handler)
+        try:
+            status = execute(argv, root=ROOT, env=env, log=log, timeout=None)
+        finally:
+            signal.signal(signal.SIGTERM, previous)
         log.seek(0)
         return subprocess.CompletedProcess(argv, status, log.read(), "")
+
+
+def _execute_check(check: Check, argv: list[str]) -> subprocess.CompletedProcess[str]:
+    if check.name == FULL_SUITE:
+        runner_os = {"Darwin": "macOS"}.get(platform.system(), platform.system())
+        env = dict(os.environ, ARENA_TEST_EXECUTION_GUARD="1", RUNNER_OS=runner_os)
+        # --full is a complete, explicitly sized run, not an inherited subset.
+        env.pop("PYTEST_ADDOPTS", None)
+        return _execute_full(argv, env)
+    return subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, env=None, check=False)
 
 
 def _run_check(c: Check, workers: int) -> str | None:
@@ -231,12 +249,7 @@ def _run_check(c: Check, workers: int) -> str | None:
         return f"{c.name} (tool missing)"
     t0 = time.time()
     argv = _command(c, workers)
-    if c.name == "full suite":
-        runner_os = {"Darwin": "macOS"}.get(platform.system(), platform.system())
-        env = dict(os.environ, ARENA_TEST_EXECUTION_GUARD="1", RUNNER_OS=runner_os)
-        proc = _execute_full(argv, env)
-    else:
-        proc = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, env=None, check=False)
+    proc = _execute_check(c, argv)
     el = time.time() - t0
     if proc.returncode == 0:
         print(f"ok ({el:.0f}s)")

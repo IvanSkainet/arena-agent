@@ -11,6 +11,15 @@
   (SARIF), увеличивает triage-доску.
 - Бесплатно для public repo.
 
+## Действующая merge policy
+
+Исторические оценки и рекомендации ниже не изменяют живые branch rules.
+Текущий `master` требует CodeRabbit, cubic, SonarCloud, Codacy, CodeScene и
+CodeFactor. Их отсутствие, отказ или quota-limited ответ нельзя выдавать за
+одобрение либо обходить. Qodo и Sourcery остаются дополнительными review
+поверхностями. Изменение required contexts требует отдельного согласования
+оператора; историческая probation CodeFactor такого разрешения не даёт.
+
 ## Что УЖЕ стоит (не дублировать)
 
 | Слой | Уже есть |
@@ -33,7 +42,7 @@ T52 заменил ставку на два Apps измеренным quota pool
 static-analysis квоты; Sourcery остаётся полезным при доступной квоте.
 DeepSource сохраняется до ответа вендора, но quota-skipped check считается
 нулём сигнала. CodeFactor измерен как low-recall/high-permission, но оставлен
-на probationary 10-real-PR sample ради быстрой независимой квоты. Functional overlap допустим:
+на исторический probationary 10-real-PR sample ради независимой квоты; сейчас он required по живым правилам. Functional overlap допустим:
 он покупает availability, но не отменяет triage каждого finding. Результаты:
 [`reviewer-benchmark-67.md`](audits/reviewer-benchmark-67.md). Процедура:
 [PR Review Triage](PR_REVIEW_TRIAGE.md).
@@ -97,15 +106,15 @@ e2e-installed — естественное продолжение «продви
 | 4 | Playwright dashboard E2E | P2→Tier-3 | blocking e2e job | позже |
 | 5 | Codecov | P3 | PR comment | **РАБОТАЕТ** 2026-08-02: codecov-action v7.0.0 SHA-pinned, token-auth, 15 legs upload, statuses informational-only. Первое покрытие: **52.75%** (20185/38261). Badge в обоих README |
 | 6 | Renovate | P3 | PR queue | после автоматизации regen-lock |
-| 7 | SonarQube Cloud / Codacy | measured shadow | PR/static baseline, informational | **Оставить non-blocking для rule-level triage; не bulk-fix и не делать required** |
-| 8 | AI-review Apps | measured shadow | PR review, informational | **CodeRabbit + Qodo оставить; Sourcery quota-dependent; DeepSource pending vendor; CodeFactor оставить на 10-PR probation ради quota availability** |
+| 7 | SonarQube Cloud / Codacy | required by live master rules | PR/static baseline | **Обязательные проверки; rule-level triage без bulk dismissals и обхода gate** |
+| 8 | Review Apps | live rules + semantic review | PR review | **CodeRabbit, cubic, CodeScene и CodeFactor required; Qodo/Sourcery дополнительные; DeepSource pending vendor** |
 
 Статус: P1 выполнен (harden-runner@bf7454d egress-policy: audit как первый
 шаг 29 jobs). Остальное ждёт явного решения пользователя.
 
 ## Перекалибровка AI-review по живым PR (2026-08-14, Asia/Yekaterinburg)
 
-<!-- ai-review-policy: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor;pending=deepsource;codefactor-probation=10-prs;exact-head-required -->
+<!-- ai-review-policy: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor,cubic,codescene;pending=deepsource;required-master=coderabbit,cubic,sonarqube-cloud,codacy,codescene,codefactor;exact-head-required -->
 
 Старый вывод «Sourcery ≈100% false-positive» смешивал два разных режима:
 массовые диагностики по историческому дереву и текущий review конкретного PR.

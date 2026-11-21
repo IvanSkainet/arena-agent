@@ -2,7 +2,7 @@
 
 <!-- pr-review-surfaces: review-threads,submitted-reviews,ordinary-pr-comments,check-rollup -->
 <!-- pr-review-dispositions: accepted,partially-accepted,rejected,duplicate,follow-up,noise -->
-<!-- pr-review-apps: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor;pending=deepsource;codefactor-probation=10-prs;exact-head-required -->
+<!-- pr-review-apps: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor,cubic,codescene;pending=deepsource;required-master=coderabbit,cubic,sonarqube-cloud,codacy,codescene,codefactor;exact-head-required -->
 
 Automated review is evidence, not authority. A green check does not prove the
 change works, and a bot-authored patch does not become correct because another
@@ -21,6 +21,8 @@ available.
 | Integration | Role | Merge status |
 |---|---|---|
 | CodeRabbit | Manually triggered semantic review for high-risk changes; benchmark strength was exact DNS-rebinding analysis. | Required by current master rules; quota/rate limits are not semantic approval. Never merge autofixes without re-deriving and testing the invariant. |
+| cubic | Exact-head semantic review of correctness, isolation and evidence contracts. | Required by current master rules; findings need tested dispositions, and missing/quota-limited output is not approval. |
+| CodeScene | Structural code-health and maintainability analysis of the PR delta. | Required by current master rules; meet the gate or obtain a separately approved rule change, never silently suppress it. |
 | Qodo | Independent semantic/cross-file review. Benchmark found insecure TLS and a cross-file release-packaging concern. | Informational trial; automatic commits/autofix remain disabled and every finding is revalidated. |
 | SonarQube Cloud | Whole-tree and PR-delta static analysis with low content permission. | Required by current master rules. Validate findings and satisfy the required Quality Gate without bypass. |
 | Codacy | Multi-analyzer static analysis and independent quota. | Required by current master rules; manually validate findings and collapse duplicate annotations by root location before counting. |

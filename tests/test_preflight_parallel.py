@@ -144,3 +144,70 @@ def test_linux_full_suite_delegates_to_owned_lifecycle(monkeypatch):
     assert calls[0][1]["timeout"] is None
     assert calls[0][1]["env"] == {"RUNNER_OS": "Linux"}
     assert calls[0][1]["root"] == preflight.ROOT
+
+
+@pytest.mark.parametrize("workers", [1, 2])
+def test_full_suite_neutralizes_inherited_selection_and_worker_options(harness, monkeypatch, workers):
+    import os
+
+    inherited = "-n auto --dist=loadscope -k truncated"
+    monkeypatch.setenv("PYTEST_ADDOPTS", inherited)
+    environments = []
+
+    def run(argv, **kwargs):
+        environments.append((argv, kwargs.get("env")))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(preflight, "subprocess", SimpleNamespace(run=run))
+    assert preflight.main(["--full", "--workers", str(workers)]) == 0
+    assert environments[0][1] is None  # Fast checks retain the parent's environment.
+    assert "PYTEST_ADDOPTS" not in environments[1][1]
+    assert os.environ["PYTEST_ADDOPTS"] == inherited
+
+
+@pytest.mark.skipif(__import__("sys").platform != "linux", reason="Linux owned SIGTERM cleanup")
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_full_suite_installs_and_restores_sigterm_cancellation(monkeypatch, interrupted):
+    import signal
+
+    from arena.governance import benchmark_runner
+
+    original = signal.getsignal(signal.SIGTERM)
+    def sentinel(signum, frame):
+        return None
+
+    def execute(*args, **kwargs):
+        assert signal.getsignal(signal.SIGTERM) == signal.default_int_handler
+        if interrupted:
+            raise KeyboardInterrupt
+        return 0
+
+    monkeypatch.setattr(benchmark_runner, "execute", execute)
+    signal.signal(signal.SIGTERM, sentinel)
+    try:
+        if interrupted:
+            with pytest.raises(KeyboardInterrupt):
+                preflight._execute_full(["fixture"], {})
+        else:
+            assert preflight._execute_full(["fixture"], {}).returncode == 0
+        assert signal.getsignal(signal.SIGTERM) is sentinel
+    finally:
+        signal.signal(signal.SIGTERM, original)
+
+
+@pytest.mark.skipif(__import__("sys").platform != "linux", reason="Linux owned checkout entrypoint")
+def test_script_full_executor_imports_checkout_without_editable_install(tmp_path):
+    import subprocess
+    import sys
+
+    code = (
+        "import pathlib,runpy,sys; "
+        f"root=pathlib.Path({str(preflight.ROOT)!r}); "
+        "sys.path[:]=[p for p in sys.path if pathlib.Path(p).resolve()!=root]; "
+        "sys.meta_path[:]=[f for f in sys.meta_path if not getattr(f,'__module__','').startswith('__editable__')]; "
+        f"module=runpy.run_path({str(preflight.ROOT / 'scripts/preflight.py')!r}); "
+        "assert module['_execute_full']([sys.executable,'-c','pass'],{}).returncode==0"
+    )
+    result = subprocess.run([sys.executable, "-I", "-c", code], cwd=tmp_path,
+                            capture_output=True, text=True, check=False, timeout=15)
+    assert result.returncode == 0, result.stdout + result.stderr

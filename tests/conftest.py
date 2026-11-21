@@ -46,6 +46,11 @@ from typing import Any
 
 import pytest
 
+from tests import _worker_arena_leaks as worker_leaks
+from tests._worker_arena_leaks import (
+    pytest_testnodedown as pytest_testnodedown,
+)
+
 _ALLOW_MARKER = "allow_network"
 
 # Loopback only. Not "private ranges": a test that reaches 192.168.1.1
@@ -89,7 +94,7 @@ def _ambient_arena_variables() -> tuple[str, ...]:
 
 
 _ARENA_AT_SESSION_START: dict[str, str] = {}
-_WORKER_ARENA_LEAKS = pytest.StashKey[list[str]]()
+_WORKER_ARENA_LEAKS = worker_leaks.WORKER_ARENA_LEAKS
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
@@ -164,17 +169,6 @@ def _report_arena_leaks(
             "undoing it; use monkeypatch.setenv so it is rolled back (#348)")
 
 
-def _report_worker_arena_leaks(session: pytest.Session) -> list[str]:
-    worker_leaks = session.config.stash.get(_WORKER_ARENA_LEAKS, [])
-    if worker_leaks:
-        reporter = session.config.pluginmanager.get_plugin("terminalreporter")
-        if reporter is not None:
-            reporter.write_sep("=", "ARENA_* environment leaked in workers", red=True)
-            for name in sorted(set(worker_leaks)):
-                reporter.write_line(f"  {name}")
-    return worker_leaks
-
-
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     """Fail the run if the suite ended with a different `ARENA_*` set.
 
@@ -196,27 +190,10 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     runs.
     """
     leaked = _arena_leaks_by_origin()
-    if leaked:
-        if hasattr(session.config, "workeroutput"):
-            # xdist does not propagate an arbitrary worker sessionfinish
-            # exitstatus=1 as a failed test. Forward names, never secret values.
-            session.config.workeroutput["arena_environment_leaks"] = sorted({
-                name for changed in leaked.values() for name in changed
-            })
-        else:
-            _report_arena_leaks(session, leaked)
-    worker_leaks = _report_worker_arena_leaks(session)
-    if (leaked or worker_leaks) and exitstatus == 0:
+    worker_leaks.publish_local_leaks(session, leaked, _report_arena_leaks)
+    remote_leaks = worker_leaks.report_worker_leaks(session)
+    if (leaked or remote_leaks) and exitstatus == 0:
         session.exitstatus = 1
-
-
-@pytest.hookimpl(optionalhook=True)
-def pytest_testnodedown(node, error) -> None:
-    """T74: a worker's environment-leak refusal must fail the controller."""
-    names = getattr(node, "workeroutput", {}).get("arena_environment_leaks", [])
-    if names:
-        current = node.config.stash.get(_WORKER_ARENA_LEAKS, [])
-        node.config.stash[_WORKER_ARENA_LEAKS] = [*current, *names]
 
 
 _ARENA_AFTER_COLLECTION: dict[str, str] = {}
@@ -865,6 +842,8 @@ def isolated_release_repo(tmp_path):
         ["git", "-c", "user.name=T74 fixture", "-c", "user.email=fixture@example.invalid",
          "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "fixture"],
     ]
+    # Repository/index/worktree overrides must never redirect a private fixture.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     for argv in commands:
-        subprocess.run(argv, cwd=root, check=True, capture_output=True, timeout=30)
+        subprocess.run(argv, cwd=root, env=env, check=True, capture_output=True, timeout=30)
     return root
