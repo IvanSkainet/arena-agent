@@ -82,17 +82,21 @@ def read_junit(path: Path) -> dict:
     if "<!DOCTYPE" in text.upper() or "<!ENTITY" in text.upper():
         raise ValueError("JUnit declarations are not allowed")
     root = ET.fromstring(text)  # nosec B314 -- own pytest UTF-8 report; DTD/ENTITY declarations rejected above
-    cases = [junit_case(case) for case in root.iter("testcase")]
-    if not cases:
-        raise ValueError("JUnit contains no cases")
-    suites = list(root.iter("testsuite"))
-    declared = [int(s.attrib["tests"]) for s in suites if "tests" in s.attrib]
-    if declared and sum(declared) < len(cases):
-        raise ValueError("JUnit counters contradict the case inventory")
+    cases, declared = junit_inventory(root)
     # pytest-subtests contributes to summary counters without emitting a new
     # testcase element. Preserve both counts; never equate them silently.
     return {"cases": cases, "count": len(cases),
             "declared_tests": sum(declared) if declared else None}
+
+
+def junit_inventory(root: ET.Element) -> tuple[list[dict], list[int]]:
+    cases = [junit_case(case) for case in root.iter("testcase")]
+    if not cases:
+        raise ValueError("JUnit contains no cases")
+    declared = [int(s.attrib["tests"]) for s in root.iter("testsuite") if "tests" in s.attrib]
+    if declared and sum(declared) < len(cases):
+        raise ValueError("JUnit counters contradict the case inventory")
+    return cases, declared
 
 
 def read_coverage(path: Path) -> dict:
@@ -202,15 +206,20 @@ def defer_cancellation():
     try:
         yield
     finally:
-        for sig, handler in previous.items():
-            signal.signal(sig, handler)
-        if pending:
-            sig = pending[0]
-            handler = previous[sig]
-            if callable(handler):
-                handler(sig, None)
-            elif handler == signal.SIG_DFL:
-                signal.raise_signal(sig)
+        restore_cancellation(previous, pending)
+
+
+def restore_cancellation(previous: dict, pending: list) -> None:
+    for sig, handler in previous.items():
+        signal.signal(sig, handler)
+    if not pending:
+        return
+    sig = pending[0]
+    handler = previous[sig]
+    if callable(handler):
+        handler(sig, None)
+    elif handler == signal.SIG_DFL:
+        signal.raise_signal(sig)
 
 
 def live_group_member(pid: int) -> bool:

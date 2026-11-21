@@ -44,5 +44,7 @@ def pytest_testnodedown(node, error) -> None:
 
 
 def refuse_leaks(session, local, remote, exitstatus: int) -> None:
-    if (local or remote) and exitstatus == 0:
+    if exitstatus != 0:
+        return
+    if local or remote:
         session.exitstatus = 1

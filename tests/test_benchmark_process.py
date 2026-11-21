@@ -378,3 +378,42 @@ def test_deferred_default_sigterm_is_delivered_after_teardown(tmp_path):
                             check=False, timeout=15)
     assert result.returncode == -15, result.stdout + result.stderr
     assert marker.read_text() == "done"
+
+
+@pytest.mark.parametrize("ticks,alive,expected_sleeps", [
+    ([9.0, 10.0], True, [0.02]),
+    ([10.0], True, []),
+    ([9.0], False, []),
+])
+def test_group_grace_has_exact_deadline_and_bounded_polling(monkeypatch, ticks, alive, expected_sleeps):
+    clock = iter(ticks)
+    sleeps = []
+    monkeypatch.setattr(bench, "time", SimpleNamespace(monotonic=lambda: next(clock), sleep=sleeps.append))
+    monkeypatch.setattr(bench, "live_group_member", lambda pid: alive)
+    bench.wait_group_grace(12345, 10.0)
+    assert sleeps == expected_sleeps
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux waitid ownership contract")
+def test_group_deadline_is_five_seconds_from_term_not_leader_exit(monkeypatch):
+    deadlines = []
+    monkeypatch.setattr(bench.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(bench.os, "waitid", lambda *a: None)
+    monkeypatch.setattr(bench, "signal_group", lambda *a: None)
+    monkeypatch.setattr(bench, "wait_unreaped", lambda *a: None)
+    monkeypatch.setattr(bench, "wait_group_grace", lambda pid, deadline: deadlines.append((pid, deadline)))
+    assert bench.cleanup_owned_process(SimpleNamespace(pid=12345, wait=lambda: 0)) == 0
+    assert deadlines == [(12345, 105.0)]
+
+
+def test_failed_popen_preserves_original_exception_without_cleanup(monkeypatch, tmp_path):
+    original = OSError("startup failed")
+
+    def refuse(*args, **kwargs):
+        raise original
+
+    monkeypatch.setattr(bench.subprocess, "Popen", refuse)
+    monkeypatch.setattr(bench, "cleanup_owned_process", lambda proc: pytest.fail("no child was created"))
+    with pytest.raises(OSError) as caught:
+        bench.execute(["fixture"], root=tmp_path, env={}, log=None, timeout=10)
+    assert caught.value is original

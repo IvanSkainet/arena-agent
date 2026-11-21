@@ -799,4 +799,3 @@ def _no_outbound_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
     _install_connect_guards(monkeypatch)
     _install_send_guards(monkeypatch)
     _install_resolver_guards(monkeypatch)
-

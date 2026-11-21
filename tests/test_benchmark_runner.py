@@ -21,6 +21,7 @@ def test_complete_measurement_preserves_command_outcomes_and_private_paths(measu
     assert result["junit"]["count"] == 2
     assert result["junit"]["cases"][1]["reason"] == "fixture reason"
     assert result["command"][-3:] == ["-n", "2", "--max-worker-restart=0"]
+    assert "--cov-fail-under=51" in result["command"]
     env = measurement[3][0][1]["env"]
     assert env["ARENA_TEST_EXECUTION_GUARD"] == "1"
     assert env["RUNNER_OS"] == "Linux"

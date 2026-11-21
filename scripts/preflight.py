@@ -239,6 +239,15 @@ def _execute_check(check: Check, argv: list[str]) -> subprocess.CompletedProcess
     return subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, env=None, check=False)
 
 
+def _report_failure(check: Check, proc: subprocess.CompletedProcess[str]) -> None:
+    tail = (proc.stdout or "")[-1500:] + (proc.stderr or "")[-1500:]
+    # Merged child streams can put an early refusal before buffered stdout.
+    head = [line[:250] for line in (proc.stdout or "").splitlines()[:2]]
+    for line in dict.fromkeys([*head, *tail.strip().splitlines()[-12:]]):
+        print(f"    {line}")
+    print(f"    why it matters: {check.why}")
+
+
 def _run_check(c: Check, workers: int) -> str | None:
     print(f"{c.name:26} ", end="", flush=True)
     if c.needs and shutil.which(c.needs) is None:
@@ -255,12 +264,7 @@ def _run_check(c: Check, workers: int) -> str | None:
         print(f"ok ({el:.0f}s)")
     else:
         print(f"FAIL ({el:.0f}s)")
-        tail = (proc.stdout or "")[-1500:] + (proc.stderr or "")[-1500:]
-        # Merged child streams can put an early refusal before buffered stdout.
-        head = [line[:250] for line in (proc.stdout or "").splitlines()[:2]]
-        for line in dict.fromkeys([*head, *tail.strip().splitlines()[-12:]]):
-            print(f"    {line}")
-        print(f"    why it matters: {c.why}")
+        _report_failure(c, proc)
         return c.name
     return None
 
