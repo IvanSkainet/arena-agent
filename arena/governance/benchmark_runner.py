@@ -458,13 +458,14 @@ def run(root: Path, output: Path, *, options: MeasurementOptions) -> int:
             # Do not set CI/GITHUB_ACTIONS: that can enable physical input tests.
             with (output / "pytest.log").open("w", encoding="utf-8") as log:
                 status = execute(argv, context=ProcessContext(root=root, env=env), log=log, timeout=options.timeout)
-            code = status if status >= 0 else 1
-        result["pytest_exit"] = code
+            pytest_code = status if status >= 0 else 1
+        result["pytest_exit"] = pytest_code
         result["junit"] = read_junit(output / "junit.xml")
         result["coverage"] = read_coverage(output / ".coverage")
         require_coverage_xml(output / "coverage.xml")
-        if any(c["outcome"] in {"failure", "error"} for c in result["junit"]["cases"]):
-            code = code or 1
+        evidence_failed = any(c["outcome"] in {"failure", "error"} for c in result["junit"]["cases"])
+        # Promote success only after every evidence reader has completed.
+        code = (pytest_code or 1) if evidence_failed else pytest_code
     except subprocess.TimeoutExpired:
         result["error"] = "pytest timeout; partial evidence retained, no retry"
         code = 124

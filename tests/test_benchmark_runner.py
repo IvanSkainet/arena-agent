@@ -472,3 +472,17 @@ def test_measurement_configuration_and_clock_cannot_be_rebound(record, field):
 
     with pytest.raises(FrozenInstanceError):
         setattr(record, field, None)
+
+
+@pytest.mark.parametrize("stage", ["read_junit", "read_coverage", "require_coverage_xml"])
+def test_unexpected_evidence_error_cannot_publish_green_record(measurement, monkeypatch, stage):
+    def broken(*args, **kwargs):
+        raise RuntimeError("unexpected evidence failure")
+
+    monkeypatch.setattr(bench, stage, broken)
+    with pytest.raises(RuntimeError, match="unexpected evidence failure"):
+        invoke(measurement)
+    result = report(measurement)
+    assert result["pytest_exit"] == 0
+    assert result["state"] == "failed"
+    assert result["exit"] == 1

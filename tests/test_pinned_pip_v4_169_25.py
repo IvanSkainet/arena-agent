@@ -631,7 +631,7 @@ def _private_probe_inputs(request, monkeypatch):
         'test_a_backslash_in_the_command_does_not_grant_an_exemption',
         'test_ratchet_refuses_a_truncated_scan',
     }
-    if request.node.name not in writers:
+    if (getattr(request.node, "originalname", None) or request.node.name) not in writers:
         return
     root = request.getfixturevalue("isolated_ratchet_repo")
     module = sys.modules[__name__]

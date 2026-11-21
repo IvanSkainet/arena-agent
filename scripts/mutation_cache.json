@@ -226,8 +226,8 @@
    "total": 150
   },
   "arena/governance/benchmark_runner.py": {
-   "fingerprint": "35af7b791d023cd005b6024a3879c20094febfdd295cecbbec0f7a802219c749",
-   "reason": "Fresh complete mutmut 2.5.1 list_mutations census:464/464 exact mutants detected by isolated direct replay, four independent healthy+restored benchmark-contract controls passed; source unchanged. Not a mutmut CLI-green claim. Receipt pr495-procfs-final-exact-replay-summary.json sha256:240709cde44f31019b787ab420b6158b2d1ada36bc18aeddb6687afea783bdc8.",
+   "fingerprint": "75d514c02b501239cc888cc3e68ac1b9390d61fc309cdb24e490f630724ab97b",
+   "reason": "Fresh complete mutmut 2.5.1 census after independent failclosed-evidence review: 465/465 exact mutants detected by isolated direct replay, four independent healthy+restored benchmark-contract controls passed; source unchanged. Not a mutmut CLI-green claim. Receipt pr495-independent-final-exact-replay-summary.json sha256:2cde75d3a8bd87015f1af671d36985e2f18e7987bb2f06b1ec50738df3fc3504.",
    "survived": 0,
    "tests": [
     "tests/_benchmark_support.py",
@@ -240,7 +240,7 @@
     "tests/test_benchmark_runner.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 464
+   "total": 465
   },
   "arena/governance/firefox_tree_parity.py": {
    "fingerprint": "16f60e6e39d0ecb4bd58009fb6dd047a51ef987ed87e3269d3f062a661d69d32",

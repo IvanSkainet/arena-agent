@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import sysconfig
 import tempfile
 from pathlib import Path
 
@@ -120,10 +121,8 @@ def test_verdict_contracts_ignore_parent_pytest_controls(tmp_path, monkeypatch, 
 
 
 def test_console_pytest_finds_shared_helpers_without_pythonpath(tmp_path):
-    import shutil
-
-    executable = shutil.which("pytest")
-    assert executable is not None
+    executable = Path(sysconfig.get_path("scripts")) / ("pytest.exe" if os.name == "nt" else "pytest")
+    assert executable.is_file(), f"pytest console script missing for {sys.executable}: {executable}"
     env = dict(os.environ)
     for control in ("PYTHONPATH", "PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTEST_DISABLE_PLUGIN_AUTOLOAD"):
         env.pop(control, None)

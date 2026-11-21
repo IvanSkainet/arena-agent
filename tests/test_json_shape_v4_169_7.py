@@ -345,7 +345,7 @@ def _private_probe_inputs(request, monkeypatch):
         'test_dead_condition_ratchet_catches_a_tag_gate_in_a_master_only_workflow',
         'test_dead_condition_ratchet_allows_tag_gates_where_tags_actually_fire',
     }
-    if request.node.name not in writers:
+    if (getattr(request.node, "originalname", None) or request.node.name) not in writers:
         return
     root = request.getfixturevalue("isolated_ratchet_repo")
     module = sys.modules[__name__]
