@@ -17,10 +17,12 @@
 
 - Rate limiting behind a tunnel or reverse proxy: every caller arrives from
     the same address, and 300 unauthenticated requests used to shut the token
-    holder out for a minute. Token holders are now counted apart from other
-    callers at the same address and are still limited themselves (#525).
+    holder out for a minute. A caller presenting the bridge token or a user
+    token is now counted apart from other callers at the same address and is
+    still limited itself; agent bearer tokens are not yet (#525, #538).
 - `requests.jsonl` and `bridge.log` are written beside the audit log in the
-    agent home, with owner-only permissions, instead of the code directory.
+    agent home instead of the code directory, with owner-only modes on POSIX;
+    on Windows the ACL of the agent home decides who can read them.
     An install that sets `ARENA_AGENT_HOME` keeps its files where they are
     (#521).
 - The MCP client no longer creates `<home>/mcp/run` at interpreter exit just
