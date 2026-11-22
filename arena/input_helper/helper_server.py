@@ -57,6 +57,28 @@ WM_CHAR = 0x0102
 # static type regardless.
 user32: Any = ctypes.windll.user32 if sys.platform == "win32" else None
 
+
+def declare_dpi_awareness(user: Any, shcore: Any) -> None:
+    """Take click coordinates in physical pixels, as the bridge reports them.
+
+    The bridge's Windows backend makes the same request (#513); the helper
+    is a separate process and has to make its own. Unaware, it would place
+    a click at 1.5 times the requested distance on a 150 % display. A
+    refusal means the awareness was already set, so the next, older call is
+    tried and nothing is raised.
+    """
+    requests = (
+        lambda: bool(user.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))),  # per monitor v2, Windows 10 1703+
+        lambda: shcore.SetProcessDpiAwareness(2) == 0,  # per monitor, Windows 8.1+
+        lambda: bool(user.SetProcessDPIAware()),  # one scale for all displays
+    )
+    for request in requests:
+        try:
+            if request():
+                return
+        except (AttributeError, OSError):
+            continue
+
 VK_MAP = {
     "return": 0x0D, "enter": 0x0D, "escape": 0x1B, "esc": 0x1B,
     "tab": 0x09, "space": 0x20, "backspace": 0x08, "delete": 0x2E,
@@ -456,6 +478,13 @@ def main():
         print("  Generate one with: python -c \"import secrets; "
               "print(secrets.token_urlsafe(32))\"", file=sys.stderr)
         return 2
+
+    if sys.platform == "win32":
+        try:
+            shcore: Any = ctypes.windll.shcore
+        except OSError:  # absent before Windows 8.1
+            shcore = None
+        declare_dpi_awareness(user32, shcore)
 
     server = HTTPServer(("127.0.0.1", args.port), InputHandler)
     print(f"Arena Input Helper listening on http://127.0.0.1:{args.port}")
