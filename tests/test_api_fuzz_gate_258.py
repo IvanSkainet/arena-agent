@@ -352,14 +352,14 @@ def test_the_watched_paths_cover_everything_the_bridge_derives(monkeypatch):
 
 
 def _constant_paths(root: Path) -> set[Path]:
-    """The three files `arena.constants` puts beside the source tree.
+    """The four files `arena.constants` places by itself.
 
     `ArenaPaths` does not know about them -- that is exactly why the fuzz
     runner has to repoint them by hand -- so the coverage check asks for
     them separately rather than claiming the dataclass covers everything
     (cubic).
     """
-    return {root / "token.txt", root / "audit.jsonl", root / "bridge.log"}
+    return {root / "token.txt", root / "audit.jsonl", root / "bridge.log", root / "requests.jsonl"}
 
 
 def _bridge_written_paths() -> set[str]:

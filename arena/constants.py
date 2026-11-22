@@ -25,6 +25,13 @@ APP_DIR = BRIDGE_DIR
 # queue and mission directories (#B-019, #B-006). APP_DIR stays as the *code* root.
 TOKEN_FILE = token_path()
 AUDIT = agent_home() / "audit.jsonl"
+# The two logs are state as well, and lived beside the code for longer than
+# the files above: every request any process served was appended to
+# `requests.jsonl` in the checkout, the test suite's included (#521). They sit
+# beside the audit log now, so an install whose state is still in the code
+# directory keeps writing them exactly where it did.
+REQUEST_LOG = agent_home() / "requests.jsonl"
+BRIDGE_LOG = agent_home() / "bridge.log"
 
 MAX_BODY = 1024 * 1024
 DEFAULT_MAX_OUTPUT = 2 * 1024 * 1024

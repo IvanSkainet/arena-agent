@@ -38,7 +38,7 @@ def build_runtime_wrappers(g: MutableMapping[str, Any]) -> dict[str, Any]:
         """Reset cached skills so the next list call rescans the filesystem."""
         _get_skills_cache().reset()
 
-    req_log_file = env.APP_DIR / "requests.jsonl"
+    req_log_file = env.REQUEST_LOG
     req_log_max_bytes = 10 * 1024 * 1024
     req_log_backup_count = 3
 
@@ -46,7 +46,8 @@ def build_runtime_wrappers(g: MutableMapping[str, Any]) -> dict[str, Any]:
         """Log request/response to requests.jsonl for observability."""
         return env.request_log_response(
             log_file=req_log_file,
-            app_dir=env.APP_DIR,
+            # The directory the rotated copies go to: the log's own.
+            app_dir=req_log_file.parent,
             utc_now_fn=env.utc_now,
             method=method,
             path=path,

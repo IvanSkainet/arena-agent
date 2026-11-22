@@ -67,9 +67,11 @@ from arena.constants import (  # noqa: E402,F401
     AUDIT,
     AUDIT_CMD_LIMIT,
     BRIDGE_DIR,
+    BRIDGE_LOG,
     DEFAULT_MAX_CONCURRENT,
     DEFAULT_MAX_OUTPUT,
     MAX_BODY,
+    REQUEST_LOG,
     TOKEN_FILE,
     VERSION,
 )

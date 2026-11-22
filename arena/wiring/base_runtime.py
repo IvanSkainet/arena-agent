@@ -21,10 +21,11 @@ def build_base_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
     def _get_bridge_port() -> int:
         return g["_get_bridge_port_runtime"]()
 
-    log_file = g["APP_DIR"] / "bridge.log"
+    log_file = g["BRIDGE_LOG"]
 
     def _setup_logging():
-        return g["_setup_logging_runtime"](app_dir=g["APP_DIR"], log_file=log_file)
+        # `app_dir` is the directory that is created for the log, so it has to be the log's own.
+        return g["_setup_logging_runtime"](app_dir=log_file.parent, log_file=log_file)
 
     log = _setup_logging()
     return {
