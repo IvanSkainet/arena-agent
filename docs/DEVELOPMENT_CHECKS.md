@@ -36,8 +36,11 @@ python scripts/preflight.py --full --workers 2 --list
 Only the full pytest command is parallelized. Fast guards still execute, failures
 still fail preflight, automatic worker restarts are disabled, and the check list
 is not mutated. `--workers` requires `--full`, accepts 1 to 4, and refuses a
-count larger than the number of CPUs the process may use. Installing xdist does
-not enable parallelism, and there is no `auto`.
+count larger than the CPUs it counts: the affinity mask on Linux, the machine's
+logical CPUs on Windows and macOS. CPU quotas and a Windows affinity mask are
+not read, so under those the check can accept more workers than there are CPUs
+to run them. Installing xdist does not enable parallelism, and there is no
+`auto`.
 
 Which count to use is a property of the machine, so measure once and keep the
 answer. What has been measured, as the `full suite` line of preflight, on
@@ -57,7 +60,9 @@ interrupted. On Windows and macOS it does not, with one worker or with several.
 In one trial on Windows, where preflight was killed during a two-worker run,
 every process of the run had exited within 25 seconds and the two workers'
 directories stayed in the temporary directory. That is one observation, not a
-contract, and nothing was tried on macOS.
+contract, and nothing was tried on macOS. On every platform a worker that is
+killed leaves its `arena-test-worker-*` directory in the temporary directory;
+a run that ends normally removes them.
 
 The existing full-preflight pytest command uses `--no-cov` and disables random
 ordering. This option preserves that contract; it does **not** replace CI's

@@ -25,7 +25,7 @@ passed" must never look the same.
 Usage:
     python scripts/preflight.py            # everything except the slow suite
     python scripts/preflight.py --full     # + the whole pytest run
-    python scripts/preflight.py --full --workers 2  # Linux opt-in; serial remains default
+    python scripts/preflight.py --full --workers 2  # opt-in on every platform; serial is the default
     python scripts/preflight.py --list     # show what would run
 """
 from __future__ import annotations
@@ -202,19 +202,27 @@ def _command(check: Check, workers: int) -> list[str]:
 
 
 def _usable_cpus() -> int:
-    """Count the CPUs this process may run on, not the ones the machine has."""
-    affinity = getattr(os, "sched_getaffinity", None)
-    return len(affinity(0)) if affinity else (os.cpu_count() or 1)
+    """Count the CPUs in the affinity mask, or the machine's where there is none."""
+    # A sanity check on the request, not a resource manager: CPU quotas are
+    # not read, and neither is a Windows affinity mask.
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:  # Windows and macOS have no affinity query here.
+        return os.cpu_count() or 1
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument("--full", action="store_true", help="include the slow suite")
     ap.add_argument("--list", action="store_true")
-    ap.add_argument("--workers", type=int, choices=WORKER_CHOICES, default=1,
-                    help="full-suite workers (default: 1; never more than the CPUs available)")
+    ap.add_argument("--workers", type=int, choices=WORKER_CHOICES, default=None,
+                    help="full-suite workers (default: 1; never more than the CPUs counted here)")
     args = ap.parse_args(argv)
-    if args.workers != 1 and not args.full:
+    if args.workers is None:
+        args.workers = 1
+    elif not args.full:
+        # Asking for workers is asking for the suite; a green fast run would
+        # answer a question the caller did not ask.
         ap.error(f"--workers {args.workers} requires --full")
     if args.workers != 1 and args.workers > _usable_cpus():
         # More workers than CPUs was never measured, and a suite full of

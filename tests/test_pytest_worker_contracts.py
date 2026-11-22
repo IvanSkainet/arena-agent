@@ -15,6 +15,15 @@ CASES = ("healthy", "under-collected", "assertion", "worker-crash",
          "environment-leak", "coverage-failure")
 
 
+# What `mcp_client.client._atexit_stop_all` does: create a directory under the
+# home while the interpreter exits. The worker's root is recorded beside it.
+_LATE_HOME_WRITER = (
+    "import atexit, os, pathlib; home = pathlib.Path(os.environ['HOME']); "
+    "pathlib.Path('root-' + os.environ.get('PYTEST_XDIST_WORKER', 'main')).write_text(str(home.parent)); "
+    "atexit.register(lambda: (home / 'arena-bridge' / 'mcp' / 'run').mkdir(parents=True, exist_ok=True))"
+)
+
+
 def _source(case: str) -> str:
     first = "def test_one():\n    assert True\n"
     second = {
@@ -23,6 +32,7 @@ def _source(case: str) -> str:
         "worker-crash": "import os; os._exit(23)",
         "environment-leak": 'import os; os.environ["ARENA_CONTRACT_LEAK"] = "fixture-value"',
         "coverage-failure": "import contract_target; assert contract_target.used() == 1",
+        "late-home-writer": _LATE_HOME_WRITER,
     }
     if case == "under-collected":
         return first
@@ -55,6 +65,8 @@ def _run(tmp_path: Path, *, case: str, workers: int) -> subprocess.CompletedProc
         command += ["-p", "no:xdist"]
     if case == "environment-leak":
         command += ["-p", "tests.conftest"]
+    if case == "late-home-writer":
+        command += ["-p", "tests._worker_directories"]
     if case == "coverage-failure":
         (tmp_path / "contract_target.py").write_text(
             "def used():\n    return 1\ndef unused():\n    return 2\n", encoding="utf-8")
@@ -100,6 +112,15 @@ def test_real_pytest_verdicts(tmp_path, case, workers):
             "coverage-failure": "FAIL Required test coverage of 100% not reached",
         }
         assert expected[case] in output
+
+
+def test_parallel_run_leaves_no_worker_directory_behind(tmp_path):
+    """What an exit handler recreates in a worker's home is removed after it."""
+    result = _run(tmp_path, case="late-home-writer", workers=2)
+    assert result.returncode == 0, result.stdout + result.stderr
+    roots = [Path(record.read_text(encoding="utf-8")) for record in tmp_path.glob("root-gw*")]
+    assert roots and all(root.name.startswith("arena-test-worker-gw") for root in roots)
+    assert [root for root in roots if root.exists()] == []
 
 
 def test_mismatched_worker_collection_is_rejected(tmp_path):

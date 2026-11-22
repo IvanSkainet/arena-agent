@@ -77,14 +77,17 @@ def pytest_configure(config: pytest.Config) -> None:
     # `/var` symlink, and `arena.private_paths.pinned_directory` opens a
     # private path component by component with O_NOFOLLOW.
     root = Path(tempfile.mkdtemp(prefix=f"arena-test-worker-{worker['workerid']}-")).resolve()
-    values = private_directories(root)
-    config.stash[_MOVED] = (root, {name: os.environ.get(name) for name in values})
     # Exit handlers run newest first, and this one is registered before any
     # test module is imported, so it runs after every handler the product
     # registers. One of those (`mcp_client.client._atexit_stop_all`) creates
     # `<home>/arena-bridge/mcp/run` on the way out, which is how every worker
-    # of every parallel run used to leave a directory behind.
+    # of every parallel run used to leave a directory behind. Registered
+    # before the directories are made, so a failed setup is removed too.
+    # A worker that is killed, or leaves through `os._exit`, runs no handler
+    # and leaves its root in the temporary directory.
     atexit.register(_remove, root)
+    values = private_directories(root)
+    config.stash[_MOVED] = (root, {name: os.environ.get(name) for name in values})
     os.environ.update(values)
     # `tempfile` remembers the first answer; make it ask the environment again.
     tempfile.tempdir = None
