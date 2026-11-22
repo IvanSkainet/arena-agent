@@ -3,8 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from arena.desktop.display_lookup import get_displays
-from arena.desktop.displays import match_display
+from arena.desktop.display_lookup import choose_display, get_displays
 from arena.desktop.text_matching import point_in_geometry
 from arena.desktop.window_catalog import list_desktop_windows, window_candidates
 
@@ -60,14 +59,9 @@ async def resolve_text_window_target(
     displays_result = await get_displays(desktop_exec=desktop_exec, env=detect_env())
     displays = list(displays_result.get("displays") or [])
     if display:
-        display_info = match_display(displays, display)
-        if not display_info:
-            return {
-                "ok": False,
-                "error": f"unknown display: {display}",
-                "available_displays": displays,
-                "status": 404,
-            }
+        display_info, refusal = choose_display(displays_result, display)
+        if refusal:
+            return {**refusal["body"], "status": refusal["status"]}
 
     crop_geometry = None
     if display_info:

@@ -7,8 +7,7 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.desktop.availability import failure_response
-from arena.desktop.display_lookup import get_displays
-from arena.desktop.displays import match_display
+from arena.desktop.display_lookup import choose_display, get_displays
 from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import authed, query_int
 
@@ -37,10 +36,10 @@ def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
             return ctx.cors_json_response({"ok": False, "error": "use either 'display' or explicit region_* crop parameters, not both"}, status=400)
         if display_name:
             displays = await get_displays(desktop_exec=ctx.desktop_exec, env=ctx.detect_desktop_env())
-            display = match_display(displays.get("displays", []), display_name)
-            if not display:
+            display, refusal = choose_display(displays, display_name)
+            if refusal:
                 ctx.record_request(is_error=True, count_request=False)
-                return ctx.cors_json_response({"ok": False, "error": f"unknown display: {display_name}", "available_displays": displays.get("displays", [])}, status=404)
+                return ctx.cors_json_response(refusal["body"], status=refusal["status"])
             crop_region = display.get("geometry")
         elif region_requested:
             crop_region = {
