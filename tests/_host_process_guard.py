@@ -1,4 +1,5 @@
-"""Keep tests from starting programs that belong to the machine they run on.
+"""
+Keep tests from starting programs that belong to the machine they run on.
 
 Issue #376: on a developer's computer the suite opened a browser window,
 started a ``browser-act`` daemon and queried the VPN client, because those
@@ -24,6 +25,9 @@ whole run with ``ARENA_TEST_ALLOW_HOST_PROGRAMS=1``.  A run started with
 ``ARENA_TEST_HOST_PROCESS_REPORT=<path>`` writes ``<path>.<worker>.json``.
 Both names carry the ``ARENA_TEST_`` prefix, which the harness leaves in the
 environment, so xdist workers see them too.
+
+The module is a pytest plugin: ``tests/conftest.py`` names it in
+``pytest_plugins`` and the hooks at the end of this file do the wiring.
 """
 from __future__ import annotations
 
@@ -36,6 +40,8 @@ import threading
 from collections import Counter
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 ALLOW_VARIABLE = "ARENA_TEST_ALLOW_HOST_PROGRAMS"
 REPORT_VARIABLE = "ARENA_TEST_HOST_PROCESS_REPORT"
@@ -93,19 +99,23 @@ def _words(command: object) -> list[str]:
         return []
 
 
+def _shell_command(words: list[str]) -> str:
+    """Return the command text a shell was given after ``-c`` or ``/c``."""
+    for index, word in enumerate(words[1:-1], start=1):
+        if word.lower() in _SHELL_COMMAND_FLAGS:
+            return words[index + 1]
+    return ""
+
+
 def programs_in(executable: object, args: object) -> list[str]:
-    """Programs a ``Popen`` call starts: the program itself and, when that
-    program is a shell given a command, the first word of the command."""
+    """Return the program a ``Popen`` call starts, and the one behind a shell."""
     words = _words(args) if args else []
-    first = executable if executable else (words[0] if words else "")
-    names = [program_name(first)] if first else []
-    if names and names[0] in _SHELLS:
-        for index, word in enumerate(words[1:], start=1):
-            if word.lower() in _SHELL_COMMAND_FLAGS and index + 1 < len(words):
-                inner = _words(words[index + 1])
-                if inner:
-                    names.append(program_name(inner[0]))
-                break
+    first = executable or (words[:1] or [""])[0]
+    if not first:
+        return []
+    names = [program_name(first)]
+    if names[0] in _SHELLS:
+        names.extend(program_name(word) for word in _words(_shell_command(words))[:1])
     return names
 
 
@@ -181,7 +191,7 @@ def allow_for_test(allowed: bool) -> None:
 
 
 def _by_program(counts: Counter[tuple[str, str]]) -> dict[str, dict[str, int]]:
-    """``{program: {test file: launches}}``; "" is outside any test."""
+    """Group launch counts as ``{program: {test file: launches}}``."""
     result: dict[str, dict[str, int]] = {}
     for (name, test_file), count in sorted(counts.items()):
         result.setdefault(name, {})[test_file] = count
@@ -203,3 +213,28 @@ def write_report(worker: str, path: str | None = None) -> None:
     target = Path(f"{path}.{worker}.json")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(data, indent=1), encoding="utf-8")
+
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Register the opt-out marker and arm the guard for this process."""
+    config.addinivalue_line(
+        "markers",
+        f"{ALLOW_MARKER}: test may start programs installed on the machine "
+        "(browsers, VPN clients, third-party CLIs)",
+    )
+    install()
+
+
+@pytest.fixture(autouse=True)
+def _no_host_programs(request: pytest.FixtureRequest):
+    """Treat programs installed on this machine as absent unless a test opts in."""
+    allow_for_test(request.node.get_closest_marker(ALLOW_MARKER) is not None)
+    yield
+    allow_for_test(False)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_unconfigure(config: pytest.Config) -> None:
+    """Write the report of this worker, if one was requested."""
+    write_report(getattr(config, "workerinput", {}).get("workerid", "main"))

@@ -28,6 +28,7 @@ import http.client
 import json
 import os
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -109,27 +110,21 @@ class BridgeClient:
         return self.request("POST", path, body=payload, **kw)
 
 
-def _pin_python3(directory: Path) -> Path | None:
-    """Make ``python3`` mean the interpreter that runs the tests.
-
-    The bridge under test executes ``python3 --version`` with the checkout as
-    its working directory.  On Windows a bare ``python3`` can be the Python
-    install manager alias; in a reduced environment it downloads another
-    interpreter into the current directory, i.e. into the checkout (#376).
-    A directory placed first on the bridge's PATH removes the lookup from the
-    machine: a symlink on POSIX, a one-line command script on Windows.
-
-    Returns ``None`` when the interpreter path cannot be written into a
-    command script safely, in which case PATH is left as it was.
-    """
+def _pin_python3(env: dict[str, str], directory: Path) -> None:
+    """Put a ``python3`` that is the running interpreter first on ``PATH``."""
+    # The bridge under test runs `python3 --version`.  On Windows a bare
+    # `python3` can be the Python install manager: it used to answer by
+    # downloading an interpreter into the checkout, and with that switched
+    # off it answers with an error (#376).  A symlink on POSIX and a one-line
+    # command script on Windows take the lookup away from the machine.  A
+    # command script cannot carry a non-ASCII path reliably; then the
+    # directory stays empty and `python3` resolves as it did before.
     if os.name != "nt":
         (directory / "python3").symlink_to(sys.executable)
-        return directory
-    if not sys.executable.isascii() or '"' in sys.executable or "%" in sys.executable:
-        return None
-    (directory / "python3.cmd").write_text(
-        f'@"{sys.executable}" %*\r\n', encoding="ascii", newline="")
-    return directory
+    elif sys.executable.isascii():
+        (directory / "python3.cmd").write_text(
+            f'@"{sys.executable}" %*\r\n', encoding="ascii", newline="")
+    env["PATH"] = f"{directory}{os.pathsep}{env.get('PATH', '')}"
 
 
 @pytest.fixture(scope="module")
@@ -152,9 +147,7 @@ def bridge(tmp_path_factory):
     (agent_home / "bridge.json").write_text("{}", encoding="utf-8")
     env = {**os.environ, "ARENA_AGENT_HOME": str(agent_home),
            "ARENA_TOKEN_FILE": str(agent_home / "token.txt")}
-    pinned = _pin_python3(tmp_path_factory.mktemp("pinned-python3"))
-    if pinned is not None:
-        env["PATH"] = f"{pinned}{os.pathsep}{env.get('PATH', '')}"
+    _pin_python3(env, tmp_path_factory.mktemp("pinned-python3"))
     proc = subprocess.Popen(
         argv, cwd=str(tmp_path_factory.mktemp("bridge-cwd")), env=env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -475,16 +468,20 @@ def test_shell_control_characters_are_refused_on_every_http_exec_surface(bridge)
     assert "shell control" in text
 
 
-def test_python3_on_the_bridge_path_is_the_running_interpreter(bridge):
-    """The pin from `_pin_python3` is in force: `python3` reports this
-    interpreter's version instead of whatever the machine resolves."""
-    status, body, _, _ = bridge.post_json(
-        "/v1/exec", {"cmd": "python3 --version", "timeout": 10}
-    )
-    assert status == 200, body
-    assert body.get("ok") is True, body
-    expected = "Python " + ".".join(str(part) for part in sys.version_info[:3])
-    assert expected in (body.get("stdout", "") + body.get("stderr", "")), body
+def test_the_pinned_python3_is_found_first_and_is_this_interpreter(tmp_path):
+    """Resolve ``python3`` to the running interpreter through the pinned PATH."""
+    if os.name == "nt" and not sys.executable.isascii():
+        pytest.skip("a command script cannot carry this interpreter path")
+    env = {"PATH": "elsewhere"}
+    _pin_python3(env, tmp_path)
+    first, rest = env["PATH"].split(os.pathsep, 1)
+    assert (first, rest) == (str(tmp_path), "elsewhere")
+    found = shutil.which("python3", path=first)
+    assert found is not None
+    if os.name == "nt":
+        assert sys.executable in Path(found).read_text(encoding="ascii")
+    else:
+        assert os.path.samefile(found, sys.executable)
 
 
 def test_shell_allowlist_keeps_legitimate_commands_working(bridge):

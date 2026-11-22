@@ -45,12 +45,10 @@ from arena.mcp_client import client as mcp
 
 @pytest.fixture()
 def allow_python(monkeypatch):
-    """Return the running interpreter for tests that spawn an MCP server.
-
-    The servers are started with this exact path, never with a bare
-    ``python3``: on Windows that name can resolve to the Python install
-    manager alias, which downloads another interpreter into the cwd (#376).
-    """
+    """Return the running interpreter for tests that spawn an MCP server."""
+    # The servers are started with this exact path, never with a bare
+    # `python3`: on Windows that name can resolve to the Python install
+    # manager alias, which downloads another interpreter into the cwd (#376).
     monkeypatch.setattr(
         mcp, "ALLOWED_COMMANDS",
         tuple(set(mcp.ALLOWED_COMMANDS) | {"python3", "python"}))

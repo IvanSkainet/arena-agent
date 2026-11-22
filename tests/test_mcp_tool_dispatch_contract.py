@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import webbrowser
@@ -71,8 +70,8 @@ _NEVER_ACCEPTABLE = ("TypeError:", "AttributeError:", "NameError:",
                      "UnboundLocalError:", "IndexError:")
 
 
-@pytest.fixture(autouse=True)
-def external_effect_boundary(monkeypatch):
+@pytest.fixture(autouse=True, name="external_effect_boundary")
+def _external_effect_boundary(monkeypatch):
     """Exercise dispatch and validation without starting host applications."""
     attempts = []
 
@@ -80,17 +79,19 @@ def external_effect_boundary(monkeypatch):
         attempts.append((args, kwargs))
         raise OSError("external process or desktop launch blocked in dispatch contract")
 
-    monkeypatch.setattr(subprocess, "Popen", refuse)
+    monkeypatch.setattr("subprocess.Popen", refuse)
     monkeypatch.setattr(webbrowser, "open", refuse)
     if hasattr(os, "startfile"):
         monkeypatch.setattr(os, "startfile", refuse)
     return attempts
 
 
-def test_external_effect_boundary_refuses_real_child_creation(external_effect_boundary):
-    with pytest.raises(OSError, match="blocked in dispatch contract"):
-        subprocess.run([sys.executable, "-c", "raise SystemExit(99)"], check=True)
-    assert len(external_effect_boundary) == 1
+def test_external_effect_boundary_refuses_process_and_desktop_launches(external_effect_boundary):
+    """Refuse process creation and browser launches, and record each attempt."""
+    for launch in (sys.modules["subprocess"].Popen, webbrowser.open):
+        with pytest.raises(OSError, match="blocked in dispatch contract"):
+            launch("https://example.invalid/")
+    assert len(external_effect_boundary) == 2
 
 
 @pytest.fixture(scope="module")

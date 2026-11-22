@@ -63,11 +63,9 @@ def test_update_hint_unknown_source_offers_reinstall():
 
 
 def test_cli_candidates_dedup_and_executable(monkeypatch, tmp_path):
-    """A CLI found both on PATH and in a well-known directory is listed once.
-
-    The home directory and the PATH lookup are private to the test, so the
-    result does not depend on what is installed on the machine running it.
-    """
+    """List a CLI found both on PATH and in a well-known directory once."""
+    # The home directory and the PATH lookup are private to the test, so the
+    # result does not depend on what is installed on the machine running it.
     import os
     import platform
 

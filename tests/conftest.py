@@ -46,7 +46,7 @@ from typing import Any
 
 import pytest
 
-from tests import _host_process_guard as host_process_guard, _worker_arena_leaks as worker_leaks
+from tests import _worker_arena_leaks as worker_leaks
 from tests._acceleration_fixtures import (
     isolated_ratchet_repo as isolated_ratchet_repo,
     isolated_release_repo as isolated_release_repo,
@@ -54,6 +54,9 @@ from tests._acceleration_fixtures import (
 from tests._worker_arena_leaks import (
     pytest_testnodedown as pytest_testnodedown,
 )
+
+# #376: programs installed on the machine count as absent during tests.
+pytest_plugins = ("tests._host_process_guard",)
 
 _ALLOW_MARKER = "allow_network"
 
@@ -279,12 +282,6 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         f"{_ALLOW_MARKER}: test may open sockets to hosts other than loopback",
     )
-    config.addinivalue_line(
-        "markers",
-        f"{host_process_guard.ALLOW_MARKER}: test may start programs installed "
-        "on the machine (browsers, VPN clients, third-party CLIs)",
-    )
-    host_process_guard.install()
     _hide_ambient_arena_configuration()
 
 
@@ -805,21 +802,3 @@ def _no_outbound_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
     _install_connect_guards(monkeypatch)
     _install_send_guards(monkeypatch)
     _install_resolver_guards(monkeypatch)
-
-
-@pytest.fixture(autouse=True)
-def _no_host_programs(request: pytest.FixtureRequest):
-    """Programs installed on this machine count as absent unless a test opts in.
-
-    See ``tests/_host_process_guard.py`` (#376).
-    """
-    allowed = request.node.get_closest_marker(host_process_guard.ALLOW_MARKER) is not None
-    host_process_guard.allow_for_test(allowed)
-    yield
-    host_process_guard.allow_for_test(False)
-
-
-@pytest.hookimpl(trylast=True)
-def pytest_unconfigure(config: pytest.Config) -> None:
-    worker = getattr(config, "workerinput", {}).get("workerid", "main")
-    host_process_guard.write_report(worker)
