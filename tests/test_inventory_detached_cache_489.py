@@ -115,7 +115,9 @@ def test_detached_worker_does_not_keep_request_pipes_or_process_alive(tmp_path):
     finally:
         release.touch()
         deadline = time.monotonic() + 10
-        while not result.exists() and time.monotonic() < deadline:
+        # `write_text` creates the file and then fills it: the name is there
+        # before the content is, so wait for the content (#529).
+        while not (result.exists() and result.stat().st_size) and time.monotonic() < deadline:
             time.sleep(.01)
     CHECK.assertEqual(result.read_text(), "complete")
 
