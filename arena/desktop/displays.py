@@ -121,33 +121,47 @@ async def _win32_displays() -> dict[str, Any]:
     return {"ok": True, "backend": "win32", "active_output": active_output, "count": len(outputs), "displays": outputs, "attempts": [attempt]}
 
 
+# What each Linux tool is asked, and what reads its answer.
+_TOOLS = {
+    "kscreen_doctor": ("kscreen-doctor -o 2>/dev/null", parse_kscreen_doctor_outputs),
+    "xrandr": ("xrandr --query 2>/dev/null", parse_xrandr_outputs),
+}
+_ACTIVE_OUTPUT = "qdbus6 org.kde.KWin /KWin org.kde.KWin.activeOutputName 2>/dev/null || qdbus org.kde.KWin /KWin org.kde.KWin.activeOutputName 2>/dev/null"
+
+
+async def _ask(desktop_exec: DesktopExec, tool: str, attempts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Run one tool and parse what it printed; no output and a failure both give no displays."""
+    command, parse = _TOOLS[tool]
+    result = await desktop_exec(command, timeout=6)
+    attempts.append({"tool": tool, "ok": result.get("ok")})
+    return parse(result.get("stdout") or "") if result.get("ok") else []
+
+
+def _mark_active(outputs: list[dict[str, Any]], active_output: str) -> None:
+    for output in outputs:
+        output["active"] = bool(active_output and output.get("name") == active_output)
+
+
+async def _linux_displays(desktop_exec: DesktopExec) -> dict[str, Any]:
+    attempts: list[dict[str, Any]] = []
+    qdbus = await desktop_exec(_ACTIVE_OUTPUT, timeout=4)
+    active_output = (qdbus.get("stdout") or "").strip() if qdbus.get("ok") else ""
+    backend = "kscreen_doctor"
+    outputs = await _ask(desktop_exec, backend, attempts)
+    _mark_active(outputs, active_output)
+    for output in outputs:
+        # kscreen-doctor does not say which output is primary; KWin's active one stands in.
+        if output["active"]:
+            output["primary"] = True
+    if not outputs:
+        backend = "xrandr"
+        outputs = await _ask(desktop_exec, backend, attempts)
+        _mark_active(outputs, active_output)
+    return {"ok": True, "backend": backend if outputs else "none", "active_output": active_output or None, "count": len(outputs), "displays": outputs, "attempts": attempts}
+
+
 async def get_displays(*, desktop_exec: DesktopExec, env: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """List the displays: from user32 on Windows, from kscreen-doctor or xrandr elsewhere."""
     if env is not None and env.get("has_win32_windows"):
         return await _win32_displays()
-    attempts = []
-    active_output = ""
-    qdbus = await desktop_exec("qdbus6 org.kde.KWin /KWin org.kde.KWin.activeOutputName 2>/dev/null || qdbus org.kde.KWin /KWin org.kde.KWin.activeOutputName 2>/dev/null", timeout=4)
-    if qdbus.get("ok"):
-        active_output = (qdbus.get("stdout") or "").strip()
-    result = await desktop_exec("kscreen-doctor -o 2>/dev/null", timeout=6)
-    attempts.append({"tool": "kscreen_doctor", "ok": result.get("ok")})
-    if result.get("ok") and (result.get("stdout") or "").strip():
-        outputs = parse_kscreen_doctor_outputs(result.get("stdout", ""))
-        if outputs:
-            for output in outputs:
-                output["active"] = bool(active_output and output.get("name") == active_output)
-                if active_output and output.get("name") == active_output:
-                    output["primary"] = True
-            return {"ok": True, "backend": "kscreen_doctor", "active_output": active_output or None, "count": len(outputs), "displays": outputs, "attempts": attempts}
-    result = await desktop_exec("xrandr --query 2>/dev/null", timeout=6)
-    attempts.append({"tool": "xrandr", "ok": result.get("ok")})
-    if result.get("ok") and (result.get("stdout") or "").strip():
-        outputs = parse_xrandr_outputs(result.get("stdout", ""))
-        if outputs:
-            for output in outputs:
-                output["active"] = bool(active_output and output.get("name") == active_output)
-            return {"ok": True, "backend": "xrandr", "active_output": active_output or None, "count": len(outputs), "displays": outputs, "attempts": attempts}
-    return {"ok": True, "backend": "none", "active_output": active_output or None, "count": 0, "displays": [], "attempts": attempts}
-
-
-__all__ = ["get_displays", "match_display", "parse_kscreen_doctor_outputs", "parse_xrandr_outputs"]
+    return await _linux_displays(desktop_exec)

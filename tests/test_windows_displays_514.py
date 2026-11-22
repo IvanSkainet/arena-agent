@@ -113,6 +113,35 @@ def test_a_native_failure_is_reported_as_one(monkeypatch):
     assert "EnumDisplayMonitors" in result["error"]
 
 
+XRANDR = "DP-1 connected primary 2560x1440+0+0 (normal left inverted right)\nHDMI-1 connected 1920x1080+2560+0 (normal left)\n"
+
+
+def _linux_tools(answers):
+    """Stand in for the shell: `answers` maps a tool's name to what it prints."""
+    async def run(cmd, timeout=10):
+        stdout = next((text for tool, text in answers.items() if tool in cmd), None)
+        return {"ok": stdout is not None, "stdout": stdout or "", "stderr": ""}
+
+    return run
+
+
+@pytest.mark.parametrize("env", [None, {}, {"has_win32_windows": False}])
+def test_elsewhere_xrandr_answers_when_kscreen_doctor_does_not(env):
+    """The Linux path is the one it was: kscreen-doctor first, then xrandr."""
+    result = asyncio.run(displays.get_displays(desktop_exec=_linux_tools({"xrandr": XRANDR, "activeOutputName": "HDMI-1\n"}), env=env))
+    assert (result["backend"], result["count"], result["active_output"]) == ("xrandr", 2, "HDMI-1")
+    assert [(d["name"], d["primary"], d["active"]) for d in result["displays"]] == [("DP-1", True, False), ("HDMI-1", False, True)]
+    assert result["attempts"] == [{"tool": "kscreen_doctor", "ok": False}, {"tool": "xrandr", "ok": True}]
+
+
+@pytest.mark.parametrize("answers", [{}, {"kscreen-doctor": "", "xrandr": "no outputs here\n"}])
+def test_elsewhere_no_tool_means_no_displays(answers):
+    """Neither tool installed, or neither printing an output: an empty list, as before."""
+    result = asyncio.run(displays.get_displays(desktop_exec=_linux_tools(answers)))
+    assert (result["ok"], result["backend"], result["count"], result["displays"], result["active_output"]) == (True, "none", 0, [], None)
+    assert [attempt["tool"] for attempt in result["attempts"]] == ["kscreen_doctor", "xrandr"]
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="native Windows display API")
 def test_live_the_displays_tile_the_virtual_screen():
     """On a real desktop: at least one display, one primary, and none outside the virtual screen."""

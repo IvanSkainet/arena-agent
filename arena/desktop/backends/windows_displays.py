@@ -99,8 +99,7 @@ def enumerate_displays(user: Any, shcore: Any) -> list[dict[str, Any]]:
     active = user.MonitorFromWindow(user.GetForegroundWindow(), _MONITOR_DEFAULTTOPRIMARY)
     displays = []
     for handle in handles:
-        info = _MonitorInfo()
-        info.cbSize = ctypes.sizeof(_MonitorInfo)
+        info = _MonitorInfo(cbSize=ctypes.sizeof(_MonitorInfo))
         if user.GetMonitorInfoW(handle, ctypes.pointer(info)):
             displays.append(_describe(len(displays) + 1, info, dpi=_monitor_dpi(shcore, handle), active=handle == active))
     return displays
