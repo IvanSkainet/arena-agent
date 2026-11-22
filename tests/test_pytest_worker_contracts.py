@@ -119,7 +119,8 @@ def test_parallel_run_leaves_no_worker_directory_behind(tmp_path):
     result = _run(tmp_path, case="late-home-writer", workers=2)
     assert result.returncode == 0, result.stdout + result.stderr
     roots = [Path(record.read_text(encoding="utf-8")) for record in tmp_path.glob("root-gw*")]
-    assert roots and all(root.name.startswith("arena-test-worker-gw") for root in roots)
+    assert roots, "no worker recorded its directory"
+    assert all(root.name.startswith("arena-test-worker-gw") for root in roots)
     assert [root for root in roots if root.exists()] == []
 
 
