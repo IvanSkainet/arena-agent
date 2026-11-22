@@ -39,8 +39,11 @@ this test.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 import tempfile
+import webbrowser
 from pathlib import Path
 
 import pytest
@@ -66,6 +69,28 @@ _ENVIRONMENT_DEPENDENT_PREFIXES = (
 # Exception types that are always a bug in the handler rather than a refusal.
 _NEVER_ACCEPTABLE = ("TypeError:", "AttributeError:", "NameError:",
                      "UnboundLocalError:", "IndexError:")
+
+
+@pytest.fixture(autouse=True)
+def external_effect_boundary(monkeypatch):
+    """Exercise dispatch and validation without starting host applications."""
+    attempts = []
+
+    def refuse(*args, **kwargs):
+        attempts.append((args, kwargs))
+        raise OSError("external process or desktop launch blocked in dispatch contract")
+
+    monkeypatch.setattr(subprocess, "Popen", refuse)
+    monkeypatch.setattr(webbrowser, "open", refuse)
+    if hasattr(os, "startfile"):
+        monkeypatch.setattr(os, "startfile", refuse)
+    return attempts
+
+
+def test_external_effect_boundary_refuses_real_child_creation(external_effect_boundary):
+    with pytest.raises(OSError, match="blocked in dispatch contract"):
+        subprocess.run([sys.executable, "-c", "raise SystemExit(99)"], check=True)
+    assert len(external_effect_boundary) == 1
 
 
 @pytest.fixture(scope="module")

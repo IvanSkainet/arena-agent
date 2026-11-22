@@ -109,6 +109,29 @@ class BridgeClient:
         return self.request("POST", path, body=payload, **kw)
 
 
+def _pin_python3(directory: Path) -> Path | None:
+    """Make ``python3`` mean the interpreter that runs the tests.
+
+    The bridge under test executes ``python3 --version`` with the checkout as
+    its working directory.  On Windows a bare ``python3`` can be the Python
+    install manager alias; in a reduced environment it downloads another
+    interpreter into the current directory, i.e. into the checkout (#376).
+    A directory placed first on the bridge's PATH removes the lookup from the
+    machine: a symlink on POSIX, a one-line command script on Windows.
+
+    Returns ``None`` when the interpreter path cannot be written into a
+    command script safely, in which case PATH is left as it was.
+    """
+    if os.name != "nt":
+        (directory / "python3").symlink_to(sys.executable)
+        return directory
+    if not sys.executable.isascii() or '"' in sys.executable or "%" in sys.executable:
+        return None
+    (directory / "python3.cmd").write_text(
+        f'@"{sys.executable}" %*\r\n', encoding="ascii", newline="")
+    return directory
+
+
 @pytest.fixture(scope="module")
 def bridge(tmp_path_factory):
     """One live server process per module (pytest-randomly safe)."""
@@ -129,6 +152,9 @@ def bridge(tmp_path_factory):
     (agent_home / "bridge.json").write_text("{}", encoding="utf-8")
     env = {**os.environ, "ARENA_AGENT_HOME": str(agent_home),
            "ARENA_TOKEN_FILE": str(agent_home / "token.txt")}
+    pinned = _pin_python3(tmp_path_factory.mktemp("pinned-python3"))
+    if pinned is not None:
+        env["PATH"] = f"{pinned}{os.pathsep}{env.get('PATH', '')}"
     proc = subprocess.Popen(
         argv, cwd=str(tmp_path_factory.mktemp("bridge-cwd")), env=env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -447,6 +473,18 @@ def test_shell_control_characters_are_refused_on_every_http_exec_surface(bridge)
     text = ((result.get("content") or [{}])[0]).get("text", "")
     assert result.get("isError") is True, body
     assert "shell control" in text
+
+
+def test_python3_on_the_bridge_path_is_the_running_interpreter(bridge):
+    """The pin from `_pin_python3` is in force: `python3` reports this
+    interpreter's version instead of whatever the machine resolves."""
+    status, body, _, _ = bridge.post_json(
+        "/v1/exec", {"cmd": "python3 --version", "timeout": 10}
+    )
+    assert status == 200, body
+    assert body.get("ok") is True, body
+    expected = "Python " + ".".join(str(part) for part in sys.version_info[:3])
+    assert expected in (body.get("stdout", "") + body.get("stderr", "")), body
 
 
 def test_shell_allowlist_keeps_legitimate_commands_working(bridge):

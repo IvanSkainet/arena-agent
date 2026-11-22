@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from arena.admin.browseract import (
@@ -22,6 +24,14 @@ from arena.admin.browseract import (
 )
 
 
+@pytest.fixture(autouse=True)
+def private_browseract_discovery(monkeypatch):
+    """Contract defaults must not invoke the developer's installed CLI."""
+    import arena.admin.browseract as mod
+
+    monkeypatch.setattr(mod, "_cli_candidates", lambda: [])
+
+
 def test_status_contract_shape():
     result = browseract_status()
     for key in ("ok", "installed", "cli_path", "cli_source", "version", "platform", "hint"):
@@ -31,9 +41,9 @@ def test_status_contract_shape():
 def test_status_ok_false_when_not_installed():
     """If the CLI is missing, the shape stays stable and hint is populated."""
     result = browseract_status()
-    if not result["installed"]:
-        assert result["ok"] is False
-        assert "uv tool install" in (result.get("hint") or "")
+    assert result["installed"] is False
+    assert result["ok"] is False
+    assert "uv tool install" in (result.get("hint") or "")
 
 
 def test_install_hint_contains_package_name():
@@ -52,12 +62,32 @@ def test_update_hint_unknown_source_offers_reinstall():
     assert "install" in _update_hint("unknown").lower()
 
 
-def test_cli_candidates_dedup_and_executable():
+def test_cli_candidates_dedup_and_executable(monkeypatch, tmp_path):
+    """A CLI found both on PATH and in a well-known directory is listed once.
+
+    The home directory and the PATH lookup are private to the test, so the
+    result does not depend on what is installed on the machine running it.
+    """
     import os
-    seen = set()
-    for path in _cli_candidates():
-        assert path not in seen
-        seen.add(path)
+    import platform
+
+    import arena.admin.browseract as mod
+
+    name = "browser-act.exe" if platform.system().lower() == "windows" else "browser-act"
+    bin_dir = tmp_path / ".local" / "bin"
+    bin_dir.mkdir(parents=True)
+    cli = bin_dir / name
+    cli.write_text("", encoding="utf-8")
+    cli.chmod(0o755)
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    # PATH lookup returns the very file that also sits in ~/.local/bin.
+    monkeypatch.setattr(mod.shutil, "which", lambda _name: str(cli))
+
+    found = _cli_candidates()
+    assert found == [str(cli)]
+    for path in found:
         assert os.path.isfile(path)
         assert os.access(path, os.X_OK)
 
@@ -73,9 +103,9 @@ def test_cli_source_recognises_pipx():
 
 def test_doctor_contract_when_not_installed():
     doc = browseract_doctor()
-    if not doc["installed"]:
-        assert doc["handshake"] is False
-        assert "not installed" in doc.get("error", "").lower()
+    assert doc["installed"] is False
+    assert doc["handshake"] is False
+    assert "not installed" in doc.get("error", "").lower()
 
 
 def test_platform_string_is_documented_value():
