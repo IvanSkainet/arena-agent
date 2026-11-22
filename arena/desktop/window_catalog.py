@@ -6,7 +6,7 @@ import shlex
 import shutil
 from typing import Any
 
-from arena.desktop.display_lookup import get_displays
+from arena.desktop.display_lookup import attribute_windows, get_displays
 from arena.desktop.text_matching import coerce_geometry, normalize_text, point_in_geometry
 
 
@@ -136,7 +136,7 @@ async def list_desktop_windows(*, desktop_exec, detect_env, kwin_windows_via_scr
             wins = await loop.run_in_executor(None, lambda: _win.list_windows(visible_only=True))
             # Which display each window is on, as on Linux; `display=` filters depend on it (#514).
             displays = (await get_displays(desktop_exec=desktop_exec, env=env)).get("displays", [])
-            wins = annotate_windows_with_displays(wins, displays)
+            attribute_windows(wins, displays)
             attempts.append({"tool": "user32.EnumWindows", "ok": True})
             return {
                 "ok": True,

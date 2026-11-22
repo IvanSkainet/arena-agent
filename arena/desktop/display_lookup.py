@@ -7,6 +7,7 @@ from typing import Any
 
 from arena.desktop import displays as _linux_tools
 from arena.desktop.displays import DesktopExec
+from arena.desktop.text_matching import coerce_geometry
 
 _WIN32_TOOL = "user32.EnumDisplayMonitors"
 
@@ -21,6 +22,32 @@ def _answer(outputs: list[dict[str, Any]], attempt: dict[str, Any]) -> dict[str,
         "displays": outputs,
         "attempts": [attempt],
     }
+
+
+def _overlap(window: dict[str, int], display: dict[str, int]) -> int:
+    """Return the area the two rectangles share, in pixels."""
+    width = min(window["x"] + window["width"], display["x"] + display["width"]) - max(window["x"], display["x"])
+    height = min(window["y"] + window["height"], display["y"] + display["height"]) - max(window["y"], display["y"])
+    return max(0, width) * max(0, height)
+
+
+def _showing(geometry: dict[str, int], displays: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Return a reference to the display that shows most of the rectangle, or None if none shows any."""
+    best = max(displays, key=lambda display: _overlap(geometry, display["geometry"]), default=None)
+    # A minimised window is parked far off-screen and is on no display.
+    if best is None or not _overlap(geometry, best["geometry"]):
+        return None
+    return {"name": best["name"], "id": best["id"], "active": best["active"]}
+
+
+def attribute_windows(windows: list[dict[str, Any]], displays: list[dict[str, Any]]) -> None:
+    """Name, on each window record, the display that shows most of it."""
+    for window in windows:
+        # A checked copy: the record keeps the rectangle that was measured,
+        # zero-sized or not, because callers tell a collapsed window from a
+        # failed measurement by it.
+        geometry = coerce_geometry(window.get("geometry"))
+        window["display"] = _showing(geometry, displays) if geometry else None
 
 
 async def _win32_displays() -> dict[str, Any]:

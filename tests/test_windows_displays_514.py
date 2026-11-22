@@ -121,6 +121,22 @@ def test_windows_are_told_which_display_they_are_on(monkeypatch):
     assert [w["title"] for w in window_catalog.window_candidates(listing["windows"], display="display2")] == ["side"]
 
 
+@pytest.mark.parametrize(("geometry", "expected"), [
+    ({"x": 100, "y": 100, "width": 800, "height": 600}, "DISPLAY1"),
+    ({"x": -400, "y": 0, "width": 1000, "height": 600}, "DISPLAY1"),  # 600 px of it on the primary, 400 on the side
+    ({"x": -32000, "y": -32000, "width": 160, "height": 28}, None),  # minimised: parked off every display
+    ({"x": 10, "y": 10, "width": 0, "height": 0}, None),  # collapsed
+    (None, None),  # could not be measured
+])
+def test_a_window_is_on_the_display_that_shows_most_of_it(geometry, expected):
+    """And its measured rectangle is left exactly as it was, zero-sized or missing included."""
+    shown = windows_displays.enumerate_displays(_user32([LAPTOP, SIDE]), _shcore([LAPTOP, SIDE]))
+    window = {"id": "0x1", "geometry": None if geometry is None else dict(geometry)}
+    display_lookup.attribute_windows([window], shown)
+    assert (window["display"] or {}).get("name") == expected
+    assert window["geometry"] == geometry
+
+
 async def _no_tools(cmd, timeout=10):
     raise AssertionError(f"Linux tool asked on Windows: {cmd}")
 
