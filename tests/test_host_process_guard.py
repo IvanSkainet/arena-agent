@@ -1,9 +1,11 @@
 """The suite must not start programs that belong to the developer's machine (#376)."""
 from __future__ import annotations
 
+import importlib.machinery
 import json
 import os
 import sys
+import types
 import webbrowser
 
 import pytest
@@ -16,6 +18,7 @@ from tests import _host_process_guard as guard
 # installed in this process, and starts no program -- AGENTS.md forbids
 # ``os.system`` and ``shell=True`` in this repository, tests included.
 POPEN = "subprocess.Popen"
+STDLIB_WEBBROWSER = str(webbrowser.__file__)
 
 
 def launch(*command: str) -> None:
@@ -85,15 +88,71 @@ def test_the_macos_script_host_is_refused_behind_a_shell():
         launch("/bin/sh", "-c", "/usr/bin/osascript")
 
 
+@pytest.fixture(name="process_creation")
+def _process_creation(monkeypatch):
+    """Replace the calls that create a process, one step below the audit event."""
+    # A regressed guard must fail these tests, not open a browser.  The names
+    # are the ones `subprocess.Popen` calls right after raising its event:
+    # fork_exec on POSIX (3.10 through the C module, 3.11+ through an alias),
+    # CreateProcess on Windows.  The module is taken from sys.modules because
+    # nothing here starts a program with it.
+    launcher = sys.modules["subprocess"]
+    reached = []
+
+    def never(*args, **_kwargs):
+        reached.append(args[0])
+        raise RuntimeError("process creation was reached")
+
+    if os.name == "nt":
+        monkeypatch.setattr(launcher._winapi, "CreateProcess", never)
+        return reached
+    monkeypatch.setattr(launcher, "_USE_POSIX_SPAWN", False)
+    monkeypatch.setattr(launcher, "_fork_exec", never, raising=False)
+    monkeypatch.setattr(sys.modules["_posixsubprocess"], "fork_exec", never)
+    return reached
+
+
+@pytest.fixture(name="macos_controller")
+def _macos_controller(monkeypatch):
+    """Load the stdlib macOS browser controller on whatever system runs the test."""
+    # `webbrowser` declares MacOSXOSAScript only when sys.platform is darwin,
+    # so a second copy of the module is executed under that name.  Its open()
+    # is the real stdlib code: the `webbrowser.open` event on Python 3.11+, a
+    # bare os.popen("/usr/bin/osascript") on Python 3.10.
+    module = types.ModuleType("webbrowser_as_on_macos")
+    with monkeypatch.context() as as_macos:
+        as_macos.setattr(sys, "platform", "darwin")
+        importlib.machinery.SourceFileLoader(module.__name__, STDLIB_WEBBROWSER).exec_module(module)
+    return module.MacOSXOSAScript("default")
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="the macOS browser controller exists on macOS only")
-def test_the_real_macos_browser_controller_is_refused():
-    """Refuse the stock macOS way of opening a URL on every Python version."""
-    # Nothing is faked: Python 3.11+ raises `webbrowser.open` first, Python
-    # 3.10 goes straight to os.popen("/usr/bin/osascript").  Either way the
-    # guard has to answer before a browser appears on the machine.
-    controller = webbrowser.MacOSXOSAScript("default")
+def test_the_registered_macos_browser_controller_is_refused(process_creation):
+    """Refuse the controller macOS itself registers, on every Python version."""
+    # Looked up by its registered name: the class is declared for macOS only,
+    # which a type checker running elsewhere reports as a missing attribute.
+    controller = webbrowser.get("MacOSX")
     with pytest.raises(OSError, match="osascript|webbrowser.open"):
         controller.open("https://example.invalid/")
+    assert process_creation == []
+
+
+def test_the_macos_browser_controller_is_refused_on_any_machine(macos_controller, process_creation):
+    """Refuse the stdlib macOS controller before it creates a process."""
+    with pytest.raises(OSError, match="osascript|webbrowser.open"):
+        macos_controller.open("https://example.invalid/")
+    assert process_creation == []
+
+
+@pytest.mark.allow_host_programs
+def test_without_the_guard_the_controller_reaches_process_creation(macos_controller, process_creation):
+    """Show that only the guard stands between the controller and a process."""
+    # The same call, with the guard switched off for this test, arrives at the
+    # replaced process creation: the refusal above is the guard's doing, and
+    # the replacement really sits on the path a launch takes.
+    with pytest.raises(RuntimeError, match="process creation was reached"):
+        macos_controller.open("https://example.invalid/")
+    assert len(process_creation) == 1
 
 
 def test_os_system_is_covered():

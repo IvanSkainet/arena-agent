@@ -312,7 +312,11 @@ def write_coverage_config(root: Path, output: Path) -> None:
     section = config.partition(marker)[2].partition("\n[")[0]
     if any(line.strip().startswith("data_file") for line in section.splitlines()):
         raise ValueError("explicit coverage data_file requires review")
-    config = config.replace(marker, marker + f'data_file = {json.dumps(str(output / ".coverage"))}\n')
+    # coverage parses this value as TOML and then expands $NAME from the
+    # environment.  JSON's \ud83d-style surrogate escapes are not TOML, so the
+    # path is written as UTF-8 text, and a literal dollar sign is doubled.
+    destination = json.dumps(str(output / ".coverage").replace("$", "$$"), ensure_ascii=False)
+    config = config.replace(marker, marker + f"data_file = {destination}\n")
     (output / "coverage.toml").write_text(config, encoding="utf-8")
 
 
@@ -332,20 +336,33 @@ def tool_versions() -> dict[str, str | None]:
 
 
 def private_environment(scratch: Path, runner: str) -> dict[str, str]:
-    # Carry OS/tool lookup and locale only, not operator credentials, live
-    # endpoints, pytest filters/plugins, or CI-only physical-input controls.
+    # Carry OS/tool lookup, locale and the account name only, not operator
+    # credentials, live endpoints, pytest filters/plugins, or CI-only
+    # physical-input controls.  USERNAME is the one identity Windows offers:
+    # without it getpass.getuser() raises there instead of falling back.  The
+    # two PROGRAMFILES roots are where Windows keeps installed tools that are
+    # not on PATH, Git's POSIX shell among them.
     allowed = {"PATH", "LANG", "LANGUAGE", "TZ", "TERM", "SHELL", "SYSTEMROOT",
-               "WINDIR", "PATHEXT", "COMSPEC", "SSL_CERT_FILE", "SSL_CERT_DIR"}
+               "WINDIR", "PATHEXT", "COMSPEC", "SSL_CERT_FILE", "SSL_CERT_DIR",
+               "USERNAME", "PROGRAMFILES", "PROGRAMFILES(X86)"}
     env = {key: value for key, value in os.environ.items()
            if key in allowed or key.startswith("LC_")}
     if "ARENA_SKIP_BROWSER_E2E" in os.environ:
         env["ARENA_SKIP_BROWSER_E2E"] = os.environ["ARENA_SKIP_BROWSER_E2E"]
+    # A program that finds no per-user directory in the environment falls back
+    # to the working directory, which is the checkout: APPDATA and LOCALAPPDATA
+    # are private for the same reason HOME is (#376).
     for key in ("HOME", "TMPDIR", "TMP", "TEMP", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
-                "XDG_DATA_HOME", "XDG_STATE_HOME", "USERPROFILE"):
+                "XDG_DATA_HOME", "XDG_STATE_HOME", "USERPROFILE", "APPDATA",
+                "LOCALAPPDATA"):
         path = scratch / key.lower()
         path.mkdir(mode=0o700)
         env[key] = str(path)
-    env.update(ARENA_TEST_EXECUTION_GUARD="1", RUNNER_OS=runner)
+    # The Windows Python install manager answers `python3`, `pip` and `pip3`.
+    # With an empty per-user directory it sees no runtime and downloads one;
+    # a measurement must not install software (#376).
+    env.update(ARENA_TEST_EXECUTION_GUARD="1", RUNNER_OS=runner,
+               PYTHON_MANAGER_AUTOMATIC_INSTALL="false")
     return env
 
 

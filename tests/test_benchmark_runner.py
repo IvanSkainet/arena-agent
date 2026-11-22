@@ -84,6 +84,26 @@ def test_source_mutation_invalidates_otherwise_successful_run(measurement, monke
 
 
 
+@pytest.mark.parametrize("name", ["plain", "bench-\U0001f600", "bench$UNLISTED_CONTROL", "bench${HOME}", "cost$$"])
+def test_coverage_reads_back_the_destination_it_was_given(tmp_path, monkeypatch, name):
+    """Give coverage the exact data file, whatever characters the directory name has."""
+    # A non-BMP character used to be written as a JSON surrogate pair, which
+    # is not TOML; `$NAME` used to be expanded by coverage, moving the data
+    # file out of the evidence directory.
+    from coverage import Coverage
+
+    monkeypatch.setenv("HOME", "/fixture/home-must-not-be-substituted")
+    monkeypatch.delenv("UNLISTED_CONTROL", raising=False)
+    monkeypatch.delenv("COVERAGE_FILE", raising=False)
+    (tmp_path / "pyproject.toml").write_text("[tool.coverage.run]\nbranch = true\n", encoding="utf-8")
+    output = tmp_path / name
+    output.mkdir()
+    bench.write_coverage_config(tmp_path, output)
+    config = Coverage(config_file=str(output / "coverage.toml")).config
+    assert config.data_file == str(output / ".coverage")
+    assert config.branch is True
+
+
 def test_coverage_destination_is_not_exported_to_nested_commands(measurement, monkeypatch):
     monkeypatch.setenv("COVERAGE_FILE", "/fixture/inherited-data-must-not-be-used")
     assert invoke(measurement) == 0
@@ -238,7 +258,7 @@ def test_record_schema_times_private_environment_and_outcomes_are_complete(measu
     def execute(argv, **kwargs):
         env = kwargs["context"].env
         keys = ("HOME", "TMPDIR", "TMP", "TEMP", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
-                "XDG_DATA_HOME", "XDG_STATE_HOME", "USERPROFILE")
+                "XDG_DATA_HOME", "XDG_STATE_HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA")
         paths = [Path(env[key]) for key in keys]
         assert len(set(paths)) == len(keys)
         assert len({p.parent for p in paths}) == 1

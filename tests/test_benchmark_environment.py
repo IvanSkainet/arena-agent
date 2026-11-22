@@ -11,9 +11,32 @@ from arena.governance import benchmark_runner as bench
 from tests._benchmark_support import invoke, measurement_fixture as measurement_fixture, report
 
 
+def bench_private_directories() -> tuple[str, ...]:
+    """Name the per-user directories a measurement replaces with its own."""
+    return ("HOME", "TMPDIR", "TMP", "TEMP", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME", "XDG_STATE_HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA")
+
+
+def test_private_environment_leaves_no_per_user_directory_to_the_checkout(tmp_path, monkeypatch):
+    """Keep every per-user directory private and forbid installing Python."""
+    # #376: on a Windows PC the measured run left `Python\\` in the checkout.
+    # The environment had no LOCALAPPDATA, so the Python install manager
+    # behind `python3`/`pip` fell back to the working directory, found no
+    # runtime there and downloaded one.
+    real = {key: f"operator-{key}" for key in bench_private_directories()}
+    monkeypatch.setattr(bench, "os", SimpleNamespace(environ=real))
+    actual = bench.private_environment(tmp_path, "Windows")
+    for key in bench_private_directories():
+        assert Path(actual[key]) == tmp_path / key.lower()
+        assert Path(actual[key]).is_dir()
+    assert actual["PYTHON_MANAGER_AUTOMATIC_INSTALL"] == "false"
+    assert actual["RUNNER_OS"] == "Windows"
+
+
 def test_private_environment_preserves_only_documented_os_and_locale_controls(tmp_path, monkeypatch):
     allowed = ["PATH", "LANG", "LANGUAGE", "TZ", "TERM", "SHELL", "SYSTEMROOT", "WINDIR",
-               "PATHEXT", "COMSPEC", "SSL_CERT_FILE", "SSL_CERT_DIR", "LC_ALL", "LC_MESSAGES"]
+               "PATHEXT", "COMSPEC", "SSL_CERT_FILE", "SSL_CERT_DIR", "USERNAME",
+               "PROGRAMFILES", "PROGRAMFILES(X86)", "LC_ALL", "LC_MESSAGES"]
     values = {key: f"fixture-{key}" for key in allowed}
     monkeypatch.setattr(bench, "os", SimpleNamespace(environ={**values, "UNLISTED_CONTROL": "refused"}))
     actual = bench.private_environment(tmp_path, "Linux")
@@ -21,6 +44,8 @@ def test_private_environment_preserves_only_documented_os_and_locale_controls(tm
     assert "UNLISTED_CONTROL" not in actual
     assert actual["ARENA_TEST_EXECUTION_GUARD"] == "1"
     assert actual["RUNNER_OS"] == "Linux"
+    assert set(actual) == {*allowed, "ARENA_TEST_EXECUTION_GUARD", "RUNNER_OS",
+                           "PYTHON_MANAGER_AUTOMATIC_INSTALL", *bench_private_directories()}
     if sys.platform != "win32":
         import stat
 
