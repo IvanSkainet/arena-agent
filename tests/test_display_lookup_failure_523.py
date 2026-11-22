@@ -78,8 +78,8 @@ CALLERS = pytest.mark.parametrize(
 )
 
 
-@pytest.fixture
-def unreadable(monkeypatch):
+@pytest.fixture(name="unreadable")
+def _unreadable(monkeypatch):
     """Windows refuses to enumerate its monitors, as it does for a process without a desktop."""
     def refuse():
         raise OSError(UNREADABLE)
@@ -87,8 +87,8 @@ def unreadable(monkeypatch):
     monkeypatch.setattr(windows_displays, "list_displays", refuse)
 
 
-@pytest.fixture
-def one_display(monkeypatch):
+@pytest.fixture(name="one_display")
+def _one_display(monkeypatch):
     """Windows lists a single monitor."""
     monkeypatch.setattr(windows_displays, "list_displays", lambda: [dict(DISPLAY)])
 
