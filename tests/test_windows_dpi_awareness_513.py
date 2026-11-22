@@ -19,13 +19,10 @@ from arena.input_helper import helper_server
 ALREADY_DECIDED = -0x7FF8FFFB  # the HRESULT shcore answers once the awareness is set
 
 
+# Leaving `context` out removes the Windows 10 request, and `awareness=None`
+# removes the query, as on a Windows that predates them.
 def _user32(calls, **answers):
-    """
-    Stand in for user32: `context` and `legacy` answer the requests, `awareness` the query.
-
-    Leaving `context` out removes the Windows 10 request, and `awareness=None`
-    removes the query, as on a Windows that predates them.
-    """
+    """Stand in for user32: `context` and `legacy` answer the requests, `awareness` the query."""
     user = SimpleNamespace(SetProcessDPIAware=lambda: calls.append(("legacy",)) or answers.get("legacy", 1))
     if "context" in answers:
         user.SetProcessDpiAwarenessContext = lambda handle: calls.append(("context", handle.value)) or answers["context"]
@@ -98,7 +95,7 @@ def test_the_helper_reports_its_awareness_in_health(monkeypatch):
     sent = []
     handler = object.__new__(helper_server.InputHandler)
     handler.path = "/health"
-    monkeypatch.setattr(helper_server, "_DPI_AWARENESS", 2)
+    monkeypatch.setattr(helper_server, "user32", _user32([], awareness=2))
     monkeypatch.setattr(helper_server.InputHandler, "_check_auth", lambda self: True)
     monkeypatch.setattr(helper_server.InputHandler, "_json_response", lambda self, payload, status=200: sent.append(payload))
     handler.do_GET()
@@ -131,7 +128,6 @@ def test_the_helper_declares_before_it_serves(monkeypatch):
     monkeypatch.setattr(helper_server, "HTTPServer", Server)
     helper_server.main()
     assert events[:2] == ["declare", "listen"]
-    assert helper_server._DPI_AWARENESS == 2
 
 
 def test_off_windows_nothing_is_declared():
@@ -158,13 +154,10 @@ def _image_size(data):
 
 @pytest.mark.skipif(sys.platform != "win32", reason="native Windows capture")
 def test_live_the_default_screenshot_covers_the_whole_desktop():
-    """
-    The default capture is as large as the desktop, and the desktop is not scaled down.
-
-    A hosted runner has no scaling, so there the second half holds either
-    way; on a scaled display it is the check that failed before the
-    declaration.
-    """
+    """The default capture is as large as the desktop, and the desktop is not scaled down."""
+    # A hosted runner has no scaling, so there the second half holds either
+    # way; on a scaled display it is the check that failed before the
+    # declaration.
     import ctypes
     import ctypes.wintypes as wt
 

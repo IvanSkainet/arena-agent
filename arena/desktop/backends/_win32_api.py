@@ -40,27 +40,23 @@ def _accepted(request: Any) -> bool:
         return False
 
 
+# A process that says nothing is "DPI unaware". On a display scaled above
+# 100 % its GetSystemMetrics and SetCursorPos then work in scaled-down logical
+# pixels, while BitBlt and the DWM frame bounds work in physical ones: the
+# default screenshot covered the top-left two thirds of a 150 % screen, and a
+# point read off a screenshot was not the point a click hit (#513).
+#
+# The request is honoured once per process. A refusal means the answer was
+# already given, by a manifest or an earlier call, so every refusal falls
+# through and the return value is what Windows reports afterwards. None means
+# this Windows is too old to say.
 def declare_dpi_awareness(user: Any, shcore: Any) -> int | None:
-    """
-    Ask Windows for physical pixels in this process; return the awareness in effect.
-
-    A process that says nothing is "DPI unaware". On a display scaled above
-    100 % its GetSystemMetrics and SetCursorPos then work in scaled-down
-    logical pixels, while BitBlt and the DWM frame bounds work in physical
-    ones: the default screenshot covered the top-left two thirds of a 150 %
-    screen, and a point read off a screenshot was not the point a click hit
-    (#513).
-
-    The request is honoured once per process. A refusal means the answer was
-    already given, by a manifest or an earlier call, so every refusal falls
-    through and the return value is what Windows reports afterwards. None
-    means this Windows is too old to say.
-    """
+    """Ask Windows for physical pixels in this process; return the awareness in effect."""
     # Newest first; any() stops at the first request Windows accepts.
     any(_accepted(request) for request in (
         lambda: user.SetProcessDpiAwarenessContext(ctypes.c_void_p(_PER_MONITOR_AWARE_V2)),  # 10 1703+
         lambda: shcore.SetProcessDpiAwareness(DPI_PER_MONITOR_AWARE) == 0,  # 8.1+
-        lambda: user.SetProcessDPIAware(),  # Vista+: one scale for all displays
+        lambda: user.SetProcessDPIAware() != 0,  # Vista+: one scale for all displays
     ))
     try:
         awareness = int(user.GetAwarenessFromDpiAwarenessContext(ctypes.c_void_p(user.GetThreadDpiAwarenessContext())))
