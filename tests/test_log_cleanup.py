@@ -46,7 +46,11 @@ def test_rotate_file_if_oversized_noop_for_small_or_missing(tmp_path):
     assert small.exists()
 
 
-def test_rotate_all_logs_on_startup_uses_context_files(tmp_path):
+def test_rotate_all_logs_on_startup_uses_context_files(tmp_path, monkeypatch):
+    # The startup cleanup also looks for service logs under the account's home
+    # and the agent home; without xdist those are the developer's own (#527).
+    for name in ("HOME", "USERPROFILE", "ARENA_AGENT_HOME"):
+        monkeypatch.setenv(name, str(tmp_path))
     log = tmp_path / "audit.jsonl"
     log.write_text("x" * 20, encoding="utf-8")
     seen = []
