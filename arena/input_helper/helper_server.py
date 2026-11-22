@@ -57,6 +57,48 @@ WM_CHAR = 0x0102
 # static type regardless.
 user32: Any = ctypes.windll.user32 if sys.platform == "win32" else None
 
+
+def _accepted(request: Any) -> bool:
+    """Make one awareness request; a missing entry point counts as a refusal."""
+    try:
+        return bool(request())
+    except (AttributeError, OSError):
+        return False
+
+
+def _shcore() -> Any:
+    """Return shcore.dll, or None on a Windows older than 8.1."""
+    try:
+        return ctypes.WinDLL("shcore") if sys.platform == "win32" else None
+    except OSError:
+        return None
+
+
+def dpi_awareness(user: Any) -> int | None:
+    """Return what Windows reports: 2 per monitor, 1 system, 0 unaware, None if it cannot say."""
+    try:
+        context = user.GetThreadDpiAwarenessContext
+        context.restype = ctypes.c_void_p  # a handle; the default int would cut it short on 64-bit
+        return int(user.GetAwarenessFromDpiAwarenessContext(ctypes.c_void_p(context())))
+    except (AttributeError, OSError):
+        return None
+
+
+# The bridge's Windows backend makes the same request (#513); the helper is a
+# separate process and has to make its own. Unaware, it would place a click at
+# 1.5 times the requested distance on a 150 % display. A refusal means the
+# awareness was already set, so the next, older call is tried.
+def declare_dpi_awareness(user: Any, shcore: Any) -> int | None:
+    """Take click coordinates in physical pixels, as the bridge reports them."""
+    # Newest first; any() stops at the first request Windows accepts.
+    any(_accepted(request) for request in (
+        lambda: user.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4)),  # per monitor v2, Windows 10 1703+
+        lambda: shcore.SetProcessDpiAwareness(2) == 0,  # per monitor, Windows 8.1+
+        lambda: user.SetProcessDPIAware() != 0,  # one scale for all displays
+    ))
+    return dpi_awareness(user)
+
+
 VK_MAP = {
     "return": 0x0D, "enter": 0x0D, "escape": 0x1B, "esc": 0x1B,
     "tab": 0x09, "space": 0x20, "backspace": 0x08, "delete": 0x2E,
@@ -380,6 +422,9 @@ class InputHandler(BaseHTTPRequestHandler):
                 "service": "arena-input-helper",
                 "session": os.environ.get("SESSIONNAME", "unknown"),
                 "pid": os.getpid(),
+                # Absent from a helper older than #513, which takes
+                # coordinates in logical pixels.
+                "dpi_awareness": dpi_awareness(user32),
             })
             return
         self._json_response({"ok": False, "error": "not found"}, 404)
@@ -456,6 +501,9 @@ def main():
         print("  Generate one with: python -c \"import secrets; "
               "print(secrets.token_urlsafe(32))\"", file=sys.stderr)
         return 2
+
+    if sys.platform == "win32":
+        declare_dpi_awareness(user32, _shcore())
 
     server = HTTPServer(("127.0.0.1", args.port), InputHandler)
     print(f"Arena Input Helper listening on http://127.0.0.1:{args.port}")

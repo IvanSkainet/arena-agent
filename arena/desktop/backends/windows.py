@@ -28,6 +28,9 @@ Design notes:
   frame. ``list_windows`` walks every visible top-level window
   regardless of process ``MainWindowHandle`` and returns the
   full set, so callers can pick the visible one.
+* One coordinate space: physical pixels of the virtual desktop, for
+  capture, window geometry and input alike. ``_win32_api`` declares the
+  process DPI-aware on import to make that true on scaled displays (#513).
 * Every function is a plain sync call. The caller wraps in
   ``run_in_executor`` where needed. Keeping the backend sync
   makes it easy to test on Windows without an asyncio loop.
@@ -122,7 +125,7 @@ def is_available() -> bool:
 # Screen metrics
 # ---------------------------------------------------------------------------
 def virtual_screen_rect() -> tuple[int, int, int, int]:
-    """Return (x, y, width, height) of the virtual desktop rect."""
+    """Return (x, y, width, height) of the virtual desktop, in physical pixels."""
     if not _IS_WINDOWS:
         raise NotImplementedError("windows backend not available on this platform")
     x = user32.GetSystemMetrics(SM_XVIRTUALSCREEN)
@@ -292,7 +295,7 @@ def move_window(hwnd: int, x: int, y: int, w: int, h: int) -> bool:
 # Mouse input
 # ---------------------------------------------------------------------------
 def click(x: int, y: int, *, button: str = "left", double: bool = False) -> None:
-    """Send a synthetic mouse click at absolute screen coords."""
+    """Send a synthetic mouse click at absolute screen coords (physical pixels)."""
     if not _IS_WINDOWS:
         raise NotImplementedError("windows backend not available on this platform")
     user32.SetCursorPos(int(x), int(y))
@@ -315,7 +318,7 @@ def click(x: int, y: int, *, button: str = "left", double: bool = False) -> None
 
 
 def mouse_move(x: int, y: int) -> None:
-    """Move the cursor to absolute screen coords."""
+    """Move the cursor to absolute screen coords (physical pixels)."""
     if not _IS_WINDOWS:
         raise NotImplementedError("windows backend not available on this platform")
     user32.SetCursorPos(int(x), int(y))
