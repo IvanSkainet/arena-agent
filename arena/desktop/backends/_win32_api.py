@@ -21,6 +21,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes as wt
 import io
+import logging
 import sys
 from typing import Any
 
@@ -31,8 +32,17 @@ DPI_UNAWARE, DPI_SYSTEM_AWARE, DPI_PER_MONITOR_AWARE = 0, 1, 2
 _PER_MONITOR_AWARE_V2 = -4  # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
 
 
+def _accepted(request: Any) -> bool:
+    """Make one awareness request; a missing entry point counts as a refusal."""
+    try:
+        return bool(request())
+    except (AttributeError, OSError):
+        return False
+
+
 def declare_dpi_awareness(user: Any, shcore: Any) -> int | None:
-    """Ask Windows for physical pixels in this process; return the awareness in effect.
+    """
+    Ask Windows for physical pixels in this process; return the awareness in effect.
 
     A process that says nothing is "DPI unaware". On a display scaled above
     100 % its GetSystemMetrics and SetCursorPos then work in scaled-down
@@ -46,21 +56,22 @@ def declare_dpi_awareness(user: Any, shcore: Any) -> int | None:
     through and the return value is what Windows reports afterwards. None
     means this Windows is too old to say.
     """
-    requests = (
-        lambda: bool(user.SetProcessDpiAwarenessContext(ctypes.c_void_p(_PER_MONITOR_AWARE_V2))),  # 10 1703+
+    # Newest first; any() stops at the first request Windows accepts.
+    any(_accepted(request) for request in (
+        lambda: user.SetProcessDpiAwarenessContext(ctypes.c_void_p(_PER_MONITOR_AWARE_V2)),  # 10 1703+
         lambda: shcore.SetProcessDpiAwareness(DPI_PER_MONITOR_AWARE) == 0,  # 8.1+
-        lambda: bool(user.SetProcessDPIAware()),  # Vista+: one scale for all displays
-    )
-    for request in requests:
-        try:
-            if request():
-                break
-        except (AttributeError, OSError):
-            continue
+        lambda: user.SetProcessDPIAware(),  # Vista+: one scale for all displays
+    ))
     try:
-        return int(user.GetAwarenessFromDpiAwarenessContext(user.GetThreadDpiAwarenessContext()))
+        awareness = int(user.GetAwarenessFromDpiAwarenessContext(ctypes.c_void_p(user.GetThreadDpiAwarenessContext())))
     except (AttributeError, OSError):
         return None
+    if awareness == DPI_UNAWARE:
+        # A manifest can pin the executable. At 100 % scaling nothing is
+        # wrong; above it, screenshots and clicks disagree again.
+        logging.getLogger(__name__).warning(
+            "Windows left this process DPI-unaware: on a scaled display, desktop coordinates will not match screenshots")
+    return awareness
 
 
 # Declared `Any` rather than left to inference. On a non-Windows checkout the

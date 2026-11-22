@@ -58,26 +58,49 @@ WM_CHAR = 0x0102
 user32: Any = ctypes.windll.user32 if sys.platform == "win32" else None
 
 
-def declare_dpi_awareness(user: Any, shcore: Any) -> None:
-    """Take click coordinates in physical pixels, as the bridge reports them.
+# What Windows reported after the request below; None until the helper starts,
+# and on a Windows too old to say. /health passes it on.
+_DPI_AWARENESS: int | None = None
+
+
+def _accepted(request: Any) -> bool:
+    """Make one awareness request; a missing entry point counts as a refusal."""
+    try:
+        return bool(request())
+    except (AttributeError, OSError):
+        return False
+
+
+def _shcore() -> Any:
+    """Return shcore.dll, or None on a Windows older than 8.1."""
+    try:
+        return ctypes.windll.shcore
+    except OSError:
+        return None
+
+
+def declare_dpi_awareness(user: Any, shcore: Any) -> int | None:
+    """
+    Take click coordinates in physical pixels, as the bridge reports them.
 
     The bridge's Windows backend makes the same request (#513); the helper
     is a separate process and has to make its own. Unaware, it would place
     a click at 1.5 times the requested distance on a 150 % display. A
     refusal means the awareness was already set, so the next, older call is
-    tried and nothing is raised.
+    tried. Returns what Windows reports afterwards: 2 is per-monitor, 0 is
+    unaware, None means this Windows cannot say.
     """
-    requests = (
-        lambda: bool(user.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))),  # per monitor v2, Windows 10 1703+
+    # Newest first; any() stops at the first request Windows accepts.
+    any(_accepted(request) for request in (
+        lambda: user.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4)),  # per monitor v2, Windows 10 1703+
         lambda: shcore.SetProcessDpiAwareness(2) == 0,  # per monitor, Windows 8.1+
-        lambda: bool(user.SetProcessDPIAware()),  # one scale for all displays
-    )
-    for request in requests:
-        try:
-            if request():
-                return
-        except (AttributeError, OSError):
-            continue
+        lambda: user.SetProcessDPIAware(),  # one scale for all displays
+    ))
+    try:
+        return int(user.GetAwarenessFromDpiAwarenessContext(ctypes.c_void_p(user.GetThreadDpiAwarenessContext())))
+    except (AttributeError, OSError):
+        return None
+
 
 VK_MAP = {
     "return": 0x0D, "enter": 0x0D, "escape": 0x1B, "esc": 0x1B,
@@ -402,6 +425,9 @@ class InputHandler(BaseHTTPRequestHandler):
                 "service": "arena-input-helper",
                 "session": os.environ.get("SESSIONNAME", "unknown"),
                 "pid": os.getpid(),
+                # Absent from a helper older than #513, which takes
+                # coordinates in logical pixels.
+                "dpi_awareness": _DPI_AWARENESS,
             })
             return
         self._json_response({"ok": False, "error": "not found"}, 404)
@@ -461,7 +487,7 @@ def main():
     parser.add_argument("--token", type=str, default="")
     args = parser.parse_args()
 
-    global _TOKEN
+    global _TOKEN, _DPI_AWARENESS
     _TOKEN = args.token or os.environ.get("ARENA_INPUT_HELPER_TOKEN", "")
 
     # Fail closed at startup (bug #54). An unauthenticated helper hands
@@ -480,11 +506,7 @@ def main():
         return 2
 
     if sys.platform == "win32":
-        try:
-            shcore: Any = ctypes.windll.shcore
-        except OSError:  # absent before Windows 8.1
-            shcore = None
-        declare_dpi_awareness(user32, shcore)
+        _DPI_AWARENESS = declare_dpi_awareness(user32, _shcore())
 
     server = HTTPServer(("127.0.0.1", args.port), InputHandler)
     print(f"Arena Input Helper listening on http://127.0.0.1:{args.port}")
