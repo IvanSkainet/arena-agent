@@ -22,14 +22,17 @@ import pytest
 from arena.mcp import ws_push, ws_server
 
 
-def test_importing_the_push_module_creates_nothing_under_the_agent_home(tmp_path, monkeypatch):
+def test_importing_the_push_module_does_not_create_the_queue_directory(tmp_path, monkeypatch):
     """The module body only computes the queue path."""
     monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
     # A second, private execution of the module body: the copy other tests
     # share stays as it is, with its subscribers and its own queue path.
     namespace = runpy.run_path(ws_push.__file__, run_name="ws_push_import_probe")
     assert namespace["NOTIFY_QUEUE"] == tmp_path / "logs" / "ws_notify.queue"
-    assert list(tmp_path.iterdir()) == []
+    # Only the directory this module used to create. The agent home is one
+    # setting for the whole process, and work another test left running can
+    # write under it meanwhile: a macOS job once found `update/` here (#518).
+    assert not (tmp_path / "logs").exists()
 
 
 class _Listener:

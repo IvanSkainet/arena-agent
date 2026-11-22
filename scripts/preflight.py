@@ -25,7 +25,7 @@ passed" must never look the same.
 Usage:
     python scripts/preflight.py            # everything except the slow suite
     python scripts/preflight.py --full     # + the whole pytest run
-    python scripts/preflight.py --full --workers 2  # Linux opt-in; serial remains default
+    python scripts/preflight.py --full --workers 2  # opt-in on every platform; serial is the default
     python scripts/preflight.py --list     # show what would run
 """
 from __future__ import annotations
@@ -58,6 +58,9 @@ class Check:
 
 PY = sys.executable
 FULL_SUITE = "full suite"
+# Worker counts with a full-suite measurement behind them on at least one
+# platform (docs/DEVELOPMENT_CHECKS.md). Nothing higher has been run.
+WORKER_CHOICES = (1, 2, 3, 4)
 
 CHECKS: list[Check] = [
     Check("ruff ratchet", [PY, "scripts/lint_ratchet.py"],
@@ -193,28 +196,45 @@ def _command(check: Check, workers: int) -> list[str]:
     argv = list(check.argv)
     if check.name == FULL_SUITE:
         argv += ["-p", "arena.governance.pytest_execution_guard"]
-    if check.name == FULL_SUITE and workers == 2:
-        argv += ["-n", "2", "--max-worker-restart=0"]
+    if check.name == FULL_SUITE and workers > 1:
+        argv += ["-n", str(workers), "--max-worker-restart=0"]
     return argv
+
+
+def _usable_cpus() -> int:
+    """Count the CPUs in the affinity mask, or the machine's where there is none."""
+    # A sanity check on the request, not a resource manager: CPU quotas are
+    # not read, and neither is a Windows affinity mask.
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:  # Windows and macOS have no affinity query here.
+        return os.cpu_count() or 1
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument("--full", action="store_true", help="include the slow suite")
     ap.add_argument("--list", action="store_true")
-    ap.add_argument("--workers", type=int, choices=(1, 2), default=1,
-                    help="full-suite workers (default: 1; measured opt-in: 2 on Linux)")
+    ap.add_argument("--workers", type=int, choices=WORKER_CHOICES, default=None,
+                    help="full-suite workers (default: 1; never more than the CPUs counted here)")
     args = ap.parse_args(argv)
-    if args.workers != 1 and not args.full:
-        ap.error("--workers 2 requires --full")
-    if args.workers == 2 and platform.system() != "Linux":
-        ap.error("parallel preflight is validated only on Linux; use --workers 1")
-
+    if args.workers is None:
+        args.workers = 1
+    elif not args.full:
+        # Asking for workers is asking for the suite; a green fast run would
+        # answer a question the caller did not ask.
+        ap.error(f"--workers {args.workers} requires --full")
+    if args.workers != 1 and args.workers > _usable_cpus():
+        # More workers than CPUs was never measured, and a suite full of
+        # timeouts is the wrong place to find out what it does.
+        ap.error(f"--workers {args.workers} exceeds the {_usable_cpus()} CPUs available here")
     return args
 
 
 def _execute_full(argv: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    """Linux owns the full pytest process group through interruption cleanup."""
+    """Run the suite; on Linux, own its process group through interruption cleanup."""
+    # Windows and macOS do not have that ownership yet, with one worker or
+    # with several (docs/DEVELOPMENT_CHECKS.md says what was observed).
     if platform.system() != "Linux":
         return subprocess.run(argv, cwd=ROOT, env=env, capture_output=True, text=True, check=False)
     from arena.governance.benchmark_runner import ProcessContext, execute

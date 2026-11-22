@@ -18,6 +18,7 @@ def preflight_harness(monkeypatch):
 
     monkeypatch.setattr(preflight, "CHECKS", checks)
     monkeypatch.setattr(preflight, "platform", SimpleNamespace(system=lambda: "Linux"))
+    monkeypatch.setattr(preflight, "_usable_cpus", lambda: 4)
     monkeypatch.setattr(preflight, "subprocess", SimpleNamespace(run=run))
     monkeypatch.setattr(preflight, "_execute_full", lambda argv, env: preflight.subprocess.run(argv, env=env))
     return calls
@@ -48,7 +49,8 @@ def test_parallel_failure_is_not_reported_as_success(harness, monkeypatch):
     assert len(harness) == 2
 
 
-@pytest.mark.parametrize("args", [["--workers", "2"], ["--full", "--workers", "4"]])
+@pytest.mark.parametrize("args", [["--workers", "2"], ["--workers", "1"], ["--full", "--workers", "5"],
+                                  ["--full", "--workers", "0"], ["--full", "--workers", "auto"]])
 def test_invalid_parallel_requests_fail_before_running_checks(harness, args):
     with pytest.raises(SystemExit) as caught:
         preflight.main(args)
@@ -56,14 +58,63 @@ def test_invalid_parallel_requests_fail_before_running_checks(harness, args):
     assert harness == []
 
 
-@pytest.mark.parametrize("system", ["Windows", "Darwin"])
-def test_unmeasured_platforms_keep_serial_mode(harness, monkeypatch, system):
+@pytest.mark.parametrize("system", ["Linux", "Windows", "Darwin"])
+@pytest.mark.parametrize("workers", [2, 3, 4])
+def test_every_platform_accepts_the_measured_worker_counts(harness, monkeypatch, system, workers):
     monkeypatch.setattr(preflight, "platform", SimpleNamespace(system=lambda: system))
+    assert preflight.main(["--full", "--workers", str(workers)]) == 0
+    assert harness[-1][-3:] == ["-n", str(workers), "--max-worker-restart=0"]
+
+
+@pytest.mark.parametrize("system", ["Windows", "Darwin"])
+def test_outside_linux_the_suite_command_reaches_the_process_unchanged(monkeypatch, system):
+    """The harness above replaces the executor; this one runs the real dispatch."""
+    seen = []
+
+    def run(argv, **kwargs):
+        seen.append((argv, kwargs["env"], kwargs["check"]))
+        return SimpleNamespace(returncode=3, stdout="", stderr="")
+
+    monkeypatch.setattr(preflight, "platform", SimpleNamespace(system=lambda: system))
+    monkeypatch.setattr(preflight, "subprocess", SimpleNamespace(run=run))
+    argv = [preflight.PY, "-m", "pytest", "-n", "2", "--max-worker-restart=0"]
+    env = {"ARENA_TEST_EXECUTION_GUARD": "1"}
+    assert preflight._execute_full(argv, env).returncode == 3
+    assert seen == [(argv, env, False)]
+
+
+@pytest.mark.parametrize("limit", [(2, 3), (3, 4), (1, 2)])
+def test_more_workers_than_cpus_is_refused_before_running_checks(harness, monkeypatch, capsys, limit):
+    cpus, workers = limit
+    monkeypatch.setattr(preflight, "_usable_cpus", lambda: cpus)
     with pytest.raises(SystemExit) as caught:
-        preflight.main(["--full", "--workers", "2"])
+        preflight.main(["--full", "--workers", str(workers)])
     assert caught.value.code == 2
     assert harness == []
+    assert f"exceeds the {cpus} CPUs available" in capsys.readouterr().err
+
+
+def test_as_many_workers_as_cpus_is_accepted(harness, monkeypatch):
+    monkeypatch.setattr(preflight, "_usable_cpus", lambda: 2)
+    assert preflight.main(["--full", "--workers", "2"]) == 0
+    assert harness[-1][-3:] == ["-n", "2", "--max-worker-restart=0"]
+
+
+def test_one_worker_is_never_refused_for_lack_of_cpus(harness, monkeypatch):
+    monkeypatch.setattr(preflight, "_usable_cpus", lambda: 0)
     assert preflight.main(["--full"]) == 0
+    assert harness == [["guard"], [preflight.PY, "-m", "pytest", "--no-cov",
+                                     "-p", "arena.governance.pytest_execution_guard"]]
+
+
+def test_usable_cpus_follows_the_affinity_mask_where_there_is_one(monkeypatch):
+    monkeypatch.setattr(preflight.os, "sched_getaffinity", lambda pid: {0, 5}, raising=False)
+    monkeypatch.setattr(preflight.os, "cpu_count", lambda: 64)
+    assert preflight._usable_cpus() == 2
+    monkeypatch.delattr(preflight.os, "sched_getaffinity")
+    assert preflight._usable_cpus() == 64
+    monkeypatch.setattr(preflight.os, "cpu_count", lambda: None)
+    assert preflight._usable_cpus() == 1
 
 
 def test_list_exposes_actual_parallel_command_without_execution(harness, capsys):
@@ -110,11 +161,8 @@ def test_full_suite_arms_collection_guard_without_mutating_parent(harness, monke
 
 @pytest.mark.parametrize("workers", [1, 2])
 def test_real_preflight_rejects_truncated_full_suite(tmp_path, workers, capsys):
-    import platform
     import sys
 
-    if workers == 2 and platform.system() != "Linux":
-        pytest.skip("two-worker preflight is Linux-only")
     config = tmp_path / "pytest.ini"
     config.write_text("[pytest]\n", encoding="utf-8")
     test_file = tmp_path / "test_too_short.py"
