@@ -30,6 +30,7 @@
 
 from __future__ import annotations
 
+import atexit
 import os
 import shutil
 import tempfile
@@ -78,6 +79,12 @@ def pytest_configure(config: pytest.Config) -> None:
     root = Path(tempfile.mkdtemp(prefix=f"arena-test-worker-{worker['workerid']}-")).resolve()
     values = private_directories(root)
     config.stash[_MOVED] = (root, {name: os.environ.get(name) for name in values})
+    # Exit handlers run newest first, and this one is registered before any
+    # test module is imported, so it runs after every handler the product
+    # registers. One of those (`mcp_client.client._atexit_stop_all`) creates
+    # `<home>/arena-bridge/mcp/run` on the way out, which is how every worker
+    # of every parallel run used to leave a directory behind.
+    atexit.register(_remove, root)
     os.environ.update(values)
     # `tempfile` remembers the first answer; make it ask the environment again.
     tempfile.tempdir = None
@@ -94,6 +101,11 @@ def pytest_unconfigure(config: pytest.Config) -> None:
         else:
             os.environ[name] = value
     tempfile.tempdir = None
+    _remove(root)
+
+
+def _remove(root: Path) -> None:
+    """Remove a worker's directories; called at teardown and again at exit."""
     # A handle still open on Windows keeps its file; the directory lives
     # under the temporary root either way, never in the account's home.
     shutil.rmtree(root, ignore_errors=True)

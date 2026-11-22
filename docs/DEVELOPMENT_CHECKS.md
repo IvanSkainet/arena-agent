@@ -26,7 +26,7 @@ The default remains serial on every supported operating system:
 python scripts/preflight.py --full
 ```
 
-Linux has an explicit, measured two-worker option:
+Several workers are an explicit option on every platform:
 
 ```sh
 python scripts/preflight.py --full --workers 2
@@ -35,16 +35,36 @@ python scripts/preflight.py --full --workers 2 --list
 
 Only the full pytest command is parallelized. Fast guards still execute, failures
 still fail preflight, automatic worker restarts are disabled, and the check list
-is not mutated. `--workers 2` requires `--full`; worker counts other than 1 or 2
-are rejected. Windows/macOS keep serial preflight until their full-suite behavior
-and throughput have been measured. Installing xdist does not enable parallelism.
+is not mutated. `--workers` requires `--full`, accepts 1 to 4, and refuses a
+count larger than the number of CPUs the process may use. Installing xdist does
+not enable parallelism, and there is no `auto`.
+
+Which count to use is a property of the machine, so measure once and keep the
+answer. What has been measured, as the `full suite` line of preflight, on
+2026-11-22 (one run per cell; a range is two to five runs):
+
+| Machine | 1 worker | 2 | 4 |
+| --- | --- | --- | --- |
+| Windows 10, 4 logical CPUs, Python 3.14 | 775 s | 398 s | 245-264 s |
+| Linux container, 2 CPUs, Python 3.13 | 451 s | 227-309 s | refused: 2 CPUs |
+
+On GitHub's Windows runners, which report four CPUs on two cores, four workers
+were no faster than two ("Hosted CI" below); on the Windows machine above they
+were. Three workers have only been run on macOS, in hosted CI.
+
+On Linux preflight owns the suite's process group and cleans it up when it is
+interrupted. On Windows and macOS it does not, with one worker or with several.
+In one trial on Windows, where preflight was killed during a two-worker run,
+every process of the run had exited within 25 seconds and the two workers'
+directories stayed in the temporary directory. That is one observation, not a
+contract, and nothing was tried on macOS.
 
 The existing full-preflight pytest command uses `--no-cov` and disables random
 ordering. This option preserves that contract; it does **not** replace CI's
 randomized, coverage-enforced matrix or the security scan required before commit.
 A missing plugin is an error, never a silent fallback to an unmeasured mode.
 
-Two workers use more memory. Do not run multiple full suites simultaneously or
+More workers use more memory. Do not run multiple full suites simultaneously or
 use `-n auto` based only on logical CPU count. If memory is constrained, keep
 `--workers 1`. Diagnostic subprocess tests may themselves launch workers.
 

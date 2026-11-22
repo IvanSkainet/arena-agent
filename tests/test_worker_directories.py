@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -131,3 +133,39 @@ def test_this_session_obeys_the_rule(request):
     """Under xdist this very test runs in moved directories; serially it does not."""
     home = Path(os.environ.get("USERPROFILE" if os.name == "nt" else "HOME", ""))
     assert home.parent.name.startswith("arena-test-worker-") == hasattr(request.config, "workerinput")
+
+
+_LATE_WRITER = """
+import atexit, os, pathlib
+import pytest
+
+@pytest.mark.parametrize("number", range(8))
+def test_a_program_that_writes_to_its_home_on_the_way_out(number):
+    home = pathlib.Path(os.environ["HOME"])
+    seen = pathlib.Path(os.environ["WORKER_ROOTS_SEEN"], os.environ["PYTEST_XDIST_WORKER"])
+    if not seen.exists():
+        seen.write_text(str(home.parent), encoding="utf-8")
+        atexit.register(lambda: (home / "arena-bridge" / "mcp" / "run").mkdir(parents=True, exist_ok=True))
+"""
+
+
+def test_a_real_parallel_run_leaves_no_worker_directory_behind(tmp_path):
+    """What the product's exit handler recreates is removed after it, not before."""
+    project, seen = tmp_path / "project", tmp_path / "seen"
+    project.mkdir()
+    seen.mkdir()
+    (project / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
+    (project / "test_late_writer.py").write_text(_LATE_WRITER, encoding="utf-8")
+    env = dict(os.environ, WORKER_ROOTS_SEEN=str(seen),
+               PYTHONPATH=str(Path(worker_directories.__file__).resolve().parents[1]))
+    for control in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTEST_DISABLE_PLUGIN_AUTOLOAD"):
+        env.pop(control, None)
+    command = [sys.executable, "-m", "pytest", "-q", "-c", str(project / "pytest.ini"), "--no-cov",
+               "-p", "no:randomly", "-p", "no:cacheprovider", "-p", "tests._worker_directories",
+               "-n", "2", "--max-worker-restart=0"]
+    done = subprocess.run(  # nosec B603 -- fixed argv, no shell
+        command, cwd=project, env=env, capture_output=True, text=True, check=False, timeout=120)
+    assert done.returncode == 0, done.stdout + done.stderr
+    roots = [Path(record.read_text(encoding="utf-8")) for record in seen.iterdir()]
+    assert roots and all(root.name.startswith("arena-test-worker-gw") for root in roots)
+    assert [root for root in roots if root.exists()] == []
