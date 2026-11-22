@@ -109,6 +109,8 @@ class BridgeClient:
     def post_json(self, path: str, payload: object, **kw):
         return self.request("POST", path, body=payload, **kw)
 
+PINNED_PYTHON_VARIABLE = "ARENA_E2E_PINNED_PYTHON"
+
 
 def _pin_python3(env: dict[str, str], directory: Path) -> None:
     """Put a ``python3`` that is the running interpreter first on ``PATH``."""
@@ -116,14 +118,16 @@ def _pin_python3(env: dict[str, str], directory: Path) -> None:
     # `python3` can be the Python install manager: it used to answer by
     # downloading an interpreter into the checkout, and with that switched
     # off it answers with an error (#376).  A symlink on POSIX and a one-line
-    # command script on Windows take the lookup away from the machine.  A
-    # command script cannot carry a non-ASCII path reliably; then the
-    # directory stays empty and `python3` resolves as it did before.
-    if os.name != "nt":
-        (directory / "python3").symlink_to(sys.executable)
-    elif sys.executable.isascii():
+    # command script on Windows take the lookup away from the machine.  The
+    # script reads the interpreter path from a variable, because a command
+    # script is read in the console code page and cannot be trusted to carry
+    # a path with non-ASCII characters, while the environment can.
+    if os.name == "nt":
+        env[PINNED_PYTHON_VARIABLE] = sys.executable
         (directory / "python3.cmd").write_text(
-            f'@"{sys.executable}" %*\r\n', encoding="ascii", newline="")
+            f'@"%{PINNED_PYTHON_VARIABLE}%" %*\r\n', encoding="ascii", newline="")
+    else:
+        (directory / "python3").symlink_to(sys.executable)
     env["PATH"] = f"{directory}{os.pathsep}{env.get('PATH', '')}"
 
 
@@ -470,8 +474,6 @@ def test_shell_control_characters_are_refused_on_every_http_exec_surface(bridge)
 
 def test_the_pinned_python3_is_found_first_and_is_this_interpreter(tmp_path):
     """Resolve ``python3`` to the running interpreter through the pinned PATH."""
-    if os.name == "nt" and not sys.executable.isascii():
-        pytest.skip("a command script cannot carry this interpreter path")
     env = {"PATH": "elsewhere"}
     _pin_python3(env, tmp_path)
     first, rest = env["PATH"].split(os.pathsep, 1)
@@ -479,7 +481,11 @@ def test_the_pinned_python3_is_found_first_and_is_this_interpreter(tmp_path):
     found = shutil.which("python3", path=first)
     assert found is not None
     if os.name == "nt":
-        assert sys.executable in Path(found).read_text(encoding="ascii")
+        # The script is ASCII whatever the interpreter path is; the path
+        # itself travels in the environment the bridge is started with.
+        script = Path(found).read_bytes()
+        assert script == f'@"%{PINNED_PYTHON_VARIABLE}%" %*\r\n'.encode("ascii")
+        assert env[PINNED_PYTHON_VARIABLE] == sys.executable
     else:
         assert os.path.samefile(found, sys.executable)
 

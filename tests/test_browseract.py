@@ -84,7 +84,10 @@ def test_cli_candidates_dedup_and_executable(monkeypatch, tmp_path):
     monkeypatch.setattr(mod.shutil, "which", lambda _name: str(cli))
 
     found = _cli_candidates()
-    assert found == [str(cli)]
+    # A copy installed system-wide (/usr/local/bin, Homebrew) may follow; the
+    # contract checked here is that the private one comes first, and once.
+    assert found[0] == str(cli)
+    assert found.count(str(cli)) == 1
     for path in found:
         assert os.path.isfile(path)
         assert os.access(path, os.X_OK)

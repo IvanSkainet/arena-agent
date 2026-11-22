@@ -1,34 +1,33 @@
-"""
-Keep tests from starting programs that belong to the machine they run on.
+"""Keep tests from starting programs that belong to the machine they run on."""
 
-Issue #376: on a developer's computer the suite opened a browser window,
-started a ``browser-act`` daemon and queried the VPN client, because those
-programs happened to be installed.  A clean CI runner has none of them, so
-the same tests took a different path there and nothing was noticed.
+# Issue #376: on a developer's computer the suite opened a browser window,
+# started a ``browser-act`` daemon and queried the VPN client, because those
+# programs happened to be installed.  A clean CI runner has none of them, so
+# the same tests took a different path there and nothing was noticed.
+#
+# This module makes both places behave alike.  It installs one audit hook for
+# the whole pytest process:
+#
+# * A program named in :data:`HOST_PROGRAMS` is reported as *not installed*
+#   (``FileNotFoundError``), which is what a clean runner would answer.
+# * ``os.startfile`` and ``webbrowser.open`` are refused with ``OSError``.
+# * Every other program is started as usual and only counted, so the list of
+#   what the suite really runs can be read from a report.
+#
+# Limits, stated so nobody relies on more than is here: the hook sees process
+# creation in the pytest process only.  A child process (for example a live
+# bridge started by an end-to-end test) is not covered, and neither are
+# ``os.exec*``, ``os.spawn*`` and ``os.posix_spawn``.
+#
+# Opt out for one test with ``@pytest.mark.allow_host_programs``, or for a
+# whole run with ``ARENA_TEST_ALLOW_HOST_PROGRAMS=1``.  A run started with
+# ``ARENA_TEST_HOST_PROCESS_REPORT=<path>`` writes ``<path>.<worker>.json``.
+# Both names carry the ``ARENA_TEST_`` prefix, which the harness leaves in the
+# environment, so xdist workers see them too.
+#
+# The module is a pytest plugin: ``tests/conftest.py`` names it in
+# ``pytest_plugins`` and the hooks at the end of this file do the wiring.
 
-This module makes both places behave alike.  It installs one audit hook for
-the whole pytest process:
-
-* A program named in :data:`HOST_PROGRAMS` is reported as *not installed*
-  (``FileNotFoundError``), which is what a clean runner would answer.
-* ``os.startfile`` and ``webbrowser.open`` are refused with ``OSError``.
-* Every other program is started as usual and only counted, so the list of
-  what the suite really runs can be read from a report.
-
-Limits, stated so nobody relies on more than is here: the hook sees process
-creation in the pytest process only.  A child process (for example a live
-bridge started by an end-to-end test) is not covered, and neither are
-``os.exec*``, ``os.spawn*`` and ``os.posix_spawn``.
-
-Opt out for one test with ``@pytest.mark.allow_host_programs``, or for a
-whole run with ``ARENA_TEST_ALLOW_HOST_PROGRAMS=1``.  A run started with
-``ARENA_TEST_HOST_PROCESS_REPORT=<path>`` writes ``<path>.<worker>.json``.
-Both names carry the ``ARENA_TEST_`` prefix, which the harness leaves in the
-environment, so xdist workers see them too.
-
-The module is a pytest plugin: ``tests/conftest.py`` names it in
-``pytest_plugins`` and the hooks at the end of this file do the wiring.
-"""
 from __future__ import annotations
 
 import errno
@@ -58,6 +57,9 @@ HOST_PROGRAMS = frozenset({
     "brave-browser", "opera", "vivaldi", "microsoft edge", "safari", "xdg-open",
     # third-party command line tools probed by product code
     "browser-act", "specify", "winget",
+    # macOS scripting host: notifications, the administrator prompt, and the
+    # way `webbrowser` opens a URL on Python 3.10 without an audit event
+    "osascript",
     # VPN clients
     "tailscale", "zerotier-cli", "zerotier-one", "zerotier-one_x64",
 })

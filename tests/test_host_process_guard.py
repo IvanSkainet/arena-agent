@@ -41,6 +41,7 @@ def guard_is_armed(monkeypatch):
         (r"C:\Windows\System32\cmd.exe", 'cmd.exe /c "browser-act --version"', ["cmd", "browser-act"]),
         (None, "cmd.exe /c winget list", ["cmd", "winget"]),
         ("/bin/sh", ["/bin/sh", "-c", "specify check"], ["sh", "specify"]),
+        ("/bin/sh", ["/bin/sh", "-c", "/usr/bin/osascript"], ["sh", "osascript"]),
         (None, ["powershell", "-NoProfile", "-Command", "tailscale status"], ["powershell", "tailscale"]),
         (None, '"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe" --new-window', ["msedge"]),
         (None, [sys.executable, "-c", "pass"], [guard.program_name(sys.executable)]),
@@ -73,6 +74,14 @@ def test_a_host_program_behind_a_shell_is_refused_too():
     """Look through `sh -c`: the shell is not the program that matters."""
     with pytest.raises(FileNotFoundError, match="browser-act"):
         launch("/bin/sh", "-c", "browser-act --version")
+
+
+def test_the_macos_script_host_is_refused_behind_a_shell():
+    """Refuse `osascript`, the way Python 3.10 opens a URL on macOS."""
+    # That version calls os.popen("/usr/bin/osascript") and raises no
+    # `webbrowser.open` event, so the program itself has to be on the list.
+    with pytest.raises(FileNotFoundError, match="osascript"):
+        launch("/bin/sh", "-c", "/usr/bin/osascript")
 
 
 def test_os_system_is_covered():
