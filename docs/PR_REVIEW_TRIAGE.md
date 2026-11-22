@@ -12,7 +12,10 @@ This procedure applies to every non-trivial pull request. Release, security,
 workflow, protocol, and cross-repository changes require every available
 configured reviewer surface to be read. Quota-skipped/unavailable Apps are
 recorded as no review signal, never as approval. If an App's context is required
-by live branch rules, its absence or non-passing status still blocks merge. A manual CodeRabbit or
+by live branch rules, GitHub blocks merge while that context is missing, pending
+or failed. GitHub accepts the `neutral` and `skipped` conclusions as passing, so
+a required App check that was skipped does not block merge by itself; the rule
+above still holds, and a skipped review is not a review. A manual CodeRabbit or
 Qodo review is preferred for high-risk changes when its independent quota is
 available.
 

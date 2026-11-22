@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import webbrowser
 
 import pytest
 
@@ -82,6 +83,17 @@ def test_the_macos_script_host_is_refused_behind_a_shell():
     # `webbrowser.open` event, so the program itself has to be on the list.
     with pytest.raises(FileNotFoundError, match="osascript"):
         launch("/bin/sh", "-c", "/usr/bin/osascript")
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="the macOS browser controller exists on macOS only")
+def test_the_real_macos_browser_controller_is_refused():
+    """Refuse the stock macOS way of opening a URL on every Python version."""
+    # Nothing is faked: Python 3.11+ raises `webbrowser.open` first, Python
+    # 3.10 goes straight to os.popen("/usr/bin/osascript").  Either way the
+    # guard has to answer before a browser appears on the machine.
+    controller = webbrowser.MacOSXOSAScript("default")
+    with pytest.raises(OSError, match="osascript|webbrowser.open"):
+        controller.open("https://example.invalid/")
 
 
 def test_os_system_is_covered():
