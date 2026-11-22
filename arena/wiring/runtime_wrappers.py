@@ -82,10 +82,16 @@ def build_runtime_wrappers(g: MutableMapping[str, Any]) -> dict[str, Any]:
     def _get_tailscale_cert() -> tuple[str, str]:
         return env._tls_get_tailscale_cert(log_info=env.log.info)
 
+    def _role_for_rate_limit(request: web.Request) -> tuple[bool, str]:
+        """Look the caller up once per request for both limiters."""
+        if "_rl_role" not in request:
+            request["_rl_role"] = g["check_auth_with_role"](request)
+        return request["_rl_role"]
+
     def _check_rate_limit_v2(request: web.Request) -> web.Response | None:
         return env.rl_check_rate_limit_v2(
             request,
-            check_auth_with_role_fn=g["check_auth_with_role"],
+            check_auth_with_role_fn=_role_for_rate_limit,
             cors_json_response_fn=env._cors_json_response,
         )
 
@@ -105,7 +111,11 @@ def build_runtime_wrappers(g: MutableMapping[str, Any]) -> dict[str, Any]:
         await env._cluster_runtime_heartbeat_loop(log_error=env.log.error)
 
     def _check_rate_limit(request: web.Request) -> web.Response | None:
-        return env.rl_check_rate_limit(request, cors_json_response_fn=env._cors_json_response)
+        return env.rl_check_rate_limit(
+            request,
+            cors_json_response_fn=env._cors_json_response,
+            check_auth_with_role_fn=_role_for_rate_limit,
+        )
 
     registry.update({
         "emit_event": emit_event,

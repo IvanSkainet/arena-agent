@@ -108,12 +108,26 @@ def rate_limit_stats() -> dict[str, Any]:
     return {"ok": True, "config": _rl_v2_config, "stats": {"active_users": active_users, "total_tracked_requests": total_tracked}}
 
 
+def _bucket(request: web.Request, check_auth_with_role_fn: Callable[[web.Request], tuple[bool, str]] | None) -> str:
+    """Name the count a request belongs to: token holders apart from everyone else at the same address."""
+    # Behind a tunnel or a reverse proxy every caller arrives from the same
+    # address. Counted together, 300 requests from anyone shut the token
+    # holder out for the rest of the window (#525). Anonymous callers keep
+    # the bare address as their key, so their limit is what it was.
+    peer = request.remote or "anonymous"
+    if check_auth_with_role_fn is None:
+        return peer
+    is_auth, role = check_auth_with_role_fn(request)
+    return f"{peer}:{role}" if is_auth else peer
+
+
 def check_rate_limit(
     request: web.Request,
     *,
     cors_json_response_fn: Callable[..., web.Response],
+    check_auth_with_role_fn: Callable[[web.Request], tuple[bool, str]] | None = None,
 ) -> web.Response | None:
-    peer = request.remote or "anonymous"
+    peer = _bucket(request, check_auth_with_role_fn)
     now = time.time()
     with _rate_limit_lock:
         timestamps = _rate_limit_store.get(peer, [])
