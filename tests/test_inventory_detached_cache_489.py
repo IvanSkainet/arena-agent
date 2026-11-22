@@ -91,6 +91,16 @@ def test_lease_is_released_when_its_process_exits(tmp_path):
     CHECK.assertTrue(lease.exists(), "unlinking breaks single-inode lease ownership")
 
 
+def _holds(path, expected):
+    """Report whether the file is there with all of `expected` in it."""
+    # `write_text` creates the file and then fills it: the name is there
+    # before the content is, and the content need not arrive at once (#529).
+    try:
+        return path.read_text(encoding="utf-8") == expected
+    except OSError:
+        return False
+
+
 def test_detached_worker_does_not_keep_request_pipes_or_process_alive(tmp_path):
     """An output-only timing assertion misses inherited pipes and CLI exit."""
     release = tmp_path / "release"
@@ -115,9 +125,7 @@ def test_detached_worker_does_not_keep_request_pipes_or_process_alive(tmp_path):
     finally:
         release.touch()
         deadline = time.monotonic() + 10
-        # `write_text` creates the file and then fills it: the name is there
-        # before the content is, so wait for the content (#529).
-        while not (result.exists() and result.stat().st_size) and time.monotonic() < deadline:
+        while not _holds(result, "complete") and time.monotonic() < deadline:
             time.sleep(.01)
     CHECK.assertEqual(result.read_text(), "complete")
 
