@@ -7,7 +7,8 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.desktop.availability import failure_response
-from arena.desktop.displays import get_displays, match_display
+from arena.desktop.display_lookup import get_displays
+from arena.desktop.displays import match_display
 from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import authed, query_int
 
@@ -35,7 +36,7 @@ def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "use either 'display' or explicit region_* crop parameters, not both"}, status=400)
         if display_name:
-            displays = await get_displays(desktop_exec=ctx.desktop_exec)
+            displays = await get_displays(desktop_exec=ctx.desktop_exec, env=ctx.detect_desktop_env())
             display = match_display(displays.get("displays", []), display_name)
             if not display:
                 ctx.record_request(is_error=True, count_request=False)
