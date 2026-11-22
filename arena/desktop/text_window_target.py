@@ -56,7 +56,7 @@ async def resolve_text_window_target(
             }
 
     display_info = None
-    displays_result = await get_displays(desktop_exec=desktop_exec)
+    displays_result = await get_displays(desktop_exec=desktop_exec, env=detect_env())
     displays = list(displays_result.get("displays") or [])
     if display:
         display_info = match_display(displays, display)

@@ -11,7 +11,7 @@ from arena.handler_helpers import authed
 def make_desktop_display_handler(ctx: DesktopHandlerContext):
     @authed(ctx)
     async def handle_v1_desktop_displays(request: web.Request) -> web.Response:
-        result = await get_displays(desktop_exec=ctx.desktop_exec)
+        result = await get_displays(desktop_exec=ctx.desktop_exec, env=ctx.detect_desktop_env())
         if not result.get("ok"):
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response(result, status=500)

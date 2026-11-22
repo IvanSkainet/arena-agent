@@ -1,8 +1,9 @@
 """Desktop display/output discovery helpers."""
 from __future__ import annotations
 
+import asyncio
 import re
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Mapping
 from typing import Any, Protocol
 
 
@@ -106,7 +107,23 @@ def match_display(outputs: list[dict[str, Any]], display: str | None) -> dict[st
     return None
 
 
-async def get_displays(*, desktop_exec: DesktopExec) -> dict[str, Any]:
+async def _win32_displays() -> dict[str, Any]:
+    """Ask user32: Windows has neither kscreen-doctor nor xrandr (#514)."""
+    from arena.desktop.backends import windows_displays
+
+    attempt: dict[str, Any] = {"tool": "user32.EnumDisplayMonitors", "ok": True}
+    try:
+        outputs = await asyncio.get_running_loop().run_in_executor(None, windows_displays.list_displays)
+    except OSError as exc:
+        attempt.update(ok=False, error=str(exc))
+        return {"ok": False, "error": str(exc), "backend": "win32", "active_output": None, "count": 0, "displays": [], "attempts": [attempt]}
+    active_output = next((output["name"] for output in outputs if output["active"]), None)
+    return {"ok": True, "backend": "win32", "active_output": active_output, "count": len(outputs), "displays": outputs, "attempts": [attempt]}
+
+
+async def get_displays(*, desktop_exec: DesktopExec, env: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    if env is not None and env.get("has_win32_windows"):
+        return await _win32_displays()
     attempts = []
     active_output = ""
     qdbus = await desktop_exec("qdbus6 org.kde.KWin /KWin org.kde.KWin.activeOutputName 2>/dev/null || qdbus org.kde.KWin /KWin org.kde.KWin.activeOutputName 2>/dev/null", timeout=4)
