@@ -19,7 +19,7 @@ CASES = ("healthy", "under-collected", "assertion", "worker-crash",
 # home while the interpreter exits. The worker's root is recorded beside it.
 _LATE_HOME_WRITER = (
     "import atexit, os, pathlib; home = pathlib.Path(os.environ['HOME']); "
-    "pathlib.Path('root-' + os.environ.get('PYTEST_XDIST_WORKER', 'main')).write_text(str(home.parent)); "
+    "pathlib.Path('root-' + os.environ.get('PYTEST_XDIST_WORKER', 'main')).write_text(str(home.parent), encoding='utf-8'); "
     "atexit.register(lambda: (home / 'arena-bridge' / 'mcp' / 'run').mkdir(parents=True, exist_ok=True))"
 )
 
