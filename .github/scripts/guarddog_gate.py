@@ -104,7 +104,9 @@ def dated_lists() -> str | None:
         listing = json.loads(source.read_text(encoding="utf-8"))
         if isinstance(listing, dict):
             listing["downloaded_timestamp"] = int(time.time())
-        pathlib.Path(target, source.name).write_text(json.dumps(listing), encoding="utf-8")
+        copy = pathlib.Path(target, source.name)
+        copy.write_text(json.dumps(listing), encoding="utf-8")
+        copy.chmod(0o600)
     return target
 
 

@@ -4,8 +4,9 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
+import os
+import stat
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ import pytest
 GATE = Path(__file__).resolve().parents[1] / ".github" / "scripts" / "guarddog_gate.py"
 CLEAN = '{"package": "aiohttp", "issues": 0, "results": {}}'
 LONG_AGO = 1
+NOW = 1_800_000_000
 
 
 def _load():
@@ -27,9 +29,11 @@ class _Finished:
 
 
 @pytest.fixture(name="gate")
-def _gate():
-    """A fresh copy of the gate: it remembers the directory it made."""
-    return _load()
+def _gate(monkeypatch):
+    """A fresh copy of the gate, with a clock that stands still: it remembers the directory it made."""
+    module = _load()
+    monkeypatch.setattr(module.time, "time", lambda: NOW + 0.5)
+    return module
 
 
 @pytest.fixture(name="bundled")
@@ -48,16 +52,22 @@ def _bundled(tmp_path, monkeypatch):
 
 
 def test_the_lists_guarddog_is_given_look_fresh(gate, bundled):
-    """Thirty days is GuardDog's limit; these are seconds old, with the same packages."""
+    """Thirty days is GuardDog's limit; these are dated now, with the same packages."""
     listing = json.loads(Path(gate.dated_lists(), "top_pypi_packages.json").read_text(encoding="utf-8"))
-    assert time.time() - listing["downloaded_timestamp"] < 60
-    assert listing["packages"] == ["requests"]
+    assert listing == {"downloaded_timestamp": NOW, "packages": ["requests"]}
 
 
 def test_the_installed_lists_are_left_as_they_were(gate, bundled):
     """The copy is dated, not the original."""
     gate.dated_lists()
     assert json.loads((bundled / "top_pypi_packages.json").read_text(encoding="utf-8"))["downloaded_timestamp"] == LONG_AGO
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_the_copies_are_private(gate, bundled):
+    """Owner only, whatever the umask."""
+    modes = {stat.S_IMODE(path.stat().st_mode) for path in Path(gate.dated_lists()).iterdir()}
+    assert modes == {0o600}
 
 
 def test_only_the_package_lists_are_copied(gate, bundled):
