@@ -58,21 +58,28 @@ class _Listener:
 
 
 @pytest.fixture(name="served")
-def _served(monkeypatch):
-    """Run `main()` against recorded stand-ins for the queue, thread and socket."""
+def _served(monkeypatch, tmp_path):
+    """Run `main()` with a real queue and recorded stand-ins for thread and socket."""
     events = []
+    queue = tmp_path / "logs" / "ws_notify.queue"
+    prepare = ws_server._prepare_notify_queue
+
+    def prepared(path):
+        events.append(("prepare", path))
+        prepare(path)
 
     def thread(target, daemon):
-        events.append(("thread", target, daemon))
+        # What the watcher would find at the moment it is created.
+        events.append(("thread", target, daemon, queue.is_file()))
         return SimpleNamespace(start=lambda: events.append(("start",)))
 
     monkeypatch.setattr(sys, "argv", ["mcp_ws_server.py", "--port", "0"])
+    monkeypatch.setattr(ws_server, "NOTIFY_QUEUE", queue)
     monkeypatch.setattr(ws_server, "threading", SimpleNamespace(Thread=thread))
     monkeypatch.setattr(ws_server, "socket", SimpleNamespace(
         socket=lambda *args: _Listener(events),
         AF_INET=0, SOCK_STREAM=0, SOL_SOCKET=0, SO_REUSEADDR=0))
-    monkeypatch.setattr(ws_server, "_prepare_notify_queue",
-                        lambda path: events.append(("prepare", path)))
+    monkeypatch.setattr(ws_server, "_prepare_notify_queue", prepared)
     return events
 
 
@@ -81,11 +88,12 @@ def test_the_server_prepares_the_queue_before_the_watcher_and_the_socket(served,
     ws_server.main()
     assert served == [
         ("prepare", ws_server.NOTIFY_QUEUE),
-        ("thread", ws_server._notify_watcher, True),
+        ("thread", ws_server._notify_watcher, True, True),
         ("start",),
         ("bind", ("127.0.0.1", 0)),
         ("close",),
     ]
+    assert ws_server.NOTIFY_QUEUE.read_bytes() == b""
     assert "ws://127.0.0.1:0" in capsys.readouterr().out
 
 

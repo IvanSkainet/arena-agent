@@ -4,9 +4,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import yaml
+import pytest
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml"
+yaml = pytest.importorskip("yaml")
 
 
 def _test_step() -> str:
@@ -30,5 +31,6 @@ def test_the_parallel_step_keeps_the_guard_and_the_coverage_floor() -> None:
     assert "ARENA_TEST_EXECUTION_GUARD=1 pytest" in run
     assert "-p arena.governance.pytest_execution_guard" in run
     assert "--cov-fail-under=$THRESHOLD" in run
+    assert re.findall(r"^\s*THRESHOLD=(\d+)$", run, re.M) == ["46", "51"]
     assert "--strict-markers" in run
     assert "no:randomly" not in run and "--no-cov" not in run

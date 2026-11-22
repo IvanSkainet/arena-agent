@@ -112,7 +112,7 @@ The numbers come from a measurement on the hosted runners on 2026-11-22: Python
 only. Median seconds, with the range in brackets:
 
 | Runner | serial | 2 workers | all logical CPUs |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Linux, 4 vCPU | 525 (432-593) | 282 (264-334) | 247 (161-263) with 4 |
 | Windows, 4 vCPU | 1155 (964-1202) | 570 (455-738) | 609 (483-672) with 4 |
 | macOS, 3 CPU | 520 (462-625) | 323 (297-432) | 290 (224-303) with 3 |

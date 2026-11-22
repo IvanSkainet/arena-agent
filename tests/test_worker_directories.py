@@ -68,17 +68,40 @@ def test_the_home_is_beside_the_temporary_directory_not_inside_it(base):
 
 def test_the_directories_are_named_without_a_symlink(base, tmp_path):
     """`private_paths.pinned_directory` refuses a symlink in any component."""
-    link = tmp_path / "link"
+    link, real = tmp_path / "link", tmp_path / "real"
+    real.mkdir()
     try:
-        link.symlink_to(tmp_path / "real")
+        link.symlink_to(real, target_is_directory=True)
     except OSError:
         pytest.skip("this account may not create symlinks")
-    (tmp_path / "real").mkdir()
     tempfile.tempdir = str(link)
     config, moved = _moved("gw0")
     try:
         assert all(path == path.resolve() for path in moved.values())
         assert all((base / "real") in path.parents for path in moved.values())
+    finally:
+        worker_directories.pytest_unconfigure(config)
+
+
+def test_an_agent_home_the_run_inherited_is_not_shared_either(base, monkeypatch):
+    """`ARENA_AGENT_HOME` outranks the home, so one set outside would be common."""
+    monkeypatch.setenv("ARENA_AGENT_HOME", "ambient-agent-home")
+    config, moved = _moved("gw0")
+    try:
+        agent_home = Path(os.environ["ARENA_AGENT_HOME"])
+        assert agent_home.is_dir() and agent_home.parent == moved["HOME"].parent
+        assert agent_home not in moved.values()
+    finally:
+        worker_directories.pytest_unconfigure(config)
+    assert os.environ["ARENA_AGENT_HOME"] == "ambient-agent-home"
+
+
+def test_an_agent_home_nobody_set_stays_unset(base, monkeypatch):
+    """Tests of the default location must still see no override."""
+    monkeypatch.delenv("ARENA_AGENT_HOME", raising=False)
+    config, _ = _moved("gw0")
+    try:
+        assert "ARENA_AGENT_HOME" not in os.environ
     finally:
         worker_directories.pytest_unconfigure(config)
 

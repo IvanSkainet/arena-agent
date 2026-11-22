@@ -42,6 +42,8 @@ import pytest
 PRIVATE = ("HOME", "TMPDIR", "TMP", "TEMP", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
            "XDG_DATA_HOME", "XDG_STATE_HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA")
 
+OVERRIDE = "ARENA_AGENT_HOME"
+
 _MOVED = pytest.StashKey[tuple]()
 
 
@@ -55,6 +57,13 @@ def private_directories(root: Path) -> dict[str, str]:
     # The Windows Python install manager answers `python3` and `pip`; with an
     # empty per-user directory it sees no runtime and downloads one (#376).
     values["PYTHON_MANAGER_AUTOMATIC_INSTALL"] = "false"
+    # `agent_home()` prefers this variable to the home. Where the run
+    # inherited one, every worker would still meet in it; where nobody set
+    # it, it stays unset, because tests of the default location rely on that.
+    if OVERRIDE in os.environ:
+        path = root / "arena_agent_home"
+        path.mkdir(mode=0o700)
+        values[OVERRIDE] = str(path)
     return values
 
 

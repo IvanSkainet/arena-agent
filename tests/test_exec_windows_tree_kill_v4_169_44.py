@@ -200,12 +200,12 @@ def test_live_windows_timeout_kills_nested_child(tmp_path: Path) -> None:
     # tree that exists when it runs; a child created while it runs is a
     # different question, and one this test must not answer by accident.
     timeout, margin = 10, 2
-    report = tmp_path / "child.txt"
+    pidfile = tmp_path / "child.pid"
     child = tmp_path / "child.py"
     parent = tmp_path / "parent.py"
     child.write_text(
         "import os, pathlib, sys, time\n"
-        "pathlib.Path(sys.argv[1]).write_text(f'{os.getpid()} {time.time()}')\n"
+        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\n"
         "time.sleep(300)\n",
         encoding="utf-8",
     )
@@ -215,11 +215,19 @@ def test_live_windows_timeout_kills_nested_child(tmp_path: Path) -> None:
         "time.sleep(300)\n",
         encoding="utf-8",
     )
-    cmd = subprocess.list2cmdline([sys.executable, str(parent), str(child), str(report)])
+    cmd = subprocess.list2cmdline([sys.executable, str(parent), str(child), str(pidfile)])
 
-    began = time.time()
-    result = asyncio.run(
-        R.run_shell_command(
+    async def scenario() -> tuple[dict, float | None]:
+        # One clock in one process: when did the child's report appear?
+        began = time.monotonic()
+
+        async def reported() -> float:
+            while not pidfile.is_file():
+                await asyncio.sleep(0.05)
+            return time.monotonic() - began
+
+        watching = asyncio.ensure_future(reported())
+        outcome = await R.run_shell_command(
             request_id="windows-live-tree",
             cmd=cmd,
             cwd=tmp_path,
@@ -228,11 +236,15 @@ def test_live_windows_timeout_kills_nested_child(tmp_path: Path) -> None:
             max_output=1000,
             decode_output_fn=lambda b: b.decode("utf-8", "replace"),
         )
-    )
+        if not watching.done():
+            watching.cancel()
+            return outcome, None
+        return outcome, watching.result()
+
+    result, ready_after = asyncio.run(scenario())
     assert result["timed_out"] is True
-    assert report.is_file(), "nested child did not report its pid"
-    pid_text, started_text = report.read_text().split()
-    child_pid, ready_after = int(pid_text), float(started_text) - began
+    assert ready_after is not None, "nested child did not report its pid"
+    child_pid = int(pidfile.read_text())
     try:
         assert ready_after < timeout - margin, (
             f"the nested child was ready {ready_after:.1f}s into a {timeout}s timeout; "
