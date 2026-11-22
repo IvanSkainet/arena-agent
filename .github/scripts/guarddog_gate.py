@@ -26,10 +26,17 @@ fails.
 """
 from __future__ import annotations
 
+import atexit
+import functools
+import importlib.util
 import json
+import os
 import pathlib
+import shutil
 import subprocess
 import sys
+import tempfile
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 BASELINE = ROOT / "docs" / "guarddog-baseline.json"
@@ -69,6 +76,46 @@ NETWORK_DEPENDENT_RULES = (
 )
 
 
+#: Seconds one package may take. The whole requirements file is scanned in
+#: one to two minutes; a scan that needs longer than this is stuck (#528).
+SCAN_TIMEOUT = 180
+
+#: Tells GuardDog where its lists of popular packages are.
+LISTS_VARIABLE = "GUARDDOG_TOP_PACKAGES_CACHE_LOCATION"
+
+
+@functools.lru_cache(maxsize=1)
+def dated_lists() -> str | None:
+    """Copy GuardDog's bundled lists of popular packages, dated now, and return the directory."""
+    # GuardDog looks for newer lists as soon as it is imported, once its own
+    # are 30 days old, on hosts this job's egress policy does not allow. A
+    # refused connection usually fails at once and GuardDog carries on with
+    # the bundled lists; when it is left to time out instead, every package
+    # waits minutes and the job never finishes (#528). Lists that look fresh
+    # are not refreshed. The trade is the one already in force: typosquatting
+    # is judged against the lists shipped with the pinned GuardDog.
+    spec = importlib.util.find_spec("guarddog")
+    if spec is None or spec.origin is None:
+        return None
+    bundled = pathlib.Path(spec.origin).parent / "analyzer" / "metadata" / "resources"
+    target = tempfile.mkdtemp(prefix="guarddog-lists-")
+    atexit.register(shutil.rmtree, target, ignore_errors=True)
+    for source in bundled.glob("top_*_packages.json"):
+        listing = json.loads(source.read_text(encoding="utf-8"))
+        if isinstance(listing, dict):
+            listing["downloaded_timestamp"] = int(time.time())
+        copy = pathlib.Path(target, source.name)
+        copy.write_text(json.dumps(listing), encoding="utf-8")
+        copy.chmod(0o600)
+    return target
+
+
+def scan_environment() -> dict[str, str]:
+    """Return the environment GuardDog runs in."""
+    lists = dated_lists()
+    return {**os.environ, LISTS_VARIABLE: lists} if lists else dict(os.environ)
+
+
 def scan(package: str) -> dict:
     """Run GuardDog against one package and return its parsed report."""
     exclude: list[str] = []
@@ -77,13 +124,24 @@ def scan(package: str) -> dict:
     proc = subprocess.run(
         [sys.executable, "-m", "guarddog", "pypi", "scan", package,
          *exclude, "--output-format", "json"],
-        capture_output=True, text=True, timeout=900,
+        capture_output=True, text=True, timeout=SCAN_TIMEOUT, env=scan_environment(),
     )
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError:
         return {"package": package, "_unparseable": proc.stdout[-400:],
                 "errors": {"gate": "guarddog produced no parseable JSON"}}
+
+
+def scan_within_limit(package: str) -> dict:
+    """Scan one package; a scan that does not finish is reported as one that did not complete."""
+    # Named before it starts: a scan that stalls is otherwise silent.
+    print(f"scanning {package}", flush=True)
+    try:
+        return scan(package)
+    except subprocess.TimeoutExpired:
+        return {"package": package,
+                "errors": {"gate": f"guarddog did not finish within {SCAN_TIMEOUT} seconds"}}
 
 
 def significant(report: dict) -> list[str]:
@@ -123,7 +181,7 @@ def check(packages: list[str]) -> int:
     accepted = _load_baseline()
     failures: list[str] = []
     for name in packages:
-        failures.extend(_evaluate(scan(name), name, accepted))
+        failures.extend(_evaluate(scan_within_limit(name), name, accepted))
     if failures:
         _report(failures)
         return 1
