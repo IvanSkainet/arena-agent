@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from arena.desktop import displays as _linux_tools
-from arena.desktop.displays import DesktopExec
+from arena.desktop.displays import DesktopExec, match_display
 from arena.desktop.text_matching import coerce_geometry
 
 _WIN32_TOOL = "user32.EnumDisplayMonitors"
@@ -48,6 +48,21 @@ def attribute_windows(windows: list[dict[str, Any]], displays: list[dict[str, An
         # failed measurement by it.
         geometry = coerce_geometry(window.get("geometry"))
         window["display"] = _showing(geometry, displays) if geometry else None
+
+
+def choose_display(listing: Mapping[str, Any], name: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Return the display called `name`, or an empty record and the status and body to refuse the request with."""
+    # A listing that failed says nothing about the name: answering "unknown
+    # display" would send the caller looking for a typo (#523). A listing
+    # without `ok` comes from the Linux tools, which never report failure.
+    if not listing.get("ok", True):
+        reason = listing.get("error") or "no reason given"
+        return {}, {"status": 500, "body": {"ok": False, "error": f"displays could not be listed: {reason}", "attempts": listing.get("attempts", [])}}
+    displays = list(listing.get("displays") or [])
+    display = match_display(displays, name)
+    if display:
+        return display, None
+    return {}, {"status": 404, "body": {"ok": False, "error": f"unknown display: {name}", "available_displays": displays}}
 
 
 async def _win32_displays() -> dict[str, Any]:
