@@ -28,16 +28,16 @@ def _mode(path):
     return stat.S_IMODE(os.stat(path).st_mode)
 
 
-@pytest.fixture
-def permissive_umask():
+@pytest.fixture(name="permissive_umask")
+def _permissive_umask():
     """The common default, under which a plain open() makes a file everyone can read."""
     previous = os.umask(0o022)
     yield
     os.umask(previous)
 
 
-@pytest.fixture
-def unconfigured_logger(monkeypatch):
+@pytest.fixture(name="unconfigured_logger")
+def _unconfigured_logger(monkeypatch):
     """The bridge logger as a starting process finds it, with whatever it opens closed afterwards."""
     logger = logging.getLogger("arena-bridge")
     opened: list[logging.Handler] = []
@@ -60,8 +60,8 @@ def test_under_the_suite_neither_log_is_in_the_checkout(name):
     assert REPO not in getattr(constants, name).resolve().parents
 
 
-@pytest.fixture
-def separated(tmp_path):
+@pytest.fixture(name="separated")
+def _separated(tmp_path):
     """The bridge's namespace with the code in one directory and the two logs declared in another."""
     code, state = tmp_path / "code", tmp_path / "state"
     code.mkdir()
