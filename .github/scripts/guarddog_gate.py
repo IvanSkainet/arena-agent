@@ -121,22 +121,27 @@ def scan(package: str) -> dict:
     exclude: list[str] = []
     for rule in NETWORK_DEPENDENT_RULES:
         exclude += ["--exclude-rules", rule]
-    # Named before it starts: a scan that stalls is otherwise silent.
-    print(f"scanning {package}", flush=True)
-    try:
-        proc = subprocess.run(
-            [sys.executable, "-m", "guarddog", "pypi", "scan", package,
-             *exclude, "--output-format", "json"],
-            capture_output=True, text=True, timeout=SCAN_TIMEOUT, env=scan_environment(),
-        )
-    except subprocess.TimeoutExpired:
-        return {"package": package,
-                "errors": {"gate": f"guarddog did not finish within {SCAN_TIMEOUT} seconds"}}
+    proc = subprocess.run(
+        [sys.executable, "-m", "guarddog", "pypi", "scan", package,
+         *exclude, "--output-format", "json"],
+        capture_output=True, text=True, timeout=SCAN_TIMEOUT, env=scan_environment(),
+    )
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError:
         return {"package": package, "_unparseable": proc.stdout[-400:],
                 "errors": {"gate": "guarddog produced no parseable JSON"}}
+
+
+def scan_within_limit(package: str) -> dict:
+    """Scan one package; a scan that does not finish is reported as one that did not complete."""
+    # Named before it starts: a scan that stalls is otherwise silent.
+    print(f"scanning {package}", flush=True)
+    try:
+        return scan(package)
+    except subprocess.TimeoutExpired:
+        return {"package": package,
+                "errors": {"gate": f"guarddog did not finish within {SCAN_TIMEOUT} seconds"}}
 
 
 def significant(report: dict) -> list[str]:
@@ -176,7 +181,7 @@ def check(packages: list[str]) -> int:
     accepted = _load_baseline()
     failures: list[str] = []
     for name in packages:
-        failures.extend(_evaluate(scan(name), name, accepted))
+        failures.extend(_evaluate(scan_within_limit(name), name, accepted))
     if failures:
         _report(failures)
         return 1
