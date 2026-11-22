@@ -61,11 +61,16 @@ def test_under_the_suite_neither_log_is_in_the_checkout(name):
 
 
 @pytest.fixture(name="separated")
-def _separated(tmp_path):
+def _separated(tmp_path, monkeypatch):
     """The bridge's namespace with the code in one directory and the two logs declared in another."""
-    code, state = tmp_path / "code", tmp_path / "state"
-    code.mkdir()
-    state.mkdir()
+    code, state, user = tmp_path / "code", tmp_path / "state", tmp_path / "user"
+    for directory in (code, state, user):
+        directory.mkdir()
+    # The startup cleanup also looks for service logs under the account's home
+    # and the agent home; without xdist those are the developer's own.
+    monkeypatch.setenv("HOME", str(user))
+    monkeypatch.setenv("USERPROFILE", str(user))
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(state))
     values = dict(vars(ub))
     values.update(APP_DIR=code, BRIDGE_LOG=state / "bridge.log", REQUEST_LOG=state / "requests.jsonl", AUDIT=state / "audit.jsonl")
     return values
