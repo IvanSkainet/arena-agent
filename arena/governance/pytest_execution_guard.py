@@ -29,9 +29,28 @@ def pytest_collection_finish(session: Any) -> None:
     """Enforce only when the blocking CI test job opts into the plugin."""
     if os.environ.get("ARENA_TEST_EXECUTION_GUARD") != "1":
         return
+    if hasattr(getattr(session, "config", None), "workerinput"):
+        # xdist reports each worker inventory to the controller. Raising here
+        # loses the diagnostic inside its worker-shutdown protocol.
+        return
     error = collection_error(
         collected=len(session.items),
         runner_os=os.environ.get("RUNNER_OS", ""),
     )
     if error:
         raise pytest.UsageError(error)
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_xdist_node_collection_finished(node: Any, ids: list[str]) -> None:
+    """Enforce each full worker inventory before parallel execution proceeds."""
+    # Optional hook keeps serial installs independent of pytest-xdist. The
+    # controller owns the refusal so a short collection stays a clear usage
+    # error rather than becoming an xdist internal worker-finished assertion.
+    if os.environ.get("ARENA_TEST_EXECUTION_GUARD") != "1":
+        return
+    error = collection_error(
+        collected=len(ids), runner_os=os.environ.get("RUNNER_OS", ""),
+    )
+    if error:
+        pytest.exit(error, returncode=4)

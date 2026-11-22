@@ -28,6 +28,10 @@ idna==3.19
 packaging==26.2
 pytest==9.1.1
 pytest-cov==7.1.0
+# T74: parallel execution and mandatory worker failure-propagation contracts.
+# Installing the plugin does not enable parallel CI; rollout is measured separately.
+pytest-xdist==3.8.0
+execnet==2.1.2
 # Workflow contract tests parse GitHub Actions YAML; this must be direct so
 # importorskip cannot silently remove the security policy suite in CI.
 PyYAML==6.0.3

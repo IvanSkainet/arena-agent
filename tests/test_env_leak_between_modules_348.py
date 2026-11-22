@@ -31,15 +31,14 @@ import pytest
 _REPOSITORY = Path(__file__).resolve().parents[1]
 
 
-@pytest.fixture
-def suite_conftest(request: pytest.FixtureRequest) -> ModuleType:
+@pytest.fixture(name="suite_conftest")
+def loaded_suite_conftest(request: pytest.FixtureRequest) -> ModuleType:
     """The live `tests/conftest.py`, as pytest loaded it.
 
-    Not `from tests.conftest import ...`: `tests/` has no
-    `__init__.py`, so that statement builds a *second* module object
-    whose snapshot dicts are empty, and every assertion below would
-    pass by measuring nothing. Confirmed by inspection -- `conftest`
-    and `tests.conftest` were two distinct objects in `sys.modules`.
+    Resolve the plugin pytest actually registered rather than importing a
+    potentially distinct module object with empty snapshot dictionaries.
+    Historically `conftest` and `tests.conftest` could be distinct objects;
+    assertions against an unloaded copy would pass by measuring nothing.
     Same lookup, and same reason, as `test_no_network_guard_331.py`.
     """
     module = request.config.pluginmanager.get_plugin(
@@ -331,3 +330,95 @@ def test_a_leak_really_does_change_what_a_later_module_reads(
     assert alone.returncode == 0, (
         "the reader was expected to pass on its own -- if it fails here the "
         f"fixture is wrong, not the suite:\n{alone.stdout}")
+
+
+def _empty_session(*, worker=False):
+    from types import SimpleNamespace
+
+    config = SimpleNamespace(
+        stash=pytest.Stash(),
+        pluginmanager=SimpleNamespace(get_plugin=lambda name: None),
+    )
+    if worker:
+        config.workeroutput = {}
+    return SimpleNamespace(config=config, exitstatus=0)
+
+
+def test_worker_forwards_leak_names_without_secret_values(suite_conftest, monkeypatch):
+    session = _empty_session(worker=True)
+    monkeypatch.setattr(suite_conftest, "_arena_leaks_by_origin", lambda: {
+        "": {"ARENA_CONTRACT_LEAK": (None, "private-value-must-not-travel")},
+    })
+    suite_conftest.pytest_sessionfinish(session, 0)
+    assert session.exitstatus == 1
+    assert session.config.workeroutput == {
+        "arena_environment_leaks": ["ARENA_CONTRACT_LEAK"],
+    }
+
+
+@pytest.mark.parametrize("names,exitstatus", [([], 0), (["ARENA_CONTRACT_LEAK"], 1)])
+def test_controller_verdict_matches_worker_leaks(suite_conftest, monkeypatch, names, exitstatus):
+    from types import SimpleNamespace
+
+    session = _empty_session()
+    monkeypatch.setattr(suite_conftest, "_arena_leaks_by_origin", lambda: {})
+    node = SimpleNamespace(config=session.config, workeroutput={
+        "arena_environment_leaks": names,
+    })
+    suite_conftest.pytest_testnodedown(node, None)
+    suite_conftest.pytest_sessionfinish(session, 0)
+    assert session.exitstatus == exitstatus
+
+
+@pytest.mark.parametrize("exitstatus", [1, 2, 3, 4, 5])
+def test_worker_leak_does_not_replace_an_existing_failure(suite_conftest, monkeypatch, exitstatus):
+    session = _empty_session(worker=True)
+    session.exitstatus = exitstatus
+    monkeypatch.setattr(suite_conftest, "_arena_leaks_by_origin", lambda: {
+        "fixture": {"ARENA_CONTRACT_LEAK": (None, "private-fixture-value")},
+    })
+    suite_conftest.pytest_sessionfinish(session, exitstatus)
+    assert session.exitstatus == exitstatus
+    assert session.config.workeroutput == {"arena_environment_leaks": ["ARENA_CONTRACT_LEAK"]}
+
+
+def test_controller_accumulates_leaks_across_worker_shutdowns(suite_conftest, monkeypatch):
+    from types import SimpleNamespace
+
+    session = _empty_session()
+    monkeypatch.setattr(suite_conftest, "_arena_leaks_by_origin", lambda: {})
+    for names in (["ARENA_CONTRACT_FIRST"], [], ["ARENA_CONTRACT_SECOND"]):
+        suite_conftest.pytest_testnodedown(SimpleNamespace(
+            config=session.config, workeroutput={"arena_environment_leaks": names}), None)
+    assert session.config.stash[suite_conftest._WORKER_ARENA_LEAKS] == [
+        "ARENA_CONTRACT_FIRST", "ARENA_CONTRACT_SECOND",
+    ]
+    suite_conftest.pytest_sessionfinish(session, 0)
+    assert session.exitstatus == 1
+
+
+def test_worker_leak_diagnostic_never_renders_secret_values(suite_conftest, monkeypatch):
+    from types import SimpleNamespace
+
+    lines = []
+    reporter = SimpleNamespace(write_sep=lambda *a, **kw: None, write_line=lines.append)
+    session = _empty_session(worker=True)
+    session.config.pluginmanager.get_plugin = lambda name: reporter
+    monkeypatch.setattr(suite_conftest, "_arena_leaks_by_origin", lambda: {
+        "fixture": {"ARENA_CONTRACT_LEAK": ("private-before", "private-after")},
+    })
+    suite_conftest.pytest_sessionfinish(session, 0)
+    assert lines == []  # Worker never invokes a value-bearing reporter.
+    assert session.exitstatus == 1
+    assert session.config.workeroutput["arena_environment_leaks"] == ["ARENA_CONTRACT_LEAK"]
+    controller = _empty_session()
+    controller.config.pluginmanager.get_plugin = lambda name: reporter
+    monkeypatch.setattr(suite_conftest, "_arena_leaks_by_origin", lambda: {})
+    suite_conftest.pytest_testnodedown(SimpleNamespace(
+        config=controller.config, workeroutput=session.config.workeroutput), None)
+    suite_conftest.pytest_sessionfinish(controller, 0)
+    output = "\n".join(lines)
+    assert "ARENA_CONTRACT_LEAK" in output
+    assert "private-before" not in output
+    assert "private-after" not in output
+    assert controller.exitstatus == 1

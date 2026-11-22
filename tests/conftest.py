@@ -46,6 +46,18 @@ from typing import Any
 
 import pytest
 
+from tests import _worker_arena_leaks as worker_leaks
+from tests._acceleration_fixtures import (
+    isolated_ratchet_repo as isolated_ratchet_repo,
+    isolated_release_repo as isolated_release_repo,
+)
+from tests._worker_arena_leaks import (
+    pytest_testnodedown as pytest_testnodedown,
+)
+
+# #376: programs installed on the machine count as absent during tests.
+pytest_plugins = ("tests._host_process_guard",)
+
 _ALLOW_MARKER = "allow_network"
 
 # Loopback only. Not "private ranges": a test that reaches 192.168.1.1
@@ -89,6 +101,7 @@ def _ambient_arena_variables() -> tuple[str, ...]:
 
 
 _ARENA_AT_SESSION_START: dict[str, str] = {}
+_WORKER_ARENA_LEAKS = worker_leaks.WORKER_ARENA_LEAKS
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
@@ -184,11 +197,9 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     runs.
     """
     leaked = _arena_leaks_by_origin()
-    if not leaked:
-        return
-    _report_arena_leaks(session, leaked)
-    if exitstatus == 0:
-        session.exitstatus = 1
+    worker_leaks.publish_local_leaks(session, leaked, _report_arena_leaks)
+    remote_leaks = worker_leaks.report_worker_leaks(session)
+    worker_leaks.refuse_leaks(session, leaked, remote_leaks, exitstatus)
 
 
 _ARENA_AFTER_COLLECTION: dict[str, str] = {}

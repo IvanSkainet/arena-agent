@@ -13,11 +13,14 @@ opted into.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 from pathlib import Path
 
 import pytest
+
+from tests import _host_process_guard as host_process_guard
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "arena" / "mcp"))
@@ -25,9 +28,17 @@ sys.path.insert(0, str(REPO / "arena" / "mcp"))
 import tool_speckit as ts  # noqa: E402
 
 HAS_SPECIFY = shutil.which("specify") is not None
+# These tests run the real Spec Kit CLI.  It has to be installed, and the run
+# has to opt in to programs of the host machine (tests/_host_process_guard.py,
+# #376): without the opt-in a developer's computer that happens to have the
+# CLI would run tests that CI skips.
+HOST_PROGRAMS_ALLOWED = os.environ.get(host_process_guard.ALLOW_VARIABLE) == "1"
 skip_no_cli = pytest.mark.skipif(
-    not HAS_SPECIFY,
-    reason="specify CLI not on PATH (install with: uv tool install specify-cli)",
+    not (HAS_SPECIFY and HOST_PROGRAMS_ALLOWED),
+    reason=(
+        "needs the specify CLI on PATH (uv tool install specify-cli) and "
+        f"{host_process_guard.ALLOW_VARIABLE}=1"
+    ),
 )
 
 

@@ -28,6 +28,7 @@ import http.client
 import json
 import os
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -108,6 +109,27 @@ class BridgeClient:
     def post_json(self, path: str, payload: object, **kw):
         return self.request("POST", path, body=payload, **kw)
 
+PINNED_PYTHON_VARIABLE = "ARENA_E2E_PINNED_PYTHON"
+
+
+def _pin_python3(env: dict[str, str], directory: Path) -> None:
+    """Put a ``python3`` that is the running interpreter first on ``PATH``."""
+    # The bridge under test runs `python3 --version`.  On Windows a bare
+    # `python3` can be the Python install manager: it used to answer by
+    # downloading an interpreter into the checkout, and with that switched
+    # off it answers with an error (#376).  A symlink on POSIX and a one-line
+    # command script on Windows take the lookup away from the machine.  The
+    # script reads the interpreter path from a variable, because a command
+    # script is read in the console code page and cannot be trusted to carry
+    # a path with non-ASCII characters, while the environment can.
+    if os.name == "nt":
+        env[PINNED_PYTHON_VARIABLE] = sys.executable
+        (directory / "python3.cmd").write_text(
+            f'@"%{PINNED_PYTHON_VARIABLE}%" %*\r\n', encoding="ascii", newline="")
+    else:
+        (directory / "python3").symlink_to(sys.executable)
+    env["PATH"] = f"{directory}{os.pathsep}{env.get('PATH', '')}"
+
 
 @pytest.fixture(scope="module")
 def bridge(tmp_path_factory):
@@ -129,6 +151,7 @@ def bridge(tmp_path_factory):
     (agent_home / "bridge.json").write_text("{}", encoding="utf-8")
     env = {**os.environ, "ARENA_AGENT_HOME": str(agent_home),
            "ARENA_TOKEN_FILE": str(agent_home / "token.txt")}
+    _pin_python3(env, tmp_path_factory.mktemp("pinned-python3"))
     proc = subprocess.Popen(
         argv, cwd=str(tmp_path_factory.mktemp("bridge-cwd")), env=env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -447,6 +470,24 @@ def test_shell_control_characters_are_refused_on_every_http_exec_surface(bridge)
     text = ((result.get("content") or [{}])[0]).get("text", "")
     assert result.get("isError") is True, body
     assert "shell control" in text
+
+
+def test_the_pinned_python3_is_found_first_and_is_this_interpreter(tmp_path):
+    """Resolve ``python3`` to the running interpreter through the pinned PATH."""
+    env = {"PATH": "elsewhere"}
+    _pin_python3(env, tmp_path)
+    first, rest = env["PATH"].split(os.pathsep, 1)
+    assert (first, rest) == (str(tmp_path), "elsewhere")
+    found = shutil.which("python3", path=first)
+    assert found is not None
+    if os.name == "nt":
+        # The script is ASCII whatever the interpreter path is; the path
+        # itself travels in the environment the bridge is started with.
+        script = Path(found).read_bytes()
+        assert script == f'@"%{PINNED_PYTHON_VARIABLE}%" %*\r\n'.encode("ascii")
+        assert env[PINNED_PYTHON_VARIABLE] == sys.executable
+    else:
+        assert os.path.samefile(found, sys.executable)
 
 
 def test_shell_allowlist_keeps_legitimate_commands_working(bridge):

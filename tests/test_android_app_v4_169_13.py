@@ -170,7 +170,7 @@ def test_app_version_matches_the_bridge() -> None:
 
 # --- the release builder packs the working tree, not the commit ------------
 
-def test_release_zip_refuses_untracked_files(tmp_path: Path) -> None:
+def test_release_zip_refuses_untracked_files(tmp_path: Path, isolated_release_repo: Path) -> None:
     """v4.169.12 was built from a tree holding the unfinished app.
 
     1142 files instead of 1105: java sources and a keystore, inside an
@@ -182,13 +182,13 @@ def test_release_zip_refuses_untracked_files(tmp_path: Path) -> None:
     import subprocess
     import sys as _sys
 
-    probe = REPO_ROOT / "_release_untracked_probe.txt"
-    probe.write_text("stray\n", encoding="utf-8")
+    probe = isolated_release_repo / "_release_untracked_probe.txt"
+    probe.write_bytes(b"stray\n")
     try:
         proc = subprocess.run(
-            [_sys.executable, str(REPO_ROOT / "scripts" / "make_release_zip.py"),
+            [_sys.executable, str(isolated_release_repo / "scripts" / "make_release_zip.py"),
              "9.9.9", str(tmp_path / "out.zip")],
-            capture_output=True, text=True, timeout=300, cwd=REPO_ROOT,
+            capture_output=True, text=True, timeout=300, cwd=isolated_release_repo,
         )
     finally:
         probe.unlink(missing_ok=True)
@@ -197,23 +197,29 @@ def test_release_zip_refuses_untracked_files(tmp_path: Path) -> None:
     assert not (tmp_path / "out.zip").exists(), "it must not write the archive"
 
 
-def test_release_zip_can_be_overridden_deliberately(tmp_path: Path) -> None:
+def test_release_zip_can_be_overridden_deliberately(tmp_path: Path, isolated_release_repo: Path) -> None:
     """An escape hatch, so the gate cannot block a legitimate build."""
     import subprocess
     import sys as _sys
 
-    probe = REPO_ROOT / "_release_untracked_probe2.txt"
-    probe.write_text("stray\n", encoding="utf-8")
+    probe = isolated_release_repo / "_release_untracked_probe2.txt"
+    probe.write_bytes(b"stray\n")
     try:
         proc = subprocess.run(
-            [_sys.executable, str(REPO_ROOT / "scripts" / "make_release_zip.py"),
+            [_sys.executable, str(isolated_release_repo / "scripts" / "make_release_zip.py"),
              "9.9.9", str(tmp_path / "out.zip"), "--allow-untracked"],
-            capture_output=True, text=True, timeout=300, cwd=REPO_ROOT,
+            capture_output=True, text=True, timeout=300, cwd=isolated_release_repo,
         )
     finally:
         probe.unlink(missing_ok=True)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert (tmp_path / "out.zip").exists()
+
+    import zipfile
+
+    with zipfile.ZipFile(tmp_path / "out.zip") as archive:
+        assert archive.read("arena-bridge/tracked.txt") == b"release fixture\n"
+        assert archive.read("arena-bridge/_release_untracked_probe2.txt") == b"stray\n"
 
 
 # --- v4.169.19: the boot script started a second copy and died ------------
@@ -286,7 +292,7 @@ def test_bootstrap_points_at_the_apk_for_autostart() -> None:
     assert "arena-bridge.apk" in script
 
 
-def test_posix_shell_ratchet_is_wired_and_catches_a_bare_shell(tmp_path: Path) -> None:
+def test_posix_shell_ratchet_is_wired_and_catches_a_bare_shell(isolated_ratchet_repo: Path) -> None:
     """The gate for the class, not just this instance."""
     import subprocess
     import sys as _sys
@@ -294,7 +300,7 @@ def test_posix_shell_ratchet_is_wired_and_catches_a_bare_shell(tmp_path: Path) -
     assert "posix_shell_test_ratchet.py" in (
         REPO_ROOT / "scripts" / "preflight.py").read_text(encoding="utf-8")
 
-    probe = REPO_ROOT / "tests" / "test_zz_posix_shell_probe.py"
+    probe = isolated_ratchet_repo / "tests" / "test_zz_posix_shell_probe.py"
     probe.write_text(
         "import subprocess\n\n\ndef test_bad():\n"
         '    subprocess.run(["sh", "-c", "echo hi"])\n',
@@ -302,7 +308,7 @@ def test_posix_shell_ratchet_is_wired_and_catches_a_bare_shell(tmp_path: Path) -
     )
     try:
         proc = subprocess.run(
-            [_sys.executable, str(REPO_ROOT / "scripts" / "posix_shell_test_ratchet.py")],
+            [_sys.executable, str(isolated_ratchet_repo / "scripts" / "posix_shell_test_ratchet.py")],
             capture_output=True, text=True, timeout=300,
         )
     finally:
