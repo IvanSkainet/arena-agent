@@ -1,3 +1,54 @@
+## v4.171.0 — 2026-11-22
+
+### Windows desktop: one coordinate space on scaled displays
+
+- **Behaviour change.** On a Windows display scaled above 100 %, a screenshot
+    taken without a region now covers the whole physical screen (2560×1440 on
+    a 150 % display that used to answer 1707×960), and `/v1/desktop/click` and
+    `/v1/desktop/mouse` take physical pixels — the same space the screenshot
+    and `active_window` already report. A client that divided coordinates by
+    the scale factor must stop doing so (#513).
+- `GET /v1/desktop/displays` lists displays on Windows: name, geometry, work
+    area, DPI and scale, with `backend: win32` (#514).
+- A display list that could not be read is answered with 500 and the reason,
+    not with 404 "unknown display" (#523).
+
+### Fixed
+
+- Rate limiting behind a tunnel or reverse proxy: every caller arrives from
+    the same address, and 300 unauthenticated requests used to shut the token
+    holder out for a minute. A caller presenting the bridge token or a user
+    token is now counted apart from other callers at the same address and is
+    still limited itself; agent bearer tokens are not yet (#525, #538).
+- `requests.jsonl` and `bridge.log` are written beside the audit log in the
+    agent home instead of the code directory, with owner-only modes on POSIX;
+    on Windows the ACL of the agent home decides who can read them.
+    An install that sets `ARENA_AGENT_HOME` keeps its files where they are
+    (#521).
+- The MCP client no longer creates `<home>/mcp/run` at interpreter exit just
+    to look for pid files (#515).
+
+### Tests and CI
+
+- The test matrix runs in parallel on Linux, macOS and Windows; test workers
+    use private home directories and the run leaves nothing on the host
+    (#495, #511, #512).
+- A test of start-up log rotation no longer renames the developer's real
+    journals, and a test that read a file while it was being written now waits
+    for its whole content (#527, #529).
+- The GuardDog gate gives GuardDog a dated copy of its bundled package lists
+    instead of letting it reach hosts the egress policy blocks; a scan is
+    limited to 180 seconds and a scan that does not finish fails by name (#528).
+- The Qlty configuration is committed; `assert` in tests is not reported
+    (#535).
+
+### Upgrade notes
+
+- Existing operator state is retained on upgrade from 4.170.2.
+- Not covered by this release: display listing with more than one monitor or
+    a negative origin was not exercised on real hardware; agent bearer tokens
+    are still counted with anonymous callers by the rate limiters (#538).
+
 ## v4.170.2 — 2026-09-05
 
 ### Release-chain completion
