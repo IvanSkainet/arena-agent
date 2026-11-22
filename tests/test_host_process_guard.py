@@ -118,23 +118,15 @@ def _macos_controller(monkeypatch):
     # `webbrowser` declares MacOSXOSAScript only when sys.platform is darwin,
     # so a second copy of the module is executed under that name.  Its open()
     # is the real stdlib code: the `webbrowser.open` event on Python 3.11+, a
-    # bare os.popen("/usr/bin/osascript") on Python 3.10.
+    # bare os.popen("/usr/bin/osascript") on Python 3.10.  The class is built
+    # directly, not through webbrowser.get(): the first lookup in a process
+    # fills the registry and may run `xdg-settings`, an ordinary program that
+    # the replaced process creation would refuse for the wrong reason.
     module = types.ModuleType("webbrowser_as_on_macos")
     with monkeypatch.context() as as_macos:
         as_macos.setattr(sys, "platform", "darwin")
         importlib.machinery.SourceFileLoader(module.__name__, STDLIB_WEBBROWSER).exec_module(module)
     return module.MacOSXOSAScript("default")
-
-
-@pytest.mark.skipif(sys.platform != "darwin", reason="the macOS browser controller exists on macOS only")
-def test_the_registered_macos_browser_controller_is_refused(process_creation):
-    """Refuse the controller macOS itself registers, on every Python version."""
-    # Looked up by its registered name: the class is declared for macOS only,
-    # which a type checker running elsewhere reports as a missing attribute.
-    controller = webbrowser.get("MacOSX")
-    with pytest.raises(OSError, match="osascript|webbrowser.open"):
-        controller.open("https://example.invalid/")
-    assert process_creation == []
 
 
 def test_the_macos_browser_controller_is_refused_on_any_machine(macos_controller, process_creation):
