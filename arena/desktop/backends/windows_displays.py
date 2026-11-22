@@ -97,12 +97,23 @@ def enumerate_displays(user: Any, shcore: Any) -> list[dict[str, Any]]:
         raise OSError("EnumDisplayMonitors failed")
     # The display that has the foreground window; the primary one if there is none.
     active = user.MonitorFromWindow(user.GetForegroundWindow(), _MONITOR_DEFAULTTOPRIMARY)
-    displays = []
+    displays: list[dict[str, Any]] = []
     for handle in handles:
         info = _MonitorInfo(cbSize=ctypes.sizeof(_MonitorInfo))
         if user.GetMonitorInfoW(handle, ctypes.pointer(info)):
             displays.append(_describe(len(displays) + 1, info, dpi=_monitor_dpi(shcore, handle), active=handle == active))
+    if handles and not displays:
+        # Monitors were found and none could be read: a failure, not an empty desktop.
+        raise OSError("GetMonitorInfoW failed for every monitor")
     return displays
+
+
+def _dpi_source(awareness: int | None, shcore: Any) -> Any:
+    """Return shcore only where it tells each monitor's own DPI."""
+    # A process that is not per-monitor aware is given one number for every
+    # monitor (the system DPI, or 96), so a 100 % display beside a 150 % one
+    # would be reported at 1.5. Unknown is the honest answer there.
+    return shcore if awareness == _api.DPI_PER_MONITOR_AWARE else None
 
 
 def _shcore() -> Any:
@@ -119,4 +130,4 @@ def list_displays() -> list[dict[str, Any]]:
         raise NotImplementedError("windows backend not available on this platform")
     # Importing _win32_api has declared DPI awareness, so the rectangles
     # below are physical pixels, like screenshots and clicks (#513).
-    return enumerate_displays(_api.user32, _shcore())
+    return enumerate_displays(_api.user32, _dpi_source(_api.DPI_AWARENESS, _shcore()))

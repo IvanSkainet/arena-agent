@@ -89,6 +89,38 @@ def test_a_failed_enumeration_is_an_error_not_an_empty_list():
         windows_displays.enumerate_displays(user, None)
 
 
+def test_monitors_that_cannot_be_read_are_a_failure_too():
+    """Handles were enumerated and none could be described: still not "no displays"."""
+    user = _user32([LAPTOP, SIDE])
+    user.GetMonitorInfoW = lambda *_: 0
+    with pytest.raises(OSError, match="GetMonitorInfoW"):
+        windows_displays.enumerate_displays(user, None)
+
+
+@pytest.mark.parametrize(("awareness", "trusted"), [(2, True), (1, False), (0, False), (None, False)])
+def test_the_scale_is_only_trusted_from_a_per_monitor_aware_process(awareness, trusted):
+    """Otherwise Windows gives one DPI for every monitor, and 150 % would be claimed for a 100 % display."""
+    shcore = _shcore([LAPTOP])
+    assert (windows_displays._dpi_source(awareness, shcore) is shcore) is trusted
+
+
+def test_windows_are_told_which_display_they_are_on(monkeypatch):
+    """`display=DISPLAY2` can only select windows whose record names a display."""
+    from arena.desktop import window_catalog
+    from arena.desktop.backends import windows
+
+    side_window = {"id": "0x1", "title": "side", "geometry": {"x": -1800, "y": 100, "width": 800, "height": 600}}
+    main_window = {"id": "0x2", "title": "main", "geometry": {"x": 100, "y": 100, "width": 800, "height": 600}}
+    monkeypatch.setattr(windows, "list_windows", lambda visible_only=True: [dict(side_window), dict(main_window)])
+    monkeypatch.setattr(windows_displays, "list_displays",
+                        lambda: windows_displays.enumerate_displays(_user32([LAPTOP, SIDE]), _shcore([LAPTOP, SIDE])))
+    listing = asyncio.run(window_catalog.list_desktop_windows(
+        desktop_exec=_no_tools, detect_env=lambda: {"has_win32_windows": True}, kwin_windows_via_script=None))
+    assert [(w["title"], w["display"]["name"]) for w in listing["windows"]] == [("side", "DISPLAY2"), ("main", "DISPLAY1")]
+    assert [d["name"] for d in listing["displays"]] == ["DISPLAY1", "DISPLAY2"]
+    assert [w["title"] for w in window_catalog.window_candidates(listing["windows"], display="display2")] == ["side"]
+
+
 async def _no_tools(cmd, timeout=10):
     raise AssertionError(f"Linux tool asked on Windows: {cmd}")
 
