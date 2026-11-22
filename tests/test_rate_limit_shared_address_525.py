@@ -5,10 +5,9 @@ import asyncio
 
 import pytest
 from aiohttp import web
-from aiohttp.test_utils import TestClient, TestServer
 
 import arena.rate_limit as rl
-import unified_bridge as ub
+from tests._live_bridge import auth_header, running_client
 
 LIMIT = 5
 OWNER = "owner-525"
@@ -39,7 +38,8 @@ def _hit(presented: str | None = None, remote: str | None = "127.0.0.1") -> int:
 
 @pytest.fixture(name="small_limit", autouse=True)
 def _small_limit(monkeypatch):
-    """Five requests a minute and empty counts, restored afterwards."""
+    """Five requests a minute, a clock that stands still and empty counts, restored afterwards."""
+    monkeypatch.setattr(rl.time, "time", lambda: 1_000_000.0)
     monkeypatch.setattr(rl, "_rate_limit_max", LIMIT)
     monkeypatch.setattr(rl, "_rate_limit_store", {})
     monkeypatch.setattr(rl, "_rl_v2_store", {})
@@ -85,16 +85,16 @@ def test_without_a_probe_everyone_at_an_address_is_counted_together():
     assert rl.check_rate_limit(_Request(OWNER, "127.0.0.1"), cors_json_response_fn=_refusal).status == 429
 
 
-async def _flood_then_ask(root: str, paths: list[str]) -> tuple[list[int], int]:
-    app = ub.make_app({"token": OWNER, "profile": "owner-shell", "root": root, "active_exec": 0, "max_concurrent": 3, "audit": "audit"})
-    async with TestClient(TestServer(app)) as client:
+async def _flood_then_ask(root, paths: list[str]) -> tuple[list[int], int]:
+    # running_client leaves the shared executors alone; closing a bare make_app() shuts them down for later tests.
+    async with running_client(root, OWNER) as client:
         flood = [(await client.get(path)).status for path in paths]
-        answer = await client.get("/v1/version", headers={"Authorization": f"Bearer {OWNER}"})
+        answer = await client.get("/v1/version", headers=auth_header(OWNER))
         return flood, answer.status
 
 
 def test_the_running_bridge_serves_its_owner_through_a_scan(tmp_path):
     """End to end: the middleware hands the limiter the probe."""
-    flood, owner = asyncio.run(_flood_then_ask(str(tmp_path), [f"/secrets-{number}.env" for number in range(LIMIT + 3)]))
+    flood, owner = asyncio.run(_flood_then_ask(tmp_path, [f"/secrets-{number}.env" for number in range(LIMIT + 3)]))
     assert flood == [404] * LIMIT + [429] * 3
     assert owner == 200
