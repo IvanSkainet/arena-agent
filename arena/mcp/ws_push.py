@@ -48,7 +48,11 @@ def _prepare_notify_queue(path: Path) -> None:
             os.close(fd)
 
 
-_prepare_notify_queue(NOTIFY_QUEUE)
+# Not called at import. Importing this module used to create the queue under
+# the agent home, so every importer wrote there: `mcp_ws_server.py --help`,
+# and each pytest worker during collection. Two workers creating the same new
+# name at once is also how macOS answers one of them ENOENT (golang/go#81246).
+# The server prepares the queue once, in `ws_server.main()`.
 
 def _subscribe(sock, topic):
     with SUBS_LOCK:

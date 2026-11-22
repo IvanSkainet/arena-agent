@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from arena.exec import runner as R
+from arena.tasks import ownership
 
 
 class FakeProcess:
@@ -179,24 +180,26 @@ def test_stream_runner_close_cleans_the_os_process(
     assert "cancel-stream" not in R.ACTIVE_PROCESSES
 
 
-def _windows_pid_alive(pid: int) -> bool:
-    import ctypes
-    from ctypes import wintypes
-
-    query_limited_information = 0x1000
-    kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
-    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-    kernel32.OpenProcess.restype = wintypes.HANDLE
-    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    handle = kernel32.OpenProcess(query_limited_information, False, pid)
-    if not handle:
-        return False
-    kernel32.CloseHandle(handle)
+def _gone_within(pid: int, seconds: float) -> bool:
+    """Report whether the process terminated within the allowance."""
+    # The question is "has it terminated", not "can it still be opened": a
+    # terminated process stays openable for as long as anyone holds a handle
+    # to it. The product's wait-state probe answers the first question.
+    deadline = time.monotonic() + seconds
+    while ownership._windows_pid_is_alive(pid):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)
     return True
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="live Windows taskkill contract")
 def test_live_windows_timeout_kills_nested_child(tmp_path: Path) -> None:
+    # The request timeout is long enough for two interpreters to start on a
+    # busy runner, and the test checks that they did. `taskkill /T` walks the
+    # tree that exists when it runs; a child created while it runs is a
+    # different question, and one this test must not answer by accident.
+    timeout, margin = 10, 2
     pidfile = tmp_path / "child.pid"
     child = tmp_path / "child.py"
     parent = tmp_path / "parent.py"
@@ -214,27 +217,45 @@ def test_live_windows_timeout_kills_nested_child(tmp_path: Path) -> None:
     )
     cmd = subprocess.list2cmdline([sys.executable, str(parent), str(child), str(pidfile)])
 
-    result = asyncio.run(
-        R.run_shell_command(
+    async def scenario() -> tuple[dict, float | None]:
+        # One clock in one process: when did the child's report appear?
+        began = time.monotonic()
+
+        async def reported() -> float:
+            while not pidfile.is_file():
+                await asyncio.sleep(0.05)
+            return time.monotonic() - began
+
+        watching = asyncio.ensure_future(reported())
+        outcome = await R.run_shell_command(
             request_id="windows-live-tree",
             cmd=cmd,
             cwd=tmp_path,
             env=dict(os.environ),
-            timeout=2,
+            timeout=timeout,
             max_output=1000,
             decode_output_fn=lambda b: b.decode("utf-8", "replace"),
         )
-    )
+        if not watching.done():
+            watching.cancel()
+            return outcome, None
+        return outcome, watching.result()
+
+    result, ready_after = asyncio.run(scenario())
     assert result["timed_out"] is True
-    assert pidfile.is_file(), "nested child did not report its pid"
+    assert ready_after is not None, "nested child did not report its pid"
     child_pid = int(pidfile.read_text())
-    time.sleep(0.5)
     try:
-        assert not _windows_pid_alive(child_pid), (
-            f"nested Windows child {child_pid} survived request timeout"
+        assert ready_after < timeout - margin, (
+            f"the nested child was ready {ready_after:.1f}s into a {timeout}s timeout; "
+            "the tree was not in place before the kill, so this run shows nothing"
+        )
+        assert _gone_within(child_pid, 10), (
+            f"nested Windows child {child_pid}, ready {ready_after:.1f}s into the "
+            f"{timeout}s timeout, was still running 10s after the request timed out"
         )
     finally:
-        if _windows_pid_alive(child_pid):
+        if ownership._windows_pid_is_alive(child_pid):
             subprocess.run(
                 ["taskkill.exe", "/PID", str(child_pid), "/T", "/F"],
                 check=False,

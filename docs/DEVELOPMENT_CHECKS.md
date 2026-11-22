@@ -97,8 +97,82 @@ not a Windows/macOS machine, every future revision, or hosted CI. Later CLI/docs
 and barrier-regression additions require their own final acceptance.
 
 No OS/Python matrix cell, coverage threshold, scanner or branch protection is
-removed. Hosted CI parallel rollout is a separate evidence-based decision within
-this task, not something enabled by this local switch.
+removed. The local switch and the hosted CI setting are independent of each
+other; the hosted one is described next.
+
+## Hosted CI
+
+The test matrix in `ci.yml` runs under pytest-xdist: 4 workers on Linux, 2 on
+Windows, 3 on macOS, always with `--max-worker-restart=0`. Random ordering, the
+collection floor and the per-platform coverage floor are unchanged, and all 15
+OS/Python cells still run.
+
+The numbers come from a measurement on the hosted runners on 2026-11-22: Python
+3.13, seeds 271, 1009 and 4242, two runs of each, timing the `Run tests` step
+only. Median seconds, with the range in brackets:
+
+| Runner | serial | 2 workers | all logical CPUs |
+| --- | --- | --- | --- |
+| Linux, 4 vCPU | 525 (432-593) | 282 (264-334) | 247 (161-263) with 4 |
+| Windows, 4 vCPU | 1155 (964-1202) | 570 (455-738) | 609 (483-672) with 4 |
+| macOS, 3 CPU | 520 (462-625) | 323 (297-432) | 290 (224-303) with 3 |
+
+Windows stays at 2 workers: its four logical CPUs are two cores, and 4 workers
+were no faster. One macOS runner reported 5 CPUs and finished in 153 s; the
+setting is pinned to 3 so that what runs is what was measured. Within every
+runner and seed the three modes collected the same test ids, and every outcome
+agreed except for the failures listed below. Line coverage did not move (Linux
+69.0 %, Windows 68.5 %, macOS 68.6 %).
+
+That first measurement did not pass, and neither did the first attempt at a
+fix. Between them they found five things no local run had shown:
+
+- macOS, 3 of 12 parallel runs: `arena/mcp/ws_push.py` created its queue file at
+  import. Two workers importing it together both called `openat(O_CREAT)` on the
+  same new name and macOS answered one of them `ENOENT`. Importing the module
+  now writes nothing; `ws_server.main()` prepares the queue.
+- Windows: two workers initialised `~/arena-bridge/memory/facts.db` together
+  (`trigger memory_facts_ai already exists`). Workers shared the account's home.
+- macOS, once workers had a home each but still one temporary directory: a test
+  expecting one `fuzz-root-*` workspace there found another worker's.
+- Windows: one test asked whether a descriptor number was closed after the
+  number had been reused. The test now records each close as it happens.
+- Windows: one probe-isolation test hit its 20 s limit once. The cause was not
+  established; the limit is now 120 s, so a repeat would point at a real block
+  rather than a slow runner.
+
+The two sharing defects are closed for every test at once:
+`tests/_worker_directories.py` moves each worker to per-user and temporary
+directories of its own before it imports a test module. A test that needs a
+particular home still sets one; a test that names none can no longer meet
+another worker there. The home sits beside the temporary directory, not inside
+it, and the path contains no symlink: the first attempt put the home under
+macOS's `/var/folders`, which is reached through a symlink and is inside
+`TMPDIR`, and 32 tests failed for those two reasons while Linux stayed green.
+
+With those fixes in place the chosen setting was run again on every Python the
+matrix uses (3.10-3.14) with four seeds on Windows and macOS and two on Linux:
+50 runs, 49 passed. Median seconds of the test step: Linux 180 (154-262),
+Windows 472 (380-611), macOS 308 (172-351).
+
+The one failure was `test_live_windows_timeout_kills_nested_child` on Windows:
+"nested child survived request timeout". The run kept no evidence that tells
+two explanations apart. The test asked whether the process could still be
+opened half a second after the kill, which is also true of a process that has
+terminated while someone holds a handle to it. And its 2 s request timeout left
+little room for two interpreters to start on a busy runner; `taskkill /T` walks
+the tree that exists when it runs, so a child created during the kill is not in
+it. The test now uses the product's wait-state probe, gives the tree 10 s and
+checks that it was in place 2 s before the kill, and its failure message says
+when the child became ready. If the product really does leave a child behind,
+the next failure will say so. The second explanation is a real limit of
+`taskkill /T`, not a test artefact; closing it needs a Job Object and is
+tracked separately.
+
+What this does not show: the measurement is one day on GitHub's runners and
+says nothing about another runner size. A test that passes alone and fails
+beside its neighbours is a defect to fix; do not add `--reruns`, raise
+`--max-worker-restart`, or lower the worker count to make one go away.
 
 ## Retaining a reproducible measurement
 
