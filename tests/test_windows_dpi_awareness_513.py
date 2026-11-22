@@ -125,7 +125,7 @@ def test_the_helper_declares_before_it_serves(monkeypatch):
     # Stand-ins for the two modules, so nothing process-wide is touched.
     monkeypatch.setattr(sys, "argv", ["helper_server.py", "--token", "t" * 32, "--port", "0"])
     monkeypatch.setattr(helper_server, "sys", SimpleNamespace(platform="win32", stderr=sys.stderr))
-    monkeypatch.setattr(helper_server, "ctypes", SimpleNamespace(windll=SimpleNamespace(shcore=None)))
+    monkeypatch.setattr(helper_server, "_shcore", lambda: None)
     monkeypatch.setattr(helper_server, "user32", SimpleNamespace())
     monkeypatch.setattr(helper_server, "declare_dpi_awareness", lambda user, shcore: events.append("declare") or 2)
     monkeypatch.setattr(helper_server, "HTTPServer", Server)

@@ -74,7 +74,7 @@ def _accepted(request: Any) -> bool:
 def _shcore() -> Any:
     """Return shcore.dll, or None on a Windows older than 8.1."""
     try:
-        return ctypes.windll.shcore
+        return ctypes.WinDLL("shcore") if sys.platform == "win32" else None
     except OSError:
         return None
 
