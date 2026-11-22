@@ -18,22 +18,22 @@ ROLES = {OWNER: (True, "admin"), "user-525": (True, "user")}
 class _Request:
     """What the limiter reads from a request: the address and, through the probe, the token."""
 
-    def __init__(self, token: str = "", remote: str | None = "127.0.0.1"):
+    def __init__(self, presented: str | None, remote: str | None):
         self.remote = remote
-        self.token = token
+        self.presented = presented
 
 
 def _role(request: _Request) -> tuple[bool, str]:
-    return ROLES.get(request.token, (False, ""))
+    return ROLES.get(request.presented, (False, ""))
 
 
 def _refusal(body: dict, status: int = 200) -> web.Response:
     return web.json_response(body, status=status)
 
 
-def _hit(token: str = "", remote: str | None = "127.0.0.1") -> int:
+def _hit(presented: str | None = None, remote: str | None = "127.0.0.1") -> int:
     """Status the limiter answers with; 200 stands for 'let through'."""
-    refused = rl.check_rate_limit(_Request(token, remote), cors_json_response_fn=_refusal, check_auth_with_role_fn=_role)
+    refused = rl.check_rate_limit(_Request(presented, remote), cors_json_response_fn=_refusal, check_auth_with_role_fn=_role)
     return refused.status if refused is not None else 200
 
 
@@ -81,8 +81,8 @@ def test_anonymous_callers_keep_the_bare_address_as_their_key():
 def test_without_a_probe_everyone_at_an_address_is_counted_together():
     """A caller of the limiter that passes no probe gets the earlier behaviour."""
     for _ in range(LIMIT):
-        assert rl.check_rate_limit(_Request(), cors_json_response_fn=_refusal) is None
-    assert rl.check_rate_limit(_Request(OWNER), cors_json_response_fn=_refusal).status == 429
+        assert rl.check_rate_limit(_Request(None, "127.0.0.1"), cors_json_response_fn=_refusal) is None
+    assert rl.check_rate_limit(_Request(OWNER, "127.0.0.1"), cors_json_response_fn=_refusal).status == 429
 
 
 async def _flood_then_ask(root: str, paths: list[str]) -> tuple[list[int], int]:

@@ -10,6 +10,22 @@ from aiohttp import web
 from arena.wiring.env import RuntimeEnv
 
 
+def _rate_limit_checks(g: MutableMapping[str, Any], env: RuntimeEnv) -> tuple[Any, Any]:
+    """Build the per-endpoint and the per-address limiter around one roster lookup per request."""
+    def role(request: web.Request) -> tuple[bool, str]:
+        if "_rl_role" not in request:
+            request["_rl_role"] = g["check_auth_with_role"](request)
+        return request["_rl_role"]
+
+    def per_endpoint(request: web.Request) -> web.Response | None:
+        return env.rl_check_rate_limit_v2(request, check_auth_with_role_fn=role, cors_json_response_fn=env._cors_json_response)
+
+    def per_address(request: web.Request) -> web.Response | None:
+        return env.rl_check_rate_limit(request, check_auth_with_role_fn=role, cors_json_response_fn=env._cors_json_response)
+
+    return per_endpoint, per_address
+
+
 def build_runtime_wrappers(g: MutableMapping[str, Any]) -> dict[str, Any]:
     """Build compatibility helper globals that wrap focused runtime modules."""
     env = RuntimeEnv(g)
@@ -82,18 +98,7 @@ def build_runtime_wrappers(g: MutableMapping[str, Any]) -> dict[str, Any]:
     def _get_tailscale_cert() -> tuple[str, str]:
         return env._tls_get_tailscale_cert(log_info=env.log.info)
 
-    def _role_for_rate_limit(request: web.Request) -> tuple[bool, str]:
-        """Look the caller up once per request for both limiters."""
-        if "_rl_role" not in request:
-            request["_rl_role"] = g["check_auth_with_role"](request)
-        return request["_rl_role"]
-
-    def _check_rate_limit_v2(request: web.Request) -> web.Response | None:
-        return env.rl_check_rate_limit_v2(
-            request,
-            check_auth_with_role_fn=_role_for_rate_limit,
-            cors_json_response_fn=env._cors_json_response,
-        )
+    _check_rate_limit_v2, _check_rate_limit = _rate_limit_checks(g, env)
 
     async def _run_sandboxed(cmd: str, timeout: int = 30, memory_mb: int = 256) -> dict:
         return await env._sandbox_run_sandboxed(
@@ -109,13 +114,6 @@ def build_runtime_wrappers(g: MutableMapping[str, Any]) -> dict[str, Any]:
 
     async def _cluster_heartbeat_loop() -> None:
         await env._cluster_runtime_heartbeat_loop(log_error=env.log.error)
-
-    def _check_rate_limit(request: web.Request) -> web.Response | None:
-        return env.rl_check_rate_limit(
-            request,
-            cors_json_response_fn=env._cors_json_response,
-            check_auth_with_role_fn=_role_for_rate_limit,
-        )
 
     registry.update({
         "emit_event": emit_event,
