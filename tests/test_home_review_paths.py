@@ -118,7 +118,7 @@ def test_startup_cleanup_rotates_the_active_relocated_audit(tmp_path, monkeypatc
     decoy = code / "audit.jsonl"
     decoy.write_bytes(b"unrelated checkout file")
     values = dict(vars(ub))
-    values.update(APP_DIR=code, AUDIT=audit,
+    values.update(APP_DIR=code, AUDIT=audit, BRIDGE_LOG=state / "bridge.log", REQUEST_LOG=state / "requests.jsonl",
                     make_log_cleanup_runtime=lambda ctx: make_log_cleanup_runtime(
                         replace(ctx, max_log_size=8)))
     runtime = build_observability_runtimes(values)
