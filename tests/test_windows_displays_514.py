@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from arena.desktop import displays
+from arena.desktop import display_lookup, displays
 from arena.desktop.backends import windows_displays
 
 LAPTOP = {"device": "\\\\.\\DISPLAY1", "rect": (0, 0, 2560, 1440), "work": (0, 0, 2560, 1380), "primary": True, "dpi": 144}
@@ -97,7 +97,7 @@ def test_the_windows_environment_gets_the_native_answer(monkeypatch):
     """No kscreen-doctor, no xrandr: the answer comes from user32, and names the active display."""
     monkeypatch.setattr(windows_displays, "list_displays",
                         lambda: windows_displays.enumerate_displays(_user32([LAPTOP, SIDE]), _shcore([LAPTOP, SIDE])))
-    result = asyncio.run(displays.get_displays(desktop_exec=_no_tools, env={"has_win32_windows": True}))
+    result = asyncio.run(display_lookup.get_displays(desktop_exec=_no_tools, env={"has_win32_windows": True}))
     assert (result["ok"], result["backend"], result["count"], result["active_output"]) == (True, "win32", 2, "DISPLAY1")
     assert displays.match_display(result["displays"], "display2")["geometry"]["x"] == -1920
 
@@ -108,7 +108,7 @@ def test_a_native_failure_is_reported_as_one(monkeypatch):
         raise OSError("EnumDisplayMonitors failed")
 
     monkeypatch.setattr(windows_displays, "list_displays", fail)
-    result = asyncio.run(displays.get_displays(desktop_exec=_no_tools, env={"has_win32_windows": True}))
+    result = asyncio.run(display_lookup.get_displays(desktop_exec=_no_tools, env={"has_win32_windows": True}))
     assert (result["ok"], result["count"], result["attempts"][0]["ok"]) == (False, 0, False)
     assert "EnumDisplayMonitors" in result["error"]
 
@@ -128,7 +128,7 @@ def _linux_tools(answers):
 @pytest.mark.parametrize("env", [None, {}, {"has_win32_windows": False}])
 def test_elsewhere_xrandr_answers_when_kscreen_doctor_does_not(env):
     """The Linux path is the one it was: kscreen-doctor first, then xrandr."""
-    result = asyncio.run(displays.get_displays(desktop_exec=_linux_tools({"xrandr": XRANDR, "activeOutputName": "HDMI-1\n"}), env=env))
+    result = asyncio.run(display_lookup.get_displays(desktop_exec=_linux_tools({"xrandr": XRANDR, "activeOutputName": "HDMI-1\n"}), env=env))
     assert (result["backend"], result["count"], result["active_output"]) == ("xrandr", 2, "HDMI-1")
     assert [(d["name"], d["primary"], d["active"]) for d in result["displays"]] == [("DP-1", True, False), ("HDMI-1", False, True)]
     assert result["attempts"] == [{"tool": "kscreen_doctor", "ok": False}, {"tool": "xrandr", "ok": True}]
@@ -137,7 +137,7 @@ def test_elsewhere_xrandr_answers_when_kscreen_doctor_does_not(env):
 @pytest.mark.parametrize("answers", [{}, {"kscreen-doctor": "", "xrandr": "no outputs here\n"}])
 def test_elsewhere_no_tool_means_no_displays(answers):
     """Neither tool installed, or neither printing an output: an empty list, as before."""
-    result = asyncio.run(displays.get_displays(desktop_exec=_linux_tools(answers)))
+    result = asyncio.run(display_lookup.get_displays(desktop_exec=_linux_tools(answers)))
     assert (result["ok"], result["backend"], result["count"], result["displays"], result["active_output"]) == (True, "none", 0, [], None)
     assert [attempt["tool"] for attempt in result["attempts"]] == ["kscreen_doctor", "xrandr"]
 
@@ -161,7 +161,7 @@ def test_live_the_endpoint_answers_for_this_machine():
     """The whole path the handler takes, with the environment as it is detected here."""
     from arena.desktop.env import _detect_desktop_env
 
-    result = asyncio.run(displays.get_displays(desktop_exec=_no_tools, env=_detect_desktop_env()))
+    result = asyncio.run(display_lookup.get_displays(desktop_exec=_no_tools, env=_detect_desktop_env()))
     assert (result["ok"], result["backend"]) == (True, "win32")
     assert result["count"] >= 1
     assert result["active_output"] in [d["name"] for d in result["displays"]]

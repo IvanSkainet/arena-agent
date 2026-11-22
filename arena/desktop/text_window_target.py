@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from arena.desktop.displays import get_displays, match_display
+from arena.desktop.display_lookup import get_displays
+from arena.desktop.displays import match_display
 from arena.desktop.text_matching import point_in_geometry
 from arena.desktop.window_catalog import list_desktop_windows, window_candidates
 

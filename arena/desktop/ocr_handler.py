@@ -6,7 +6,8 @@ import shutil
 from aiohttp import web
 
 from arena.desktop.availability import builder_refusal, failure_response
-from arena.desktop.displays import get_displays, match_display
+from arena.desktop.display_lookup import get_displays
+from arena.desktop.displays import match_display
 from arena.desktop.input import build_click_command
 from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import authed, body_int, controlled, json_object_body

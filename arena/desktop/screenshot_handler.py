@@ -7,7 +7,8 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.desktop.availability import failure_response
-from arena.desktop.displays import get_displays, match_display
+from arena.desktop.display_lookup import get_displays
+from arena.desktop.displays import match_display
 from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import authed, query_int
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from aiohttp import web
 
-from arena.desktop.displays import get_displays
+from arena.desktop.display_lookup import get_displays
 from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import authed
 
