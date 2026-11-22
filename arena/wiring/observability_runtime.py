@@ -53,6 +53,7 @@ def build_observability_runtimes(g: MutableMapping[str, Any]) -> dict[str, Any]:
     log_cleanup_ctx = env.LogCleanupContext(
         app_dir=env.APP_DIR,
         log_files=log_files_to_rotate,
+        disk_dir=env.BRIDGE_LOG.parent,
         max_log_size=max_log_size,
         max_log_backups=max_log_backups,
         log_info=env.log.info,
