@@ -499,34 +499,45 @@ def test_a_failed_staging_closes_the_descriptor_it_opened(
 
     Counted globally at first -- open descriptors before against after --
     which failed on macOS because anything else in the process opening or
-    closing a file moves that number. The question is narrower than the
-    count: the descriptor `mkstemp` handed out has to be closed, so ask
-    about that one. `os.fstat` on a closed number raises, which is the
-    whole check, and it holds on every platform.
+    closing a file moves that number. Then asked of the number itself, after
+    the loop: `os.fstat` on a closed descriptor raises. That failed too, on a
+    Windows runner under four workers, with "DID NOT RAISE": a closed number
+    is free, and by the time the loop ended something else in the process had
+    been handed it.
+
+    So nothing is asked of the number afterwards. The close is recorded when
+    it happens: each staged descriptor has to be closed before the next one
+    is staged, which no later reuse of the number can change.
     """
     target = tmp_path / "token.txt"
-    staged: list[int] = []
+    events: list[tuple[str, int]] = []
     real_create = token_storage._create_staged_file
+    real_close = os.close
 
     def remember(*args, **kwargs):
         fd, name = real_create(*args, **kwargs)
-        staged.append(fd)
+        events.append(("staged", fd))
         return fd, name
+
+    def close(fd):
+        events.append(("closed", fd))
+        real_close(fd)
 
     def fails(_fd):
         raise OSError("fsync denied")
 
     monkeypatch.setattr(token_storage, "_create_staged_file", remember)
+    monkeypatch.setattr(token_storage.os, "close", close)
     monkeypatch.setattr(token_storage.os, "fsync", fails)
 
     for _ in range(10):
         with pytest.raises(OSError, match="fsync denied"):
             token_storage.write_owner_token(target, "SECRET-TOKEN")
 
-    assert len(staged) == 10, staged
-    for fd in staged:
-        with pytest.raises(OSError):
-            os.fstat(fd)
+    staged = [index for index, (kind, _) in enumerate(events) if kind == "staged"]
+    assert len(staged) == 10, events
+    for start, end in zip(staged, [*staged[1:], len(events)]):
+        assert ("closed", events[start][1]) in events[start + 1:end], events
 
 
 def test_an_unremovable_staged_file_is_reported_not_swallowed(

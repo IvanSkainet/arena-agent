@@ -22,26 +22,30 @@ def test_probe_deletion_race_requires_shared_scanner_inputs(
     enumerated = Event()
     deleted = Event()
     original_scan = guard.scan_file
+    # Upper bounds, not delays: every wait ends the moment its event is set.
+    # They were 10 and 20 seconds, and a hosted Windows runner under two
+    # workers needed longer than that to scan the copied test tree.
+    step, whole = 60, 120
 
     def scan(path):
         # collect() has completed its candidate snapshot before it scans
         # conftest.py, which sorts before our injected test_zz_* candidate.
         if path == scanner_root / "tests" / "conftest.py":
             enumerated.set()
-            assert deleted.wait(10), "writer did not finish deletion"
+            assert deleted.wait(step), "writer did not finish deletion"
         return original_scan(path)
 
     def writer():
         try:
             probe.write_text("def test_probe():\n    assert True\n", encoding="utf-8")
             probe_ready.set()
-            assert enumerated.wait(10), "scanner did not enumerate inputs"
+            assert enumerated.wait(step), "scanner did not enumerate inputs"
         finally:
             probe.unlink(missing_ok=True)
             deleted.set()
 
     def reader():
-        assert probe_ready.wait(10), "writer did not create its probe"
+        assert probe_ready.wait(step), "writer did not create its probe"
         return guard.collect()
 
     monkeypatch.setattr(guard, "root_path", lambda: scanner_root)
@@ -52,7 +56,7 @@ def test_probe_deletion_race_requires_shared_scanner_inputs(
         reading = pool.submit(reader)
         if shared_inputs:
             with pytest.raises(FileNotFoundError, match="test_zz_t74_race_probe"):
-                reading.result(timeout=20)
+                reading.result(timeout=whole)
         else:
-            assert reading.result(timeout=20) == []
-        writing.result(timeout=20)
+            assert reading.result(timeout=whole) == []
+        writing.result(timeout=whole)
