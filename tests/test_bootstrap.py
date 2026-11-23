@@ -101,7 +101,6 @@ def test_resolve_token_reports_chmod_failure(tmp_path, monkeypatch):
     reason="ensure_session_env probes /run/user/UID and X11 sockets that only exist on POSIX; Windows has no getuid()",
 )
 def test_ensure_session_env_infers_session_type_and_kde(monkeypatch):
-    monkeypatch.setattr(os, "name", "posix", raising=False)
     monkeypatch.setattr(os, "getuid", lambda: 1000)
     monkeypatch.setattr(os.path, "isdir", lambda p: p == "/run/user/1000")
     monkeypatch.setattr(os.path, "exists", lambda p: p in {"/run/user/1000/bus", "/tmp/.X11-unix", "/run/user/1000/wayland-0"})
