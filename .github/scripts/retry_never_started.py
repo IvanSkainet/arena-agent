@@ -128,14 +128,18 @@ def main() -> int:
     runs = recent_failed_runs(repo, token, datetime.now(timezone.utc))
     if not runs:
         report("No CI run ended in failure in the look-back window.")
+    unread = 0
     for run in runs:
         try:
             handle(repo, run, token)
         except OSError as error:
-            # The API answers 502 now and then. One run that could not be read
-            # must not stop the others; the next tick looks at it again.
-            report(f"- Run {run['id']}: skipped this time, the API call failed ({error}).")
-    return 0
+            # The API answers 502 now and then. One run that could not be
+            # handled must not stop the others; the next tick looks at it again.
+            unread += 1
+            report(f"- Run {run['id']}: not handled, the API call failed ({error}).")
+    # Fail the job when a call failed, so a refused token is seen and not
+    # buried in a summary nobody opens.
+    return 1 if unread else 0
 
 
 if __name__ == "__main__":

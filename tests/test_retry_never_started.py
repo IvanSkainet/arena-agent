@@ -155,7 +155,7 @@ def test_a_refused_run_sends_nothing(retry: ModuleType, monkeypatch: pytest.Monk
 
 
 def test_one_unreadable_run_does_not_stop_the_others(retry: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The API answered 502 during the first trial of this script; the next run must still be read."""
+    """An API error on one run does not stop the next one, and the job ends red so it is seen."""
     seen: list[int] = []
 
     def handle(_repo: str, run: dict[str, int], _token: str) -> bool:
@@ -169,8 +169,17 @@ def test_one_unreadable_run_does_not_stop_the_others(retry: ModuleType, monkeypa
     monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
     monkeypatch.setenv("GH_TOKEN", "t")
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
-    assert retry.main() == 0
+    assert retry.main() == 1
     assert seen == [1, 2]
+
+
+def test_a_quiet_tick_succeeds(retry: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With nothing failed and no API error the job is green."""
+    monkeypatch.setattr(retry, "recent_failed_runs", lambda *_: [])
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    monkeypatch.setenv("GH_TOKEN", "t")
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    assert retry.main() == 0
 
 
 def test_the_workflow_takes_nothing_from_the_run_it_reads() -> None:
