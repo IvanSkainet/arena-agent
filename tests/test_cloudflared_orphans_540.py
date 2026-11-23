@@ -275,7 +275,7 @@ def test_serve_sweeps_the_port_it_will_listen_on(monkeypatch):
                           resolve_token=resolve_token, log_info=lambda *_args: None)
     monkeypatch.setattr(cli, "_reap_orphan_mcp_servers", lambda _ctx: None)
     monkeypatch.setattr(cf_mod, "sweep_tunnels_left_by_earlier_bridge", lambda port, _log: swept.append(port))
-    args = argparse.Namespace(background=False, port=8765, token_file="", token=None)
+    args = argparse.Namespace(background=False, port=8765, token=None)
     with pytest.raises(ServeStopped):
         cli._serve_runtime(args, ctx)
     assert swept == [9321]
