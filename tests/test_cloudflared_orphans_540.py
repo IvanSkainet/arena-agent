@@ -117,6 +117,12 @@ def test_owner_env_marks_the_port_and_this_process(monkeypatch):
     assert env["ARENA_TEST_PASSTHROUGH"] == "kept"
 
 
+def test_owner_env_marks_an_environment_the_caller_supplies():
+    supplied = {"ONLY": "this", orphans.OWNER_ENV: "1:1"}
+    assert orphans.owner_env(8799, supplied) == {"ONLY": "this", orphans.OWNER_ENV: f"8799:{os.getpid()}"}
+    assert supplied[orphans.OWNER_ENV] == "1:1"
+
+
 def test_marked_tunnel_whose_bridge_is_gone_is_stopped(table):
     orphan = FakeProc(900, env=marked())
     table.procs = [orphan]
@@ -293,23 +299,37 @@ def test_failing_sweep_does_not_keep_the_bridge_from_starting(monkeypatch):
 
 # --- real processes ------------------------------------------------------------
 
+# The stand-in reports the mark it runs with, and ARENA_TEST_TUNNEL_TAG, as a quick-tunnel URL. A test that needs
+# another mark, or none, names it in ARENA_TEST_TUNNEL_MARK: the stand-in then replaces its own image, so the new
+# environment is the one visible from outside.
 STAND_IN = """#!{python}
-import os, time
-print("https://mark-" + os.environ.get("{env}", "none").replace(":", "-") + ".trycloudflare.com", flush=True)
+import os, sys, time
+override = os.environ.pop("ARENA_TEST_TUNNEL_MARK", None)
+if override is not None:
+    os.environ.pop("{env}", None)
+    if override:
+        os.environ["{env}"] = override
+    os.execv(sys.argv[0], sys.argv)
+tag = os.environ.get("ARENA_TEST_TUNNEL_TAG", "untagged")
+print("https://mark-" + os.environ.get("{env}", "none").replace(":", "-") + "-" + tag + ".trycloudflare.com", flush=True)
 time.sleep(120)
 """
 
 
 @pytest.fixture(name="start_tunnel")
 def _start_tunnel(tmp_path, monkeypatch):
-    """Start stand-in tunnels through the production starter; the stand-in reports its mark as a quick-tunnel URL."""
+    """Start stand-in tunnels through the production starter and stop them afterwards."""
     stand_in = tmp_path / "cloudflared"
     stand_in.write_text(STAND_IN.format(python=sys.executable, env=orphans.OWNER_ENV), encoding="utf-8")
     stand_in.chmod(0o700)
     monkeypatch.delenv(orphans.SWEEP_ENV, raising=False)
     started = []
 
-    def start(port, env=None):
+    def start(port, mark=None, env=None):
+        if mark is None:
+            monkeypatch.delenv("ARENA_TEST_TUNNEL_MARK", raising=False)
+        else:
+            monkeypatch.setenv("ARENA_TEST_TUNNEL_MARK", mark)
         monkeypatch.setattr(cf_mod, "CLOUDFLARED_STATE", {"proc": None, "url": "", "log": []})
         result = cf_mod._start_cloudflared(str(stand_in), port, subprocess_kwargs=lambda: {} if env is None else {"env": env})
         started.append(cf_mod.CLOUDFLARED_STATE["proc"])
@@ -319,6 +339,11 @@ def _start_tunnel(tmp_path, monkeypatch):
     for proc in started:
         proc.kill()
         proc.wait(timeout=10)
+
+
+def reported(mark, tag="untagged"):
+    """Return the URL a stand-in prints when it runs with this mark and tag."""
+    return f"https://mark-{mark}-{tag}.trycloudflare.com"
 
 
 def own_port():
@@ -342,13 +367,20 @@ def runs(pid):
 
 @POSIX_ONLY
 def test_started_tunnel_carries_the_owner_mark(start_tunnel):
-    assert start_tunnel(8799).url == f"https://mark-8799-{os.getpid()}.trycloudflare.com"
+    assert start_tunnel(8799).url == reported(f"8799-{os.getpid()}")
+
+
+@POSIX_ONLY
+def test_started_tunnel_keeps_the_callers_environment_and_gets_the_mark(start_tunnel, monkeypatch):
+    monkeypatch.setenv("ARENA_TEST_TUNNEL_TAG", "inherited")
+    supplied = {"ARENA_TEST_TUNNEL_TAG": "supplied", orphans.OWNER_ENV: "1:1"}
+    assert start_tunnel(8799, env=supplied).url == reported(f"8799-{os.getpid()}", "supplied")
 
 
 @LINUX_ONLY
 def test_live_orphan_of_a_dead_bridge_is_stopped(start_tunnel):
     port = own_port()
-    orphan = start_tunnel(port, env={**os.environ, orphans.OWNER_ENV: f"{port}:{unused_pid()}"})
+    orphan = start_tunnel(port, mark=f"{port}:{unused_pid()}")
     assert runs(orphan.pid)
     assert orphans.sweep_orphaned_tunnels(port) == [orphan.pid]
     assert not runs(orphan.pid)
@@ -357,7 +389,8 @@ def test_live_orphan_of_a_dead_bridge_is_stopped(start_tunnel):
 @LINUX_ONLY
 def test_live_tunnel_of_another_running_bridge_is_left(start_tunnel):
     port = own_port()
-    owned = start_tunnel(port, env={**os.environ, orphans.OWNER_ENV: f"{port}:{os.getppid()}"})
+    owned = start_tunnel(port, mark=f"{port}:{os.getppid()}")
+    assert owned.url == reported(f"{port}-{os.getppid()}")
     assert orphans.sweep_orphaned_tunnels(port) == []
     assert runs(owned.pid)
 
@@ -374,9 +407,8 @@ def test_live_tunnel_of_this_process_is_left_and_its_predecessor_stopped(start_t
 @LINUX_ONLY
 def test_live_unmarked_tunnel_is_left(start_tunnel):
     port = own_port()
-    unmarked = {name: value for name, value in os.environ.items() if name != orphans.OWNER_ENV}
-    manual = start_tunnel(port, env=unmarked)
-    assert manual.url == "https://mark-none.trycloudflare.com"
+    manual = start_tunnel(port, mark="")
+    assert manual.url == reported("none")
     assert orphans.sweep_orphaned_tunnels(port) == []
     assert runs(manual.pid)
 

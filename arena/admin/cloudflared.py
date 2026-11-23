@@ -221,7 +221,7 @@ def _start_cloudflared(cf: str, port: int, *, subprocess_kwargs: Callable[[], di
     try:
         kwargs = _subprocess_kwargs()
         kwargs.update(subprocess_kwargs())
-        kwargs.setdefault("env", owner_env(port))
+        kwargs["env"] = owner_env(port, kwargs.get("env"))
         CLOUDFLARED_STATE["proc"] = subprocess.Popen(
             [cf, "tunnel", "--url", f"http://127.0.0.1:{port}"],
             stdout=subprocess.PIPE,

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 OWNER_ENV = "ARENA_BRIDGE_TUNNEL_OWNER"
@@ -13,9 +13,9 @@ _OFF = ("0", "false", "no", "off")
 _STOP_WAIT_SECONDS = 3.0
 
 
-def owner_env(port: int) -> dict[str, str]:
-    """Return the environment for a tunnel child, marked with the port it serves and the bridge that started it."""
-    return {**os.environ, OWNER_ENV: f"{port}:{os.getpid()}"}
+def owner_env(port: int, base: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Return ``base`` (by default this process's environment) plus the mark of the port and the bridge that starts the tunnel."""
+    return {**(os.environ if base is None else base), OWNER_ENV: f"{port}:{os.getpid()}"}
 
 
 def sweep_enabled() -> bool:
