@@ -27,7 +27,8 @@ class FakeProc:
     """The part of psutil.Process the sweep reads."""
 
     defaults = {"name": "cloudflared", "cmdline": TUNNEL, "env": None, "ppid": 1, "created": 100.0,
-                "deaf": False, "immortal": False, "unreaped": False, "vanished": False}
+                "deaf": False, "immortal": False, "unreaped": False, "vanished": False,
+                "gone_at_signal": False, "reaped_late": False}
 
     def __init__(self, pid, **traits):
         """Describe one process; `traits` override `defaults`."""
@@ -55,9 +56,14 @@ class FakeProc:
         return self._query("created")
 
     def status(self):
+        if self.traits["reaped_late"]:
+            raise psutil.NoSuchProcess(self.pid)
         return psutil.STATUS_RUNNING if self.running else psutil.STATUS_ZOMBIE
 
     def terminate(self):
+        if self.traits["gone_at_signal"]:
+            self.running = False
+            raise psutil.NoSuchProcess(self.pid)
         self.signals.append("terminate")
         self.running = self.traits["deaf"]
 
@@ -222,6 +228,27 @@ def test_operator_can_switch_the_sweep_off(table, monkeypatch, value):
     monkeypatch.setenv(orphans.SWEEP_ENV, value)
     assert table.sweep() == []
     assert orphan.signals == []
+
+
+def test_orphan_that_exits_before_the_signal_counts_as_stopped(table):
+    table.procs = [FakeProc(900, env=marked(), gone_at_signal=True)]
+    assert table.sweep() == [900]
+
+
+def test_zombie_reaped_while_the_sweep_waits_counts_as_stopped(table):
+    reaped = FakeProc(900, env=marked(), unreaped=True, reaped_late=True)
+    table.procs = [reaped]
+    assert table.sweep() == [900]
+    assert reaped.signals == ["terminate"]
+
+
+def test_missing_psutil_is_reported_as_absent(monkeypatch):
+    monkeypatch.setitem(sys.modules, "psutil", None)
+    assert orphans._load_psutil() is None
+
+
+def test_installed_psutil_is_the_one_the_sweep_uses():
+    assert orphans._load_psutil() is psutil
 
 
 def test_without_psutil_nothing_is_swept(monkeypatch):
@@ -463,6 +490,15 @@ def test_shutdown_without_a_tunnel_does_nothing(monkeypatch):
     monkeypatch.setattr(cf_mod, "CLOUDFLARED_STATE", {"proc": None, "url": "", "log": []})
     cf_mod.stop_cloudflared_for_shutdown()
     assert cf_mod.CLOUDFLARED_STATE == {"proc": None, "url": "", "log": []}
+
+
+def test_the_lifecycle_helper_survives_a_tunnel_it_cannot_stop(running_tunnel):
+    def refuse():
+        raise OSError("access denied")
+
+    running_tunnel.tunnel.poll = refuse
+    lifecycle._stop_quick_tunnel()
+    assert running_tunnel.tunnel.signals == []
 
 
 def test_the_lifecycle_helper_stops_the_tunnel(running_tunnel):
