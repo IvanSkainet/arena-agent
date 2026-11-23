@@ -1,0 +1,57 @@
+# Keep the GitLab mirror equal to GitHub: master and the v* release tags.
+#
+# The mirror was pushed by hand after every merge, so it lagged whenever
+# that step was forgotten (the v4.171.0 tag was missing for a day).
+#
+# The credential is a GitLab deploy key that can write to this one project
+# and nothing else. It is not a personal token. Neither push is forced: if
+# GitLab ever holds a commit or a tag GitHub does not, the job fails and a
+# person decides.
+name: GitLab mirror
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  workflow_dispatch:
+
+# One mirror push at a time, and a queued one is not thrown away: the
+# newest run is the one that must reach GitLab.
+concurrency:
+  group: gitlab-mirror
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  mirror:
+    # A fork has no deploy key and no mirror of its own.
+    if: github.repository == 'IvanSkainet/arena-agent'
+    name: Push master and v* tags to GitLab
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner (block mode, egress enforced)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            gitlab.com:22
+
+      - name: Checkout the whole history of master, with tags
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # master as it is when the job runs, not the commit that started
+          # it: two merges close together then both push the newer head.
+          ref: master
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Push to GitLab
+        env:
+          GITLAB_MIRROR_SSH_KEY: ${{ secrets.GITLAB_MIRROR_SSH_KEY }}
+        run: scripts/mirror_to_gitlab.sh
