@@ -78,9 +78,8 @@ def image_result(meta: dict[str, Any], data_b64: str, region: Any = None) -> dic
         return error_result({**meta, "ok": False, "error": "screenshot_not_an_image",
                              "detail": "the captured bytes are not PNG, JPEG or WebP"})
     described = {**meta, "image": {**image, "delivered_as": "image content block"}}
-    mapping = _mapping(region, image)
-    if mapping:
-        described["image_to_desktop"] = mapping
+    described["image_to_desktop"] = _mapping(region, image) or {
+        "available": False, "reason": "the desktop region this picture shows is not known"}
     return {"content": [
         {"type": "text", "text": json.dumps(described, ensure_ascii=False)},
         {"type": "image", "data": data_b64, "mimeType": image["mimeType"]},
@@ -91,7 +90,8 @@ def shot_result(shot: dict[str, Any], region: Any = None) -> dict[str, Any]:
     """Turn a bridge screenshot answer (``ok``, ``data``, ...) into an MCP result."""
     if not shot.get("ok"):
         return error_result(shot)
-    meta = {key: value for key, value in shot.items() if key != "data"}
+    # "format" names the REST wire shape (base64 in JSON); here the picture travels as a block.
+    meta = {key: value for key, value in shot.items() if key not in ("data", "format")}
     return image_result(meta, str(shot.get("data") or ""), region if region is not None else shot.get("crop_region"))
 
 

@@ -50,6 +50,7 @@ class _Bridge:
     def __init__(self, picture: dict, windows: list[dict]):
         self.picture = picture
         self.windows = windows
+        self.displays = DISPLAYS_PAYLOAD
         self.calls: list[tuple[str, dict | None]] = []
 
     def get(self, _ctx, path, params=None):
@@ -57,7 +58,7 @@ class _Bridge:
         if path == "/v1/desktop/windows":
             return {"ok": True, "count": len(self.windows), "all_count": len(self.windows), "windows": self.windows}
         if path == "/v1/desktop/displays":
-            return DISPLAYS_PAYLOAD
+            return self.displays
         return dict(self.picture)
 
     def post(self, _ctx, path, _payload):
@@ -113,6 +114,7 @@ def test_the_words_describe_the_picture_without_repeating_it(bridge):
 
     assert data not in result["content"][0]["text"]
     assert "data" not in words
+    assert "format" not in words
     assert words["target"]["title"] == "Notes"
     assert words["image"] == {"mimeType": "image/png", "width": 400, "height": 300, "delivered_as": "image content block"}
     assert words["image_to_desktop"]["available"] is True
@@ -129,6 +131,19 @@ def test_a_clipped_capture_does_not_claim_a_coordinate_mapping(bridge):
     assert mapping["available"] is False
     assert "origin" not in mapping
     assert "scale" not in mapping
+
+
+def test_a_capture_of_an_unknown_region_says_the_mapping_is_unknown(bridge):
+    # A host that cannot list its displays captures the whole desktop and reports no region.
+    fake = bridge(_shot(_png_b64(1280, 720), crop_region=None, display=None))
+    fake.displays = {"ok": True, "displays": []}
+
+    words = _words(_screen_shot({}))
+
+    assert fake.screenshot_params() == {"format": "base64", "max_width": 1280}
+    assert words["image"]["width"] == 1280
+    assert words["image_to_desktop"]["available"] is False
+    assert "origin" not in words["image_to_desktop"]
 
 
 def test_base64_format_keeps_the_json_only_answer(bridge):
