@@ -45,6 +45,11 @@ def windows_raw_input_mode(mode: int) -> int:
     return (mode & ~(_ENABLE_LINE_INPUT | _ENABLE_ECHO_INPUT)) | _ENABLE_VIRTUAL_TERMINAL_INPUT
 
 
+def _on_windows() -> bool:
+    """Whether this process runs on Windows; a function so a test can replace it and leave ``os.name`` alone."""
+    return os.name == "nt"
+
+
 @contextlib.contextmanager
 def raw_terminal_input() -> Iterator[bool]:
     """Temporarily enable raw VT input for a Windows console.
@@ -54,7 +59,7 @@ def raw_terminal_input() -> Iterator[bool]:
     ``finally`` block because leaving the operator's console in raw mode after
     Ctrl+C would be a much worse failure than rejecting one dispatch.
     """
-    if os.name != "nt":
+    if not _on_windows():
         yield False
         return
 

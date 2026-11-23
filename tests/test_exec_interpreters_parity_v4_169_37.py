@@ -9,7 +9,6 @@ Pins every interpreter definition and path quoting behavior:
 """
 from __future__ import annotations
 
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -58,13 +57,13 @@ def test_default_constants():
 # 2. _quote_path
 # --------------------------------------------------------------------
 def test_quote_path_windows(monkeypatch):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(interp, "_on_windows", lambda: True)
     assert interp._quote_path(r"C:\Program Files\script.py") == r'"C:\Program Files\script.py"'
     assert interp._quote_path("simple.sh") == '"simple.sh"'
 
 
 def test_quote_path_posix(monkeypatch):
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(interp, "_on_windows", lambda: False)
     assert interp._quote_path("/path with spaces/script.sh") == "'/path with spaces/script.sh'"
     assert interp._quote_path("simple.sh") == "simple.sh"
     # Embedded single quotes escaped safely by shlex
@@ -76,12 +75,12 @@ def test_quote_path_posix(monkeypatch):
 # --------------------------------------------------------------------
 def test_resolve_interpreter_defaults(monkeypatch):
     # Windows default
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(interp, "_on_windows", lambda: True)
     win_res = interp._resolve_interpreter("")
     assert win_res == ("powershell", EXPECTED_INTERPRETERS["powershell"])
 
     # POSIX default
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(interp, "_on_windows", lambda: False)
     posix_res = interp._resolve_interpreter("")
     assert posix_res == ("bash", EXPECTED_INTERPRETERS["bash"])
 
@@ -137,7 +136,7 @@ def test_cross_platform_interpreters_run_on_both(name, monkeypatch):
     """Availability is decided by PATH, not by a hardcoded OS claim."""
     cfg = interp._INTERPRETERS[name]
     for os_name in ("nt", "posix"):
-        monkeypatch.setattr(interp.os, "name", os_name)
+        monkeypatch.setattr(interp, "_on_windows", lambda forced=os_name: forced == "nt")
         assert interp.interpreter_runs_here(cfg), (
             f"{name} is installed on both platforms; the table must not "
             f"refuse it on {os_name}"
@@ -146,13 +145,13 @@ def test_cross_platform_interpreters_run_on_both(name, monkeypatch):
 
 def test_posix_shells_are_still_refused_on_windows(monkeypatch):
     """The check must keep doing its real job."""
-    monkeypatch.setattr(interp.os, "name", "nt")
+    monkeypatch.setattr(interp, "_on_windows", lambda: True)
     for name in ("bash", "sh"):
         assert not interp.interpreter_runs_here(interp._INTERPRETERS[name])
 
 
 def test_powershell_is_still_refused_on_posix(monkeypatch):
-    monkeypatch.setattr(interp.os, "name", "posix")
+    monkeypatch.setattr(interp, "_on_windows", lambda: False)
     assert not interp.interpreter_runs_here(interp._INTERPRETERS["powershell"])
 
 
@@ -163,7 +162,7 @@ def test_windows_python_does_not_invoke_python3(monkeypatch):
     open the Microsoft Store instead of running the script. Windows must
     use `python`.
     """
-    monkeypatch.setattr(interp.os, "name", "nt")
+    monkeypatch.setattr(interp, "_on_windows", lambda: True)
     for name in ("python", "python3"):
         cmd = interp.interpreter_command(interp._INTERPRETERS[name])
         assert cmd.startswith("python "), cmd
@@ -172,7 +171,7 @@ def test_windows_python_does_not_invoke_python3(monkeypatch):
 
 def test_posix_python_still_uses_python3(monkeypatch):
     """On POSIX `python` may be absent or Python 2; python3 is correct."""
-    monkeypatch.setattr(interp.os, "name", "posix")
+    monkeypatch.setattr(interp, "_on_windows", lambda: False)
     for name in ("python", "python3"):
         assert interp.interpreter_command(
             interp._INTERPRETERS[name]).startswith("python3 ")
