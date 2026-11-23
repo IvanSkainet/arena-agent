@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
 from arena.desktop.availability import unavailable_result
+from arena.desktop.screenshot_crop import crop_kept
 from arena.desktop.screenshot_tools import missing_screenshot_tool
 
 
@@ -90,7 +91,10 @@ async def capture_desktop_screenshot(
 ) -> dict[str, Any]:
     """Capture the desktop and optionally transform/re-encode the image.
 
-    Returns `{ok: True, bytes, encoding, transformed, tool}` on success, or
+    Returns `{ok: True, bytes, encoding, transformed, tool, crop_region,
+    captured_region}` on success (`crop_region` is the region asked for,
+    `captured_region` the desktop rectangle the picture really shows, or None
+    when that is not known), or
     `{ok: False, error}` -- plus `unavailable` when the host has no screenshot
     tool (#260) -- on failure. The caller picks JSON base64 or a binary reply.
     """
@@ -168,6 +172,7 @@ async def capture_desktop_screenshot(
     tool = "spectacle" if env.get("has_spectacle") else ("grim" if env.get("has_grim") else "scrot")
     out_format = "png"
     transformed = False
+    captured = None
 
     if fmt in ("jpeg", "jpg", "webp") or scale or max_width or None not in (region_x, region_y, region_width, region_height):
         try:
@@ -176,14 +181,8 @@ async def capture_desktop_screenshot(
             from PIL import Image as _PILImage
 
             im = _PILImage.open(_io.BytesIO(img_bytes))
-            if None not in (region_x, region_y, region_width, region_height):
-                x = max(0, int(region_x or 0))
-                y = max(0, int(region_y or 0))
-                width = max(1, int(region_width or 1))
-                height = max(1, int(region_height or 1))
-                right = min(im.size[0], x + width)
-                bottom = min(im.size[1], y + height)
-                im = im.crop((x, y, right, bottom))
+            im, cropped = crop_kept(im, _crop_region(region_x, region_y, region_width, region_height))
+            if cropped:
                 transformed = True
             w, h = im.size
             target_w = w
@@ -205,6 +204,7 @@ async def capture_desktop_screenshot(
                 im.save(buf, format="PNG", optimize=True)
                 out_format = "png"
             img_bytes = buf.getvalue()
+            captured = cropped
             transformed = True
         except Exception as exc:
             if audit_fn:
@@ -218,6 +218,7 @@ async def capture_desktop_screenshot(
         "transformed": transformed,
         "tool": tool,
         "crop_region": _crop_region(region_x, region_y, region_width, region_height),
+        "captured_region": captured,
     }
 
 
@@ -248,6 +249,8 @@ def _finalize_screenshot(
 
     out_format = "png"
     transformed = False
+    # A backend that cropped on capture took exactly the region it was asked for.
+    captured = _crop_region(region_x, region_y, region_width, region_height) if already_cropped else None
 
     needs_transform = (
         fmt in ("jpeg", "jpg", "webp")
@@ -262,14 +265,8 @@ def _finalize_screenshot(
             from PIL import Image as _PILImage
 
             im = _PILImage.open(_io.BytesIO(img_bytes))
-            if not already_cropped and None not in (region_x, region_y, region_width, region_height):
-                x = max(0, int(region_x or 0))
-                y = max(0, int(region_y or 0))
-                width = max(1, int(region_width or 1))
-                height = max(1, int(region_height or 1))
-                right = min(im.size[0], x + width)
-                bottom = min(im.size[1], y + height)
-                im = im.crop((x, y, right, bottom))
+            im, cropped = crop_kept(im, None if already_cropped else _crop_region(region_x, region_y, region_width, region_height))
+            if cropped:
                 transformed = True
             w, h = im.size
             target_w = w
@@ -294,6 +291,7 @@ def _finalize_screenshot(
                 im.save(buf, format="PNG", optimize=True)
                 out_format = "png"
             img_bytes = buf.getvalue()
+            captured = captured or cropped
         except Exception as exc:
             if audit_fn:
                 audit_fn({"type": "screenshot_transform_failed", "error": str(exc)})
@@ -306,4 +304,5 @@ def _finalize_screenshot(
         "transformed": transformed,
         "tool": tool,
         "crop_region": _crop_region(region_x, region_y, region_width, region_height),
+        "captured_region": captured,
     }

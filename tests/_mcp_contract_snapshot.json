@@ -177,6 +177,15 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_desktop_screenshot.py",
+    "handlers": [
+      "handle_desktop_screenshot_tool"
+    ],
+    "tool_names": [
+      "desktop.screenshot"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_document.py",
     "handlers": [
       "handle_document_tool"

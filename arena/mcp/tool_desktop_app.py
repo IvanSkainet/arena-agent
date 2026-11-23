@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from arena.mcp.image_result import shot_result
 from arena.mcp.tool_desktop import _bridge_call, _bridge_get
+from arena.mcp.tool_desktop_screenshot import handle_desktop_screenshot_tool
 from arena.mcp.tool_utils import text_content
 
 
@@ -173,6 +175,20 @@ def _click_window_relative(ctx, args: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+# "image" answers with an MCP image block; "base64" keeps the older JSON-only answer.
+_SHOT_FORMATS = ("image", "base64")
+
+
+_SHOT_FORMAT_REFUSAL = (
+    "desktop_app.screenshot_window supports format='image' (an MCP image block) or format='base64' (JSON only); "
+    "use /v1/desktop/screenshot directly for binary formats"
+)
+
+
+def _shot_format(args: dict[str, Any]) -> str:
+    return str(args.get("format") or "image").lower()
+
+
 def _screenshot_window(ctx, args: dict[str, Any]) -> dict[str, Any]:
     resolved = _resolve(ctx, args)
     target = resolved.get("target")
@@ -189,8 +205,8 @@ def _screenshot_window(ctx, args: dict[str, Any]) -> dict[str, Any]:
     geom = _geom(target)
     if not geom:
         return {"ok": False, "error": "window_geometry_unavailable_after_focus" if focus_res else "window_geometry_unavailable", "target": target, "candidates": resolved.get("candidates", []), "focus": focus_res}
-    if str(args.get("format", "base64") or "base64").lower() != "base64":
-        return {"ok": False, "error": "desktop_app.screenshot_window returns JSON, so only format='base64' is supported; use /v1/desktop/screenshot directly for binary formats", "target": target, "geometry": geom}
+    if _shot_format(args) not in _SHOT_FORMATS:
+        return {"ok": False, "error": _SHOT_FORMAT_REFUSAL, "target": target, "geometry": geom}
     params: dict[str, Any] = {
         "format": "base64",
         "region_x": geom["x"],
@@ -251,6 +267,13 @@ def _key_window(ctx, args: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _shot_answer(result: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+    """Answer with a picture, with the older JSON-only shape on request, or with a refusal marked as one."""
+    if result.get("ok") and _shot_format(args) == "base64":
+        return text_content(json.dumps(result, ensure_ascii=False))
+    return shot_result(result)
+
+
 def handle_desktop_app_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
     handlers = {
         "desktop_app.find": _find,
@@ -262,8 +285,12 @@ def handle_desktop_app_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str
     }
     fn = handlers.get(name)
     if not fn:
-        return None
-    return text_content(json.dumps(fn(ctx, args), ensure_ascii=False))
+        # desktop.screenshot shares this module's picture path, so it is dispatched from here.
+        return handle_desktop_screenshot_tool(name, args, ctx=ctx)
+    result = fn(ctx, args)
+    if name == "desktop_app.screenshot_window":
+        return _shot_answer(result, args)
+    return text_content(json.dumps(result, ensure_ascii=False))
 
 
 _DESKTOP_APP_FILTER_PROPS: dict[str, Any] = {
@@ -297,8 +324,18 @@ DESKTOP_APP_MCP_TOOLS = [
     },
     {
         "name": "desktop_app.screenshot_window",
-        "description": "Resolve a window and return a base64 screenshot cropped to that window geometry.",
-        "inputSchema": {"type": "object", "properties": {**_DESKTOP_APP_FILTER_PROPS, "format": {"type": "string", "enum": ["base64"], "default": "base64"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}}, "additionalProperties": False},
+        "description": (
+            "Resolve a window and return a screenshot cropped to that window geometry as an image, "
+            "with the scale that maps its pixels back to desktop coordinates."
+        ),
+        "inputSchema": {"type": "object", "properties": {
+            **_DESKTOP_APP_FILTER_PROPS,
+            "format": {"type": "string", "enum": list(_SHOT_FORMATS), "default": "image",
+                       "description": "image: picture as an MCP image block. base64: the picture inside the JSON text."},
+            "focus": {"type": "boolean", "default": True, "description": "Bring the window to the front before the capture."},
+            "require_focus": {"type": "boolean", "default": True, "description": "Refuse when the window cannot be focused."},
+            "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80},
+        }, "additionalProperties": False},
     },
     {
         "name": "desktop_app.type_window",
