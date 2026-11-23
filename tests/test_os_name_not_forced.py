@@ -8,6 +8,10 @@
 #
 # A module that needs the answer asks a function of its own, ``_on_windows()``,
 # and a test replaces that function.
+#
+# The guard reads the syntax tree and reports the direct forms: setattr and patch
+# calls, and statements that bind ``os.name``. It is a tripwire, not a proof: a
+# write through ``vars(os)`` or ``os.__dict__`` is not reported.
 from __future__ import annotations
 
 import ast
@@ -49,17 +53,32 @@ def _text(node: ast.AST) -> str:
 
 def _call_forces(call: ast.Call) -> bool:
     """Tell whether a call names ``os.name`` as the thing to replace."""
-    args = call.args
-    if any(_is_os(first) and _text(second) == "name" for first, second in zip(args, args[1:])):
+    # Positional and keyword arguments alike: setattr(os, name="name", value="nt") is the same call.
+    given = [*call.args, *(keyword.value for keyword in call.keywords)]
+    if any(DOTTED.search(_text(value)) for value in given):
         return True
-    return any(DOTTED.search(_text(arg)) for arg in args)
+    return any(_is_os(value) for value in given) and any(_text(value) == "name" for value in given)
+
+
+def _leaves(target: ast.AST) -> list[ast.AST]:
+    """Return what a target assigns to, with tuples, lists and stars opened up."""
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return [leaf for element in target.elts for leaf in _leaves(element)]
+    return _leaves(target.value) if isinstance(target, ast.Starred) else [target]
+
+
+def _targets(node: ast.AST) -> list[ast.AST]:
+    """Return the targets of a statement that binds: assignment, ``for`` and ``with ... as``."""
+    if isinstance(node, ast.Assign):
+        return node.targets
+    if isinstance(node, (ast.With, ast.AsyncWith)):
+        return [item.optional_vars for item in node.items if item.optional_vars is not None]
+    return [node.target] if isinstance(node, (ast.AugAssign, ast.AnnAssign, ast.For, ast.AsyncFor)) else []
 
 
 def _assigned(node: ast.AST) -> list[ast.AST]:
-    """Return what an assignment statement assigns to."""
-    if isinstance(node, ast.Assign):
-        return node.targets
-    return [node.target] if isinstance(node, (ast.AugAssign, ast.AnnAssign)) else []
+    """Return every single place a statement assigns to."""
+    return [leaf for target in _targets(node) for leaf in _leaves(target)]
 
 
 def _forces(node: ast.AST) -> bool:
@@ -87,6 +106,14 @@ def forcing_lines(text: str) -> list[int]:
     'module.os.name = "nt"',
     'monkeypatch.setattr(\n    os,\n    "name",\n    "nt",\n)',
     'monkeypatch.setattr(\n    "os.name",\n    "nt",\n)',
+    'monkeypatch.setattr(os, name="name", value="nt")',
+    'monkeypatch.setattr(target=os, name="name", value="nt")',
+    'mock.patch(target="os.name", new="nt")',
+    'os.name, sys.platform = "nt", "win32"',
+    '[sys.platform, (other, os.name)] = "win32", ("x", "nt")',
+    'first, *os.name = "a", "n", "t"',
+    'for os.name in ("nt", "posix"):\n    pass',
+    'with manager() as os.name:\n    pass',
 ])
 def test_every_way_of_forcing_is_recognised(statement):
     assert forcing_lines(statement) == [1]
@@ -101,6 +128,10 @@ def test_every_way_of_forcing_is_recognised(statement):
     'reason = f"os.name is {os.name}"',
     'note = "monkeypatch.setattr(os, \\"name\\", \\"nt\\") is what this file used to do"',
     'log("the value of os.name here", os.name)',
+    'name, platform = os.name, sys.platform',
+    'for name in (os.name, "posix"):\n    pass',
+    'with open(os.devnull) as name:\n    pass',
+    'monkeypatch.setattr(sys, name="platform", value="win32")',
 ])
 def test_reading_the_name_is_not_reported(statement):
     assert forcing_lines(statement) == []
