@@ -1,0 +1,58 @@
+# Re-run a CI run whose only problem is that GitHub never started some jobs.
+#
+# GitHub cancels a queued macOS job when no runner takes it ("The job was not
+# acquired by Runner of type hosted even after multiple attempts"). The
+# "CI required" gate then fails, correctly, and master or a pull request goes
+# red with no failing test. A person had to press "Re-run failed jobs" (#565).
+#
+# This workflow presses it, under three limits written in
+# .github/scripts/retry_never_started.py:
+#   * only when a job carries that exact message;
+#   * never when any job ran and failed;
+#   * at most two retries per run.
+#
+# Why a schedule and not workflow_run: workflow_run would react at once, but
+# zizmor reports it as a dangerous trigger, and this repository suppresses no
+# zizmor finding. A schedule takes nothing from the run it looks at except
+# what the API returns, and the price is a delay of up to one tick.
+name: Retry jobs GitHub never started
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: retry-never-started
+  cancel-in-progress: false
+
+jobs:
+  retry:
+    name: Re-run CI runs whose jobs were never started
+    if: github.repository == 'IvanSkainet/arena-agent'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write  # re-run the failed jobs of a run
+      checks: read    # read why a job was cancelled
+      contents: read  # check out the script
+    steps:
+      - name: Harden Runner (block mode, egress enforced)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+
+      - name: Check out the script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Look at recent failed CI runs and re-run the ones GitHub never started
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/retry_never_started.py
