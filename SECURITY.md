@@ -188,6 +188,7 @@ Area Network (LAN) webhooks are stated explicitly.
 | `ARENA_BREAKER_THRESHOLD` | security | exact | Changes the tunnel circuit-breaker failure threshold. |
 | `ARENA_BRIDGE_PIN_KIND` | security | exact | Chooses SPKI or whole-certificate pinning. |
 | `ARENA_BRIDGE_PIN_SHA256` | security | exact | Enables TLS certificate/public-key pinning. |
+| `ARENA_BRIDGE_TUNNEL_OWNER` | internal | exact | Marks a cloudflared child with the port it serves and the PID of the bridge that started it, so a later bridge can recognise a tunnel whose bridge is gone. |
 | `ARENA_BRIDGE_TOKEN` | security | exact | Supplies the agentctl bearer token through inherited process environment. |
 | `ARENA_BRIDGE_URL` | security | exact | Overrides the agentctl/bootstrap bridge URL. |
 | `ARENA_BRIDGE_URL_CACHE` | security | exact | Can disable the persistent fallback bridge-URL cache. |
@@ -240,6 +241,7 @@ Area Network (LAN) webhooks are stated explicitly.
 | `ARENA_TEST_EXECUTION_GUARD` | internal | exact | Internal CI opt-in for the pytest collection guard. |
 | `ARENA_TOKEN` | security | exact | Bearer credential propagated to sandbox/skill child processes. |
 | `ARENA_TOKEN_FILE` | security | exact | Overrides the bearer-token file path and has highest token-source priority. |
+| `ARENA_TUNNEL_ORPHAN_SWEEP` | security | exact | Can disable the startup sweep that stops cloudflared quick tunnels left running by an earlier bridge on the same port. |
 | `ARENA_TUNNEL_PRIORITY` | security | exact | Changes transport selection/order for public tunnel exposure. |
 | `ARENA_UPDATE_REPO` | security | exact | Redirects the repository used for self-update metadata and artifacts. |
 | `ARENA_UPDATE_ROOT` | security | exact | Redirects the update installation root. |

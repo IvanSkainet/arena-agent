@@ -43,7 +43,9 @@ def test_real_security_inventory_matches_source_exactly() -> None:
     # variable that nobody wrote down is exactly what this count is for.
     # T74 documents the browser-E2E skip control now preserved by the
     # shipped benchmark environment, in addition to the previous 76 names.
-    assert len(source) == 77
+    # #540 adds two: the mark a bridge puts on its cloudflared child, and the
+    # switch that turns off the startup sweep of tunnels left by a dead bridge.
+    assert len(source) == 79
 
 
 def test_security_weakening_and_credential_inputs_are_classified() -> None:

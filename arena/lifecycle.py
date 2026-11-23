@@ -242,6 +242,15 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
         except Exception:
             pass
 
+        # #540: the quick tunnel is a child process with a public URL. Nothing
+        # stopped it, so it outlived the bridge. Here and in the other
+        # shutdown path, for the reason given for the recorder above.
+        try:
+            from arena.admin.cloudflared import stop_cloudflared_for_shutdown
+            stop_cloudflared_for_shutdown()
+        except Exception:
+            pass
+
         await ctx.stop_grpc_server()
         await ctx.stop_cluster_heartbeat()
 
@@ -283,6 +292,15 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
         try:
             from arena.mobile.mirror import stop_all as _mirror_stop_all
             _mirror_stop_all()
+        except Exception:
+            pass
+
+        # #540: the quick tunnel is a child process with a public URL. Nothing
+        # stopped it, so it outlived the bridge. Here and in the other
+        # shutdown path, for the reason given for the recorder above.
+        try:
+            from arena.admin.cloudflared import stop_cloudflared_for_shutdown
+            stop_cloudflared_for_shutdown()
         except Exception:
             pass
 

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.admin.binaries import which_windows_or_path
+from arena.admin.cloudflared_orphans import owner_env
 from arena.util import _subprocess_kwargs
 
 CLOUDFLARED_STATE: dict[str, Any] = {"proc": None, "url": "", "log": []}
@@ -166,6 +167,13 @@ def _terminate_cloudflared(timeout: int = 5) -> None:
                 pass
 
 
+def stop_cloudflared_for_shutdown() -> None:
+    """Stop the tunnel this bridge started: without the bridge it is a public URL nobody controls (#540)."""
+    _terminate_cloudflared(timeout=2)
+    CLOUDFLARED_STATE["proc"] = None
+    CLOUDFLARED_STATE["url"] = ""
+
+
 # v4.24.1: cold-start timeout was 10s (20 iterations x 0.5s), which
 # was empirically too tight for a bridge boot on a slow uplink --
 # the v4.24.0 live-smoke caught cloudflared's autostart failing at
@@ -207,6 +215,7 @@ def _start_cloudflared(cf: str, port: int, *, subprocess_kwargs: Callable[[], di
     try:
         kwargs = _subprocess_kwargs()
         kwargs.update(subprocess_kwargs())
+        kwargs.setdefault("env", owner_env(port))
         CLOUDFLARED_STATE["proc"] = subprocess.Popen(
             [cf, "tunnel", "--url", f"http://127.0.0.1:{port}"],
             stdout=subprocess.PIPE,
