@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.admin.binaries import which_windows_or_path
-from arena.admin.cloudflared_orphans import owner_env, sweep_at_startup
+from arena.admin.cloudflared_orphans import owner_env, sweep_and_report
 from arena.util import _subprocess_kwargs
 
 CLOUDFLARED_STATE: dict[str, Any] = {"proc": None, "url": "", "log": []}
@@ -167,10 +167,10 @@ def _terminate_cloudflared(timeout: int = 5) -> None:
                 pass
 
 
-def sweep_tunnels_left_by_earlier_bridge(port: int, log_warning: Callable[..., None], **sweep_options: Any) -> None:
+def sweep_tunnels_left_by_earlier_bridge(port: int, log: Callable[..., None], **sweep_options: Any) -> None:
     """Stop quick tunnels for ``port`` that a bridge which is gone left running; keep the one this process holds (#540)."""
     current = CLOUDFLARED_STATE["proc"]
-    sweep_at_startup(port, current.pid if current else None, log_warning, **sweep_options)
+    sweep_and_report(port, current.pid if current else None, log, **sweep_options)
 
 
 def stop_cloudflared_for_shutdown() -> None:

@@ -1,47 +1,60 @@
 """#540: a bridge that was killed or updated left its quick tunnel running and publicly reachable."""
 from __future__ import annotations
 
+import argparse
+import ast
+import asyncio
 import os
-import subprocess
 import sys
-import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from types import SimpleNamespace
 
 import psutil
 import pytest
+from aiohttp import web
 
+from arena import cli, lifecycle
 from arena.admin import cloudflared as cf_mod, cloudflared_orphans as orphans
 
 PORT = 8765
 URL = f"http://127.0.0.1:{PORT}"
 TUNNEL = ["cloudflared", "tunnel", "--url", URL]
-LINUX_ONLY = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="the stand-in is a symlink that names a process cloudflared")
+STOPPED_900 = f"[Cloudflared] stopped 1 quick tunnel(s) left by an earlier bridge on port {PORT}: pid 900"
+LINUX_ONLY = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="relies on a script's name becoming the process name")
 POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="the stand-in is a script with a shebang line")
 
 
 class FakeProc:
     """The part of psutil.Process the sweep reads."""
 
-    defaults = {"name": "cloudflared", "cmdline": TUNNEL, "env": None, "ppid": 1, "created": 100.0, "deaf": False, "unreaped": False}
+    defaults = {"name": "cloudflared", "cmdline": TUNNEL, "env": None, "ppid": 1, "created": 100.0,
+                "deaf": False, "immortal": False, "unreaped": False, "vanished": False}
 
     def __init__(self, pid, **traits):
+        """Describe one process; `traits` override `defaults`."""
         self.pid = pid
         self.traits = {**self.defaults, **traits}
         self.info = {"name": self.traits["name"], "cmdline": self.traits["cmdline"]}
-        self.unreaped = self.traits["unreaped"]
         self.signals = []
         self.running = True
 
+    def _query(self, trait):
+        if self.traits["vanished"]:
+            raise psutil.NoSuchProcess(self.pid)
+        return self.traits[trait]
+
     def environ(self):
-        if self.traits["env"] is None:
+        env = self._query("env")
+        if env is None:
             raise psutil.AccessDenied(self.pid)
-        return self.traits["env"]
+        return env
 
     def ppid(self):
-        return self.traits["ppid"]
+        return self._query("ppid")
 
     def create_time(self):
-        return self.traits["created"]
+        return self._query("created")
 
     def status(self):
         return psutil.STATUS_RUNNING if self.running else psutil.STATUS_ZOMBIE
@@ -52,7 +65,7 @@ class FakeProc:
 
     def kill(self):
         self.signals.append("kill")
-        self.running = False
+        self.running = self.traits["immortal"]
 
 
 class Table:
@@ -61,6 +74,7 @@ class Table:
     Error, NoSuchProcess, STATUS_ZOMBIE = psutil.Error, psutil.NoSuchProcess, psutil.STATUS_ZOMBIE
 
     def __init__(self):
+        """Start with an empty process table."""
         self.procs, self.live = [], {}
 
     def process_iter(self, attrs=None):
@@ -72,7 +86,7 @@ class Table:
         return SimpleNamespace(create_time=lambda: self.live[pid])
 
     def wait_procs(self, procs, timeout=None):
-        return [], [proc for proc in procs if proc.running or proc.unreaped]
+        return [], [proc for proc in procs if proc.running or proc.traits["unreaped"]]
 
     def sweep(self, *, windows=False, **options):
         return orphans.sweep_orphaned_tunnels(PORT, psutil=self, parent_pid_survives=windows, **options)
@@ -87,6 +101,14 @@ def _table(monkeypatch):
 def marked(port=PORT, owner=4242):
     return {orphans.OWNER_ENV: f"{port}:{owner}"}
 
+
+def recorder():
+    """Return a list and a logger that appends each formatted message to it."""
+    said = []
+    return said, lambda text, *args: said.append(text % args)
+
+
+# --- which tunnel is an orphan -------------------------------------------------
 
 def test_owner_env_marks_the_port_and_this_process(monkeypatch):
     monkeypatch.setenv("ARENA_TEST_PASSTHROUGH", "kept")
@@ -115,6 +137,15 @@ def test_reused_owner_pid_does_not_protect_the_orphan(table):
     assert table.sweep() == [900]
 
 
+def test_tunnel_from_before_an_execv_restart_is_stopped(table):
+    """os.execv keeps the PID, so the tunnel's owner looks alive: it is this very process."""
+    mine = marked(owner=os.getpid())
+    earlier_image, current = FakeProc(900, env=mine, created=100.0), FakeProc(901, env=mine, created=200.0)
+    table.procs, table.live = [earlier_image, current], {os.getpid(): 50.0}
+    assert table.sweep(keep_pid=901) == [900]
+    assert current.signals == []
+
+
 @pytest.mark.parametrize("proc", [
     FakeProc(901, env=marked(port=8766)),
     FakeProc(902, env=marked(), cmdline=["cloudflared", "tunnel", "--url", "http://127.0.0.1:87650"]),
@@ -140,23 +171,24 @@ def test_windows_leaves_an_unmarked_tunnel_whose_parent_is_alive(table):
     manual = FakeProc(900, name="cloudflared.exe", env={}, ppid=7836, created=100.0)
     table.procs, table.live = [manual], {7836: 50.0}
     assert table.sweep(windows=True) == []
+    assert manual.signals == []
 
 
 def test_elsewhere_an_unmarked_tunnel_is_left_even_when_its_parent_is_gone(table):
     manual = FakeProc(900, env={}, ppid=7836)
     table.procs = [manual]
     assert table.sweep(windows=False) == []
-    assert manual.signals == []
 
 
-def test_tunnel_from_before_an_execv_restart_is_stopped(table):
-    """os.execv keeps the PID, so the tunnel's owner looks alive: it is this very process."""
-    mine = marked(owner=os.getpid())
-    earlier_image, current = FakeProc(900, env=mine, created=100.0), FakeProc(901, env=mine, created=200.0)
-    table.procs, table.live = [earlier_image, current], {os.getpid(): 50.0}
-    assert table.sweep(keep_pid=901) == [900]
-    assert current.signals == []
+@pytest.mark.parametrize("windows", [False, True])
+def test_process_that_vanishes_during_inspection_is_skipped(table, windows):
+    gone = FakeProc(900, env=marked(), vanished=True)
+    table.procs = [gone]
+    assert table.sweep(windows=windows) == []
+    assert gone.signals == []
 
+
+# --- stopping ------------------------------------------------------------------
 
 def test_tunnel_that_ignores_terminate_is_killed(table):
     stubborn = FakeProc(900, env=marked(), deaf=True)
@@ -173,19 +205,10 @@ def test_terminated_tunnel_that_nobody_reaps_counts_as_stopped(table):
 
 
 def test_tunnel_that_survives_kill_is_not_reported_as_stopped(table):
-    immortal = FakeProc(900, env=marked(), deaf=True)
-    immortal.kill = lambda: immortal.signals.append("kill")
+    immortal = FakeProc(900, env=marked(), deaf=True, immortal=True)
     table.procs = [immortal]
     assert table.sweep() == []
     assert immortal.signals == ["terminate", "kill"]
-
-
-def test_process_that_vanishes_during_inspection_is_skipped(table):
-    gone = FakeProc(900, env=marked())
-    gone.ppid = gone.create_time = lambda: (_ for _ in ()).throw(psutil.NoSuchProcess(900))
-    gone.environ = lambda: (_ for _ in ()).throw(psutil.NoSuchProcess(900))
-    table.procs = [gone]
-    assert table.sweep() == []
 
 
 @pytest.mark.parametrize("value", ["0", "false", "No", " off "])
@@ -197,100 +220,117 @@ def test_operator_can_switch_the_sweep_off(table, monkeypatch, value):
     assert orphan.signals == []
 
 
-def startup_sweep(table, keep_pid=None):
-    said = []
-    orphans.sweep_at_startup(PORT, keep_pid, lambda text, *args: said.append(text % args), psutil=table, parent_pid_survives=False)
-    return said
+def test_without_psutil_nothing_is_swept(monkeypatch):
+    monkeypatch.delenv(orphans.SWEEP_ENV, raising=False)
+    monkeypatch.setattr(orphans, "_load_psutil", lambda: None)
+    assert orphans.sweep_orphaned_tunnels(PORT) == []
 
 
-def test_startup_sweep_reports_what_it_stopped(table):
+# --- the sweep as the bridge runs it ---------------------------------------------
+
+def test_sweep_reports_what_it_stopped(table):
     table.procs = [FakeProc(900, env=marked()), FakeProc(901, env=marked())]
-    assert startup_sweep(table) == [f"[Cloudflared] stopped 2 quick tunnel(s) left by an earlier bridge on port {PORT}: pid 900, 901"]
+    said, log = recorder()
+    orphans.sweep_and_report(PORT, None, log, psutil=table, parent_pid_survives=False)
+    assert said == [f"[Cloudflared] stopped 2 quick tunnel(s) left by an earlier bridge on port {PORT}: pid 900, 901"]
 
 
-def test_startup_sweep_keeps_the_current_tunnel_and_stays_quiet(table):
-    current = FakeProc(900, env=marked(owner=os.getpid()))
-    table.procs = [current]
-    assert not startup_sweep(table, keep_pid=900)
+def test_sweep_that_stops_nothing_stays_quiet(table):
+    table.procs = [FakeProc(900, env={})]
+    said, log = recorder()
+    orphans.sweep_and_report(PORT, None, log, psutil=table, parent_pid_survives=False)
+    assert not said
+
+
+def test_bridge_sweep_spares_the_tunnel_this_process_holds(table, monkeypatch):
+    mine = marked(owner=os.getpid())
+    current = FakeProc(901, env=mine)
+    table.procs = [FakeProc(900, env=mine), current]
+    monkeypatch.setattr(cf_mod, "CLOUDFLARED_STATE", {"proc": SimpleNamespace(pid=901), "url": "", "log": []})
+    said, log = recorder()
+    cf_mod.sweep_tunnels_left_by_earlier_bridge(PORT, log, psutil=table, parent_pid_survives=False)
+    assert said == [STOPPED_900]
     assert current.signals == []
 
 
-def test_startup_sweep_failure_does_not_stop_the_bridge(table):
-    def unavailable(attrs=None):
-        raise OSError("process table unavailable")
+def test_bridge_sweep_before_any_tunnel_was_started(table, monkeypatch):
+    table.procs = [FakeProc(900, env=marked())]
+    monkeypatch.setattr(cf_mod, "CLOUDFLARED_STATE", {"proc": None, "url": "", "log": []})
+    said, log = recorder()
+    cf_mod.sweep_tunnels_left_by_earlier_bridge(PORT, log, psutil=table, parent_pid_survives=False)
+    assert said == [STOPPED_900]
 
-    table.process_iter = unavailable
-    assert startup_sweep(table) == ["[Cloudflared] orphaned tunnel sweep failed: process table unavailable"]
+
+class ServeStopped(Exception):
+    """Raised by the stand-in token resolver: the step of `serve` right after the sweep."""
 
 
-ECHO_MARK = """#!{python}
+def test_serve_sweeps_the_port_it_will_listen_on(monkeypatch):
+    """The port comes from the config file, so the sweep has to run after the file is applied."""
+    def resolve_token(_token):
+        raise ServeStopped
+
+    swept = []
+    ctx = SimpleNamespace(ensure_session_env=lambda: None, load_config_file=lambda: {"port": 9321}, cdp_state={},
+                          resolve_token=resolve_token, log_info=lambda *_args: None)
+    monkeypatch.setattr(cli, "_reap_orphan_mcp_servers", lambda _ctx: None)
+    monkeypatch.setattr(cf_mod, "sweep_tunnels_left_by_earlier_bridge", lambda port, _log: swept.append(port))
+    args = argparse.Namespace(background=False, port=8765, token_file="", token=None)
+    with pytest.raises(ServeStopped):
+        cli._serve_runtime(args, ctx)
+    assert swept == [9321]
+
+
+def test_failing_sweep_does_not_keep_the_bridge_from_starting(monkeypatch):
+    def broken(_port, _log):
+        raise RuntimeError("process table unavailable")
+
+    monkeypatch.setattr(cf_mod, "sweep_tunnels_left_by_earlier_bridge", broken)
+    said, log = recorder()
+    cli._sweep_quick_tunnels(SimpleNamespace(log_info=log), PORT)
+    assert said == ["[Cloudflared] startup sweep of orphaned tunnels skipped: process table unavailable"]
+
+
+# --- real processes ------------------------------------------------------------
+
+STAND_IN = """#!{python}
 import os, time
 print("https://mark-" + os.environ.get("{env}", "none").replace(":", "-") + ".trycloudflare.com", flush=True)
 time.sleep(120)
 """
 
 
-@POSIX_ONLY
-def test_started_tunnel_carries_the_owner_mark(tmp_path, monkeypatch):
-    """A real child reports the mark it was started with, as a quick-tunnel URL."""
+@pytest.fixture(name="start_tunnel")
+def _start_tunnel(tmp_path, monkeypatch):
+    """Start stand-in tunnels through the production starter; the stand-in reports its mark as a quick-tunnel URL."""
     stand_in = tmp_path / "cloudflared"
-    stand_in.write_text(ECHO_MARK.format(python=sys.executable, env=orphans.OWNER_ENV), encoding="utf-8")
-    stand_in.chmod(0o755)
-    monkeypatch.setattr(cf_mod, "CLOUDFLARED_STATE", {"proc": None, "url": "", "log": []})
-    try:
-        result = cf_mod._start_cloudflared(str(stand_in), 8799, subprocess_kwargs=dict)
-        assert result["url"] == f"https://mark-8799-{os.getpid()}.trycloudflare.com"
-    finally:
-        cf_mod.stop_cloudflared_for_shutdown()
-
-
-STAND_IN = "import time; time.sleep(120)"
-BRIDGE = """
-import subprocess, sys, time
-from arena.admin.cloudflared_orphans import owner_env
-exe, port, mark, stay = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "marked", sys.argv[4] == "stay"
-child = subprocess.Popen([exe, "-c", "import time; time.sleep(120)", "tunnel", "--url", f"http://127.0.0.1:{port}"],
-                         env=owner_env(port) if mark else None, stdin=subprocess.DEVNULL,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-print(child.pid, flush=True)
-if stay:
-    time.sleep(120)
-"""
-
-
-@pytest.fixture(name="stand_in")
-def _stand_in(tmp_path, monkeypatch):
-    """Real processes named cloudflared: the interpreter behind a symlink, with a per-test port in its arguments."""
-    exe = tmp_path / "cloudflared"
-    exe.symlink_to(sys.executable)
-    port = 20000 + os.getpid() % 20000
-    started = []
+    stand_in.write_text(STAND_IN.format(python=sys.executable, env=orphans.OWNER_ENV), encoding="utf-8")
+    stand_in.chmod(0o700)
     monkeypatch.delenv(orphans.SWEEP_ENV, raising=False)
+    started = []
 
-    def bridge(mark="marked", stay="exit"):
-        """Run a stand-in bridge that starts a tunnel, then exits or stays. Return the tunnel's PID."""
-        proc = subprocess.Popen([sys.executable, "-c", BRIDGE, str(exe), str(port), mark, stay],
-                                stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True)
-        tunnel = int(proc.stdout.readline())
-        started.extend([tunnel, proc.pid])
-        if stay == "exit":
-            proc.wait(timeout=30)
-        wait_until_named(tunnel)
-        return tunnel
+    def start(port, env=None):
+        monkeypatch.setattr(cf_mod, "CLOUDFLARED_STATE", {"proc": None, "url": "", "log": []})
+        result = cf_mod._start_cloudflared(str(stand_in), port, subprocess_kwargs=lambda: {} if env is None else {"env": env})
+        started.append(cf_mod.CLOUDFLARED_STATE["proc"])
+        return SimpleNamespace(pid=started[-1].pid, url=result.get("url"))
 
-    def own():
-        child = subprocess.Popen([str(exe), "-c", STAND_IN, "tunnel", "--url", f"http://127.0.0.1:{port}"],
-                                 env=orphans.owner_env(port), stdin=subprocess.DEVNULL)
-        started.append(child.pid)
-        wait_until_named(child.pid)
-        return child.pid
+    yield start
+    for proc in started:
+        proc.kill()
+        proc.wait(timeout=10)
 
-    yield SimpleNamespace(port=port, bridge=bridge, own=own)
-    for pid in started:
-        try:
-            psutil.Process(pid).kill()
-        except psutil.Error:
-            pass
+
+def own_port():
+    """Return a port number no other test worker puts into its stand-in's command line."""
+    return 20000 + os.getpid() % 20000
+
+
+def unused_pid():
+    pid = 4_000_000
+    while psutil.pid_exists(pid):
+        pid -= 1
+    return pid
 
 
 def runs(pid):
@@ -300,49 +340,54 @@ def runs(pid):
         return False
 
 
-def wait_until_named(pid):
-    """The child is `python` until its exec completes; wait for the name the sweep looks for."""
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        if psutil.Process(pid).name() == "cloudflared":
-            return
-        time.sleep(0.02)
-    raise AssertionError(f"pid {pid} never became cloudflared")
+@POSIX_ONLY
+def test_started_tunnel_carries_the_owner_mark(start_tunnel):
+    assert start_tunnel(8799).url == f"https://mark-8799-{os.getpid()}.trycloudflare.com"
 
 
 @LINUX_ONLY
-def test_live_orphan_of_a_dead_bridge_is_stopped(stand_in):
-    orphan = stand_in.bridge()
-    assert runs(orphan)
-    assert orphans.sweep_orphaned_tunnels(stand_in.port) == [orphan]
-    assert not runs(orphan)
+def test_live_orphan_of_a_dead_bridge_is_stopped(start_tunnel):
+    port = own_port()
+    orphan = start_tunnel(port, env={**os.environ, orphans.OWNER_ENV: f"{port}:{unused_pid()}"})
+    assert runs(orphan.pid)
+    assert orphans.sweep_orphaned_tunnels(port) == [orphan.pid]
+    assert not runs(orphan.pid)
 
 
 @LINUX_ONLY
-def test_live_tunnel_of_a_running_bridge_is_left(stand_in):
-    owned = stand_in.bridge(stay="stay")
-    assert orphans.sweep_orphaned_tunnels(stand_in.port) == []
-    assert runs(owned)
+def test_live_tunnel_of_another_running_bridge_is_left(start_tunnel):
+    port = own_port()
+    owned = start_tunnel(port, env={**os.environ, orphans.OWNER_ENV: f"{port}:{os.getppid()}"})
+    assert orphans.sweep_orphaned_tunnels(port) == []
+    assert runs(owned.pid)
 
 
 @LINUX_ONLY
-def test_live_tunnel_of_this_process_is_left_and_its_predecessor_stopped(stand_in):
-    predecessor, current = stand_in.own(), stand_in.own()
-    assert orphans.sweep_orphaned_tunnels(stand_in.port, keep_pid=current) == [predecessor]
-    assert runs(current)
+def test_live_tunnel_of_this_process_is_left_and_its_predecessor_stopped(start_tunnel):
+    port = own_port()
+    predecessor, current = start_tunnel(port), start_tunnel(port)
+    assert orphans.sweep_orphaned_tunnels(port, keep_pid=current.pid) == [predecessor.pid]
+    assert runs(current.pid)
+    assert not runs(predecessor.pid)
 
 
 @LINUX_ONLY
-def test_live_unmarked_tunnel_is_left(stand_in):
-    manual = stand_in.bridge(mark="unmarked")
-    assert orphans.sweep_orphaned_tunnels(stand_in.port) == []
-    assert runs(manual)
+def test_live_unmarked_tunnel_is_left(start_tunnel):
+    port = own_port()
+    unmarked = {name: value for name, value in os.environ.items() if name != orphans.OWNER_ENV}
+    manual = start_tunnel(port, env=unmarked)
+    assert manual.url == "https://mark-none.trycloudflare.com"
+    assert orphans.sweep_orphaned_tunnels(port) == []
+    assert runs(manual.pid)
 
+
+# --- shutdown ------------------------------------------------------------------
 
 class Tunnel:
     """A started tunnel as CLOUDFLARED_STATE holds it."""
 
     def __init__(self, *, deaf=False):
+        """Create a running tunnel; a deaf one ignores terminate."""
         self.deaf, self.signals, self.returncode = deaf, [], None
 
     def poll(self):
@@ -355,7 +400,7 @@ class Tunnel:
 
     def wait(self, timeout=None):
         if self.returncode is None:
-            raise subprocess.TimeoutExpired("cloudflared", timeout)
+            raise TimeoutError(f"still running after {timeout} s")
         return self.returncode
 
     def kill(self):
@@ -375,7 +420,7 @@ def test_shutdown_stops_the_tunnel_and_forgets_its_url(running_tunnel):
     cf_mod.stop_cloudflared_for_shutdown()
     assert running_tunnel.tunnel.signals == ["terminate"]
     assert running_tunnel.state["proc"] is None
-    assert running_tunnel.state["url"] == ""
+    assert not running_tunnel.state["url"]
 
 
 def test_shutdown_kills_a_tunnel_that_ignores_terminate(running_tunnel):
@@ -390,99 +435,40 @@ def test_shutdown_without_a_tunnel_does_nothing(monkeypatch):
     assert cf_mod.CLOUDFLARED_STATE == {"proc": None, "url": "", "log": []}
 
 
-def lifecycle_runtime():
-    from concurrent.futures import ThreadPoolExecutor
-
-    from arena.lifecycle import LifecycleContext, make_lifecycle
-
-    async def nothing(*_args):
-        return None
-
-    def no_op(*_args):
-        return None
-
-    pool = ThreadPoolExecutor(max_workers=1)
-    return make_lifecycle(LifecycleContext(
-        executor=pool, slow_executor=pool, init_memory_db=no_op, task_runner_loop=nothing, log_cleanup_loop=nothing,
-        file_watch_loop=nothing, get_mission_schedule_loop=lambda: None, start_watchdog=no_op, stop_watchdog=no_op,
-        stop_cdp_watcher=no_op, cdp_state={}, stop_grpc_server=nothing, stop_cluster_heartbeat=nothing,
-        get_shutdown_event=lambda: None, version="test", log_info=no_op, log_debug=no_op))
-
-
-def functions_stopping_the_tunnel():
-    import ast
-
-    from arena import lifecycle
-
-    found, stack = set(), []
-
-    class Visitor(ast.NodeVisitor):
-        def function(self, node):
-            stack.append(node.name)
-            self.generic_visit(node)
-            stack.pop()
-
-        visit_FunctionDef = visit_AsyncFunctionDef = function
-
-        def visit_Call(self, node):
-            if getattr(node.func, "id", None) == "_stop_quick_tunnel" and stack:
-                found.add(stack[-1])
-            self.generic_visit(node)
-
-    with open(lifecycle.__file__, encoding="utf-8") as source:
-        Visitor().visit(ast.parse(source.read()))
-    return found
-
-
-def test_signal_handler_stops_the_tunnel():
-    """Parsed, not called: the handler arms os._exit, and aiohttp's cleanup may not run before it fires."""
-    assert "signal_handler" in functions_stopping_the_tunnel()
-
-
 def test_the_lifecycle_helper_stops_the_tunnel(running_tunnel):
-    from arena import lifecycle
-
     lifecycle._stop_quick_tunnel()
     assert running_tunnel.tunnel.signals == ["terminate"]
     assert running_tunnel.state["proc"] is None
 
 
+def functions_calling(name):
+    """Return the names of the functions in arena/lifecycle.py whose body calls `name`."""
+    tree = ast.parse(Path(lifecycle.__file__).read_text(encoding="utf-8"))
+    functions = [node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    return {function.name for function in functions
+            if any(isinstance(node, ast.Call) and getattr(node.func, "id", None) == name for node in ast.walk(function))}
+
+
+def test_signal_handler_stops_the_tunnel():
+    """Parsed, not called: the handler arms os._exit, and aiohttp's cleanup may not run before it fires."""
+    assert "signal_handler" in functions_calling("_stop_quick_tunnel")
+
+
+async def nothing(*_args):
+    return None
+
+
+def no_op(*_args):
+    return None
+
+
 def test_cleanup_stops_the_tunnel(running_tunnel):
-    import asyncio
-
-    from aiohttp import web
-
-    asyncio.run(lifecycle_runtime().on_cleanup(web.Application()))
+    pool = ThreadPoolExecutor(max_workers=1)
+    runtime = lifecycle.make_lifecycle(lifecycle.LifecycleContext(
+        executor=pool, slow_executor=pool, init_memory_db=no_op, task_runner_loop=nothing, log_cleanup_loop=nothing,
+        file_watch_loop=nothing, get_mission_schedule_loop=no_op, start_watchdog=no_op, stop_watchdog=no_op,
+        stop_cdp_watcher=no_op, cdp_state={}, stop_grpc_server=nothing, stop_cluster_heartbeat=nothing,
+        get_shutdown_event=no_op, version="test", log_info=no_op, log_debug=no_op))
+    asyncio.run(runtime.on_cleanup(web.Application()))
     assert running_tunnel.tunnel.signals == ["terminate"]
     assert running_tunnel.state["proc"] is None
-
-
-def test_bridge_start_sweeps_before_it_starts_its_own_tunnel(monkeypatch):
-    import unified_bridge as ub
-    from arena.admin import cloudflared_autostart
-
-    order = []
-    monkeypatch.setattr(cf_mod, "sweep_tunnels_left_by_earlier_bridge", lambda port, log_warning: order.append(("sweep", port)))
-    monkeypatch.setattr(cloudflared_autostart, "run_autostart", lambda **options: order.append(("start", options["port"])))
-    ub._lifecycle_ctx.cloudflared_autostart()
-    port = order[0][1]
-    assert order == [("sweep", port), ("start", port)]
-
-
-def test_startup_sweep_spares_the_tunnel_this_process_holds(table, monkeypatch):
-    mine = marked(owner=os.getpid())
-    earlier_image, current = FakeProc(900, env=mine), FakeProc(901, env=mine)
-    table.procs = [earlier_image, current]
-    monkeypatch.setattr(cf_mod, "CLOUDFLARED_STATE", {"proc": SimpleNamespace(pid=901), "url": "", "log": []})
-    said = []
-    cf_mod.sweep_tunnels_left_by_earlier_bridge(PORT, lambda text, *args: said.append(text % args), psutil=table, parent_pid_survives=False)
-    assert said == [f"[Cloudflared] stopped 1 quick tunnel(s) left by an earlier bridge on port {PORT}: pid 900"]
-    assert current.signals == []
-
-
-def test_startup_sweep_before_any_tunnel_was_started(table, monkeypatch):
-    table.procs = [FakeProc(900, env=marked())]
-    monkeypatch.setattr(cf_mod, "CLOUDFLARED_STATE", {"proc": None, "url": "", "log": []})
-    said = []
-    cf_mod.sweep_tunnels_left_by_earlier_bridge(PORT, lambda text, *args: said.append(text % args), psutil=table, parent_pid_survives=False)
-    assert said == [f"[Cloudflared] stopped 1 quick tunnel(s) left by an earlier bridge on port {PORT}: pid 900"]

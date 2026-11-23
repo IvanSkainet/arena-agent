@@ -57,14 +57,9 @@ def build_app_lifecycle(g: MutableMapping[str, Any]) -> dict[str, Any]:
         root_agent = g.get("ROOT_AGENT")
         if cloudflared_fn is None or subprocess_kwargs_fn is None or root_agent is None:
             return None
-        port = _resolved_port()
-        # #540: a bridge that was killed or updated leaves its quick tunnel
-        # running, still publicly reachable and unknown to this one.
-        from arena.admin.cloudflared import sweep_tunnels_left_by_earlier_bridge
-        sweep_tunnels_left_by_earlier_bridge(port, env.log.warning)
         return run_autostart(
             root_agent=root_agent,
-            port=port,
+            port=_resolved_port(),
             cloudflared_funnel_action_fn=cloudflared_fn,
             subprocess_kwargs_fn=subprocess_kwargs_fn,
         )

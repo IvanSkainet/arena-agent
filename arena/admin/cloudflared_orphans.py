@@ -32,10 +32,7 @@ def _targets_port(proc: Any, port: int) -> bool:
 
 def _marked_owner(proc: Any, port: int) -> int | None:
     """Return the PID of the bridge that started this tunnel for this port, when the tunnel carries the mark."""
-    try:
-        marked_port, _, owner = proc.environ().get(OWNER_ENV, "").partition(":")
-    except Exception:
-        return None
+    marked_port, _, owner = proc.environ().get(OWNER_ENV, "").partition(":")
     if marked_port != str(port) or not owner.isdigit():
         return None
     return int(owner)
@@ -62,6 +59,7 @@ def _is_orphan(proc: Any, port: int, psutil: Any, parent_pid_survives: bool) -> 
             # elsewhere the orphan is re-parented and its starter cannot be told.
             owner = proc.ppid()
     except psutil.Error:
+        # Gone, or not ours to inspect: leave it alone.
         return False
     if owner is None:
         return False
@@ -95,20 +93,22 @@ def _stop(procs: list[Any], psutil: Any) -> list[int]:
     return [proc.pid for proc in procs if proc.pid not in survivors]
 
 
+def _load_psutil() -> Any:
+    try:
+        import psutil
+    except ImportError:
+        return None
+    return psutil
+
+
+# ``keep_pid`` is the tunnel this process runs now, if any: every other tunnel marked with this PID predates an execv.
+# ``psutil`` and ``parent_pid_survives`` default to the real module and the real platform; tests pass their own.
 def sweep_orphaned_tunnels(port: int, *, keep_pid: int | None = None, psutil: Any = None,
                            parent_pid_survives: bool | None = None) -> list[int]:
-    """Stop cloudflared quick tunnels for ``port`` whose starting bridge is gone. Return the PIDs stopped.
-
-    ``keep_pid`` is the tunnel this process runs now, if any; every other tunnel marked with this PID predates an execv.
-    ``psutil`` and ``parent_pid_survives`` default to the real module and the real platform.
-    """
-    if not sweep_enabled():
+    """Stop cloudflared quick tunnels for ``port`` whose starting bridge is gone, and return the PIDs stopped."""
+    psutil = psutil or _load_psutil()
+    if psutil is None or not sweep_enabled():
         return []
-    if psutil is None:
-        try:
-            import psutil
-        except ImportError:
-            return []
     if parent_pid_survives is None:
         parent_pid_survives = sys.platform == "win32"
     candidates = psutil.process_iter(["name", "cmdline"])
@@ -116,13 +116,9 @@ def sweep_orphaned_tunnels(port: int, *, keep_pid: int | None = None, psutil: An
     return _stop(orphans, psutil) if orphans else []
 
 
-def sweep_at_startup(port: int, keep_pid: int | None, log_warning: Callable[..., None], **sweep_options: Any) -> None:
-    """Sweep before this bridge starts its own tunnel and report the result. Never fails the bridge start."""
-    try:
-        stopped = sweep_orphaned_tunnels(port, keep_pid=keep_pid, **sweep_options)
-    except Exception as exc:
-        log_warning("[Cloudflared] orphaned tunnel sweep failed: %s", exc)
-        return
+def sweep_and_report(port: int, keep_pid: int | None, log: Callable[..., None], **sweep_options: Any) -> None:
+    """Sweep, and say which tunnels were stopped."""
+    stopped = sweep_orphaned_tunnels(port, keep_pid=keep_pid, **sweep_options)
     if stopped:
-        log_warning("[Cloudflared] stopped %d quick tunnel(s) left by an earlier bridge on port %d: pid %s",
-                    len(stopped), port, ", ".join(map(str, stopped)))
+        log("[Cloudflared] stopped %d quick tunnel(s) left by an earlier bridge on port %d: pid %s",
+            len(stopped), port, ", ".join(map(str, stopped)))
