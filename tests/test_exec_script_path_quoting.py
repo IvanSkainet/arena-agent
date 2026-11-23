@@ -77,7 +77,7 @@ def test_windows_paths_use_double_quotes(monkeypatch):
     """`shlex.quote` is wrong on Windows: cmd/PowerShell ignore single
     quotes, so the quote characters would reach the interpreter as part
     of the filename."""
-    monkeypatch.setattr(interpreters.os, "name", "nt")
+    monkeypatch.setattr(interpreters, "_on_windows", lambda: True)
 
     quoted = interpreters._quote_path(r"C:\Users\Ivan Petrov\scr.ps1")
 

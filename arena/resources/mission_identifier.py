@@ -73,9 +73,14 @@ def parse_mission_identifier(query_string: str) -> str:
 NAME_MAX_UNITS = 255
 
 
+def _on_windows() -> bool:
+    """Whether this process runs on Windows; a function so a test can replace it and leave ``os.name`` alone."""
+    return os.name == "nt"
+
+
 def _component_units(name: str) -> int:
     """How long this name is in the unit the local filesystem counts in."""
-    if os.name == "nt":
+    if _on_windows():
         return len(name.encode("utf-16-le", "surrogatepass")) // 2
     return len(name.encode("utf-8", "surrogatepass"))
 
@@ -282,9 +287,9 @@ def unusable_directory_name(name: str, *, label: str = "mission name") -> str | 
         # A lone surrogate survives JSON decoding and dies at `fsencode`.
         return f"{label} contains an unpaired surrogate"
     if _component_units(name) > NAME_MAX_UNITS:
-        unit = "UTF-16 code units" if os.name == "nt" else "bytes"
+        unit = "UTF-16 code units" if _on_windows() else "bytes"
         return f"{label} is too long: {NAME_MAX_UNITS} {unit} at most"
-    if os.name == "nt":
+    if _on_windows():
         nt_reason = _nt_refusal(name)
         if nt_reason:
             return f"{label} {nt_reason}"
