@@ -81,6 +81,11 @@ _INTERPRETERS: dict[str, dict[str, object]] = {
 }
 
 
+def _on_windows() -> bool:
+    """Whether this process runs on Windows; a function so a test can replace it and leave ``os.name`` alone."""
+    return os.name == "nt"
+
+
 def interpreter_command(cfg: dict[str, object]) -> str:
     """The command template for this OS.
 
@@ -89,7 +94,7 @@ def interpreter_command(cfg: dict[str, object]) -> str:
     the interpreter the operator means and can pop the Microsoft Store
     instead of running anything.
     """
-    if os.name == "nt" and cfg.get("cmd_win"):
+    if _on_windows() and cfg.get("cmd_win"):
         return str(cfg["cmd_win"])
     return str(cfg["cmd"])
 
@@ -99,7 +104,7 @@ def interpreter_runs_here(cfg: dict[str, object]) -> bool:
     platform = str(cfg.get("platform", "any"))
     if platform == "any":
         return True
-    return (platform == "win") if os.name == "nt" else (platform == "unix")
+    return (platform == "win") if _on_windows() else (platform == "unix")
 
 _DEFAULT_INTERPRETER_UNIX = "bash"
 _DEFAULT_INTERPRETER_WIN = "powershell"
@@ -118,7 +123,7 @@ def _quote_path(path: str) -> str:
     forbids it), so there is nothing to escape on that branch; on POSIX
     shlex handles every case including embedded quotes.
     """
-    if os.name == "nt":
+    if _on_windows():
         return f'"{path}"'
     return shlex.quote(path)
 
@@ -126,7 +131,7 @@ def _resolve_interpreter(name: str) -> tuple[str, dict[str, object]] | None:
     """Return (name, config) for a supported interpreter or None.
     Falls back to platform default when name is empty."""
     if not name:
-        name = _DEFAULT_INTERPRETER_WIN if os.name == "nt" else _DEFAULT_INTERPRETER_UNIX
+        name = _DEFAULT_INTERPRETER_WIN if _on_windows() else _DEFAULT_INTERPRETER_UNIX
     lower = name.strip().lower()
     if lower in _INTERPRETERS:
         return lower, _INTERPRETERS[lower]

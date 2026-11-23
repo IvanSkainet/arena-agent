@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from arena.resources import mission_identifier
 from arena.resources.listing import show_mission
 from arena.resources.mission_family import get_mission_family
 from arena.resources.mission_identifier import (
@@ -267,7 +268,7 @@ NT_ACCEPTED = ("ok-mission", "mission-2026-09-08", "CONSOLE", "COMET", "a.b.c")
 def test_the_windows_rules_hold_with_os_name_forced(
         name: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Every NTFS rule, exercised on whichever platform is running the test."""
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(mission_identifier, "_on_windows", lambda: True)
     assert unusable_directory_name(name) is not None, name
 
 
@@ -280,7 +281,7 @@ def test_the_windows_rules_do_not_over_reject(
     refuses ordinary ids turns a 500 into a permanent 400, which is worse
     for the caller than the crash it replaced.
     """
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(mission_identifier, "_on_windows", lambda: True)
     assert unusable_directory_name(name) is None, name
 
 
@@ -288,5 +289,5 @@ def test_the_windows_rules_do_not_over_reject(
 def test_posix_accepts_what_windows_refuses(
         name: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """The other half of per-platform: ext4 takes these, so the guard must."""
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(mission_identifier, "_on_windows", lambda: False)
     assert unusable_directory_name(name) is None, name

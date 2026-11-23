@@ -134,7 +134,7 @@ def test_raw_console_mode_disables_line_and_echo_but_keeps_other_bits() -> None:
 def test_raw_terminal_input_is_a_noop_off_windows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(terminal_module.os, "name", "posix")
+    monkeypatch.setattr(terminal_module, "_on_windows", lambda: False)
     with raw_terminal_input() as enabled:
         assert enabled is False
 
