@@ -24,6 +24,7 @@ from arena.mcp.tool_code_session import handle_code_session_tool
 from arena.mcp.tool_desktop import handle_desktop_tool
 from arena.mcp.tool_desktop_app import handle_desktop_app_tool
 from arena.mcp.tool_desktop_input import handle_desktop_input_tool
+from arena.mcp.tool_desktop_screenshot import handle_desktop_screenshot_tool
 from arena.mcp.tool_document import handle_document_tool
 from arena.mcp.tool_emulator import handle_emulator_tool
 from arena.mcp.tool_exec import handle_exec_tool
@@ -199,6 +200,7 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                 lambda: handle_desktop_input_tool(name, args, ctx=ctx),
                 lambda: handle_desktop_app_tool(name, args, ctx=ctx),
                 lambda: handle_desktop_tool(name, args, ctx=ctx),
+                lambda: handle_desktop_screenshot_tool(name, args, ctx=ctx),
                 lambda: handle_mobile_ext_tool(name, args, ctx=ctx),
                 lambda: handle_mobile_tool(name, args, ctx=ctx),
                 lambda: handle_emulator_tool(name, args, ctx=ctx),
