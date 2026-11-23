@@ -71,6 +71,20 @@ class LifecycleRuntime:
     signal_handler: Callable[[int, Any], None]
 
 
+def _tunnel_stopped_first(runtime: LifecycleRuntime) -> LifecycleRuntime:
+    """Return the runtime with both shutdown hooks stopping the tunnel before they do anything else (#540)."""
+    # Both, not only on_cleanup: signal_handler ends in os._exit on a timer, and aiohttp's cleanup may not run first.
+    async def on_cleanup(app: web.Application) -> None:
+        _stop_quick_tunnel()
+        await runtime.on_cleanup(app)
+
+    def signal_handler(sig: int, frame: Any) -> None:
+        _stop_quick_tunnel()
+        runtime.signal_handler(sig, frame)
+
+    return LifecycleRuntime(on_startup=runtime.on_startup, on_cleanup=on_cleanup, signal_handler=signal_handler)
+
+
 def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
     async def on_startup(app: web.Application):
         """Start background task runner and initialize async primitives."""
@@ -251,9 +265,6 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
         except Exception:
             pass
 
-        # #540: in both shutdown paths, for the reason given for the recorder.
-        _stop_quick_tunnel()
-
         await ctx.stop_grpc_server()
         await ctx.stop_cluster_heartbeat()
 
@@ -298,12 +309,9 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
         except Exception:
             pass
 
-        # #540: in both shutdown paths, for the reason given for the recorder.
-        _stop_quick_tunnel()
-
         shutdown_event = ctx.get_shutdown_event()
         if shutdown_event is not None:
             shutdown_event.set()
         threading.Timer(5.0, lambda: os._exit(0)).start()
 
-    return LifecycleRuntime(on_startup=on_startup, on_cleanup=on_cleanup, signal_handler=signal_handler)
+    return _tunnel_stopped_first(LifecycleRuntime(on_startup, on_cleanup, signal_handler))

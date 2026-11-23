@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import asyncio
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from types import SimpleNamespace
 
 import psutil
@@ -473,17 +471,24 @@ def test_the_lifecycle_helper_stops_the_tunnel(running_tunnel):
     assert running_tunnel.state["proc"] is None
 
 
-def functions_calling(name):
-    """Return the names of the functions in arena/lifecycle.py whose body calls `name`."""
-    tree = ast.parse(Path(lifecycle.__file__).read_text(encoding="utf-8"))
-    functions = [node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
-    return {function.name for function in functions
-            if any(isinstance(node, ast.Call) and getattr(node.func, "id", None) == name for node in ast.walk(function))}
+def test_both_shutdown_hooks_stop_the_tunnel_before_their_own_work(running_tunnel):
+    """The signal handler runs here without its os._exit timer: the wrapper is given stand-in hooks."""
+    seen = []
 
+    async def cleanup(_app):
+        seen.append(("cleanup", running_tunnel.state["proc"]))
 
-def test_signal_handler_stops_the_tunnel():
-    """Parsed, not called: the handler arms os._exit, and aiohttp's cleanup may not run before it fires."""
-    assert "signal_handler" in functions_calling("_stop_quick_tunnel")
+    def on_signal(sig, _frame):
+        seen.append((sig, running_tunnel.state["proc"]))
+
+    runtime = lifecycle._tunnel_stopped_first(lifecycle.LifecycleRuntime(no_op, cleanup, on_signal))
+    assert runtime.on_startup is no_op
+    runtime.signal_handler(15, None)
+    assert running_tunnel.tunnel.signals == ["terminate"]
+    running_tunnel.state["proc"] = other = Tunnel()
+    asyncio.run(runtime.on_cleanup(web.Application()))
+    assert other.signals == ["terminate"]
+    assert seen == [(15, None), ("cleanup", None)]
 
 
 async def nothing(*_args):
