@@ -48,15 +48,22 @@ def _describe(data_b64: str) -> dict[str, Any]:
     return sniff_image(head)
 
 
-def _mapping(region: Any, image: dict[str, Any]) -> dict[str, Any] | None:
-    """Say how a pixel of the picture maps to the desktop region it shows."""
-    if not isinstance(region, dict) or not image.get("width") or not image.get("height"):
+def _box(region: Any) -> dict[str, int] | None:
+    """Return the region as integers when it has a real size."""
+    if not isinstance(region, dict):
         return None
     try:
         box = {key: int(region[key]) for key in ("x", "y", "width", "height")}
     except (KeyError, TypeError, ValueError):
         return None
-    if box["width"] <= 0 or box["height"] <= 0:
+    return box if min(box["width"], box["height"]) > 0 else None
+
+
+def _mapping(region: Any, image: dict[str, Any]) -> dict[str, Any] | None:
+    """Say how a pixel of the picture maps to the desktop region it shows."""
+    box = _box(region)
+    # The header gives width and height together or not at all.
+    if box is None or not image.get("width"):
         return None
     # An unclipped capture keeps the region's proportions; resizing may cost one pixel of height.
     expected_height = box["height"] * image["width"] / box["width"]

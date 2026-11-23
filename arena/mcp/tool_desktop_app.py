@@ -13,6 +13,7 @@ from typing import Any
 
 from arena.mcp.image_result import shot_result
 from arena.mcp.tool_desktop import _bridge_call, _bridge_get
+from arena.mcp.tool_desktop_screenshot import handle_desktop_screenshot_tool
 from arena.mcp.tool_utils import text_content
 
 
@@ -277,7 +278,8 @@ def handle_desktop_app_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str
     }
     fn = handlers.get(name)
     if not fn:
-        return None
+        # desktop.screenshot shares this module's picture path, so it is dispatched from here.
+        return handle_desktop_screenshot_tool(name, args, ctx=ctx)
     result = fn(ctx, args)
     if name == "desktop_app.screenshot_window" and _shot_format(args) == "image":
         return shot_result(result, result.get("geometry"))

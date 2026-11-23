@@ -282,5 +282,26 @@ def test_a_refusal_that_is_not_json_still_says_what_happened(monkeypatch):
     assert "upstream" in words["detail"]
 
 
+def test_the_active_display_falls_back_to_primary_then_to_the_first_name(bridge):
+    fake = bridge(_shot(_png_b64(4, 4)))
+    fake.displays = {"ok": True, "active_output": "GONE", "displays": [{"name": "B"}, {"name": "A", "primary": True}, "junk"]}
+    _screen_shot({})
+    assert fake.screenshot_params()["display"] == "A"
+
+    fake.calls.clear()
+    fake.displays = {"ok": True, "displays": [{"name": "B"}, {"name": "A"}, {"name": ""}]}
+    _screen_shot({})
+    assert fake.screenshot_params()["display"] == "A"
+
+
+def test_the_dispatcher_reaches_desktop_screenshot(bridge):
+    bridge(_shot(_png_b64(1280, 720), display="DP-2", crop_region=DISPLAYS_PAYLOAD["displays"][1]["geometry"]))
+
+    result = app.handle_desktop_app_tool("desktop.screenshot", {}, ctx=object())
+
+    assert [part["type"] for part in result["content"]] == ["text", "image"]
+    assert app.handle_desktop_app_tool("desktop.displays", {}, ctx=object()) is None
+
+
 def test_other_tools_are_not_claimed_by_the_screenshot_handler():
     assert shot_tool.handle_desktop_screenshot_tool("desktop.displays", {}, ctx=object()) is None

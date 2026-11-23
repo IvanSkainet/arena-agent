@@ -24,16 +24,17 @@ def _region_params(region: Any) -> dict[str, int] | None:
     return {f"region_{key}": value for key, value in values.items()}
 
 
-def _active_display(ctx) -> str:
-    """Name the display to capture when the caller named none."""
-    listing = _bridge_get(ctx, "/v1/desktop/displays")
+def _display_names(listing: dict[str, Any], *, primary_only: bool = False) -> list[str]:
     displays = [d for d in listing.get("displays") or [] if isinstance(d, dict)]
-    known = {str(d.get("name") or "") for d in displays}
-    active = str(listing.get("active_output") or "")
-    if active in known:
-        return active
-    primary = next((str(d.get("name") or "") for d in displays if d.get("primary")), "")
-    return primary or next(iter(sorted(known - {""})), "")
+    return [str(d["name"]) for d in displays if d.get("name") and (d.get("primary") or not primary_only)]
+
+
+def _active_display(ctx) -> str:
+    """Name the display to capture when the caller named none: active, else primary, else first by name."""
+    listing = _bridge_get(ctx, "/v1/desktop/displays")
+    names = _display_names(listing)
+    candidates = [str(listing.get("active_output") or ""), *_display_names(listing, primary_only=True), *sorted(names)]
+    return next((name for name in candidates if name in names), "")
 
 
 def _target(ctx, args: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
