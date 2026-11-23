@@ -1005,7 +1005,10 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          # The active LTS line. 22 left active LTS in October 2025 and 24 in
+          # October 2026 (nodejs/Release schedule.json). oxlint's lock asks for
+          # ^20.19.0 || >=22.12.0, which 26 satisfies.
+          node-version: "26"
           cache: npm
 
       # `npm ci` from the committed package-lock.json, not an ad-hoc
