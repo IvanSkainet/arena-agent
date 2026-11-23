@@ -82,7 +82,7 @@ jobs:
         run: python3 scripts/security_gate.py bandit bandit.json
 
       - name: Upload bandit report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: bandit-report
@@ -159,7 +159,7 @@ jobs:
         run: python3 scripts/security_gate.py semgrep semgrep.json
 
       - name: Upload semgrep report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: semgrep-report
@@ -331,7 +331,7 @@ jobs:
 
       - name: Upload OSV report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: osv-report
           path: osv-results.json
@@ -379,7 +379,7 @@ jobs:
         run: python3 scripts/scanner_contract_gate.py --tool grype --report grype.json --format grype --block critical
 
       - name: Upload SBOM and Grype reports
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: sbom-and-grype-reports
@@ -473,7 +473,7 @@ jobs:
         run: python3 scripts/scanner_contract_gate.py --tool devskim --report devskim-results.sarif --format sarif --block error
 
       - name: Upload DevSkim report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: devskim-report
@@ -537,7 +537,7 @@ jobs:
         run: python3 scripts/security_gate.py pip-audit pip-audit.json --requirements runtime-reqs.txt
 
       - name: Upload pip-audit report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: pip-audit-report
