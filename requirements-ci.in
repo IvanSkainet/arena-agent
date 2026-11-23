@@ -56,7 +56,7 @@ pytest-timeout==2.4.0
 
 # Quality gates (informational first, then ratchet): types, dead code,
 # architecture contracts, packaging E2E.
-pyrefly==1.4.1
+pyrefly==1.2.0
 vulture==2.16
 import-linter==2.14
 build==1.6.1
