@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,11 +22,15 @@ def _npm_entries() -> list[dict]:
     return [update for update in _updates() if update.get("package-ecosystem") == "npm"]
 
 
-def test_the_repository_still_has_an_npm_lock():
-    """The premise: if the lock goes away, this file and the Dependabot entry go with it."""
+@pytest.mark.parametrize("name", ["package.json", "package-lock.json"])
+def test_the_repository_still_has_an_npm_manifest_and_lock(name):
+    """The premise: if these go away, this file and the Dependabot entry go with them."""
+    assert (ROOT / name).is_file()
+
+
+def test_the_manifest_still_pins_something():
     package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
     assert package.get("devDependencies"), "package.json pins nothing"
-    assert (ROOT / "package-lock.json").is_file()
 
 
 def test_dependabot_watches_the_directory_that_holds_the_lock():
