@@ -366,10 +366,10 @@ class _Picture:
     ({"x": 0, "y": 0, "width": 3840, "height": 2160}, {"x": 0, "y": 0, "width": 1920, "height": 1080}),
 ])
 def test_the_crop_reports_the_area_it_kept(region, kept):
-    from arena.desktop.screenshot import _crop_kept
+    from arena.desktop.screenshot_crop import crop_kept
 
     picture = _Picture((1920, 1080))
-    cropped, reported = _crop_kept(picture, region)
+    cropped, reported = crop_kept(picture, region)
 
     assert reported == kept
     assert cropped.size == (kept["width"], kept["height"])
@@ -377,11 +377,11 @@ def test_the_crop_reports_the_area_it_kept(region, kept):
 
 
 def test_no_region_means_no_crop_and_no_claim():
-    from arena.desktop.screenshot import _crop_kept
+    from arena.desktop.screenshot_crop import crop_kept
 
     picture = _Picture((1920, 1080))
 
-    assert _crop_kept(picture, None) == (picture, None)
+    assert crop_kept(picture, None) == (picture, None)
     assert picture.cropped_to is None
 
 

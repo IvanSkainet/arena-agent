@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
 from arena.desktop.availability import unavailable_result
+from arena.desktop.screenshot_crop import crop_kept
 from arena.desktop.screenshot_tools import missing_screenshot_tool
 
 
@@ -39,29 +40,6 @@ def _crop_region(
     if x is None or y is None or width is None or height is None:
         return None
     return {"x": int(x), "y": int(y), "width": int(width), "height": int(height)}
-
-
-def _kept_box(size: tuple[int, int], region: dict[str, int]) -> tuple[int, int, int, int]:
-    """Return the part of ``region`` a crop keeps, as (left, top, right, bottom).
-
-    The arithmetic is the long-standing one: a negative origin moves to 0 and
-    the far edges stop at the picture, so the kept area can be smaller than the
-    region or sit somewhere else. It is computed apart from the crop so the
-    answer can say which desktop area the picture really shows.
-    """
-    left = max(0, region["x"])
-    top = max(0, region["y"])
-    right = min(size[0], left + max(1, region["width"]))
-    bottom = min(size[1], top + max(1, region["height"]))
-    return left, top, right, bottom
-
-
-def _crop_kept(im: Any, region: dict[str, int] | None) -> tuple[Any, dict[str, int] | None]:
-    """Crop ``im`` to ``region`` and return it with the rectangle that was kept; no region, no crop."""
-    if not region:
-        return im, None
-    left, top, right, bottom = _kept_box(im.size, region)
-    return im.crop((left, top, right, bottom)), {"x": left, "y": top, "width": right - left, "height": bottom - top}
 
 
 def _rm_tmp_dir(path: str) -> None:
@@ -203,7 +181,7 @@ async def capture_desktop_screenshot(
             from PIL import Image as _PILImage
 
             im = _PILImage.open(_io.BytesIO(img_bytes))
-            im, cropped = _crop_kept(im, _crop_region(region_x, region_y, region_width, region_height))
+            im, cropped = crop_kept(im, _crop_region(region_x, region_y, region_width, region_height))
             if cropped:
                 transformed = True
             w, h = im.size
@@ -287,7 +265,7 @@ def _finalize_screenshot(
             from PIL import Image as _PILImage
 
             im = _PILImage.open(_io.BytesIO(img_bytes))
-            im, cropped = _crop_kept(im, None if already_cropped else _crop_region(region_x, region_y, region_width, region_height))
+            im, cropped = crop_kept(im, None if already_cropped else _crop_region(region_x, region_y, region_width, region_height))
             if cropped:
                 transformed = True
             w, h = im.size
