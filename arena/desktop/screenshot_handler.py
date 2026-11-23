@@ -12,6 +12,23 @@ from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import authed, query_int
 
 
+def _base64_body(shot: dict, display_name: str) -> dict:
+    """Describe a capture as JSON. ``crop_region`` is what was asked for, ``captured_region`` what the picture shows."""
+    img_bytes = shot["bytes"]
+    return {
+        "ok": True,
+        "format": "base64",
+        "encoding": shot["encoding"],
+        "data": base64.b64encode(img_bytes).decode("ascii"),
+        "size_bytes": len(img_bytes),
+        "transformed": shot.get("transformed", False),
+        "tool": shot.get("tool"),
+        "display": display_name or None,
+        "crop_region": shot.get("crop_region"),
+        "captured_region": shot.get("captured_region"),
+    }
+
+
 def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
     @authed(ctx)
     async def handle_v1_desktop_screenshot(request: web.Request) -> web.Response:
@@ -71,17 +88,7 @@ def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
         img_bytes = shot["bytes"]
         out_format = shot["encoding"]
         if fmt == "base64":
-            return ctx.cors_json_response({
-                "ok": True,
-                "format": "base64",
-                "encoding": out_format,
-                "data": base64.b64encode(img_bytes).decode("ascii"),
-                "size_bytes": len(img_bytes),
-                "transformed": shot.get("transformed", False),
-                "tool": shot.get("tool"),
-                "display": display_name or None,
-                "crop_region": shot.get("crop_region"),
-            })
+            return ctx.cors_json_response(_base64_body(shot, display_name))
         content_types = {"png": "image/png", "jpeg": "image/jpeg", "webp": "image/webp"}
         return web.Response(body=img_bytes, content_type=content_types.get(out_format, "image/png"), headers={"Access-Control-Allow-Origin": "*"})
 

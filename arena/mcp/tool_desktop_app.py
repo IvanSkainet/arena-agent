@@ -267,6 +267,13 @@ def _key_window(ctx, args: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _shot_answer(result: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+    """Answer with a picture, with the older JSON-only shape on request, or with a refusal marked as one."""
+    if result.get("ok") and _shot_format(args) == "base64":
+        return text_content(json.dumps(result, ensure_ascii=False))
+    return shot_result(result)
+
+
 def handle_desktop_app_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
     handlers = {
         "desktop_app.find": _find,
@@ -281,8 +288,8 @@ def handle_desktop_app_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str
         # desktop.screenshot shares this module's picture path, so it is dispatched from here.
         return handle_desktop_screenshot_tool(name, args, ctx=ctx)
     result = fn(ctx, args)
-    if name == "desktop_app.screenshot_window" and _shot_format(args) == "image":
-        return shot_result(result, result.get("geometry"))
+    if name == "desktop_app.screenshot_window":
+        return _shot_answer(result, args)
     return text_content(json.dumps(result, ensure_ascii=False))
 
 

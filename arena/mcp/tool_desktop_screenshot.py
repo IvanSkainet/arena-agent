@@ -5,7 +5,7 @@ import urllib.error
 from typing import Any
 
 from arena.jsonshape import loads_object
-from arena.mcp.image_result import error_result, shot_result
+from arena.mcp.image_result import error_result, region_box, shot_result
 from arena.mcp.tool_desktop import _bridge_get
 
 _DEFAULT_MAX_WIDTH = 1280
@@ -13,15 +13,8 @@ _REGION_KEYS = ("x", "y", "width", "height")
 
 
 def _region_params(region: Any) -> dict[str, int] | None:
-    if not isinstance(region, dict):
-        return None
-    try:
-        values = {key: int(region[key]) for key in _REGION_KEYS}
-    except (KeyError, TypeError, ValueError):
-        return None
-    if values["width"] <= 0 or values["height"] <= 0:
-        return None
-    return {f"region_{key}": value for key, value in values.items()}
+    box = region_box(region)
+    return {f"region_{key}": value for key, value in box.items()} if box else None
 
 
 def _display_names(listing: dict[str, Any], *, primary_only: bool = False) -> list[str]:
@@ -37,6 +30,18 @@ def _active_display(ctx) -> str:
     return next((name for name in candidates if name in names), "")
 
 
+def _region_target(region: Any) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    params = _region_params(region)
+    if params is None:
+        return {}, {"ok": False, "error": "region needs integer x, y, width > 0 and height > 0"}
+    return params, None
+
+
+def _display_target(ctx, display: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    display = display or _active_display(ctx)
+    return ({"display": display} if display else {}), None
+
+
 def _target(ctx, args: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Return the capture parameters, or a refusal."""
     region = args.get("region")
@@ -44,12 +49,8 @@ def _target(ctx, args: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] |
     if region is not None and display:
         return {}, {"ok": False, "error": "use either 'display' or 'region', not both"}
     if region is not None:
-        params = _region_params(region)
-        if params is None:
-            return {}, {"ok": False, "error": "region needs integer x, y, width > 0 and height > 0"}
-        return params, None
-    display = display or _active_display(ctx)
-    return ({"display": display} if display else {}), None
+        return _region_target(region)
+    return _display_target(ctx, display)
 
 
 def _screenshot(ctx, args: dict[str, Any]) -> dict[str, Any]:
