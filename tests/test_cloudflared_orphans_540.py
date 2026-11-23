@@ -425,7 +425,7 @@ def functions_stopping_the_tunnel():
         visit_FunctionDef = visit_AsyncFunctionDef = function
 
         def visit_Call(self, node):
-            if getattr(node.func, "id", None) == "stop_cloudflared_for_shutdown" and stack:
+            if getattr(node.func, "id", None) == "_stop_quick_tunnel" and stack:
                 found.add(stack[-1])
             self.generic_visit(node)
 
@@ -439,6 +439,14 @@ def test_signal_handler_stops_the_tunnel():
     assert "signal_handler" in functions_stopping_the_tunnel()
 
 
+def test_the_lifecycle_helper_stops_the_tunnel(running_tunnel):
+    from arena import lifecycle
+
+    lifecycle._stop_quick_tunnel()
+    assert running_tunnel.tunnel.signals == ["terminate"]
+    assert running_tunnel.state["proc"] is None
+
+
 def test_cleanup_stops_the_tunnel(running_tunnel):
     import asyncio
 
@@ -449,15 +457,32 @@ def test_cleanup_stops_the_tunnel(running_tunnel):
     assert running_tunnel.state["proc"] is None
 
 
-@pytest.mark.parametrize(("current", "kept"), [(None, None), (SimpleNamespace(pid=77), 77)], ids=["no-tunnel-yet", "tunnel-running"])
-def test_bridge_start_sweeps_before_it_starts_its_own_tunnel(monkeypatch, current, kept):
+def test_bridge_start_sweeps_before_it_starts_its_own_tunnel(monkeypatch):
     import unified_bridge as ub
     from arena.admin import cloudflared_autostart
 
     order = []
-    monkeypatch.setattr(orphans, "sweep_at_startup", lambda port, keep_pid, log_warning: order.append(("sweep", port, keep_pid)))
+    monkeypatch.setattr(cf_mod, "sweep_tunnels_left_by_earlier_bridge", lambda port, log_warning: order.append(("sweep", port)))
     monkeypatch.setattr(cloudflared_autostart, "run_autostart", lambda **options: order.append(("start", options["port"])))
-    monkeypatch.setattr(cf_mod, "CLOUDFLARED_STATE", {"proc": current, "url": "", "log": []})
     ub._lifecycle_ctx.cloudflared_autostart()
     port = order[0][1]
-    assert order == [("sweep", port, kept), ("start", port)]
+    assert order == [("sweep", port), ("start", port)]
+
+
+def test_startup_sweep_spares_the_tunnel_this_process_holds(table, monkeypatch):
+    mine = marked(owner=os.getpid())
+    earlier_image, current = FakeProc(900, env=mine), FakeProc(901, env=mine)
+    table.procs = [earlier_image, current]
+    monkeypatch.setattr(cf_mod, "CLOUDFLARED_STATE", {"proc": SimpleNamespace(pid=901), "url": "", "log": []})
+    said = []
+    cf_mod.sweep_tunnels_left_by_earlier_bridge(PORT, lambda text, *args: said.append(text % args), psutil=table, parent_pid_survives=False)
+    assert said == [f"[Cloudflared] stopped 1 quick tunnel(s) left by an earlier bridge on port {PORT}: pid 900"]
+    assert current.signals == []
+
+
+def test_startup_sweep_before_any_tunnel_was_started(table, monkeypatch):
+    table.procs = [FakeProc(900, env=marked())]
+    monkeypatch.setattr(cf_mod, "CLOUDFLARED_STATE", {"proc": None, "url": "", "log": []})
+    said = []
+    cf_mod.sweep_tunnels_left_by_earlier_bridge(PORT, lambda text, *args: said.append(text % args), psutil=table, parent_pid_survives=False)
+    assert said == [f"[Cloudflared] stopped 1 quick tunnel(s) left by an earlier bridge on port {PORT}: pid 900"]

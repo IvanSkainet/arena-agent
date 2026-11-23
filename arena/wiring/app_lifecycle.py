@@ -50,14 +50,6 @@ def build_app_lifecycle(g: MutableMapping[str, Any]) -> dict[str, Any]:
             pass
         return port
 
-    def _sweep_orphaned_tunnels(port: int) -> None:
-        # #540: a bridge that was killed or updated leaves its quick tunnel
-        # running, still publicly reachable and unknown to the next bridge.
-        from arena.admin.cloudflared import CLOUDFLARED_STATE
-        from arena.admin.cloudflared_orphans import sweep_at_startup
-        current = CLOUDFLARED_STATE["proc"]
-        sweep_at_startup(port, current.pid if current else None, env.log.warning)
-
     def _cloudflared_autostart():
         from arena.admin.cloudflared_autostart import run_autostart
         cloudflared_fn = g.get("_cloudflared_funnel_action_runtime")
@@ -66,7 +58,10 @@ def build_app_lifecycle(g: MutableMapping[str, Any]) -> dict[str, Any]:
         if cloudflared_fn is None or subprocess_kwargs_fn is None or root_agent is None:
             return None
         port = _resolved_port()
-        _sweep_orphaned_tunnels(port)
+        # #540: a bridge that was killed or updated leaves its quick tunnel
+        # running, still publicly reachable and unknown to this one.
+        from arena.admin.cloudflared import sweep_tunnels_left_by_earlier_bridge
+        sweep_tunnels_left_by_earlier_bridge(port, env.log.warning)
         return run_autostart(
             root_agent=root_agent,
             port=port,

@@ -55,6 +55,15 @@ class LifecycleContext:
     bore_autostart: Callable[[], Any] | None = None
 
 
+def _stop_quick_tunnel() -> None:
+    """Stop the cloudflared child: it has a public URL, and nothing stopped it when the bridge exited (#540)."""
+    try:
+        from arena.admin.cloudflared import stop_cloudflared_for_shutdown
+        stop_cloudflared_for_shutdown()
+    except Exception:
+        pass
+
+
 @dataclass(frozen=True)
 class LifecycleRuntime:
     on_startup: Callable[[web.Application], Any]
@@ -242,14 +251,8 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
         except Exception:
             pass
 
-        # #540: the quick tunnel is a child process with a public URL. Nothing
-        # stopped it, so it outlived the bridge. Here and in the other
-        # shutdown path, for the reason given for the recorder above.
-        try:
-            from arena.admin.cloudflared import stop_cloudflared_for_shutdown
-            stop_cloudflared_for_shutdown()
-        except Exception:
-            pass
+        # #540: in both shutdown paths, for the reason given for the recorder.
+        _stop_quick_tunnel()
 
         await ctx.stop_grpc_server()
         await ctx.stop_cluster_heartbeat()
@@ -295,14 +298,8 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
         except Exception:
             pass
 
-        # #540: the quick tunnel is a child process with a public URL. Nothing
-        # stopped it, so it outlived the bridge. Here and in the other
-        # shutdown path, for the reason given for the recorder above.
-        try:
-            from arena.admin.cloudflared import stop_cloudflared_for_shutdown
-            stop_cloudflared_for_shutdown()
-        except Exception:
-            pass
+        # #540: in both shutdown paths, for the reason given for the recorder.
+        _stop_quick_tunnel()
 
         shutdown_event = ctx.get_shutdown_event()
         if shutdown_event is not None:
