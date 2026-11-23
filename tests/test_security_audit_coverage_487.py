@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
 
+from arena import security_audit_coverage
 from arena.security_audit_coverage import check_coverage
 from scripts import security_gate
 
@@ -56,6 +58,37 @@ class AuditCoverageTests(TestCase):
             dependencies = [_dependency()]
             with self.subTest(text=text), self.assertRaises(ValueError):
                 check_coverage(dependencies, text)
+
+    def test_a_constraint_line_requests_nothing_and_hides_nothing(self):
+        text = "-c requirements-ci.txt\n--constraint other.txt\ndemo>=2\n"
+        check_coverage([_dependency()], text)
+        for dependencies in ([], [_dependency("other")], [_dependency(version="1")]):
+            with self.subTest(dependencies=dependencies), self.assertRaises(ValueError):
+                check_coverage(dependencies, text)
+
+    def test_only_the_exact_constraint_form_is_accepted(self):
+        for line in ("-c", "-c a.txt b.txt", "-ca.txt", "--constraint=a.txt", "-c a.txt # note",
+                     "-r a.txt", "-e .", "--hash sha256:00"):
+            dependencies = [_dependency()]
+            with self.subTest(line=line), self.assertRaises(ValueError):
+                check_coverage(dependencies, line + "\ndemo>=2\n")
+
+    def test_constraints_alone_are_not_an_audit(self):
+        dependencies = [_dependency()]
+        with self.assertRaises(ValueError):
+            check_coverage(dependencies, "-c requirements-ci.txt\n")
+
+    def test_every_file_the_audit_job_concatenates_can_be_read(self):
+        """The pip-audit job appends these files to its input; one unreadable line fails the whole audit."""
+        workflow = (ROOT / ".github" / "workflows" / "security-scan.yml").read_text(encoding="utf-8")
+        appended = re.search(r"cat (.+) >> runtime-reqs\.txt", workflow)
+        self.assertIsNotNone(appended)
+        names = appended.group(1).split()
+        self.assertIn("requirements-packaging.in", names)
+        for name in names:
+            with self.subTest(name=name):
+                text = (ROOT / name).read_text(encoding="utf-8")
+                self.assertTrue(security_audit_coverage._requirements(text))
 
     def test_markers_use_the_explicit_scanner_environment(self):
         text = 'demo>=2; sys_platform == "win32"'

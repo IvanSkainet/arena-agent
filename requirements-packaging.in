@@ -1,6 +1,17 @@
 # Hash-locked tooling for the packaging E2E CI job.
 # Regenerate: uv pip compile --universal --generate-hashes --strip-extras \
-#   --output-file=requirements-packaging.lock requirements-packaging.in
-build==1.6.0
+#   --python-version 3.10 --output-file=requirements-packaging.lock requirements-packaging.in
+#
+# The packaging-e2e and e2e-installed jobs install this lock into the same
+# environment as requirements-ci.txt. The two locks share packages that neither
+# input names (idna, packaging, importlib-metadata, tomli, zipp), and
+# scripts/lock_conflict_ratchet.py fails the build when they disagree. They
+# agreed only as long as nobody regenerated one of them alone: the first
+# Dependabot bump that moved idna in the CI lock left this one behind (#544).
+# The constraint makes this lock follow the CI lock; the relock workflow
+# compiles the CI lock first because of it.
+-c requirements-ci.txt
+
+build==1.6.1
 twine==7.0.0
 check-wheel-contents==0.6.3
