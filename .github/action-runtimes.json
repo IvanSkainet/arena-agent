@@ -1,5 +1,5 @@
 {
-  "CodSpeedHQ/action@373d6868929f444bc08d901fd0eb0ad52a8875ea": "composite",
+  "CodSpeedHQ/action@af75f77f17a054769abefaa42fe8dc2975469b5f": "composite",
   "SocketDev/action@ba6de6cc0565af1f42295590380973573297e31f": "node24",
   "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6": "node24",
   "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1": "node24",
@@ -7,7 +7,7 @@
   "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c": "node24",
   "actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68": "node24",
   "actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c": "node24",
-  "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020": "node24",
+  "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1": "node24",
   "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97": "node24",
   "actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93": "node24",
   "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9": "node24",
