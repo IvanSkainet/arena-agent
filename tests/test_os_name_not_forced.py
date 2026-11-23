@@ -29,36 +29,49 @@ DOTTED = re.compile(r"(?:^|\.)os\.name$")
 
 def _is_os(node: ast.AST) -> bool:
     """Tell whether the expression is ``os`` or ``<something>.os``."""
-    return (isinstance(node, ast.Name) and node.id == "os") or (isinstance(node, ast.Attribute) and node.attr == "os")
+    if isinstance(node, ast.Name):
+        return node.id == "os"
+    return isinstance(node, ast.Attribute) and node.attr == "os"
 
 
-def _is_text(node: ast.AST, wanted: re.Pattern[str]) -> bool:
-    return isinstance(node, ast.Constant) and isinstance(node.value, str) and bool(wanted.search(node.value))
+def _is_os_name(node: ast.AST) -> bool:
+    """Tell whether the expression is ``os.name``."""
+    if not isinstance(node, ast.Attribute):
+        return False
+    return node.attr == "name" and _is_os(node.value)
+
+
+def _text(node: ast.AST) -> str:
+    """Return the string a literal holds, or an empty string for anything else."""
+    value = node.value if isinstance(node, ast.Constant) else None
+    return value if isinstance(value, str) else ""
 
 
 def _call_forces(call: ast.Call) -> bool:
     """Tell whether a call names ``os.name`` as the thing to replace."""
     args = call.args
-    pairs = any(_is_os(first) and _is_text(second, re.compile(r"^name$")) for first, second in zip(args, args[1:]))
-    return pairs or any(_is_text(arg, DOTTED) for arg in args)
+    if any(_is_os(first) and _text(second) == "name" for first, second in zip(args, args[1:])):
+        return True
+    return any(DOTTED.search(_text(arg)) for arg in args)
 
 
 def _assigned(node: ast.AST) -> list[ast.AST]:
+    """Return what an assignment statement assigns to."""
     if isinstance(node, ast.Assign):
         return node.targets
     return [node.target] if isinstance(node, (ast.AugAssign, ast.AnnAssign)) else []
 
 
+def _forces(node: ast.AST) -> bool:
+    """Tell whether one node of the tree sets ``os.name``."""
+    if isinstance(node, ast.Call):
+        return _call_forces(node)
+    return any(_is_os_name(target) for target in _assigned(node))
+
+
 def forcing_lines(text: str) -> list[int]:
     """Return the numbers of the lines where a statement that sets ``os.name`` begins."""
-    found = set()
-    for node in ast.walk(ast.parse(text)):
-        if isinstance(node, ast.Call) and _call_forces(node):
-            found.add(node.lineno)
-        if any(isinstance(target, ast.Attribute) and target.attr == "name" and _is_os(target.value)
-               for target in _assigned(node)):
-            found.add(node.lineno)
-    return sorted(found)
+    return sorted({node.lineno for node in ast.walk(ast.parse(text)) if _forces(node)})
 
 
 @pytest.mark.parametrize("statement", [
