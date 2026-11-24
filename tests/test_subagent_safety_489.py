@@ -77,6 +77,7 @@ def _wait_for_terminal_metadata(run) -> dict:
     import time
 
     deadline = time.monotonic() + 20
+    raw = "<meta.json was never readable>"
     while time.monotonic() < deadline:
         try:
             raw = (run / "meta.json").read_text()
@@ -89,7 +90,53 @@ def _wait_for_terminal_metadata(run) -> dict:
         if meta["status"] not in {"running", "spawned"}:
             return meta
         time.sleep(.03)
-    raise AssertionError("subagent did not reach terminal metadata")
+    raise AssertionError("subagent did not reach terminal metadata\n" + _what_the_run_left(run, raw))
+
+
+def _runner_state(run) -> str:
+    """Say whether the background process named in the pid file is still there."""
+    import psutil
+
+    try:
+        pid = int((run / "pid").read_text().strip())
+    except (OSError, ValueError) as exc:
+        return f"pid file: {exc!r}"
+    if not psutil.pid_exists(pid):
+        return f"runner pid {pid}: gone"
+    try:
+        process = psutil.Process(pid)
+        return f"runner pid {pid}: {process.status()}, children: {[child.pid for child in process.children(recursive=True)]}"
+    except psutil.Error as exc:
+        return f"runner pid {pid}: {exc!r}"
+
+
+def _file_line(path) -> str:
+    """Give the size and age of one file of the run."""
+    import time
+
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        return f"{path.name}: {exc!r}"
+    return f"{path.name}: {stat.st_size} bytes, last written {time.time() - stat.st_mtime:.1f}s ago"
+
+
+def _log_tail(run, name: str) -> str:
+    """Give the end of one log of the run."""
+    try:
+        tail = (run / name).read_text(errors="replace")[-1500:]
+    except OSError as exc:
+        tail = repr(exc)
+    return f"--- tail of {name} ---\n{tail}"
+
+
+def _what_the_run_left(run, last_meta: str) -> str:
+    """Describe a run that never finished, so the failure tells slow from stuck (#581)."""
+    lines = [f"last meta.json: {last_meta}"]
+    lines += [_file_line(path) for path in sorted(run.iterdir())]
+    lines.append(_runner_state(run))
+    lines += [_log_tail(run, name) for name in ("stderr.log", "stdout.log")]
+    return "\n".join(lines)
 
 
 def _cleanup_owned_subagents(directory, marker):

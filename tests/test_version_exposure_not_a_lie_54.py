@@ -34,7 +34,9 @@ import asyncio
 import json
 import platform
 import sys
+import threading
 import time
+import traceback
 from pathlib import Path
 from unittest.mock import patch
 
@@ -157,19 +159,35 @@ def test_version_never_shells_out_to_a_tunnel_provider(tmp_path):
     real_run = __import__("subprocess").run
     real_check = __import__("subprocess").check_output
 
+    # The spy replaces subprocess.run for the whole process, so it also sees
+    # a subprocess started by any other thread of this test worker. Each call
+    # is therefore recorded with its thread and the stack that led to it:
+    # when this fails, the message says who started the subprocess (#587).
+    origins: list[str] = []
+
+    def note(argv):
+        # The command stays in a local: another thread may append to `calls`
+        # while this one is still formatting its stack.
+        command = list(argv) if isinstance(argv, list) else [str(argv)]
+        calls.append(command)
+        stack = "".join(traceback.format_stack(limit=14)[:-1])
+        origins.append(f"{command} in thread {threading.current_thread().name!r}:\n{stack}")
+
     def spy_run(argv, *a, **k):
-        calls.append(list(argv) if isinstance(argv, list) else [str(argv)])
+        note(argv)
         return real_run(argv, *a, **k)
 
     def spy_check(argv, *a, **k):
-        calls.append(list(argv) if isinstance(argv, list) else [str(argv)])
+        note(argv)
         return real_check(argv, *a, **k)
 
     with patch("subprocess.run", spy_run), patch("subprocess.check_output", spy_check):
         body = _version_body(tmp_path)
 
     assert body["exposed_publicly"] is True
-    assert calls == [], f"/v1/version launched a subprocess: {calls}"
+    assert calls == [], (
+        f"a subprocess started while /v1/version was being served: {calls}\n" + "\n".join(origins)
+    )
 
 
 def test_version_stays_answerable_when_nothing_ever_probed(tmp_path):
