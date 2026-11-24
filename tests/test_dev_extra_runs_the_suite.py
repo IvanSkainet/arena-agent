@@ -20,6 +20,8 @@ TESTS = REPO / "tests"
 DISTRIBUTION = {"yaml": "pyyaml"}
 # The documented command is run by pip, so pip is there without being listed.
 INSTALLER = {"pip"}
+# A handler for one of these catches a failed import. A bare `except:` does too.
+CATCHES_A_FAILED_IMPORT = {"ImportError", "ModuleNotFoundError", "Exception", "BaseException"}
 # Directories that hold no code of this project. A virtual environment is
 # recognised by its pyvenv.cfg, whatever the directory is called.
 FOREIGN = {"node_modules", "build", "dist", "site-packages"}
@@ -71,17 +73,26 @@ def roots(node: ast.stmt) -> list[str]:
     return []
 
 
-def blocks(node: ast.stmt) -> list[list[ast.stmt]]:
-    """Return the statement lists inside one statement that also run when the module is imported.
+def tolerates_a_missing_package(node: ast.Try) -> bool:
+    """Tell whether a failed import inside this try is caught by one of its handlers."""
+    caught = set()
+    for handler in node.handlers:
+        if handler.type is None:
+            return True
+        caught.update(name.id for name in ast.walk(handler.type) if isinstance(name, ast.Name))
+    return not caught.isdisjoint(CATCHES_A_FAILED_IMPORT)
 
-    Functions and classes are not entered. Of a `try` with handlers only the
-    handlers and what follows are returned: an import inside such a `try` is
-    an optional one, and the import in its handler is the fallback that must
-    be there (`import tomllib` / `import tomli`).
-    """
+
+# Functions and classes are not entered. The body of a `try` is left out only
+# when one of its handlers catches a failed import: then the import in the
+# body is optional, and the import in the handler is the fallback that must
+# be there (`import tomllib` / `import tomli`). With `except ValueError` a
+# missing package still stops collection, so that body is read.
+def blocks(node: ast.stmt) -> list[list[ast.stmt]]:
+    """Return the statement lists inside one statement that also run at import time."""
     if isinstance(node, ast.Try):
-        guarded = [] if node.handlers else [node.body]
-        return guarded + [handler.body for handler in node.handlers] + [node.orelse, node.finalbody]
+        body = [] if tolerates_a_missing_package(node) else [node.body]
+        return body + [handler.body for handler in node.handlers] + [node.orelse, node.finalbody]
     if isinstance(node, (ast.If, ast.With, ast.For, ast.While)):
         return [node.body, getattr(node, "orelse", [])]
     return []
