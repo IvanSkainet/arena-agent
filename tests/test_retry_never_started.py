@@ -4,6 +4,7 @@ from __future__ import annotations
 import http.client
 import importlib.util
 import re
+import ssl
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -107,20 +108,52 @@ def test_the_gate_name_matches_ci(retry: ModuleType) -> None:
     assert f"workflows/{retry.WORKFLOW}" in CI.as_posix()
 
 
+def paged(runs: list[dict[str, object]], asked: list[str]):
+    """Answer the run listing the way the API does: by page and page size."""
+    def answer(path: str, _token: str, _method: str = "GET") -> dict[str, object]:
+        asked.append(path)
+        size = int(re.search(r"per_page=(\d+)", path).group(1))
+        page = int(re.search(r"[?&]page=(\d+)", path).group(1))
+        return {"workflow_runs": runs[(page - 1) * size:page * size]}
+    return answer
+
+
 def test_only_recent_failures_are_looked_at(retry: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
     """A run that failed before the look-back window is left for a person."""
     recent = {"id": 1, "updated_at": "2026-11-23T21:30:00Z"}
     old = {"id": 2, "updated_at": "2026-11-23T19:00:00Z"}
     asked: list[str] = []
-
-    def answer(path: str, _token: str, _method: str = "GET") -> dict[str, object]:
-        asked.append(path)
-        return {"workflow_runs": [recent, old]}
-
-    monkeypatch.setattr(retry, "call", answer)
+    monkeypatch.setattr(retry, "call", paged([recent, old], asked))
     assert retry.LOOK_BACK == timedelta(hours=2)
     assert retry.recent_failed_runs("o/r", "t", NOW) == [recent]
-    assert asked == ["/repos/o/r/actions/workflows/ci.yml/runs?status=failure&per_page=30"]
+    assert asked == ["/repos/o/r/actions/workflows/ci.yml/runs?status=failure&per_page=100&page=1"]
+
+
+def test_failed_runs_beyond_the_first_page_are_read(retry: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With more failed runs than one page holds, the rest are still looked at."""
+    runs = [{"id": number, "updated_at": "2026-11-23T21:30:00Z"} for number in range(1, 132)]
+    asked: list[str] = []
+    monkeypatch.setattr(retry, "call", paged(runs, asked))
+    assert [run["id"] for run in retry.recent_failed_runs("o/r", "t", NOW)] == list(range(1, 132))
+    assert len(asked) == 2
+
+
+def test_an_old_run_that_failed_again_is_found_behind_newer_ones(retry: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The list is ordered by creation, so a recent failure can sit on a later page."""
+    runs = [{"id": number, "updated_at": "2026-11-23T10:00:00Z"} for number in range(1, 101)]
+    runs.append({"id": 500, "updated_at": "2026-11-23T21:59:00Z"})
+    monkeypatch.setattr(retry, "call", paged(runs, []))
+    assert [run["id"] for run in retry.recent_failed_runs("o/r", "t", NOW)] == [500]
+
+
+def test_the_listing_stops_at_the_page_cap(retry: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A listing that never ends cannot keep the job running."""
+    runs = [{"id": number, "updated_at": "2026-11-23T21:30:00Z"} for number in range(1, 1001)]
+    asked: list[str] = []
+    monkeypatch.setattr(retry, "call", paged(runs, asked))
+    assert retry.MAX_PAGES == 3
+    assert len(retry.recent_failed_runs("o/r", "t", NOW)) == 300
+    assert len(asked) == 3
 
 
 def test_a_retry_is_one_post_to_that_run(retry: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -187,13 +220,17 @@ class FakeConnection:
     """Stand in for the HTTPS connection and remember what was asked of it."""
 
     def __init__(self, status: int = 200, body: bytes = b"", error: Exception | None = None) -> None:
+        """Prepare the answer the connection will give."""
         self.answer = (status, body, error)
         self.sent: list[tuple[str, str, bytes | None]] = []
         self.closed = False
 
-    def request(self, method: str, path: str, body: bytes | None = None, headers: dict[str, str] | None = None) -> None:
+    def request(self, method: str, path: str, **extra: object) -> None:
         """Record the request and fail if the test asked for a failure."""
-        assert headers is not None and headers["Authorization"] == "Bearer t"
+        headers = extra["headers"]
+        assert isinstance(headers, dict) and headers["Authorization"] == "Bearer t"
+        body = extra.get("body")
+        assert body is None or isinstance(body, bytes)
         self.sent.append((method, path, body))
         if self.answer[2] is not None:
             raise self.answer[2]
@@ -206,6 +243,13 @@ class FakeConnection:
     def close(self) -> None:
         """Remember that the connection was closed."""
         self.closed = True
+
+
+def test_the_connection_checks_the_certificate(retry: ModuleType) -> None:
+    """The TLS context verifies the certificate and the host name."""
+    context = retry.tls_context()
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname is True
 
 
 def test_the_api_host_is_a_constant(retry: ModuleType) -> None:

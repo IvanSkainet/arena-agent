@@ -17,6 +17,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import ssl
 import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -32,6 +33,10 @@ WORKFLOW = "ci.yml"
 # A run that failed longer ago than this is left for a person. The schedule
 # runs several times inside the window, so one missed tick loses nothing.
 LOOK_BACK = timedelta(hours=2)
+PAGE_SIZE = 100
+# 300 failed runs is far more than two hours can hold; the cap only keeps a
+# surprise from turning into an endless loop.
+MAX_PAGES = 3
 
 
 def never_started(job: dict[str, Any], messages: list[str]) -> bool:
@@ -71,9 +76,14 @@ class ApiError(OSError):
     """The GitHub API did not answer a request with a success status."""
 
 
+def tls_context() -> ssl.SSLContext:
+    """Return a context that checks the certificate and the host name."""
+    return ssl.create_default_context()
+
+
 def connect() -> http.client.HTTPSConnection:
     """Open the connection: a constant host, always HTTPS; only the path of a request varies."""
-    return http.client.HTTPSConnection(HOST, timeout=30)
+    return http.client.HTTPSConnection(HOST, timeout=30, context=tls_context())
 
 
 def call(path: str, token: str, method: str = "GET") -> Any:
@@ -100,9 +110,10 @@ def latest_jobs(repo: str, run_id: int, token: str) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
     page = 1
     while True:
-        batch = call(f"/repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100&page={page}", token)["jobs"]
+        query = f"filter=latest&per_page={PAGE_SIZE}&page={page}"
+        batch = call(f"/repos/{repo}/actions/runs/{run_id}/jobs?{query}", token)["jobs"]
         jobs.extend(batch)
-        if len(batch) < 100:
+        if len(batch) < PAGE_SIZE:
             return jobs
         page += 1
 
@@ -119,9 +130,17 @@ def cancelled_annotations(repo: str, jobs: list[dict[str, Any]], token: str) -> 
 
 def recent_failed_runs(repo: str, token: str, now: datetime) -> list[dict[str, Any]]:
     """Return the CI runs that ended in failure within the look-back window."""
-    listed = call(f"/repos/{repo}/actions/workflows/{WORKFLOW}/runs?status=failure&per_page=30", token)
     oldest = now - LOOK_BACK
-    return [run for run in listed["workflow_runs"] if _when(run["updated_at"]) >= oldest]
+    found: list[dict[str, Any]] = []
+    # The list is ordered by creation, and a run created long ago can have
+    # failed again a minute ago, so every page is read. MAX_PAGES bounds it.
+    for page in range(1, MAX_PAGES + 1):
+        query = f"status=failure&per_page={PAGE_SIZE}&page={page}"
+        batch = call(f"/repos/{repo}/actions/workflows/{WORKFLOW}/runs?{query}", token)["workflow_runs"]
+        found.extend(run for run in batch if _when(run["updated_at"]) >= oldest)
+        if len(batch) < PAGE_SIZE:
+            break
+    return found
 
 
 def _when(stamp: str) -> datetime:
