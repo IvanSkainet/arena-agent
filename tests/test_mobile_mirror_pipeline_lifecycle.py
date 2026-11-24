@@ -50,8 +50,17 @@ from arena.mobile import mirror
 
 @pytest.fixture()
 def stub_adb(monkeypatch):
-    """Never touch a real device; screenrecord becomes a long sleep."""
+    """Never touch a real device; screenrecord becomes a long sleep, and every child is recorded."""
     monkeypatch.setattr(mirror, "find_adb", lambda: sys.executable)
+    children = []
+    spawn = asyncio.create_subprocess_exec
+
+    async def _recording_spawn(*args, **kwargs):
+        child = await spawn(*args, **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _recording_spawn)
     # Emit a byte, then linger. `not reader_task.done()` turned out to be
     # too weak a signal on its own -- a pipeline parked in
     # `wait_for(first_subscriber)` is also "not done", so a sabotage that
@@ -68,9 +77,38 @@ def stub_adb(monkeypatch):
         mirror, "_screenrecord_cmd",
         lambda serial, size, bit_rate: [sys.executable, "-c", stub])
     monkeypatch.setattr(mirror, "_SESSIONS", {}, raising=False)
-    yield
+    yield children
     for session in list(mirror._SESSIONS.values()):
         session.stop_event.set()
+    # The loop of the test is closed by now. A pipe that has not reported
+    # end-of-file still has an open transport, and Python destroys it later
+    # with "Exception ignored ... _ProactorBasePipeTransport.__del__ ... I/O
+    # operation on closed pipe" (#568). Say so here, in the test that did it.
+    left_open = [child.pid for child in children if not _pipes_are_closed(child)]
+    assert not left_open, (
+        f"the test returned while pipes of child {left_open} were still open; "
+        "end the test with `await _shut_down(session, stub_adb)`"
+    )
+
+
+def _pipes_are_closed(child) -> bool:
+    """Tell whether the child has exited and both of its pipes have reported end-of-file."""
+    return child.returncode is not None and child.stdout.at_eof() and child.stderr.at_eof()
+
+
+# `Process.wait()` returns when the child has exited. Its two pipes are closed
+# later, when the operating system reports end-of-file on each and the loop
+# handles that. Measured on Windows, Python 3.14: at the moment the pipeline
+# task was done, something was still open in 271 of 600 runs; after reading
+# both pipes to end-of-file, in 0 of 600. The number of loop turns does not
+# matter and a sleep only makes it rarer, so this waits for the event itself.
+async def _shut_down(session, children) -> None:
+    """Stop the pipeline and stay in the loop until the pipes of every child are closed."""
+    session.stop_event.set()
+    await asyncio.wait_for(session.reader_task, timeout=10.0)
+    for child in children:
+        await asyncio.wait_for(
+            asyncio.gather(child.stdout.read(), child.stderr.read(), child.wait()), timeout=10.0)
 
 
 def test_pipeline_survives_a_late_subscriber(stub_adb):
@@ -91,7 +129,7 @@ def test_pipeline_survives_a_late_subscriber(stub_adb):
         streaming = session.segments_started > 0
 
         registered = "emulator-5554" in mirror._SESSIONS
-        session.stop_event.set()
+        await _shut_down(session, stub_adb)
         return alive_before, alive_after, streaming, registered
 
     alive_before, alive_after, streaming, registered = asyncio.run(_run())
@@ -116,7 +154,7 @@ def test_pipeline_also_works_when_the_subscriber_is_first(stub_adb):
         await asyncio.sleep(0.40)
         alive = not session.reader_task.done()
         streaming = session.segments_started > 0
-        session.stop_event.set()
+        await _shut_down(session, stub_adb)
         return alive and streaming
 
     assert asyncio.run(_run())
@@ -154,7 +192,7 @@ def test_a_second_viewer_reuses_the_running_session(stub_adb):
         same = second is first
         count = len(first.subscribers)
         sessions = len(mirror._SESSIONS)
-        first.stop_event.set()
+        await _shut_down(first, stub_adb)
         return same, count, sessions
 
     same, count, sessions = asyncio.run(_run())
@@ -204,7 +242,10 @@ def test_last_viewer_leaving_stops_the_pipeline(stub_adb):
             # The reader raising is still "it stopped"; the assertion
             # below is about the task completing, not about how.
             pass
-        return started, session.reader_task.done()
+        stopped = session.reader_task.done()
+        if stopped:
+            await _shut_down(session, stub_adb)
+        return started, stopped
 
     started, stopped = asyncio.run(_run())
     assert started
