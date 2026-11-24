@@ -166,9 +166,12 @@ def test_version_never_shells_out_to_a_tunnel_provider(tmp_path):
     origins: list[str] = []
 
     def note(argv):
-        calls.append(list(argv) if isinstance(argv, list) else [str(argv)])
+        # The command stays in a local: another thread may append to `calls`
+        # while this one is still formatting its stack.
+        command = list(argv) if isinstance(argv, list) else [str(argv)]
+        calls.append(command)
         stack = "".join(traceback.format_stack(limit=14)[:-1])
-        origins.append(f"{calls[-1]} in thread {threading.current_thread().name!r}:\n{stack}")
+        origins.append(f"{command} in thread {threading.current_thread().name!r}:\n{stack}")
 
     def spy_run(argv, *a, **k):
         note(argv)
