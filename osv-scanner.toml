@@ -1,0 +1,74 @@
+# Known advisories that osv-scanner is told to pass, each with a reason and a
+# date. On that date the entry stops working and the osv-scanner job goes red
+# again, so every entry is looked at again and none stays for ever.
+#
+# This file applies to the requirement files in the repository root.
+#
+# How these got here: until #580 the scanner did not read the *.lock files at
+# all. Reading them showed advisories in requirements-security.lock, the
+# environment the scanners themselves (bandit, pip-audit, semgrep) run in.
+# filelock and msgpack were upgraded. The rest is below.
+
+# --- Held back by semgrep ---------------------------------------------------
+# semgrep 1.185.0, and 1.186.0 after it, require exactly mcp==1.29.0,
+# opentelemetry-api~=1.37.0 and wcmatch~=8.3. No semgrep release allows a
+# fixed version, so the lock cannot be moved without dropping semgrep.
+#
+# What limits the harm: the lock is installed in three jobs of
+# security-scan.yml and nowhere else. They run bandit, pip-audit and semgrep over this
+# repository with a read-only token and an allowlist of hosts.
+
+[[IgnoredVulns]]
+id = "GHSA-qx49-fqc8-xw99"
+ignoreUntil = 2027-01-15T00:00:00Z
+reason = "mcp 1.29.0, pinned by semgrep. The advisory is about the SDK's OAuth client. The semgrep job only scans files; it starts no MCP client and no MCP server."
+
+[[IgnoredVulns]]
+id = "GHSA-84m7-p3x7-pcfv"
+ignoreUntil = 2027-01-15T00:00:00Z
+reason = "mcp 1.29.0, pinned by semgrep. The advisory is about the StreamableHTTP server transport. The semgrep job only scans files; it starts no MCP server."
+
+[[IgnoredVulns]]
+id = "GHSA-w4fh-qvv9-3v23"
+ignoreUntil = 2027-01-15T00:00:00Z
+reason = "mcp 1.29.0, pinned by semgrep. The advisory is about bearer-token checks in an MCP server. The semgrep job only scans files; it starts no MCP server."
+
+[[IgnoredVulns]]
+id = "GHSA-rwrf-2pqf-9j8j"
+ignoreUntil = 2027-01-15T00:00:00Z
+reason = "mcp 1.29.0, pinned by semgrep. The advisory is about an MCP client fetching URLs chosen by a server. The semgrep job only scans files; it starts no MCP client."
+
+[[IgnoredVulns]]
+id = "GHSA-5h93-6whr-6q8j"
+ignoreUntil = 2027-01-15T00:00:00Z
+reason = "mcp 1.29.0, pinned by semgrep. The advisory is about the SDK's HTTP client following redirects. The semgrep job only scans files; it starts no MCP client."
+
+[[IgnoredVulns]]
+id = "GHSA-mf5v-w3w3-f6cg"
+ignoreUntil = 2027-01-15T00:00:00Z
+reason = "opentelemetry-api 1.37.0, pinned by semgrep. Slow parsing of a traceparent header received from outside. The semgrep job receives no requests."
+
+[[IgnoredVulns]]
+id = "GHSA-xcq7-p3pf-p88h"
+ignoreUntil = 2027-01-15T00:00:00Z
+reason = "opentelemetry-api 1.37.0, pinned by semgrep. Unbounded parsing of a tracestate header received from outside. The semgrep job receives no requests."
+
+[[IgnoredVulns]]
+id = "GHSA-53pm-wgxf-c6qf"
+ignoreUntil = 2027-01-15T00:00:00Z
+reason = "wcmatch 8.5.2, pinned by semgrep. Slow matching of hostile file names. A pull request with such names can slow the semgrep job down, and nothing more."
+
+# --- A line of the lock that is never installed -------------------------------
+# The locks are resolved for every Python from 3.10 up, so the lock holds two
+# filelock lines: 4.3.1 for Python 3.11 and newer, 4.1.0 for Python 3.10.
+# Every fixed filelock release needs Python 3.11, so the 3.10 line cannot be
+# fixed. requirements-security.lock is installed on Python 3.12 only
+# (security-scan.yml); tests/test_every_lock_is_scanned.py fails if that changes.
+
+[[PackageOverrides]]
+name = "filelock"
+version = "4.1.0"
+ecosystem = "PyPI"
+vulnerability.ignore = true
+effectiveUntil = 2027-01-15T00:00:00Z
+reason = "The Python 3.10 line of a universal lock. The lock is installed on Python 3.12 only, where filelock 4.3.1 is taken. No fixed filelock exists for Python 3.10."
