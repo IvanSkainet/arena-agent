@@ -160,6 +160,39 @@ async def _cancel_pumps(pumps: list[asyncio.Task | None]) -> None:
     await asyncio.gather(*active, return_exceptions=True)
 
 
+# How long cleanup waits for a dead child's pipes to report end-of-file.
+# A process that escaped the tree kill can still hold a pipe open; cleanup
+# must not wait for it forever.
+_PIPE_RELEASE_TIMEOUT = 2.0
+
+
+async def _read_to_eof(stream: asyncio.StreamReader) -> None:
+    while await stream.read(65536):
+        pass
+
+
+# asyncio closes a subprocess transport only after the process has exited and
+# every pipe has reported end-of-file. A reader that was paused because nobody
+# consumed its output never reads again, so without this the transport stays
+# open until the garbage collector destroys it (#593).
+async def _release_pipes(proc: Any) -> None:
+    """Read a finished child's pipes to end-of-file so asyncio closes them."""
+    streams = [s for s in (getattr(proc, "stdout", None), getattr(proc, "stderr", None)) if s is not None]
+    if not streams:
+        return
+    drained = asyncio.gather(*(_read_to_eof(s) for s in streams), return_exceptions=True)
+    try:
+        await asyncio.wait_for(drained, timeout=_PIPE_RELEASE_TIMEOUT)
+    except asyncio.TimeoutError:
+        pass
+
+
+async def _stop_reading(proc: Any, pumps: list[asyncio.Task | None]) -> None:
+    """Cancel the output pumps of a finished child and release its pipes."""
+    await _cancel_pumps(pumps)
+    await _release_pipes(proc)
+
+
 async def run_shell_command(
     *,
     request_id: str,
@@ -318,7 +351,7 @@ async def run_shell_command_stream(
         }
     finally:
         await _terminate_if_running(proc)
-        await _cancel_pumps([stdout_task, stderr_task])
+        await _stop_reading(proc, [stdout_task, stderr_task])
         ACTIVE_PROCESSES.pop(request_id, None)
 
 
