@@ -110,25 +110,32 @@ def _runner_state(run) -> str:
         return f"runner pid {pid}: {exc!r}"
 
 
-def _what_the_run_left(run, last_meta: str) -> str:
-    """Describe a run that never finished, so the failure tells slow from stuck (#581)."""
+def _file_line(path) -> str:
+    """Give the size and age of one file of the run."""
     import time
 
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        return f"{path.name}: {exc!r}"
+    return f"{path.name}: {stat.st_size} bytes, last written {time.time() - stat.st_mtime:.1f}s ago"
+
+
+def _log_tail(run, name: str) -> str:
+    """Give the end of one log of the run."""
+    try:
+        tail = (run / name).read_text(errors="replace")[-1500:]
+    except OSError as exc:
+        tail = repr(exc)
+    return f"--- tail of {name} ---\n{tail}"
+
+
+def _what_the_run_left(run, last_meta: str) -> str:
+    """Describe a run that never finished, so the failure tells slow from stuck (#581)."""
     lines = [f"last meta.json: {last_meta}"]
-    for path in sorted(run.iterdir()):
-        try:
-            stat = path.stat()
-        except OSError as exc:
-            lines.append(f"{path.name}: {exc!r}")
-            continue
-        lines.append(f"{path.name}: {stat.st_size} bytes, last written {time.time() - stat.st_mtime:.1f}s ago")
+    lines += [_file_line(path) for path in sorted(run.iterdir())]
     lines.append(_runner_state(run))
-    for name in ("stderr.log", "stdout.log"):
-        try:
-            tail = (run / name).read_text(errors="replace")[-1500:]
-        except OSError as exc:
-            tail = repr(exc)
-        lines.append(f"--- tail of {name} ---\n{tail}")
+    lines += [_log_tail(run, name) for name in ("stderr.log", "stdout.log")]
     return "\n".join(lines)
 
 
