@@ -44,6 +44,20 @@ dev = [
     "pytest-cov>=4.0",
     "hypothesis>=6.0",
     "ruff>=0.4",
+    # The rest is what the test suite itself needs (#582). Without the first
+    # three the documented `pip install -e ".[full,dev]"` could not even
+    # collect the tests: 14 test files import yaml, and the `timeout` option
+    # in [tool.pytest.ini_options] belongs to pytest-timeout. Without the
+    # last three, 11 tests failed: some start pytest with `-n`, one validates
+    # the served OpenAPI document, one builds with setuptools.
+    # tests/test_dev_extra_runs_the_suite.py guards the unconditional imports
+    # and the two pytest plugins; it cannot see an import inside a function.
+    "PyYAML>=6.0",
+    "pytest-timeout>=2.1",
+    "tomli>=2.0; python_version < '3.11'",
+    "pytest-xdist>=3.5",
+    "openapi-spec-validator>=0.7",
+    "setuptools>=68",
     # Serena 1.6.1 shares the local Python environment and pins this, so
     # preserve the integration instead of letting a contributor install
     # silently replace Serena's dependency. (The note here used to justify

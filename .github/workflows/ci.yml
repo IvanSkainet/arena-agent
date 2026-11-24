@@ -290,7 +290,8 @@ jobs:
           -n "$WORKERS" --max-worker-restart=0 \
           --cov-fail-under=$THRESHOLD \
           --strict-markers -ra \
-          --junitxml=test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
+          --junitxml=test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml \
+          -o junit_family=legacy
 
       # continue-on-error on both uploads: GitHub's artifact backend answered
       # `FinalizeArtifact: (403) Forbidden` on three jobs in one day while the
@@ -348,6 +349,35 @@ jobs:
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: ./coverage.xml
+          disable_search: true
+          flags: ${{ runner.os }}-py${{ matrix.python-version }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+          verbose: false
+
+      # Test Analytics (#586): the same JUnit file the artifact step keeps
+      # for 5 days also goes to Codecov, which keeps the history. For every
+      # test it counts failures and run time on master and on branches, and
+      # in the pull request comment it marks a failed test that is already
+      # known to be flaky on master. Until now each flaky test was found by a
+      # person reading a job log.
+      #
+      # The same pinned action as the coverage upload, with another
+      # report_type. Codecov's documentation still shows
+      # codecov/test-results-action; that action's README says it is
+      # deprecated in favour of this one.
+      #
+      # !cancelled(), not success(): a failed test run is exactly the data
+      # this exists for. A cancelled run has no complete file to send.
+      # fail_ci_if_error and disable_search: for the reasons written at the
+      # coverage upload above. `-o junit_family=legacy` in "Run tests" is for
+      # this step: it puts the file path on every test case.
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          report_type: test_results
+          files: ./test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
           disable_search: true
           flags: ${{ runner.os }}-py${{ matrix.python-version }}
           token: ${{ secrets.CODECOV_TOKEN }}
