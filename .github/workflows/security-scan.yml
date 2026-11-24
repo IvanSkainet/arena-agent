@@ -319,8 +319,25 @@ jobs:
           # Policy: any known vulnerability is blocking. JSON is retained so
           # no-packages (128), execution errors (127), and findings (1) remain
           # distinguishable in the report/log instead of one ignored exit.
+          #
+          # The --lockfile lines are not optional. With --recursive alone the
+          # scanner picks Python requirement files by the name
+          # requirements*.txt and walks past every *.lock file: until #580
+          # seven of the nine hash-locked files were never read, and one of
+          # them held 21 known advisories. tests/test_every_lock_is_scanned.py
+          # fails when a lock file exists that is not listed here.
+          #
+          # Accepted advisories live in osv-scanner.toml, each with a reason
+          # and a date after which it is reported again.
           scan-args: |-
             --recursive
+            --lockfile=requirements.txt:requirements-bench.lock
+            --lockfile=requirements.txt:requirements-fuzz.lock
+            --lockfile=requirements.txt:requirements-lint.lock
+            --lockfile=requirements.txt:requirements-mutation.lock
+            --lockfile=requirements.txt:requirements-packaging.lock
+            --lockfile=requirements.txt:requirements-relock.lock
+            --lockfile=requirements.txt:requirements-security.lock
             --format=json
             --output-file=osv-results.json
             .
