@@ -22,17 +22,21 @@ psutil==7.2.2
 # and checked by scripts/held_back_deps_ratchet.py.
 websockets==16.1.1
 requests==2.34.2
-idna==3.19
+idna==3.20
 # The Termux requirements generator uses PEP 440 parsing; keep it available
 # directly rather than relying on an unrelated tool's transitive dependency.
-packaging==26.2
-pytest==9.1.1
+packaging==26.3
+pytest==9.2.0
 pytest-cov==7.1.0
+# T74: parallel execution and mandatory worker failure-propagation contracts.
+# Installing the plugin does not enable parallel CI; rollout is measured separately.
+pytest-xdist==3.8.0
+execnet==2.1.2
 # Workflow contract tests parse GitHub Actions YAML; this must be direct so
 # importorskip cannot silently remove the security policy suite in CI.
 PyYAML==6.0.3
-hypothesis==6.167.1
-ruff==0.16.5
+hypothesis==6.168.5
+ruff==0.17.5
 # NOTE: mypy the PACKAGE is deliberately absent. It was installed by
 # every CI job and never executed once -- type checking is pyrefly's,
 # through scripts/quality_ratchet.py. Removed in v4.169.32.
@@ -47,7 +51,7 @@ setuptools==84.2.1
 wheel==0.48.0
 
 # Test hardening: order shuffling + hang guard.
-pytest-randomly==4.1.0
+pytest-randomly==5.0.0
 pytest-timeout==2.4.0
 
 # Quality gates (informational first, then ratchet): types, dead code,
@@ -55,14 +59,14 @@ pytest-timeout==2.4.0
 pyrefly==1.2.0
 vulture==2.16
 import-linter==2.14
-build==1.6.0
+build==1.6.1
 twine==7.0.0
 check-wheel-contents==0.6.3
 
 # Browser E2E for the /gui dashboard (v4.157.0). Pinning the Python package
 # also pins which browser build `playwright install chromium` fetches, so the
 # binary is version-controlled even though it is not hash-locked here.
-playwright==1.62.0
+playwright==1.65.2
 
 # Windows-only pytest dependency; include explicitly so hash mode works on every CI OS.
 colorama==0.4.6

@@ -136,7 +136,7 @@ def test_screenshot_window_uses_window_crop(monkeypatch):
 
     monkeypatch.setattr(app, "_bridge_get", fake_get)
     monkeypatch.setattr(app, "_bridge_call", fake_call)
-    payload = _text(handle_desktop_app_tool("desktop_app.screenshot_window", {"title": "Cheat Engine", "max_width": 500}, ctx=object()))
+    payload = _text(handle_desktop_app_tool("desktop_app.screenshot_window", {"title": "Cheat Engine", "max_width": 500, "format": "base64"}, ctx=object()))
     assert payload["ok"] is True
     assert payload["target"]["title"] == "Cheat Engine"
     assert calls[3] == (

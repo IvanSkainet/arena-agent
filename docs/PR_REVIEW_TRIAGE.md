@@ -2,7 +2,7 @@
 
 <!-- pr-review-surfaces: review-threads,submitted-reviews,ordinary-pr-comments,check-rollup -->
 <!-- pr-review-dispositions: accepted,partially-accepted,rejected,duplicate,follow-up,noise -->
-<!-- pr-review-apps: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor;pending=deepsource;codefactor-probation=10-prs;exact-head-required -->
+<!-- pr-review-apps: keep=coderabbit,qodo,sonarqube-cloud,codacy,sourcery,codefactor,cubic,codescene;pending=deepsource;required-master=coderabbit,sonarqube-cloud,codacy,codescene,codefactor;exact-head-required -->
 
 Automated review is evidence, not authority. A green check does not prove the
 change works, and a bot-authored patch does not become correct because another
@@ -10,8 +10,12 @@ bot approved it.
 
 This procedure applies to every non-trivial pull request. Release, security,
 workflow, protocol, and cross-repository changes require every available
-configured reviewer surface to be read, but quota-skipped/unavailable Apps are
-recorded as no signal rather than treated as blockers. A manual CodeRabbit or
+configured reviewer surface to be read. Quota-skipped/unavailable Apps are
+recorded as no review signal, never as approval. If an App's context is required
+by live branch rules, GitHub blocks merge while that context is missing, pending
+or failed. GitHub accepts the `neutral` and `skipped` conclusions as passing, so
+a required App check that was skipped does not block merge by itself; the rule
+above still holds, and a skipped review is not a review. A manual CodeRabbit or
 Qodo review is preferred for high-risk changes when its independent quota is
 available.
 
@@ -19,13 +23,15 @@ available.
 
 | Integration | Role | Merge status |
 |---|---|---|
-| CodeRabbit | Manually triggered semantic review for high-risk changes; benchmark strength was exact DNS-rebinding analysis. | Informational; one-review rolling quota observed. Never merge autofixes without re-deriving and testing the invariant. |
+| CodeRabbit | Manually triggered semantic review for high-risk changes; benchmark strength was exact DNS-rebinding analysis. | Required by current master rules; quota/rate limits are not semantic approval. Never merge autofixes without re-deriving and testing the invariant. |
+| cubic | Optional semantic review of correctness, isolation and evidence contracts when quota is available. | Removed from required contexts by explicit operator approval after monthly quota exhaustion; previous findings remain actionable and absent review is not approval. |
+| CodeScene | Structural code-health and maintainability analysis of the PR delta. | Required by current master rules; meet the gate or obtain a separately approved rule change, never silently suppress it. |
 | Qodo | Independent semantic/cross-file review. Benchmark found insecure TLS and a cross-file release-packaging concern. | Informational trial; automatic commits/autofix remain disabled and every finding is revalidated. |
-| SonarQube Cloud | Whole-tree and PR-delta static analysis with low content permission. | Informational; legacy baseline and PR Quality Gate are not required until rule-level precision is measured. |
-| Codacy | Multi-analyzer static analysis and independent quota. | Informational/manual disposition; duplicate annotations are collapsed by root location before counting. |
+| SonarQube Cloud | Whole-tree and PR-delta static analysis with low content permission. | Required by current master rules. Validate findings and satisfy the required Quality Gate without bypass. |
+| Codacy | Multi-analyzer static analysis and independent quota. | Required by current master rules; manually validate findings and collapse duplicate annotations by root location before counting. |
 | Sourcery | Automatic maintainability/test-completeness review when quota exists. | Informational; exact-head rate-limit reviews count as no signal. |
 | DeepSource | Historical signal exists, but current analyses are quota-skipped and the vendor dashboard is Cloudflare-blocked for the owner. | Keep pending vendor response; skipped checks are no signal. |
-| CodeFactor | Fast independent static quota; benchmark recall was low with one control false positive and high App permission cost. | Informational 10-real-PR probation; remove if it adds no unique accepted finding. |
+| CodeFactor | Fast independent static quota; benchmark recall was low with one control false positive and high App permission cost. | Required by current master rules. The historical 10-real-PR probation is not authorization to remove or bypass this requirement. |
 
 Functional overlap is allowed because independent quotas improve availability.
 Every App must still justify its false-positive, permission, cost, and failure-mode
@@ -113,5 +119,19 @@ Before merge, record:
 - required checks for that exact head;
 - live evidence when the change affects a real external boundary.
 
-AI checks remain informational. Branch rules, deterministic tests, security
-checks, and live acceptance remain the merge authority.
+Live branch rules are authoritative for required contexts, including AI and
+vendor checks. Reviewer role descriptions never override those requirements.
+Re-read the rules for the target branch before each merge: the current master
+rules require CodeRabbit, SonarCloud, Codacy, CodeScene and CodeFactor,
+alongside deterministic and security gates. Missing, neutral or quota-limited
+review output must not be described as semantic approval or used to bypass a
+required context. Rule changes require separate explicit operator approval.
+
+### Operator-authorized cubic quota decision
+
+The operator explicitly chose to proceed without a new cubic review after its
+monthly free quota was exhausted. Only `cubic · AI code reviewer` was removed
+from master ruleset `20321570` (36 → 35 required contexts). Every other required
+context, strict mode, PR/thread-resolution rules, and bypass actors were verified
+unchanged. No paid usage was authorized and previous findings were not dismissed.
+[Public before/after audit](https://github.com/IvanSkainet/arena-agent/pull/495#issuecomment-7066662384).

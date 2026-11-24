@@ -349,8 +349,9 @@ an observer sees the real thing work.
 - **A gate that is always green is suspicious.** Ratchets and contracts
   exist to be occasionally red. Negative-test the gate itself when you
   build one.
-- **A release is not done until CI is green on its tag.** Preflight runs
-  on Linux only. v4.166.2 shipped with a passing preflight, a verified
+- **A release is not done until CI is green on its tag.** A preflight
+  run proves only the platform it ran on, and the agent runs it on
+  Linux. v4.166.2 shipped with a passing preflight, a verified
   SHA, an execution transcript from the downloaded ZIP, and a live check
   on the operator's machine -- and its CI still went red on every
   Windows and macOS job, because the bug #73 fix used `os.unlink` as an

@@ -101,16 +101,19 @@ def test_it_ignores_a_patch_on_the_module_itself(ratchet):
     )
 
 
-def test_the_ratchet_fails_when_the_baseline_is_exceeded(tmp_path):
+def test_the_ratchet_fails_when_the_baseline_is_exceeded(isolated_ratchet_repo):
     """Negative test: lower the baseline and require a red result."""
-    original = BASELINE.read_text(encoding="utf-8")
+    baseline = isolated_ratchet_repo / "scripts" / "global_patch_baseline.json"
+    script = isolated_ratchet_repo / "scripts" / "global_patch_ratchet.py"
+    original = baseline.read_text(encoding="utf-8")
     current = json.loads(original)["allowed"]
-    BASELINE.write_text(json.dumps({"allowed": max(current - 1, 0)}) + "\n",
+    baseline.write_text(json.dumps({"allowed": max(current - 1, 0)}) + "\n",
                         encoding="utf-8")
     try:
-        proc = _run()
+        proc = subprocess.run([sys.executable, str(script)],
+                              capture_output=True, text=True, timeout=300)
     finally:
-        BASELINE.write_text(original, encoding="utf-8")
+        baseline.write_text(original, encoding="utf-8")
     assert proc.returncode == 1, proc.stdout
     assert "FAIL" in proc.stdout
     assert "seam" in proc.stdout, (
@@ -118,11 +121,11 @@ def test_the_ratchet_fails_when_the_baseline_is_exceeded(tmp_path):
     )
 
 
-def test_the_ratchet_refuses_a_truncated_scan():
+def test_the_ratchet_refuses_a_truncated_scan(isolated_ratchet_repo):
     """A gate that scans nothing reports OK forever."""
     source = SCRIPT.read_text(encoding="utf-8")
     assert "MIN_TEST_FILES" in source
-    probe = REPO_ROOT / "scripts" / "_global_patch_probe.py"
+    probe = isolated_ratchet_repo / "scripts" / "_global_patch_probe.py"
     probe.write_text(source.replace('TESTS.rglob("test_*.py")',
                                     'TESTS.rglob("nothing-*.py")'),
                      encoding="utf-8")

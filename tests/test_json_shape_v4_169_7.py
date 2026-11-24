@@ -258,7 +258,7 @@ def test_release_check_is_wired_into_preflight() -> None:
     assert "release_published_check.py" in source
 
 
-def test_release_check_distinguishes_no_answer_from_no_problem() -> None:
+def test_release_check_distinguishes_no_answer_from_no_problem(monkeypatch) -> None:
     """A rate-limited or offline check must not report success.
 
     Sabotage found this: an anonymous 403 is indistinguishable from being
@@ -271,6 +271,7 @@ def test_release_check_distinguishes_no_answer_from_no_problem() -> None:
     """
     import importlib.util
 
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts"))
     spec = importlib.util.spec_from_file_location(
         "release_check_probe", REPO_ROOT / "scripts" / "release_published_check.py")
     assert spec and spec.loader
@@ -331,3 +332,21 @@ def test_dead_condition_ratchet_allows_tag_gates_where_tags_actually_fire() -> N
     finally:
         probe.unlink(missing_ok=True)
     assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+@pytest.fixture(autouse=True)
+def _private_probe_inputs(request, monkeypatch):
+    """T74: route destructive scanner examples to a private full input tree."""
+    writers = {
+        'test_ratchet_refuses_to_pass_on_a_truncated_scan',
+        'test_ratchet_catches_a_reintroduced_violation',
+        'test_ratchet_does_not_flag_honest_code',
+        'test_github_output_ratchet_catches_the_badge_bug',
+        'test_dead_condition_ratchet_catches_a_tag_gate_in_a_master_only_workflow',
+        'test_dead_condition_ratchet_allows_tag_gates_where_tags_actually_fire',
+    }
+    if (getattr(request.node, "originalname", None) or request.node.name) not in writers:
+        return
+    root = request.getfixturevalue("isolated_ratchet_repo")
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "REPO_ROOT", root)

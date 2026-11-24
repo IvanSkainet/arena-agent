@@ -21,10 +21,53 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes as wt
 import io
+import logging
 import sys
 from typing import Any
 
 _IS_WINDOWS = sys.platform == "win32"
+
+# What GetAwarenessFromDpiAwarenessContext answers.
+DPI_UNAWARE, DPI_SYSTEM_AWARE, DPI_PER_MONITOR_AWARE = 0, 1, 2
+_PER_MONITOR_AWARE_V2 = -4  # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+
+
+def _accepted(request: Any) -> bool:
+    """Make one awareness request; a missing entry point counts as a refusal."""
+    try:
+        return bool(request())
+    except (AttributeError, OSError):
+        return False
+
+
+# A process that says nothing is "DPI unaware". On a display scaled above
+# 100 % its GetSystemMetrics and SetCursorPos then work in scaled-down logical
+# pixels, while BitBlt and the DWM frame bounds work in physical ones: the
+# default screenshot covered the top-left two thirds of a 150 % screen, and a
+# point read off a screenshot was not the point a click hit (#513).
+#
+# The request is honoured once per process. A refusal means the answer was
+# already given, by a manifest or an earlier call, so every refusal falls
+# through and the return value is what Windows reports afterwards. None means
+# this Windows is too old to say.
+def declare_dpi_awareness(user: Any, shcore: Any) -> int | None:
+    """Ask Windows for physical pixels in this process; return the awareness in effect."""
+    # Newest first; any() stops at the first request Windows accepts.
+    any(_accepted(request) for request in (
+        lambda: user.SetProcessDpiAwarenessContext(ctypes.c_void_p(_PER_MONITOR_AWARE_V2)),  # 10 1703+
+        lambda: shcore.SetProcessDpiAwareness(DPI_PER_MONITOR_AWARE) == 0,  # 8.1+
+        lambda: user.SetProcessDPIAware() != 0,  # Vista+: one scale for all displays
+    ))
+    try:
+        awareness = int(user.GetAwarenessFromDpiAwarenessContext(ctypes.c_void_p(user.GetThreadDpiAwarenessContext())))
+    except (AttributeError, OSError):
+        return None
+    if awareness == DPI_UNAWARE:
+        # A manifest can pin the executable. At 100 % scaling nothing is
+        # wrong; above it, screenshots and clicks disagree again.
+        logging.getLogger(__name__).warning(
+            "Windows left this process DPI-unaware: on a scaled display, desktop coordinates will not match screenshots")
+    return awareness
 
 
 # Declared `Any` rather than left to inference. On a non-Windows checkout the
@@ -38,6 +81,8 @@ gdi32: Any
 kernel32: Any
 dwmapi: Any
 EnumWindowsProc: Any
+# The DPI awareness this process ended up with; None off Windows.
+DPI_AWARENESS: int | None = None
 
 # `ctypes.windll` only exists in the Windows build of the stdlib, so every
 # reference to it reads as a missing attribute when the checker runs on Linux
@@ -53,6 +98,22 @@ if _IS_WINDOWS:
     gdi32 = _ct.windll.gdi32
     kernel32 = _ct.windll.kernel32
     dwmapi = _ct.windll.dwmapi
+
+    # Before anything below is called: metrics, cursor and capture must all
+    # be asked in the same pixels.
+    for _name, _restype, _argtypes in (
+        ("SetProcessDpiAwarenessContext", wt.BOOL, [ctypes.c_void_p]),
+        ("GetThreadDpiAwarenessContext", ctypes.c_void_p, []),
+        ("GetAwarenessFromDpiAwarenessContext", ctypes.c_int, [ctypes.c_void_p]),
+    ):
+        _function = getattr(user32, _name, None)  # absent before Windows 10
+        if _function is not None:
+            _function.restype, _function.argtypes = _restype, _argtypes
+    try:
+        _shcore: Any = _ct.windll.shcore
+    except OSError:  # absent before Windows 8.1
+        _shcore = None
+    DPI_AWARENESS = declare_dpi_awareness(user32, _shcore)
 
     user32.GetForegroundWindow.restype = wt.HWND
     user32.SetForegroundWindow.argtypes = [wt.HWND]

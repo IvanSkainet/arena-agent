@@ -140,7 +140,7 @@ def test_rank_orders_severities(worse, better):
 
 # --- the bumper knew about three files and the tree had four ---------------
 
-def test_bump_version_updates_the_android_manifest():
+def test_bump_version_updates_the_android_manifest(tmp_path, monkeypatch):
     """v4.169.29 bumped clean and then failed the suite on a stale APK version.
 
     dev/bump_version.py was written before android_app/ existed and was
@@ -157,7 +157,12 @@ def test_bump_version_updates_the_android_manifest():
     spec.loader.exec_module(bump)
     assert hasattr(bump, "_bump_android_manifest")
 
-    manifest = REPO_ROOT / "android_app" / "AndroidManifest.xml"
+    original_manifest = REPO_ROOT / "android_app" / "AndroidManifest.xml"
+    manifest = tmp_path / "android_app" / "AndroidManifest.xml"
+    manifest.parent.mkdir()
+    manifest.write_bytes(original_manifest.read_bytes())
+    monkeypatch.setattr(bump, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(bump, "ANDROID_MANIFEST", manifest)
     before = manifest.read_bytes()
     try:
         line = bump._bump_android_manifest("9.9.9", dry_run=True)

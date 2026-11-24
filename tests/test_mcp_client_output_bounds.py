@@ -45,7 +45,10 @@ from arena.mcp_client import client as mcp
 
 @pytest.fixture()
 def allow_python(monkeypatch):
-    """Let the tests spawn `python3` as if it were an MCP server."""
+    """Return the running interpreter for tests that spawn an MCP server."""
+    # The servers are started with this exact path, never with a bare
+    # `python3`: on Windows that name can resolve to the Python install
+    # manager alias, which downloads another interpreter into the cwd (#376).
     monkeypatch.setattr(
         mcp, "ALLOWED_COMMANDS",
         tuple(set(mcp.ALLOWED_COMMANDS) | {"python3", "python"}))
@@ -101,7 +104,7 @@ def test_a_flooding_server_does_not_grow_the_queue(tmp_path, allow_python):
         sys.stdout.flush()
     ''')
 
-    client = mcp.McpStdioClient("python3", [script])
+    client = mcp.McpStdioClient(allow_python, [script])
     try:
         client.start(timeout=30)
         import time
@@ -130,7 +133,7 @@ def test_an_oversized_line_is_dropped(tmp_path, allow_python):
         time.sleep(5)
     ''')
 
-    client = mcp.McpStdioClient("python3", [script])
+    client = mcp.McpStdioClient(allow_python, [script])
     try:
         client.start(timeout=30)
         import time
@@ -178,7 +181,7 @@ def test_a_well_behaved_server_still_works_end_to_end(tmp_path, allow_python):
                 sys.stdout.flush()
     ''')
 
-    client = mcp.McpStdioClient("python3", [script])
+    client = mcp.McpStdioClient(allow_python, [script])
     try:
         client.start(timeout=30)
         tools = client.list_tools(timeout=30)
@@ -213,7 +216,7 @@ def test_a_large_but_legal_response_is_not_dropped(tmp_path, allow_python):
                 sys.stdout.flush()
     ''')
 
-    client = mcp.McpStdioClient("python3", [script])
+    client = mcp.McpStdioClient(allow_python, [script])
     try:
         client.start(timeout=30)
         called = client.call_tool("big", {}, timeout=30)

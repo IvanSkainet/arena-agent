@@ -250,6 +250,22 @@ jobs:
         # sits well below the safety-net line: a coverage
         # regression that drops Linux to 30% would still
         # fail.
+        #
+        # Workers per runner, measured on the hosted runners on 2026-11-22
+        # (docs/DEVELOPMENT_CHECKS.md, "Hosted CI"). Median of this step,
+        # serial -> chosen: Linux 525 s -> 247 s with 4 workers, Windows
+        # 1155 s -> 570 s with 2, macOS 520 s -> 290 s with 3. Windows stays
+        # at 2: its four logical CPUs are two cores, and 4 workers measured
+        # no faster (609 s). The numbers are pinned rather than `auto` so
+        # the setting that runs is the setting that was measured;
+        # tests/test_ci_parallel_test_step.py keeps them in step with this
+        # comment's claim.
+        #
+        # --max-worker-restart=0: a worker that dies ends the run instead of
+        # being replaced, the same choice the local parallel preflight makes.
+        # The execution guard checks the inventory every worker collected.
+        # Each worker runs in per-user and temporary directories of its own
+        # (tests/_worker_directories.py).
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ] || [ "$RUNNER_OS" = "macOS" ]; then
@@ -257,8 +273,14 @@ jobs:
           else
             THRESHOLD=51
           fi
+          case "$RUNNER_OS" in
+            Linux) WORKERS=4 ;;
+            macOS) WORKERS=3 ;;
+            *) WORKERS=2 ;;
+          esac
           ARENA_TEST_EXECUTION_GUARD=1 pytest -q \
           -p arena.governance.pytest_execution_guard \
+          -n "$WORKERS" --max-worker-restart=0 \
           --cov-fail-under=$THRESHOLD \
           --strict-markers -ra \
           --junitxml=test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
@@ -276,7 +298,7 @@ jobs:
       - name: Upload test results
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results-${{ matrix.os }}-${{ matrix.python-version }}
           path: test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
@@ -293,7 +315,7 @@ jobs:
         if: always()
         continue-on-error: >-
           ${{ !(matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12') }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-xml-${{ matrix.os }}-${{ matrix.python-version }}
           path: coverage.xml
@@ -828,7 +850,7 @@ jobs:
       - name: Upload failure screenshots
         if: failure()
         continue-on-error: true  # diagnostics; see #308
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dashboard-e2e-artifacts
           path: |
@@ -981,9 +1003,12 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "22"
+          # The active LTS line. 22 left active LTS in October 2025 and 24 in
+          # October 2026 (nodejs/Release schedule.json). oxlint's lock asks for
+          # ^20.19.0 || >=22.12.0, which 26 satisfies.
+          node-version: "26"
           cache: npm
 
       # `npm ci` from the committed package-lock.json, not an ad-hoc
@@ -1819,7 +1844,7 @@ jobs:
           sed -n '1p' /tmp/badging.txt
 
       - name: Upload the APK
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: arena-bridge-apk
           path: android_app/build/arena-bridge.apk

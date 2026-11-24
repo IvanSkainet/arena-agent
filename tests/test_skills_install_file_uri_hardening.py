@@ -17,6 +17,9 @@ def home(tmp_path, monkeypatch):
     user home. All installer probes route through Path.home()
     which honours the HOME env var on POSIX."""
     monkeypatch.setenv("HOME", str(tmp_path))
+    # Windows reads USERPROFILE instead.  Without it these tests passed only
+    # where the temporary directory happened to lie inside the real profile.
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     return tmp_path
 
 

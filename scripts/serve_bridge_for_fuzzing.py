@@ -108,9 +108,9 @@ def _point_the_bridge_at(root: Path) -> None:
     side effects; now nothing happens until `main` runs (corgea).
 
     `ARENA_AGENT_HOME` moves queue/, missions/, reports/ and skills/ -- the
-    supported way. The three constants below hang off the source tree
-    instead of the workspace, so neither that variable nor a chdir moves
-    them, and a fuzz run that reaches POST /v1/token/regenerate would write
+    supported way. The constants below were bound when `arena.constants`
+    was first imported, so neither that variable nor a chdir moves them
+    now, and a fuzz run that reaches POST /v1/token/regenerate would write
     a live token next to the source without this.
     """
     os.environ["ARENA_AGENT_HOME"] = str(root)
@@ -121,6 +121,8 @@ def _point_the_bridge_at(root: Path) -> None:
     constants.APP_DIR = root
     constants.TOKEN_FILE = root / "token.txt"
     constants.AUDIT = root / "audit.jsonl"
+    constants.REQUEST_LOG = root / "requests.jsonl"
+    constants.BRIDGE_LOG = root / "bridge.log"
 
     # Both limiters, off for the duration: the per-IP one allows 300 requests
     # a minute against a run that sends thousands, and the failed-auth

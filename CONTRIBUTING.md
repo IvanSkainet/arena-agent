@@ -30,6 +30,30 @@ Full test suite:
 pytest
 ```
 
+### Tests do not start programs installed on your machine
+
+A test run must not open a browser, change a VPN, or install anything on
+the machine it runs on. `tests/_host_process_guard.py` enforces this inside
+the pytest process: a launch of a browser, `xdg-open`, `browser-act`,
+`specify`, `winget`, `tailscale` or `zerotier-*` fails with
+`FileNotFoundError`, as if the program were not installed, and
+`os.startfile` / `webbrowser.open` fail with `OSError`. Everything else
+starts normally. The run also sets `PYTHON_MANAGER_AUTOMATIC_INSTALL=false`,
+so a `python3` or `pip` that is really the Windows Python install manager
+answers a version probe without downloading an interpreter.
+
+- A test that needs one of these programs for real carries
+  `@pytest.mark.allow_host_programs`.
+- `ARENA_TEST_ALLOW_HOST_PROGRAMS=1` switches the refusal off for the whole
+  run. Use it only on a machine you are willing to have changed.
+- `ARENA_TEST_HOST_PROCESS_REPORT=<path>` writes `<path>.<worker>.json`
+  with every program the run started and every launch it refused.
+
+The guard sees only the pytest process itself. A program started by a
+child process (for example by a bridge that a test launched) is outside
+it, so such tests must pin what the child can find — see `_pin_python3`
+in `tests/e2e/test_bridge_live.py`.
+
 ## Lint debt ratchet
 
 CI blocks *growth* of the legacy lint debt: `scripts/lint_ratchet.py`

@@ -18,12 +18,24 @@ def _parse_requirement(line: str) -> Requirement:
     return requirement
 
 
+# A constraint narrows the versions pip may choose and asks for no package, so
+# there is nothing for the inventory to cover. Only this exact form is accepted;
+# every other option line is still rejected by _parse_requirement.
+CONSTRAINT_FLAGS = ("-c", "--constraint")
+
+
+def _is_constraint(line: str) -> bool:
+    tokens = line.split()
+    return len(tokens) == 2 and tokens[0] in CONSTRAINT_FLAGS
+
+
+def _content_lines(text: str) -> list[str]:
+    lines = [raw.strip() for raw in text.splitlines()]
+    return [line for line in lines if line and not line.startswith("#")]
+
+
 def _requirements(text: str) -> list[Requirement]:
-    requirements = []
-    for raw in text.splitlines():
-        line = raw.strip()
-        if line and not line.startswith("#"):
-            requirements.append(_parse_requirement(line))
+    requirements = [_parse_requirement(line) for line in _content_lines(text) if not _is_constraint(line)]
     if not requirements:
         raise ValueError("audit requirements must not be empty")
     return requirements

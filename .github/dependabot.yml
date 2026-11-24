@@ -173,3 +173,31 @@ updates:
       - "automated-pr"
       - "github-actions"
     open-pull-requests-limit: 3
+
+  # npm. The repository has one npm dependency, the JS linter: package.json
+  # pins oxlint and package-lock.json carries the integrity hash of every
+  # package the "JS lint" job installs with `npm ci --ignore-scripts`.
+  #
+  # Nothing watched that lock. When this block was added the pin was oxlint
+  # 1.76.0 and the registry had 1.95.0. A linter that stands still stops
+  # learning new rules, and the job that runs it stays green.
+  #
+  # A linter bump can report new findings and fail scripts/js_lint_ratchet.py.
+  # That is the intended signal: fix the findings or record the new floor in
+  # the same pull request.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    # Same 7-day cooldown as the other two ecosystems. npm is where the
+    # install-hook compromises happened, so it applies here most of all.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "automated-pr"
+    open-pull-requests-limit: 2

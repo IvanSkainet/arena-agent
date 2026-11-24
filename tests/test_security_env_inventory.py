@@ -41,7 +41,11 @@ def test_real_security_inventory_matches_source_exactly() -> None:
     # 76 since #258 added ARENA_FUZZ_TOKEN: the fuzz gate hands its bridge a
     # token through the environment rather than argv, and a security-relevant
     # variable that nobody wrote down is exactly what this count is for.
-    assert len(source) == 76
+    # T74 documents the browser-E2E skip control now preserved by the
+    # shipped benchmark environment, in addition to the previous 76 names.
+    # #540 adds two: the mark a bridge puts on its cloudflared child, and the
+    # switch that turns off the startup sweep of tunnels left by a dead bridge.
+    assert len(source) == 79
 
 
 def test_security_weakening_and_credential_inputs_are_classified() -> None:

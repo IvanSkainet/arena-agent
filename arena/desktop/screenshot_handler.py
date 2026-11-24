@@ -7,9 +7,26 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.desktop.availability import failure_response
-from arena.desktop.displays import get_displays, match_display
+from arena.desktop.display_lookup import choose_display, get_displays
 from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import authed, query_int
+
+
+def _base64_body(shot: dict, display_name: str) -> dict:
+    """Describe a capture as JSON. ``crop_region`` is what was asked for, ``captured_region`` what the picture shows."""
+    img_bytes = shot["bytes"]
+    return {
+        "ok": True,
+        "format": "base64",
+        "encoding": shot["encoding"],
+        "data": base64.b64encode(img_bytes).decode("ascii"),
+        "size_bytes": len(img_bytes),
+        "transformed": shot.get("transformed", False),
+        "tool": shot.get("tool"),
+        "display": display_name or None,
+        "crop_region": shot.get("crop_region"),
+        "captured_region": shot.get("captured_region"),
+    }
 
 
 def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
@@ -35,11 +52,11 @@ def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "use either 'display' or explicit region_* crop parameters, not both"}, status=400)
         if display_name:
-            displays = await get_displays(desktop_exec=ctx.desktop_exec)
-            display = match_display(displays.get("displays", []), display_name)
-            if not display:
+            displays = await get_displays(desktop_exec=ctx.desktop_exec, env=ctx.detect_desktop_env())
+            display, refusal = choose_display(displays, display_name)
+            if refusal:
                 ctx.record_request(is_error=True, count_request=False)
-                return ctx.cors_json_response({"ok": False, "error": f"unknown display: {display_name}", "available_displays": displays.get("displays", [])}, status=404)
+                return ctx.cors_json_response(refusal["body"], status=refusal["status"])
             crop_region = display.get("geometry")
         elif region_requested:
             crop_region = {
@@ -71,17 +88,7 @@ def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
         img_bytes = shot["bytes"]
         out_format = shot["encoding"]
         if fmt == "base64":
-            return ctx.cors_json_response({
-                "ok": True,
-                "format": "base64",
-                "encoding": out_format,
-                "data": base64.b64encode(img_bytes).decode("ascii"),
-                "size_bytes": len(img_bytes),
-                "transformed": shot.get("transformed", False),
-                "tool": shot.get("tool"),
-                "display": display_name or None,
-                "crop_region": shot.get("crop_region"),
-            })
+            return ctx.cors_json_response(_base64_body(shot, display_name))
         content_types = {"png": "image/png", "jpeg": "image/jpeg", "webp": "image/webp"}
         return web.Response(body=img_bytes, content_type=content_types.get(out_format, "image/png"), headers={"Access-Control-Allow-Origin": "*"})
 

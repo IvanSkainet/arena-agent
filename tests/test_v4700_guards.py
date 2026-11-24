@@ -31,6 +31,8 @@ import importlib
 import sys
 from pathlib import Path
 
+import pytest
+
 # Locate the repo root from this test file's location.
 REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO / "scripts"
@@ -301,3 +303,30 @@ def test_handler_namespace_consistency_whitelist_in_sync() -> None:
                 found = True
                 break
         assert found, f"whitelist entry references missing function: {rel}::{func_name}()"
+
+
+@pytest.fixture(autouse=True)
+def _private_probe_inputs(request, monkeypatch):
+    """T74: route destructive scanner examples to a private full input tree."""
+    writers = {
+        'test_dead_dispatch_catches_dead_reference',
+        'test_handler_signature_catches_missing_ctx',
+    }
+    if request.node.originalname not in writers:
+        return
+    root = request.getfixturevalue("isolated_ratchet_repo")
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "REPO", root)
+
+
+def test_parameterized_probe_still_uses_private_inputs(monkeypatch):
+    from types import SimpleNamespace
+
+    private = Path("fixture-private-repo")
+    request = SimpleNamespace(
+        node=SimpleNamespace(name="test_dead_dispatch_catches_dead_reference[case]",
+                             originalname="test_dead_dispatch_catches_dead_reference"),
+        getfixturevalue=lambda name: private,
+    )
+    _private_probe_inputs.__wrapped__(request, monkeypatch)
+    assert REPO == private

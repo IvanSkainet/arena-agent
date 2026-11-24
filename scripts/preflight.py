@@ -25,18 +25,25 @@ passed" must never look the same.
 Usage:
     python scripts/preflight.py            # everything except the slow suite
     python scripts/preflight.py --full     # + the whole pytest run
+    python scripts/preflight.py --full --workers 2  # opt-in on every platform; serial is the default
     python scripts/preflight.py --list     # show what would run
 """
 from __future__ import annotations
 
 import argparse
+import os
+import platform
 import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 class Check:
@@ -50,6 +57,10 @@ class Check:
 
 
 PY = sys.executable
+FULL_SUITE = "full suite"
+# Worker counts with a full-suite measurement behind them on at least one
+# platform (docs/DEVELOPMENT_CHECKS.md). Nothing higher has been run.
+WORKER_CHOICES = (1, 2, 3, 4)
 
 CHECKS: list[Check] = [
     Check("ruff ratchet", [PY, "scripts/lint_ratchet.py"],
@@ -149,7 +160,7 @@ CHECKS: list[Check] = [
         "tests/test_no_version_badge_writer.py",
     ], why="the gates most likely to be platform-specific; /proc use here "
            "reddened the whole macOS matrix once (6ba7b06a)"),
-    Check("full suite", [PY, "-m", "pytest", "-p", "no:randomly", "--no-cov", "-q"],
+    Check(FULL_SUITE, [PY, "-m", "pytest", "-p", "no:randomly", "--no-cov", "-q"],
           why="everything else", slow=True),
 ]
 
@@ -180,22 +191,106 @@ def _portability_scan() -> tuple[bool, list[str]]:
     return True, []
 
 
-def main() -> int:
+def _command(check: Check, workers: int) -> list[str]:
+    """Parallelize only the full pytest suite; never mutate shared check argv."""
+    argv = list(check.argv)
+    if check.name == FULL_SUITE:
+        argv += ["-p", "arena.governance.pytest_execution_guard"]
+    if check.name == FULL_SUITE and workers > 1:
+        argv += ["-n", str(workers), "--max-worker-restart=0"]
+    return argv
+
+
+def _usable_cpus() -> int:
+    """Count the CPUs in the affinity mask, or the machine's where there is none."""
+    # A sanity check on the request, not a resource manager: CPU quotas are
+    # not read, and neither is a Windows affinity mask.
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:  # Windows and macOS have no affinity query here.
+        return os.cpu_count() or 1
+
+
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument("--full", action="store_true", help="include the slow suite")
     ap.add_argument("--list", action="store_true")
-    args = ap.parse_args()
+    ap.add_argument("--workers", type=int, choices=WORKER_CHOICES, default=None,
+                    help="full-suite workers (default: 1; never more than the CPUs counted here)")
+    args = ap.parse_args(argv)
+    if args.workers is None:
+        args.workers = 1
+    elif not args.full:
+        # Asking for workers is asking for the suite; a green fast run would
+        # answer a question the caller did not ask.
+        ap.error(f"--workers {args.workers} requires --full")
+    if args.workers != 1 and args.workers > _usable_cpus():
+        # More workers than CPUs was never measured, and a suite full of
+        # timeouts is the wrong place to find out what it does.
+        ap.error(f"--workers {args.workers} exceeds the {_usable_cpus()} CPUs available here")
+    return args
 
-    selected = [c for c in CHECKS if args.full or not c.slow]
 
-    if args.list:
-        for c in selected:
-            print(f"  {c.name:26} {' '.join(c.argv[:4])}...")
-        return 0
+def _execute_full(argv: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    """Run the suite; on Linux, own its process group through interruption cleanup."""
+    # Windows and macOS do not have that ownership yet, with one worker or
+    # with several (docs/DEVELOPMENT_CHECKS.md says what was observed).
+    if platform.system() != "Linux":
+        return subprocess.run(argv, cwd=ROOT, env=env, capture_output=True, text=True, check=False)
+    from arena.governance.benchmark_runner import ProcessContext, execute
 
-    failures: list[str] = []
-    t_all = time.time()
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as log:
+        previous = signal.signal(signal.SIGTERM, signal.default_int_handler)
+        try:
+            status = execute(argv, context=ProcessContext(root=ROOT, env=env), log=log, timeout=None)
+        finally:
+            signal.signal(signal.SIGTERM, previous)
+        log.seek(0)
+        return subprocess.CompletedProcess(argv, status, log.read(), "")
 
+
+def _execute_check(check: Check, argv: list[str]) -> subprocess.CompletedProcess[str]:
+    if check.name == FULL_SUITE:
+        runner_os = {"Darwin": "macOS"}.get(platform.system(), platform.system())
+        env = dict(os.environ, ARENA_TEST_EXECUTION_GUARD="1", RUNNER_OS=runner_os)
+        # --full is a complete, explicitly sized run, not an inherited subset.
+        env.pop("PYTEST_ADDOPTS", None)
+        return _execute_full(argv, env)
+    return subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, env=None, check=False)
+
+
+def _report_failure(check: Check, proc: subprocess.CompletedProcess[str]) -> None:
+    tail = (proc.stdout or "")[-1500:] + (proc.stderr or "")[-1500:]
+    # Merged child streams can put an early refusal before buffered stdout.
+    head = [line[:250] for line in (proc.stdout or "").splitlines()[:2]]
+    for line in dict.fromkeys([*head, *tail.strip().splitlines()[-12:]]):
+        print(f"    {line}")
+    print(f"    why it matters: {check.why}")
+
+
+def _run_check(c: Check, workers: int) -> str | None:
+    print(f"{c.name:26} ", end="", flush=True)
+    if c.needs and shutil.which(c.needs) is None:
+        # Fail closed. A skipped check that reads as a pass is how a
+        # green preflight ends in a red CI.
+        print(f"FAIL (missing tool: {c.needs})")
+        print(f"    why it matters: {c.why}")
+        return f"{c.name} (tool missing)"
+    t0 = time.time()
+    argv = _command(c, workers)
+    proc = _execute_check(c, argv)
+    el = time.time() - t0
+    if proc.returncode == 0:
+        print(f"ok ({el:.0f}s)")
+    else:
+        print(f"FAIL ({el:.0f}s)")
+        _report_failure(c, proc)
+        return c.name
+    return None
+
+
+def _portability_failures() -> list[str]:
+    """Report the portability gate without mixing it with check scheduling."""
     ok, bad = _portability_scan()
     print(f"{'portability scan':26} ", end="", flush=True)
     if ok:
@@ -204,29 +299,27 @@ def main() -> int:
         print("FAIL")
         for b in bad:
             print(f"    {b}")
-        failures.append("portability scan")
+        return ["portability scan"]
+
+    return []
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    selected = [c for c in CHECKS if args.full or not c.slow]
+
+    if args.list:
+        for c in selected:
+            print(f"  {c.name:26} {' '.join(_command(c, args.workers))}")
+        return 0
+
+    t_all = time.time()
+    failures = _portability_failures()
 
     for c in selected:
-        print(f"{c.name:26} ", end="", flush=True)
-        if c.needs and shutil.which(c.needs) is None:
-            # Fail closed. A skipped check that reads as a pass is how a
-            # green preflight ends in a red CI.
-            print(f"FAIL (missing tool: {c.needs})")
-            print(f"    why it matters: {c.why}")
-            failures.append(f"{c.name} (tool missing)")
-            continue
-        t0 = time.time()
-        proc = subprocess.run(c.argv, cwd=ROOT, capture_output=True, text=True)
-        el = time.time() - t0
-        if proc.returncode == 0:
-            print(f"ok ({el:.0f}s)")
-        else:
-            print(f"FAIL ({el:.0f}s)")
-            tail = (proc.stdout or "")[-1500:] + (proc.stderr or "")[-1500:]
-            for line in tail.strip().splitlines()[-12:]:
-                print(f"    {line}")
-            print(f"    why it matters: {c.why}")
-            failures.append(c.name)
+        failure = _run_check(c, args.workers)
+        if failure is not None:
+            failures.append(failure)
 
     print(f"\ntotal {time.time() - t_all:.0f}s")
     if failures:

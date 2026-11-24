@@ -28,6 +28,8 @@ TESTS = REPO / "tests"
 
 # Modules that shell out to git and must therefore use the shared budget.
 GIT_MODULES = (
+    # Private release fixture consumer isolation regression.
+    "test_ratchet_repo_isolation.py",
     "test_readme_refresh_pr.py",
     "test_git_tools.py",
     "test_admin_proposal_core.py",
@@ -37,6 +39,9 @@ GIT_MODULES = (
     # Asks git which files are tracked, to derive the trees the release
     # ships and compare them with what bandit scans (#242/#244).
     "test_bandit_scope_matches_release.py",
+    # Runs scripts/mirror_to_gitlab.sh against two local repositories and
+    # reads the mirror back with git.
+    "test_gitlab_mirror.py",
     # Asks git what is in the checkout before and after starting the fuzz
     # bridge, to prove the run wrote nothing outside its temporary root.
     # Two `git status` calls, both with a timeout (#258).

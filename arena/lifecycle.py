@@ -55,11 +55,34 @@ class LifecycleContext:
     bore_autostart: Callable[[], Any] | None = None
 
 
+def _stop_quick_tunnel() -> None:
+    """Stop the cloudflared child: it has a public URL, and nothing stopped it when the bridge exited (#540)."""
+    try:
+        from arena.admin.cloudflared import stop_cloudflared_for_shutdown
+        stop_cloudflared_for_shutdown()
+    except Exception:
+        pass
+
+
 @dataclass(frozen=True)
 class LifecycleRuntime:
     on_startup: Callable[[web.Application], Any]
     on_cleanup: Callable[[web.Application], Any]
     signal_handler: Callable[[int, Any], None]
+
+
+def _tunnel_stopped_first(runtime: LifecycleRuntime) -> LifecycleRuntime:
+    """Return the runtime with both shutdown hooks stopping the tunnel before they do anything else (#540)."""
+    # Both, not only on_cleanup: signal_handler ends in os._exit on a timer, and aiohttp's cleanup may not run first.
+    async def on_cleanup(app: web.Application) -> None:
+        _stop_quick_tunnel()
+        await runtime.on_cleanup(app)
+
+    def signal_handler(sig: int, frame: Any) -> None:
+        _stop_quick_tunnel()
+        runtime.signal_handler(sig, frame)
+
+    return LifecycleRuntime(on_startup=runtime.on_startup, on_cleanup=on_cleanup, signal_handler=signal_handler)
 
 
 def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
@@ -291,4 +314,4 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
             shutdown_event.set()
         threading.Timer(5.0, lambda: os._exit(0)).start()
 
-    return LifecycleRuntime(on_startup=on_startup, on_cleanup=on_cleanup, signal_handler=signal_handler)
+    return _tunnel_stopped_first(LifecycleRuntime(on_startup, on_cleanup, signal_handler))

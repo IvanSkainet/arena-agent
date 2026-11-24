@@ -5,7 +5,7 @@ import asyncio
 import os
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,9 @@ from arena.home import agent_home, default_home
 class LogCleanupContext:
     app_dir: Path
     log_files: list[Path]
+    # The directory whose disk the logs fill. It is the agent home, which need
+    # not be on the disk that holds the code (#521).
+    disk_dir: Path = field(default_factory=agent_home)
     max_log_size: int = 10 * 1024 * 1024
     max_log_backups: int = 3
     log_info: Callable[..., None] = lambda *args, **kwargs: None
@@ -86,19 +89,19 @@ def make_log_cleanup_runtime(ctx: LogCleanupContext) -> LogCleanupRuntime:
             ctx.log_warning("[LogRotation] Rotated oversized log files at startup: %s", ", ".join(rotated))
 
     def _check_disk_space() -> float:
-        """Return disk usage percentage for the partition containing app_dir."""
+        """Return disk usage percentage for the partition containing disk_dir."""
         try:
             if sys.platform == "win32":
                 import ctypes
                 free_bytes = ctypes.c_ulonglong(0)
                 total_bytes = ctypes.c_ulonglong(0)
                 ctypes.windll.kernel32.GetDiskFreeSpaceExW(
-                    str(ctx.app_dir.drive), None, ctypes.pointer(total_bytes), ctypes.pointer(free_bytes)
+                    str(ctx.disk_dir.drive), None, ctypes.pointer(total_bytes), ctypes.pointer(free_bytes)
                 )
                 if total_bytes.value > 0:
                     return round((1 - free_bytes.value / total_bytes.value) * 100, 1)
             else:
-                stat = os.statvfs(str(ctx.app_dir.parent))
+                stat = os.statvfs(str(ctx.disk_dir))
                 total = stat.f_blocks * stat.f_frsize
                 free = stat.f_bavail * stat.f_frsize
                 if total > 0:

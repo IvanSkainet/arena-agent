@@ -308,8 +308,19 @@ class McpClientManager:
     # restarted (notably by the auto-updater) without a clean shutdown, those
     # children survive as orphans and accumulate across versions. We record a
     # pidfile per spawned server and reap any whose spawning bridge is dead.
+    def _run_path(self) -> Path:
+        """Where pid files live; asking does not create the directory."""
+        return self.config_path.parent / "run"
+
+    def _pid_files(self) -> list[Path]:
+        """Pid files present now."""
+        # Clean-up and the orphan scan only look. Creating the directory here
+        # put part of a removed home back at interpreter exit (#515).
+        run = self._run_path()
+        return sorted(run.glob("*.json")) if run.is_dir() else []
+
     def _run_dir(self) -> Path:
-        d = self.config_path.parent / "run"
+        d = self._run_path()
         try:
             d.mkdir(parents=True, exist_ok=True)
         except Exception:
@@ -341,7 +352,7 @@ class McpClientManager:
 
     def _clear_pidfile(self, name: str) -> None:
         try:
-            self._pidfile(name).unlink()
+            (self._run_path() / f"{self._safe_name(name)}.json").unlink()
         except Exception:
             pass
 
@@ -359,7 +370,7 @@ class McpClientManager:
         reaped: list[int] = []
         skipped: list[int] = []
         me = os.getpid()
-        for pf in self._run_dir().glob("*.json"):
+        for pf in self._pid_files():
             try:
                 rec = json.loads(pf.read_text(encoding="utf-8"))
             except Exception:
@@ -479,7 +490,7 @@ class McpClientManager:
             c.stop()
         # v4.148.0: clear our own pidfiles on a clean shutdown so the next
         # bridge start does not mistake freshly-reaped servers for orphans.
-        for pf in self._run_dir().glob("*.json"):
+        for pf in self._pid_files():
             try:
                 pf.unlink()
             except Exception:

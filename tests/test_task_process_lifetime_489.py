@@ -67,6 +67,13 @@ def _task(tmp_path: Path, timeout: int) -> tuple[Path, Path]:
     return task, marker
 
 
+def _marker_pid(marker: Path) -> int | None:
+    try:
+        return int(marker.read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def _marker_pids(marker: Path) -> list[int] | None:
     try:
         return json.loads(marker.read_text())
@@ -183,8 +190,10 @@ def test_successful_shell_reaps_descendant_that_escapes_its_process_group(tmp_pa
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     pids = []
     try:
-        _wait_until(marker.exists)
-        pids = [int(marker.read_text())]
+        # Not marker.exists: write_text creates the file before it fills it,
+        # and an empty file read in that gap failed this test in CI (#569).
+        _wait_until(lambda: _marker_pid(marker) is not None)
+        pids = [_marker_pid(marker)]
         CHECK.assertEqual(worker.wait(timeout=15), 0)
         _wait_until(lambda: not any(_alive(pid) for pid in pids))
     finally:
@@ -193,9 +202,18 @@ def test_successful_shell_reaps_descendant_that_escapes_its_process_group(tmp_pa
         if worker.poll() is None:
             worker.kill()
         worker.wait(timeout=10)
-        if marker.exists():
-            pids = [int(marker.read_text())]
-        _cleanup(pids)
+        # An unreadable marker must not skip the cleanup below.
+        escaped = _marker_pid(marker)
+        _cleanup(pids if escaped is None else [escaped])
+
+
+def test_a_marker_is_not_read_before_it_is_written(tmp_path):
+    marker = tmp_path / "escaped.pid"
+    CHECK.assertIsNone(_marker_pid(marker))
+    marker.touch()
+    CHECK.assertIsNone(_marker_pid(marker))
+    marker.write_text("4321")
+    CHECK.assertEqual(_marker_pid(marker), 4321)
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX process-group signal contract")

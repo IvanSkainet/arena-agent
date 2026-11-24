@@ -137,10 +137,28 @@ def test_bad_shard_is_rejected(shard, tmp_path):
     assert "shard" in (proc.stdout + proc.stderr).lower()
 
 
-def test_a_valid_shard_is_not_rejected_as_malformed(tmp_path):
-    """Reverse sabotage: the validator must not eat legitimate input."""
-    proc = _run(["--shard", "2/4", "--deadline-minutes", "0.0001"], tmp_path)
-    assert proc.returncode != 2, proc.stdout + proc.stderr
+def test_a_valid_shard_is_not_rejected_as_malformed(tmp_path, monkeypatch):
+    """Validate real shard selection without launching a source-mutating engine."""
+    calls = []
+
+    def measure(source, tests, *, timeout, curated=False):
+        calls.append(source)
+        return {"error": "deliberate measurement refusal"}
+
+    monkeypatch.setattr(mod.shutil, "which", lambda name: "/fixture/mutmut")
+    monkeypatch.setattr(mod, "_run_one", measure)
+    monkeypatch.setattr(mod, "_coverage_map", lambda: {})
+    monkeypatch.setattr(mod, "_leaked_mutants", lambda sources: [])
+    monkeypatch.setattr(mod.mutation_cache, "lookup", lambda source, tests: None)
+    monkeypatch.setattr(sys, "argv", [
+        "mutation_sweep.py", "--shard", "2/4",
+        "--report", str(tmp_path / "r.md"), "--json", str(tmp_path / "r.json"),
+    ])
+    assert mod.main() == 1  # measurements refused, not malformed arguments
+    assert calls == sorted(mod.TARGETS)[1::4]
+    rows = json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))
+    assert rows
+    assert all(row["status"] == "error" for row in rows)
 
 
 def test_shards_partition_the_target_list_exactly():
@@ -180,7 +198,15 @@ def test_source_is_restored_when_mutmut_is_interrupted(tmp_path, monkeypatch):
     Reproduces the real incident: an interrupted run left a mutated
     literal in arena/admin/auto_update.py.
     """
-    victim = ROOT / "arena" / "admin" / "auto_update.py"
+    original_source = ROOT / "arena" / "admin" / "auto_update.py"
+    victim = tmp_path / "arena" / "admin" / "auto_update.py"
+    victim.parent.mkdir(parents=True)
+    victim.write_bytes(original_source.read_bytes())
+    guarding_test = tmp_path / "tests" / "test_auto_update.py"
+    guarding_test.parent.mkdir()
+    guarding_test.write_bytes((ROOT / "tests" / "test_auto_update.py").read_bytes())
+    monkeypatch.setattr(mod, "ROOT", tmp_path)
+    monkeypatch.setattr(mod, "CACHE", tmp_path / ".mutmut-cache")
     original = victim.read_bytes()
 
     def fake_run(argv, **kwargs):

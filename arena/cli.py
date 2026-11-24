@@ -68,6 +68,17 @@ def _reap_orphan_mcp_servers(ctx: CliContext) -> None:
         ctx.log_info("[mcp] startup orphan-reap skipped: %s", e)
 
 
+def _sweep_quick_tunnels(ctx: CliContext, port: int) -> None:
+    # #540: a bridge that was killed or updated leaves its cloudflared quick
+    # tunnel running: a public URL for this port that no bridge knows about.
+    # Stop those before serving. Best-effort, like the reap above.
+    try:
+        from arena.admin.cloudflared import sweep_tunnels_left_by_earlier_bridge
+        sweep_tunnels_left_by_earlier_bridge(port, ctx.log_info)
+    except Exception as e:  # noqa: BLE001
+        ctx.log_info("[Cloudflared] startup sweep of orphaned tunnels skipped: %s", e)
+
+
 def _runtime_config(args: argparse.Namespace, token: str, token_file_used: str | Path, root: Path) -> dict:
     return {
         "token": token,
@@ -123,6 +134,8 @@ def _serve_runtime(args: argparse.Namespace, ctx: CliContext) -> None:
 
     file_cfg = ctx.load_config_file()
     _apply_file_config(args, ctx, file_cfg)
+
+    _sweep_quick_tunnels(ctx, args.port)
 
     tf = getattr(args, "token_file", "") or ""
     if tf:

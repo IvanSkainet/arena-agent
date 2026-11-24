@@ -225,6 +225,23 @@
    "tool": "mutmut 2.5.1",
    "total": 150
   },
+  "arena/governance/benchmark_runner.py": {
+   "fingerprint": "09324aae520e742b6fda85067404e8350f461efc5b567b4b1b61f4ae9ca2d395",
+   "reason": "mutmut 2.5.1 census on 2026-11-22 after the private_environment and write_coverage_config changes (#376, PR #495): 475 mutants, 0 survived. 474 are killed by a failing test; 1 (wait_group_grace `and` -> `or`) makes the suite hang and ends in the tool's timeout. Run as `mutmut run <id>` per mutant with the gate's runner, five at a time. The healthy tree ran alongside: 44 of 48 control runs passed, the 4 failures were test_real_sigint_cleans_owned_group and test_real_descendant_cannot_outlive_owned_execution, which are sensitive to machine load. The 50 mutants whose first failing test was in tests/test_benchmark_process.py, or which timed out, were therefore run again two at a time: 49 killed, none by those two tests, the same 1 timed out.",
+   "survived": 0,
+   "tests": [
+    "tests/_benchmark_support.py",
+    "tests/test_benchmark_cli.py",
+    "tests/test_benchmark_environment.py",
+    "tests/test_benchmark_evidence.py",
+    "tests/test_benchmark_inventory.py",
+    "tests/test_benchmark_process.py",
+    "tests/test_benchmark_reports.py",
+    "tests/test_benchmark_runner.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 475
+  },
   "arena/governance/firefox_tree_parity.py": {
    "fingerprint": "16f60e6e39d0ecb4bd58009fb6dd047a51ef987ed87e3269d3f062a661d69d32",
    "reason": "T66 exact symlink/binary/exclusion reviewer follow-up; 0 survivors",
