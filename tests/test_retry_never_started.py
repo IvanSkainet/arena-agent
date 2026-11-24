@@ -223,16 +223,30 @@ def test_a_run_named_by_the_event_is_handled_without_a_scan(
     retry: ModuleType, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Started by a CI run, the job handles that run and asks for no list."""
-    seen: list[dict[str, int]] = []
+    seen: list[tuple[int, int]] = []
+    current = {"id": 45263396421, "run_attempt": 1, "status": "completed", "conclusion": "failure"}
+    monkeypatch.setattr(retry, "call", lambda *_: current)
     monkeypatch.setattr(retry, "recent_failed_runs", lambda *_: pytest.fail("scanned"))
-    monkeypatch.setattr(retry, "handle", lambda _repo, run, _token: seen.append(run))
+    monkeypatch.setattr(retry, "handle", lambda _repo, run, _token: seen.append((run["id"], run["run_attempt"])))
     monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
     monkeypatch.setenv("GH_TOKEN", "t")
     monkeypatch.setenv("RUN_ID", "45263396421")
-    monkeypatch.setenv("RUN_ATTEMPT", "1")
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     assert retry.main() == 0
-    assert seen == [{"id": 45263396421, "run_attempt": 1}]
+    assert seen == [(45263396421, 1)]
+
+
+def test_a_named_run_that_cannot_be_read_fails_the_job(retry: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An API error while reading the named run is reported, not raised as a traceback."""
+    def refuse(*_: object) -> None:
+        raise OSError("HTTP Error 502: Bad Gateway")
+
+    monkeypatch.setattr(retry, "call", refuse)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    monkeypatch.setenv("GH_TOKEN", "t")
+    monkeypatch.setenv("RUN_ID", "7")
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    assert retry.main() == 1
 
 
 class FakeConnection:
@@ -348,8 +362,8 @@ def test_the_workflow_takes_nothing_from_the_run_it_reads() -> None:
     # 2. Nothing is downloaded from the triggering run.
     assert "download-artifact" not in code
     assert "pull_request" not in code
-    # 3. Three values of the event are read, and none is pasted into a script.
-    assert set(re.findall(r"github\.event\.workflow_run\.(\w+)", code)) == {"id", "run_attempt", "conclusion"}
+    # 3. Two values of the event are read, and neither is pasted into a script.
+    assert set(re.findall(r"github\.event\.workflow_run\.(\w+)", code)) == {"id", "conclusion"}
     script = code[code.index("        run: python3"):]
     assert "${{" not in script
     assert "python3 .github/scripts/retry_never_started.py" in script
@@ -364,14 +378,37 @@ def test_the_workflow_token_is_narrow() -> None:
     assert "egress-policy: block" in code
 
 
-def test_a_named_run_is_the_only_one_looked_at(retry: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Started by a CI run, the script looks at that run and does not scan."""
+def test_a_named_run_is_read_from_the_api_and_nothing_is_scanned(
+    retry: ModuleType, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The event gives the run id only; the attempt number comes from the API, like the jobs do."""
+    asked: list[str] = []
+
+    def call(path: str, _token: str) -> dict[str, object]:
+        asked.append(path)
+        return {"id": 45263396421, "run_attempt": 3, "status": "completed", "conclusion": "failure"}
+
+    monkeypatch.setattr(retry, "call", call)
     monkeypatch.setattr(retry, "recent_failed_runs", lambda *_: pytest.fail("scanned"))
     runs = retry.runs_to_look_at("o/r", "t", {"RUN_ID": "45263396421", "RUN_ATTEMPT": "2"})
-    assert runs == [{"id": 45263396421, "run_attempt": 2}]
+    assert asked == ["/repos/o/r/actions/runs/45263396421"]
+    assert [(run["id"], run["run_attempt"]) for run in runs] == [(45263396421, 3)]
 
 
-@pytest.mark.parametrize("environ", [{}, {"RUN_ID": ""}, {"RUN_ID": "  ", "RUN_ATTEMPT": ""}])
+@pytest.mark.parametrize(
+    ("status", "conclusion"),
+    [("in_progress", None), ("queued", None), ("completed", "success"), ("completed", "cancelled")],
+)
+def test_a_named_run_that_is_no_longer_a_finished_failure_is_left_alone(
+    retry: ModuleType, monkeypatch: pytest.MonkeyPatch, status: str, conclusion: str | None,
+) -> None:
+    """A run that was already re-run, or went green, since the event was sent is not touched."""
+    monkeypatch.setattr(retry, "call", lambda *_: {"id": 7, "run_attempt": 3, "status": status, "conclusion": conclusion})
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    assert retry.runs_to_look_at("o/r", "t", {"RUN_ID": "7"}) == []
+
+
+@pytest.mark.parametrize("environ", [{}, {"RUN_ID": ""}, {"RUN_ID": "  "}])
 def test_without_a_named_run_the_script_scans(
     retry: ModuleType, monkeypatch: pytest.MonkeyPatch, environ: dict[str, str],
 ) -> None:
@@ -384,4 +421,4 @@ def test_without_a_named_run_the_script_scans(
 def test_a_run_id_that_is_not_a_number_is_refused(retry: ModuleType, named: str) -> None:
     """Only a number can become part of a request path."""
     with pytest.raises(ValueError):
-        retry.runs_to_look_at("o/r", "t", {"RUN_ID": named, "RUN_ATTEMPT": "1"})
+        retry.runs_to_look_at("o/r", "t", {"RUN_ID": named})

@@ -25,9 +25,9 @@
 #   * the job checks out the default branch, never the code of the run that
 #     triggered it;
 #   * it downloads no artifact from that run;
-#   * it takes three values from the event: the run id, the attempt number
-#     and the conclusion. The first two reach the script through the
-#     environment and are parsed as integers.
+#   * it takes two values from the event: the run id and the conclusion.
+#     The id reaches the script through the environment and is parsed as an
+#     integer; everything else about the run is then read from the API.
 # tests/test_retry_never_started.py holds the workflow to these three points.
 name: Retry jobs GitHub never started
 
@@ -79,5 +79,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # Empty on a schedule or a manual start: the script then scans.
           RUN_ID: ${{ github.event.workflow_run.id }}
-          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: python3 .github/scripts/retry_never_started.py

@@ -155,7 +155,22 @@ def runs_to_look_at(repo: str, token: str, environ: Mapping[str, str]) -> list[d
     if not named:
         return recent_failed_runs(repo, token, datetime.now(timezone.utc))
     # int() refuses anything that is not a number, so nothing else reaches a request path.
-    return [{"id": int(named), "run_attempt": int(environ["RUN_ATTEMPT"])}]
+    return named_run(repo, token, int(named))
+
+
+def named_run(repo: str, token: str, run_id: int) -> list[dict[str, Any]]:
+    """Return the named run as the API describes it now, if it is still a finished failure."""
+    # The event is a snapshot. By the time this job starts, the scheduled scan
+    # may have re-run the same run. The attempt number therefore comes from
+    # the API, in the same breath as the jobs, and never from the event: an
+    # old attempt number next to the jobs of a newer attempt would let the
+    # limit on attempts be passed.
+    run = call(f"/repos/{repo}/actions/runs/{run_id}", token)
+    state = (run.get("status"), run.get("conclusion"))
+    if state != ("completed", "failure"):
+        report(f"- Run {run_id}: left alone, it is no longer a finished failure (now {state[0]}, {state[1]}).")
+        return []
+    return [run]
 
 
 def report(line: str) -> None:
@@ -182,9 +197,13 @@ def handle(repo: str, run: dict[str, Any], token: str) -> bool:
 def main() -> int:
     repo = os.environ["GITHUB_REPOSITORY"]
     token = os.environ["GH_TOKEN"]
-    runs = runs_to_look_at(repo, token, os.environ)
+    try:
+        runs = runs_to_look_at(repo, token, os.environ)
+    except OSError as error:
+        report(f"The runs could not be read, the API call failed ({error}).")
+        return 1
     if not runs:
-        report("No CI run ended in failure in the look-back window.")
+        report("Nothing to look at: no CI run is a finished failure.")
     unread = 0
     for run in runs:
         try:
