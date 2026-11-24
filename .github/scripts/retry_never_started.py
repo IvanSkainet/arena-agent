@@ -14,15 +14,14 @@
 # re-runs stops being "failed" at once, so the next tick does not see it again.
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import sys
-import urllib.error
-import urllib.request
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-API = "https://api.github.com"
+HOST = "api.github.com"
 NOT_ACQUIRED = "was not acquired by Runner"
 # Jobs that fail only because another job did. They are re-run together with it.
 CONSEQUENCES = frozenset({"CI required"})
@@ -42,29 +41,57 @@ def never_started(job: dict[str, Any], messages: list[str]) -> bool:
     return any(NOT_ACQUIRED in message for message in messages)
 
 
+def _never_started_jobs(jobs: list[dict[str, Any]], annotations: dict[int, list[str]]) -> list[dict[str, Any]]:
+    """Return the jobs GitHub cancelled without starting."""
+    return [job for job in jobs if never_started(job, annotations.get(job["id"], []))]
+
+
+def _other_failures(not_green: list[dict[str, Any]], unstarted: list[dict[str, Any]]) -> list[str]:
+    """Name the jobs that are red for a reason of their own."""
+    explained = {job["id"] for job in unstarted}
+    return sorted(job["name"] for job in not_green if job["id"] not in explained and job["name"] not in CONSEQUENCES)
+
+
 def decide(jobs: list[dict[str, Any]], annotations: dict[int, list[str]], attempt: int) -> tuple[bool, str]:
     """Return whether to re-run the failed jobs, and the reason in one sentence."""
     not_green = [job for job in jobs if job.get("conclusion") not in GREEN]
-    unstarted = [job for job in not_green if never_started(job, annotations.get(job["id"], []))]
+    unstarted = _never_started_jobs(not_green, annotations)
     if not unstarted:
         return False, "no job was left unstarted by GitHub"
-    names = ", ".join(sorted(job["name"] for job in unstarted))
-    other = sorted(job["name"] for job in not_green if job not in unstarted and job["name"] not in CONSEQUENCES)
+    other = _other_failures(not_green, unstarted)
     if other:
         return False, f"jobs failed for another reason and need a person: {', '.join(other)}"
+    names = ", ".join(sorted(job["name"] for job in unstarted))
     if attempt >= LAST_ATTEMPT:
         return False, f"attempt {attempt} is the last one; still never started: {names}"
     return True, f"GitHub never started: {names}"
 
 
+class ApiError(OSError):
+    """The GitHub API did not answer a request with a success status."""
+
+
+def connect() -> http.client.HTTPSConnection:
+    """Open the connection: a constant host, always HTTPS; only the path of a request varies."""
+    return http.client.HTTPSConnection(HOST, timeout=30)
+
+
 def call(path: str, token: str, method: str = "GET") -> Any:
     """Send one request to the GitHub API and return the decoded body."""
-    request = urllib.request.Request(  # noqa: S310 - the URL is the constant API host plus a path built here
-        API + path, method=method, data=b"{}" if method == "POST" else None,
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
-                 "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "retry-never-started"})
-    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310  # nosec B310
-        body = response.read()
+    connection = connect()
+    try:
+        connection.request(
+            method, path, body=b"{}" if method == "POST" else None,
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                     "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "retry-never-started"})
+        response = connection.getresponse()
+        status, body = response.status, response.read()
+    except http.client.HTTPException as error:
+        raise ApiError(f"{method} {path}: {error!r}") from error
+    finally:
+        connection.close()
+    if not 200 <= status < 300:
+        raise ApiError(f"{method} {path}: HTTP {status}")
     return json.loads(body) if body else None
 
 
@@ -106,8 +133,8 @@ def report(line: str) -> None:
     print(line)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
-        with open(summary, "a", encoding="utf-8") as handle:
-            handle.write(line + "\n")
+        with open(summary, "a", encoding="utf-8") as out:
+            out.write(line + "\n")
 
 
 def handle(repo: str, run: dict[str, Any], token: str) -> bool:

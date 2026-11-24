@@ -1,11 +1,12 @@
 """A CI run is re-run only when GitHub never started a job, and never when a job failed."""
 from __future__ import annotations
 
+import http.client
 import importlib.util
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -180,6 +181,81 @@ def test_a_quiet_tick_succeeds(retry: ModuleType, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("GH_TOKEN", "t")
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     assert retry.main() == 0
+
+
+class FakeConnection:
+    """Stand in for the HTTPS connection and remember what was asked of it."""
+
+    def __init__(self, status: int = 200, body: bytes = b"", error: Exception | None = None) -> None:
+        self.answer = (status, body, error)
+        self.sent: list[tuple[str, str, bytes | None]] = []
+        self.closed = False
+
+    def request(self, method: str, path: str, body: bytes | None = None, headers: dict[str, str] | None = None) -> None:
+        """Record the request and fail if the test asked for a failure."""
+        assert headers is not None and headers["Authorization"] == "Bearer t"
+        self.sent.append((method, path, body))
+        if self.answer[2] is not None:
+            raise self.answer[2]
+
+    def getresponse(self) -> SimpleNamespace:
+        """Return the prepared status and body."""
+        status, body, _ = self.answer
+        return SimpleNamespace(status=status, read=lambda: body)
+
+    def close(self) -> None:
+        """Remember that the connection was closed."""
+        self.closed = True
+
+
+def test_the_api_host_is_a_constant(retry: ModuleType) -> None:
+    """Requests go to api.github.com over HTTPS and nowhere else."""
+    connection = retry.connect()
+    try:
+        assert isinstance(connection, http.client.HTTPSConnection)
+        assert (connection.host, connection.port) == ("api.github.com", 443)
+    finally:
+        connection.close()
+
+
+def test_a_read_returns_the_decoded_body(retry: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A GET carries no body and its JSON answer is decoded."""
+    fake = FakeConnection(200, b'{"jobs": []}')
+    monkeypatch.setattr(retry, "connect", lambda: fake)
+    assert retry.call("/repos/o/r/x", "t") == {"jobs": []}
+    assert fake.sent == [("GET", "/repos/o/r/x", None)]
+    assert fake.closed is True
+
+
+def test_a_re_run_request_has_an_empty_answer(retry: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A POST sends an empty JSON object, and an empty 201 answer is not an error."""
+    fake = FakeConnection(201, b"")
+    monkeypatch.setattr(retry, "connect", lambda: fake)
+    assert retry.call("/repos/o/r/actions/runs/7/rerun-failed-jobs", "t", "POST") is None
+    assert fake.sent == [("POST", "/repos/o/r/actions/runs/7/rerun-failed-jobs", b"{}")]
+
+
+@pytest.mark.parametrize("status", [301, 403, 404, 502])
+def test_a_refused_request_is_an_error(retry: ModuleType, monkeypatch: pytest.MonkeyPatch, status: int) -> None:
+    """Anything but a 2xx answer is raised, so a refused token cannot pass for success."""
+    fake = FakeConnection(status, b'{"message": "no"}')
+    monkeypatch.setattr(retry, "connect", lambda: fake)
+    with pytest.raises(OSError, match=f"HTTP {status}"):
+        retry.call("/repos/o/r/x", "t")
+    assert fake.closed is True
+
+
+def test_a_broken_answer_is_the_same_kind_of_error(retry: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A protocol error is turned into the error the main loop already handles."""
+    fake = FakeConnection(error=http.client.RemoteDisconnected("gone"))
+    monkeypatch.setattr(retry, "connect", lambda: fake)
+    with pytest.raises(OSError):
+        retry.call("/repos/o/r/x", "t")
+    fake = FakeConnection(error=http.client.BadStatusLine("x"))
+    monkeypatch.setattr(retry, "connect", lambda: fake)
+    with pytest.raises(retry.ApiError):
+        retry.call("/repos/o/r/x", "t")
+    assert fake.closed is True
 
 
 def test_the_workflow_takes_nothing_from_the_run_it_reads() -> None:
