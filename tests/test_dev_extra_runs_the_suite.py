@@ -73,14 +73,20 @@ def roots(node: ast.stmt) -> list[str]:
     return []
 
 
+def catches_a_failed_import(handler: ast.ExceptHandler) -> bool:
+    """Tell whether this handler is entered when an import fails."""
+    if handler.type is None:
+        return True
+    names = {name.id for name in ast.walk(handler.type) if isinstance(name, ast.Name)}
+    return not names.isdisjoint(CATCHES_A_FAILED_IMPORT)
+
+
+# Python enters the first handler that matches. If that handler ends by
+# raising again, the module still fails to load, so the import is required.
 def tolerates_a_missing_package(node: ast.Try) -> bool:
-    """Tell whether a failed import inside this try is caught by one of its handlers."""
-    caught = set()
-    for handler in node.handlers:
-        if handler.type is None:
-            return True
-        caught.update(name.id for name in ast.walk(handler.type) if isinstance(name, ast.Name))
-    return not caught.isdisjoint(CATCHES_A_FAILED_IMPORT)
+    """Tell whether the module still loads when an import inside this try fails."""
+    entered = [handler for handler in node.handlers if catches_a_failed_import(handler)]
+    return bool(entered) and not isinstance(entered[0].body[-1], ast.Raise)
 
 
 # Functions and classes are not entered. The body of a `try` is left out only
@@ -108,13 +114,17 @@ def module_scope(body: list[ast.stmt]) -> list[ast.stmt]:
     return found
 
 
+def loaded_at_import_time(source: str) -> list[str]:
+    """Return the top-level packages this module source must find in order to be imported."""
+    return [name for node in module_scope(ast.parse(source).body) for name in roots(node)]
+
+
 def third_party_imports() -> dict[str, str]:
     """Return each outside package a test file imports at module level, with one file that does."""
     known = set(sys.stdlib_module_names) | own_names() | INSTALLER
     found: dict[str, str] = {}
     for path in sorted(TESTS.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for name in (name for node in module_scope(tree.body) for name in roots(node)):
+        for name in loaded_at_import_time(path.read_text(encoding="utf-8")):
             if name not in known:
                 found.setdefault(name, path.name)
     return found
@@ -133,6 +143,36 @@ def test_the_scan_sees_the_imports_it_is_about(needed: dict[str, str]) -> None:
     assert "tomli" in needed
     assert "arena" not in needed
     assert "os" not in needed
+
+
+# Each line of the table was a hole in an earlier version of this scan. "x"
+# stands for a package that is not installed.
+@pytest.mark.parametrize(
+    ("source", "required"),
+    [
+        ("import x.y\nfrom x2.z import a\n", ["x", "x2"]),
+        ("from . import a\nfrom .b import c\n", []),
+        ("if FLAG:\n    import x\nelse:\n    import x2\n", ["x", "x2"]),
+        ("with ctx():\n    import x\n", ["x"]),
+        ("try:\n    import x\nfinally:\n    pass\n", ["x"]),
+        ("try:\n    import x\nexcept ValueError:\n    pass\n", ["x"]),
+        ("try:\n    import x\nexcept ImportError:\n    raise\n", ["x"]),
+        ("try:\n    import x\nexcept ImportError:\n    log()\n    raise\n", ["x"]),
+        ("try:\n    import x\nexcept ModuleNotFoundError:\n    raise\nexcept ImportError:\n    pass\n", ["x"]),
+        ("try:\n    import x\nexcept ImportError:\n    x = None\n", []),
+        ("try:\n    import x\nexcept (OSError, ModuleNotFoundError):\n    x = None\n", []),
+        ("try:\n    import x\nexcept Exception:\n    x = None\n", []),
+        ("try:\n    import x\nexcept:\n    x = None\n", []),
+        ("try:\n    import x\nexcept ValueError:\n    raise\nexcept ImportError:\n    x = None\n", []),
+        ("try:\n    import x\nexcept ModuleNotFoundError:\n    x = None\nexcept ImportError:\n    raise\n", []),
+        ("try:\n    import tomllib\nexcept ModuleNotFoundError:\n    import tomli as tomllib\n", ["tomli"]),
+        ("def f():\n    import x\n", []),
+        ("class C:\n    import x\n", []),
+    ],
+)
+def test_the_scan_reads_what_runs_when_a_module_is_imported(source: str, required: list[str]) -> None:
+    """A required import is reported; an optional one, and one inside a function or class, is not."""
+    assert loaded_at_import_time(source) == required
 
 
 def test_every_unconditional_import_of_a_test_file_is_installed_by_the_documented_command(
