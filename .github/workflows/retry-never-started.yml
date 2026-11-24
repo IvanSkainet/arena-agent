@@ -11,9 +11,9 @@
 #   * never when any job ran and failed;
 #   * at most two retries per run.
 #
-# Two triggers.
+# Two triggers, one behaviour.
 #
-# workflow_run reacts when a CI run completes. This is the one that matters:
+# workflow_run fires when a CI run completes. This is the one that matters:
 # a pull request waiting to merge needs the retry within minutes.
 #
 # The schedule is a fallback. It was the only trigger at first, on the
@@ -21,14 +21,21 @@
 # for this repository: scheduled workflows here start 7.5 to 11 hours after
 # their cron time (#565), and in its first hours the schedule never fired.
 #
+# Either way the script does the same thing: it lists the CI runs that
+# failed recently and looks at each. The event is only a wake-up call.
+#
 # Why workflow_run is safe here, although zizmor reports the trigger:
 #   * the job checks out the default branch, never the code of the run that
 #     triggered it;
 #   * it downloads no artifact from that run;
-#   * it takes two values from the event: the run id and the conclusion.
-#     The id reaches the script through the environment and is parsed as an
-#     integer; everything else about the run is then read from the API.
+#   * it reads one value from the event, the conclusion, and only in the
+#     job's `if`. Nothing from the event reaches the script.
 # tests/test_retry_never_started.py holds the workflow to these three points.
+#
+# One copy at a time. Two copies looking at the same run could each re-run
+# it and pass the limit on attempts. All starts share one concurrency group.
+# GitHub keeps one waiting start per group and drops the older waiting ones;
+# that loses nothing, because every start looks at every recent failed run.
 name: Retry jobs GitHub never started
 
 on:
@@ -42,15 +49,14 @@ on:
 permissions: {}
 
 concurrency:
-  group: retry-never-started-${{ github.event.workflow_run.id || 'scan' }}
+  group: retry-never-started
   cancel-in-progress: false
 
 jobs:
   retry:
     name: Re-run CI runs whose jobs were never started
-    # A CI run that a person cancelled ends with 'cancelled' and is left
-    # alone; only 'failure' is what the gate produces. The schedule and a
-    # manual start scan the recent failed runs themselves.
+    # Only a failed CI run is worth waking up for. A run that a person
+    # cancelled ends with 'cancelled', a good one with 'success'.
     if: >-
       github.repository == 'IvanSkainet/arena-agent' &&
       (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'failure')
@@ -77,6 +83,4 @@ jobs:
       - name: Look at recent failed CI runs and re-run the ones GitHub never started
         env:
           GH_TOKEN: ${{ github.token }}
-          # Empty on a schedule or a manual start: the script then scans.
-          RUN_ID: ${{ github.event.workflow_run.id }}
         run: python3 .github/scripts/retry_never_started.py

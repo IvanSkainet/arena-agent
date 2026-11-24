@@ -10,9 +10,10 @@
 # or the gate that failed because of it. A job that ran and failed is never
 # retried here: that needs a person.
 #
-# Started by the completion of a CI run, it looks at that run. Started by the
-# schedule or by hand, it looks at the CI runs that failed recently. A run it
-# re-runs stops being "failed" at once, so it is not picked up twice.
+# However it is started, it looks at the CI runs that failed recently. The
+# completion of a CI run only wakes it up; nothing is taken from that event.
+# A run it re-runs stops being "failed" at once, so it is not picked up twice,
+# and the workflow lets one copy of this script run at a time.
 from __future__ import annotations
 
 import http.client
@@ -20,7 +21,6 @@ import json
 import os
 import ssl
 import sys
-from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -107,13 +107,16 @@ def call(path: str, token: str, method: str = "GET") -> Any:
     return json.loads(body) if body else None
 
 
-def latest_jobs(repo: str, run_id: int, token: str) -> list[dict[str, Any]]:
-    """Return every job of the latest attempt of the run."""
+def jobs_of_attempt(repo: str, run_id: int, attempt: int, token: str) -> list[dict[str, Any]]:
+    """Return every job of one attempt of the run."""
+    # The attempt is named in the path. "The latest attempt" can be a newer
+    # one than the attempt number this script decides on, and then the limit
+    # on attempts would be compared with the jobs of a different attempt.
     jobs: list[dict[str, Any]] = []
     page = 1
     while True:
-        query = f"filter=latest&per_page={PAGE_SIZE}&page={page}"
-        batch = call(f"/repos/{repo}/actions/runs/{run_id}/jobs?{query}", token)["jobs"]
+        query = f"per_page={PAGE_SIZE}&page={page}"
+        batch = call(f"/repos/{repo}/actions/runs/{run_id}/attempts/{attempt}/jobs?{query}", token)["jobs"]
         jobs.extend(batch)
         if len(batch) < PAGE_SIZE:
             return jobs
@@ -149,30 +152,6 @@ def _when(stamp: str) -> datetime:
     return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
 
 
-def runs_to_look_at(repo: str, token: str, environ: Mapping[str, str]) -> list[dict[str, Any]]:
-    """Return the one run named by the event, or the recent failed runs when no run is named."""
-    named = environ.get("RUN_ID", "").strip()
-    if not named:
-        return recent_failed_runs(repo, token, datetime.now(timezone.utc))
-    # int() refuses anything that is not a number, so nothing else reaches a request path.
-    return named_run(repo, token, int(named))
-
-
-def named_run(repo: str, token: str, run_id: int) -> list[dict[str, Any]]:
-    """Return the named run as the API describes it now, if it is still a finished failure."""
-    # The event is a snapshot. By the time this job starts, the scheduled scan
-    # may have re-run the same run. The attempt number therefore comes from
-    # the API, in the same breath as the jobs, and never from the event: an
-    # old attempt number next to the jobs of a newer attempt would let the
-    # limit on attempts be passed.
-    run = call(f"/repos/{repo}/actions/runs/{run_id}", token)
-    state = (run.get("status"), run.get("conclusion"))
-    if state != ("completed", "failure"):
-        report(f"- Run {run_id}: left alone, it is no longer a finished failure (now {state[0]}, {state[1]}).")
-        return []
-    return [run]
-
-
 def report(line: str) -> None:
     """Print the line and add it to the run summary when there is one."""
     print(line)
@@ -185,7 +164,7 @@ def report(line: str) -> None:
 def handle(repo: str, run: dict[str, Any], token: str) -> bool:
     """Look at one failed run and re-run its failed jobs if that is justified."""
     run_id, attempt = int(run["id"]), int(run["run_attempt"])
-    jobs = latest_jobs(repo, run_id, token)
+    jobs = jobs_of_attempt(repo, run_id, attempt, token)
     retry, reason = decide(jobs, cancelled_annotations(repo, jobs, token), attempt)
     if retry:
         call(f"/repos/{repo}/actions/runs/{run_id}/rerun-failed-jobs", token, "POST")
@@ -198,19 +177,19 @@ def main() -> int:
     repo = os.environ["GITHUB_REPOSITORY"]
     token = os.environ["GH_TOKEN"]
     try:
-        runs = runs_to_look_at(repo, token, os.environ)
+        runs = recent_failed_runs(repo, token, datetime.now(timezone.utc))
     except OSError as error:
-        report(f"The runs could not be read, the API call failed ({error}).")
+        report(f"The failed runs could not be listed, the API call failed ({error}).")
         return 1
     if not runs:
-        report("Nothing to look at: no CI run is a finished failure.")
+        report("No CI run ended in failure in the look-back window.")
     unread = 0
     for run in runs:
         try:
             handle(repo, run, token)
         except OSError as error:
             # The API answers 502 now and then. One run that could not be
-            # handled must not stop the others; the scheduled scan looks at it again.
+            # handled must not stop the others; the next start looks at it again.
             unread += 1
             report(f"- Run {run['id']}: not handled, the API call failed ({error}).")
     # Fail the job when a call failed, so a refused token is seen and not

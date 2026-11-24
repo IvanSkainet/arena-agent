@@ -203,7 +203,6 @@ def test_one_unreadable_run_does_not_stop_the_others(retry: ModuleType, monkeypa
     monkeypatch.setattr(retry, "handle", handle)
     monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
     monkeypatch.setenv("GH_TOKEN", "t")
-    monkeypatch.delenv("RUN_ID", raising=False)
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     assert retry.main() == 1
     assert seen == [1, 2]
@@ -214,37 +213,18 @@ def test_a_quiet_tick_succeeds(retry: ModuleType, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(retry, "recent_failed_runs", lambda *_: [])
     monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
     monkeypatch.setenv("GH_TOKEN", "t")
-    monkeypatch.delenv("RUN_ID", raising=False)
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     assert retry.main() == 0
 
 
-def test_a_run_named_by_the_event_is_handled_without_a_scan(
-    retry: ModuleType, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Started by a CI run, the job handles that run and asks for no list."""
-    seen: list[tuple[int, int]] = []
-    current = {"id": 45263396421, "run_attempt": 1, "status": "completed", "conclusion": "failure"}
-    monkeypatch.setattr(retry, "call", lambda *_: current)
-    monkeypatch.setattr(retry, "recent_failed_runs", lambda *_: pytest.fail("scanned"))
-    monkeypatch.setattr(retry, "handle", lambda _repo, run, _token: seen.append((run["id"], run["run_attempt"])))
-    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
-    monkeypatch.setenv("GH_TOKEN", "t")
-    monkeypatch.setenv("RUN_ID", "45263396421")
-    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
-    assert retry.main() == 0
-    assert seen == [(45263396421, 1)]
-
-
-def test_a_named_run_that_cannot_be_read_fails_the_job(retry: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
-    """An API error while reading the named run is reported, not raised as a traceback."""
+def test_a_list_that_cannot_be_read_fails_the_job(retry: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An API error while listing the failed runs is reported, not raised as a traceback."""
     def refuse(*_: object) -> None:
         raise OSError("HTTP Error 502: Bad Gateway")
 
-    monkeypatch.setattr(retry, "call", refuse)
+    monkeypatch.setattr(retry, "recent_failed_runs", refuse)
     monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
     monkeypatch.setenv("GH_TOKEN", "t")
-    monkeypatch.setenv("RUN_ID", "7")
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     assert retry.main() == 1
 
@@ -362,8 +342,8 @@ def test_the_workflow_takes_nothing_from_the_run_it_reads() -> None:
     # 2. Nothing is downloaded from the triggering run.
     assert "download-artifact" not in code
     assert "pull_request" not in code
-    # 3. Two values of the event are read, and neither is pasted into a script.
-    assert set(re.findall(r"github\.event\.workflow_run\.(\w+)", code)) == {"id", "conclusion"}
+    # 3. One value of the event is read, in the job condition, and nothing reaches the script.
+    assert set(re.findall(r"github\.event\.workflow_run\.(\w+)", code)) == {"conclusion"}
     script = code[code.index("        run: python3"):]
     assert "${{" not in script
     assert "python3 .github/scripts/retry_never_started.py" in script
@@ -378,47 +358,23 @@ def test_the_workflow_token_is_narrow() -> None:
     assert "egress-policy: block" in code
 
 
-def test_a_named_run_is_read_from_the_api_and_nothing_is_scanned(
+def test_the_jobs_are_read_for_the_attempt_that_is_decided_on(
     retry: ModuleType, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The event gives the run id only; the attempt number comes from the API, like the jobs do."""
+    """The attempt number is in the request path, so jobs and limit describe the same attempt."""
     asked: list[str] = []
 
-    def call(path: str, _token: str) -> dict[str, object]:
+    def call(path: str, _token: str) -> dict[str, list[object]]:
         asked.append(path)
-        return {"id": 45263396421, "run_attempt": 3, "status": "completed", "conclusion": "failure"}
+        return {"jobs": []}
 
     monkeypatch.setattr(retry, "call", call)
-    monkeypatch.setattr(retry, "recent_failed_runs", lambda *_: pytest.fail("scanned"))
-    runs = retry.runs_to_look_at("o/r", "t", {"RUN_ID": "45263396421", "RUN_ATTEMPT": "2"})
-    assert asked == ["/repos/o/r/actions/runs/45263396421"]
-    assert [(run["id"], run["run_attempt"]) for run in runs] == [(45263396421, 3)]
-
-
-@pytest.mark.parametrize(
-    ("status", "conclusion"),
-    [("in_progress", None), ("queued", None), ("completed", "success"), ("completed", "cancelled")],
-)
-def test_a_named_run_that_is_no_longer_a_finished_failure_is_left_alone(
-    retry: ModuleType, monkeypatch: pytest.MonkeyPatch, status: str, conclusion: str | None,
-) -> None:
-    """A run that was already re-run, or went green, since the event was sent is not touched."""
-    monkeypatch.setattr(retry, "call", lambda *_: {"id": 7, "run_attempt": 3, "status": status, "conclusion": conclusion})
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
-    assert retry.runs_to_look_at("o/r", "t", {"RUN_ID": "7"}) == []
+    assert retry.handle("o/r", {"id": 77, "run_attempt": 2}, "t") is False
+    assert asked == ["/repos/o/r/actions/runs/77/attempts/2/jobs?per_page=100&page=1"]
 
 
-@pytest.mark.parametrize("environ", [{}, {"RUN_ID": ""}, {"RUN_ID": "  "}])
-def test_without_a_named_run_the_script_scans(
-    retry: ModuleType, monkeypatch: pytest.MonkeyPatch, environ: dict[str, str],
-) -> None:
-    """On a schedule or a manual start the event names no run."""
-    monkeypatch.setattr(retry, "recent_failed_runs", lambda *_: [{"id": 9, "run_attempt": 1}])
-    assert retry.runs_to_look_at("o/r", "t", environ) == [{"id": 9, "run_attempt": 1}]
-
-
-@pytest.mark.parametrize("named", ["7/../../x", "7?x=1", "abc", "7 8"])
-def test_a_run_id_that_is_not_a_number_is_refused(retry: ModuleType, named: str) -> None:
-    """Only a number can become part of a request path."""
-    with pytest.raises(ValueError):
-        retry.runs_to_look_at("o/r", "t", {"RUN_ID": named})
+def test_only_one_copy_runs_at_a_time() -> None:
+    """Every start shares one concurrency group, and a running copy is not cancelled."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    assert workflow["concurrency"] == {"group": "retry-never-started", "cancel-in-progress": False}
