@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import os
 import re
 import sys
 from pathlib import Path
@@ -19,8 +20,9 @@ TESTS = REPO / "tests"
 DISTRIBUTION = {"yaml": "pyyaml"}
 # The documented command is run by pip, so pip is there without being listed.
 INSTALLER = {"pip"}
-# Directories that hold no code of this project.
-FOREIGN = {"node_modules", "build", "dist"}
+# Directories that hold no code of this project. A virtual environment is
+# recognised by its pyvenv.cfg, whatever the directory is called.
+FOREIGN = {"node_modules", "build", "dist", "site-packages"}
 
 
 def declared() -> set[str]:
@@ -31,14 +33,26 @@ def declared() -> set[str]:
     return {re.split(r"[<>=!~;\[ ]", line, maxsplit=1)[0].lower().replace("_", "-") for line in lines}
 
 
+def project_files() -> list[Path]:
+    """Return the Python files of this project, without virtual environments and installed packages."""
+    files = []
+    for folder, subfolders, names in os.walk(REPO):
+        here = Path(folder)
+        subfolders[:] = [
+            name for name in subfolders
+            if not name.startswith(".") and name not in FOREIGN and not (here / name / "pyvenv.cfg").exists()
+        ]
+        files += [here / name for name in names if name.endswith(".py")]
+    return files
+
+
 def own_names() -> set[str]:
     """Return every module and package name that lives in this repository."""
     names = set()
-    for path in REPO.rglob("*.py"):
+    for path in project_files():
         parts = path.relative_to(REPO).parts
-        if FOREIGN.isdisjoint(parts) and not parts[0].startswith("."):
-            names.update(parts[:-1])
-            names.add(path.stem)
+        names.update(parts[:-1])
+        names.add(path.stem)
     return names
 
 
@@ -57,13 +71,39 @@ def roots(node: ast.stmt) -> list[str]:
     return []
 
 
+def blocks(node: ast.stmt) -> list[list[ast.stmt]]:
+    """Return the statement lists inside one statement that also run when the module is imported.
+
+    Functions and classes are not entered. Of a `try` with handlers only the
+    handlers and what follows are returned: an import inside such a `try` is
+    an optional one, and the import in its handler is the fallback that must
+    be there (`import tomllib` / `import tomli`).
+    """
+    if isinstance(node, ast.Try):
+        guarded = [] if node.handlers else [node.body]
+        return guarded + [handler.body for handler in node.handlers] + [node.orelse, node.finalbody]
+    if isinstance(node, (ast.If, ast.With, ast.For, ast.While)):
+        return [node.body, getattr(node, "orelse", [])]
+    return []
+
+
+def module_scope(body: list[ast.stmt]) -> list[ast.stmt]:
+    """Return every statement that runs at import time, through if, with, loops and try handlers."""
+    found = []
+    for node in body:
+        found.append(node)
+        for inner in blocks(node):
+            found += module_scope(inner)
+    return found
+
+
 def third_party_imports() -> dict[str, str]:
     """Return each outside package a test file imports at module level, with one file that does."""
     known = set(sys.stdlib_module_names) | own_names() | INSTALLER
     found: dict[str, str] = {}
     for path in sorted(TESTS.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for name in (name for node in tree.body for name in roots(node)):
+        for name in (name for node in module_scope(tree.body) for name in roots(node)):
             if name not in known:
                 found.setdefault(name, path.name)
     return found
@@ -78,6 +118,8 @@ def _needed() -> dict[str, str]:
 def test_the_scan_sees_the_imports_it_is_about(needed: dict[str, str]) -> None:
     """A scan that finds nothing would pass every check below."""
     assert {"pytest", "aiohttp", "yaml"} <= set(needed)
+    # Found only through a try handler: the fallback import of this very file.
+    assert "tomli" in needed
     assert "arena" not in needed
     assert "os" not in needed
 
