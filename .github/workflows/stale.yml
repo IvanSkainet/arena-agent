@@ -1,5 +1,7 @@
 # .github/workflows/stale.yml
 # v4.65.0: close stale issues and PRs to keep the queue manageable.
+# Since #590 this applies to pull requests only; see the comment at the
+# `days-before-*` inputs below.
 #
 # This is a CI-of-process job: it doesn't run tests, but it does
 # enforce the same policy across issues and PRs so the maintainer
@@ -38,13 +40,16 @@ jobs:
       - name: Mark stale issues and PRs
         uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11.0.0
         with:
-          # Operate on both issues and PRs, but with different timing:
-          # issues get a longer grace period because they tend to be
-          # questions / proposals, while PRs are typically a fix
-          # that's either landed or abandoned.
-          days-before-issue-stale: 60
+          # Pull requests only (#590). A pull request is a fix that has
+          # either landed or been abandoned, so 30 quiet days mean something.
+          # An issue here is a record of a known defect, and it does not stop
+          # being true because nobody commented: -1 means "never mark" and
+          # "never close". Before this, the bot had marked 45 open issues
+          # stale, 7 a day, and was a week from closing the first of them.
+          # Closing an issue stays a decision of someone who read it.
+          days-before-issue-stale: -1
           days-before-pr-stale: 30
-          days-before-issue-close: 7
+          days-before-issue-close: -1
           days-before-pr-close: 7
           # Don't ping the maintainer every run; only on first stale.
           # (action defaults to "issues and pulls" when no `only:` input is set.)
