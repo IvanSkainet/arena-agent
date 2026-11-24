@@ -42,12 +42,18 @@ def own_names() -> set[str]:
     return names
 
 
+def absolute_root(node: ast.ImportFrom) -> list[str]:
+    """Return the package an absolute from-import loads; a relative one stays inside the project."""
+    module = node.module if node.level == 0 else None
+    return [module.split(".")[0]] if module else []
+
+
 def roots(node: ast.stmt) -> list[str]:
     """Return the top-level package names that one import statement loads."""
     if isinstance(node, ast.Import):
         return [alias.name.split(".")[0] for alias in node.names]
-    if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-        return [node.module.split(".")[0]]
+    if isinstance(node, ast.ImportFrom):
+        return absolute_root(node)
     return []
 
 
