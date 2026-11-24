@@ -11,27 +11,49 @@
 #   * never when any job ran and failed;
 #   * at most two retries per run.
 #
-# Why a schedule and not workflow_run: workflow_run would react at once, but
-# zizmor reports it as a dangerous trigger, and this repository suppresses no
-# zizmor finding. A schedule takes nothing from the run it looks at except
-# what the API returns, and the price is a delay of up to one tick.
+# Two triggers.
+#
+# workflow_run reacts when a CI run completes. This is the one that matters:
+# a pull request waiting to merge needs the retry within minutes.
+#
+# The schedule is a fallback. It was the only trigger at first, on the
+# assumption that it costs a delay of one tick. That assumption was wrong
+# for this repository: scheduled workflows here start 7.5 to 11 hours after
+# their cron time (#565), and in its first hours the schedule never fired.
+#
+# Why workflow_run is safe here, although zizmor reports the trigger:
+#   * the job checks out the default branch, never the code of the run that
+#     triggered it;
+#   * it downloads no artifact from that run;
+#   * it takes three values from the event: the run id, the attempt number
+#     and the conclusion. The first two reach the script through the
+#     environment and are parsed as integers.
+# tests/test_retry_never_started.py holds the workflow to these three points.
 name: Retry jobs GitHub never started
 
 on:
+  workflow_run:  # zizmor: ignore[dangerous-triggers] default-branch code only, no artifacts; see the comment above
+    workflows: ["CI"]
+    types: [completed]
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    - cron: "37 * * * *"
   workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  group: retry-never-started
+  group: retry-never-started-${{ github.event.workflow_run.id || 'scan' }}
   cancel-in-progress: false
 
 jobs:
   retry:
     name: Re-run CI runs whose jobs were never started
-    if: github.repository == 'IvanSkainet/arena-agent'
+    # A CI run that a person cancelled ends with 'cancelled' and is left
+    # alone; only 'failure' is what the gate produces. The schedule and a
+    # manual start scan the recent failed runs themselves.
+    if: >-
+      github.repository == 'IvanSkainet/arena-agent' &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'failure')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -55,4 +77,7 @@ jobs:
       - name: Look at recent failed CI runs and re-run the ones GitHub never started
         env:
           GH_TOKEN: ${{ github.token }}
+          # Empty on a schedule or a manual start: the script then scans.
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: python3 .github/scripts/retry_never_started.py

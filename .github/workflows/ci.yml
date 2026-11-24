@@ -6,9 +6,17 @@ on:
   pull_request:
     branches: [master]
 
+# A new push to a pull request replaces the run of the previous push.
+#
+# A run on master is never cancelled and never waits behind another one:
+# master is the only place the full macOS matrix runs, and with one shared
+# group a second merge erased the first merge's run before it finished
+# (0a4cfbf5, 90a0fd1d on 23-24 November). Turning cancel-in-progress off is
+# not enough for that: a group holds one waiting run, and a third merge
+# would cancel the waiting second. So each commit on master is its own group.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # v4.61.1: explicit permissions for all jobs. GitHub
 # Actions' default token pool can return 'unable to select next
@@ -32,6 +40,7 @@ jobs:
     outputs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
       run_expensive: ${{ steps.scope.outputs.run_expensive }}
+      macos_cells: ${{ steps.scope.outputs.macos_cells }}
     steps:
       - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
@@ -58,6 +67,7 @@ jobs:
           python3 .github/scripts/change_scope.py
           --base "$BASE_SHA"
           --head "$HEAD_SHA"
+          --event "$GITHUB_EVENT_NAME"
           --github-output "$GITHUB_OUTPUT"
 
   # ----------------------------------------------------------------
@@ -141,22 +151,15 @@ jobs:
         # original "deferred to" target; v4.68.0 is the actual
         # release.
         os: [ubuntu-latest, windows-latest]
-        include:
-          # v4.89.2: first macOS CI coverage. v4.93.0: macOS now mirrors the
-          # full ubuntu/windows Python matrix (3.10-3.14) so the cross-
-          # platform promise is checked on every supported Python version,
-          # not just a single cell. The per-platform coverage gate below
-          # treats macOS like Windows (46% floor).
-          - os: macos-latest
-            python-version: "3.10"
-          - os: macos-latest
-            python-version: "3.11"
-          - os: macos-latest
-            python-version: "3.12"
-          - os: macos-latest
-            python-version: "3.13"
-          - os: macos-latest
-            python-version: "3.14"
+        # v4.89.2: first macOS CI coverage. v4.93.0: macOS mirrors the full
+        # ubuntu/windows Python matrix (3.10-3.14). The per-platform coverage
+        # gate below treats macOS like Windows (46% floor).
+        #
+        # Which macOS cells run is decided by the change-scope job: all five
+        # on master, the oldest and newest Python on a pull request. The
+        # reason (five concurrent macOS jobs on the plan, #565) and the list
+        # live in .github/scripts/change_scope.py, where they are tested.
+        include: ${{ fromJSON(needs.changes.outputs.macos_cells) }}
     steps:
       # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
       # records network egress / file integrity / processes to the
@@ -267,6 +270,10 @@ jobs:
         # Each worker runs in per-user and temporary directories of its own
         # (tests/_worker_directories.py).
         shell: bash
+        env:
+          # When a test process dies without a traceback (an xdist worker
+          # on Windows did, #568), Python prints the stack of every thread.
+          PYTHONFAULTHANDLER: "1"
         run: |
           if [ "$RUNNER_OS" = "Windows" ] || [ "$RUNNER_OS" = "macOS" ]; then
             THRESHOLD=46

@@ -10,8 +10,9 @@
 # or the gate that failed because of it. A job that ran and failed is never
 # retried here: that needs a person.
 #
-# It runs on a schedule and looks at the CI runs that failed recently. A run it
-# re-runs stops being "failed" at once, so the next tick does not see it again.
+# Started by the completion of a CI run, it looks at that run. Started by the
+# schedule or by hand, it looks at the CI runs that failed recently. A run it
+# re-runs stops being "failed" at once, so it is not picked up twice.
 from __future__ import annotations
 
 import http.client
@@ -19,6 +20,7 @@ import json
 import os
 import ssl
 import sys
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -147,6 +149,15 @@ def _when(stamp: str) -> datetime:
     return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
 
 
+def runs_to_look_at(repo: str, token: str, environ: Mapping[str, str]) -> list[dict[str, Any]]:
+    """Return the one run named by the event, or the recent failed runs when no run is named."""
+    named = environ.get("RUN_ID", "").strip()
+    if not named:
+        return recent_failed_runs(repo, token, datetime.now(timezone.utc))
+    # int() refuses anything that is not a number, so nothing else reaches a request path.
+    return [{"id": int(named), "run_attempt": int(environ["RUN_ATTEMPT"])}]
+
+
 def report(line: str) -> None:
     """Print the line and add it to the run summary when there is one."""
     print(line)
@@ -171,7 +182,7 @@ def handle(repo: str, run: dict[str, Any], token: str) -> bool:
 def main() -> int:
     repo = os.environ["GITHUB_REPOSITORY"]
     token = os.environ["GH_TOKEN"]
-    runs = recent_failed_runs(repo, token, datetime.now(timezone.utc))
+    runs = runs_to_look_at(repo, token, os.environ)
     if not runs:
         report("No CI run ended in failure in the look-back window.")
     unread = 0
@@ -180,7 +191,7 @@ def main() -> int:
             handle(repo, run, token)
         except OSError as error:
             # The API answers 502 now and then. One run that could not be
-            # handled must not stop the others; the next tick looks at it again.
+            # handled must not stop the others; the scheduled scan looks at it again.
             unread += 1
             report(f"- Run {run['id']}: not handled, the API call failed ({error}).")
     # Fail the job when a call failed, so a refused token is seen and not

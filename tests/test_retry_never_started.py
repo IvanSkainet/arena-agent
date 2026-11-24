@@ -10,6 +10,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
+import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / ".github" / "scripts" / "retry_never_started.py"
@@ -202,6 +203,7 @@ def test_one_unreadable_run_does_not_stop_the_others(retry: ModuleType, monkeypa
     monkeypatch.setattr(retry, "handle", handle)
     monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
     monkeypatch.setenv("GH_TOKEN", "t")
+    monkeypatch.delenv("RUN_ID", raising=False)
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     assert retry.main() == 1
     assert seen == [1, 2]
@@ -212,8 +214,25 @@ def test_a_quiet_tick_succeeds(retry: ModuleType, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(retry, "recent_failed_runs", lambda *_: [])
     monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
     monkeypatch.setenv("GH_TOKEN", "t")
+    monkeypatch.delenv("RUN_ID", raising=False)
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     assert retry.main() == 0
+
+
+def test_a_run_named_by_the_event_is_handled_without_a_scan(
+    retry: ModuleType, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Started by a CI run, the job handles that run and asks for no list."""
+    seen: list[dict[str, int]] = []
+    monkeypatch.setattr(retry, "recent_failed_runs", lambda *_: pytest.fail("scanned"))
+    monkeypatch.setattr(retry, "handle", lambda _repo, run, _token: seen.append(run))
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    monkeypatch.setenv("GH_TOKEN", "t")
+    monkeypatch.setenv("RUN_ID", "45263396421")
+    monkeypatch.setenv("RUN_ATTEMPT", "1")
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    assert retry.main() == 0
+    assert seen == [{"id": 45263396421, "run_attempt": 1}]
 
 
 class FakeConnection:
@@ -302,16 +321,67 @@ def test_a_broken_answer_is_the_same_kind_of_error(retry: ModuleType, monkeypatc
     assert fake.closed is True
 
 
-def test_the_workflow_takes_nothing_from_the_run_it_reads() -> None:
-    """The workflow runs on a schedule with a narrow token and no workflow_run trigger."""
+def workflow_code() -> str:
+    """Return the workflow without its comment lines."""
     text = WORKFLOW.read_text(encoding="utf-8")
-    code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
-    assert "workflow_run" not in code
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
+def test_the_workflow_reacts_when_ci_completes() -> None:
+    """The retry is started by the completion of CI; the schedule is only a fallback."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    triggers = workflow[True] if True in workflow else workflow["on"]
+    assert triggers["workflow_run"] == {"workflows": ["CI"], "types": ["completed"]}
+    assert "schedule" in triggers
+    assert "workflow_dispatch" in triggers
+    condition = " ".join(str(workflow["jobs"]["retry"]["if"]).split())
+    assert "github.event.workflow_run.conclusion == 'failure'" in condition
+    assert "github.repository == 'IvanSkainet/arena-agent'" in condition
+
+
+def test_the_workflow_takes_nothing_from_the_run_it_reads() -> None:
+    """The three points that make the workflow_run trigger safe here."""
+    code = workflow_code()
+    # 1. Default-branch code only: the checkout names no ref and keeps no credentials.
+    assert "ref:" not in code
+    assert "persist-credentials: false" in code
+    # 2. Nothing is downloaded from the triggering run.
+    assert "download-artifact" not in code
     assert "pull_request" not in code
-    assert "schedule:" in code
+    # 3. Three values of the event are read, and none is pasted into a script.
+    assert set(re.findall(r"github\.event\.workflow_run\.(\w+)", code)) == {"id", "run_attempt", "conclusion"}
+    script = code[code.index("        run: python3"):]
+    assert "${{" not in script
+    assert "python3 .github/scripts/retry_never_started.py" in script
+
+
+def test_the_workflow_token_is_narrow() -> None:
+    """The job can re-run jobs and read checks; it cannot write to the repository."""
+    code = workflow_code()
     assert "permissions: {}" in code
     assert "actions: write" in code
     assert "contents: write" not in code
-    assert "persist-credentials: false" in code
     assert "egress-policy: block" in code
-    assert "python3 .github/scripts/retry_never_started.py" in code
+
+
+def test_a_named_run_is_the_only_one_looked_at(retry: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Started by a CI run, the script looks at that run and does not scan."""
+    monkeypatch.setattr(retry, "recent_failed_runs", lambda *_: pytest.fail("scanned"))
+    runs = retry.runs_to_look_at("o/r", "t", {"RUN_ID": "45263396421", "RUN_ATTEMPT": "2"})
+    assert runs == [{"id": 45263396421, "run_attempt": 2}]
+
+
+@pytest.mark.parametrize("environ", [{}, {"RUN_ID": ""}, {"RUN_ID": "  ", "RUN_ATTEMPT": ""}])
+def test_without_a_named_run_the_script_scans(
+    retry: ModuleType, monkeypatch: pytest.MonkeyPatch, environ: dict[str, str],
+) -> None:
+    """On a schedule or a manual start the event names no run."""
+    monkeypatch.setattr(retry, "recent_failed_runs", lambda *_: [{"id": 9, "run_attempt": 1}])
+    assert retry.runs_to_look_at("o/r", "t", environ) == [{"id": 9, "run_attempt": 1}]
+
+
+@pytest.mark.parametrize("named", ["7/../../x", "7?x=1", "abc", "7 8"])
+def test_a_run_id_that_is_not_a_number_is_refused(retry: ModuleType, named: str) -> None:
+    """Only a number can become part of a request path."""
+    with pytest.raises(ValueError):
+        retry.runs_to_look_at("o/r", "t", {"RUN_ID": named, "RUN_ATTEMPT": "1"})
