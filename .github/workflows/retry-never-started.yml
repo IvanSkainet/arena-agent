@@ -11,15 +11,39 @@
 #   * never when any job ran and failed;
 #   * at most two retries per run.
 #
-# Why a schedule and not workflow_run: workflow_run would react at once, but
-# zizmor reports it as a dangerous trigger, and this repository suppresses no
-# zizmor finding. A schedule takes nothing from the run it looks at except
-# what the API returns, and the price is a delay of up to one tick.
+# Two triggers, one behaviour.
+#
+# workflow_run fires when a CI run completes. This is the one that matters:
+# a pull request waiting to merge needs the retry within minutes.
+#
+# The schedule is a fallback. It was the only trigger at first, on the
+# assumption that it costs a delay of one tick. That assumption was wrong
+# for this repository: scheduled workflows here start 7.5 to 11 hours after
+# their cron time (#565), and in its first hours the schedule never fired.
+#
+# Either way the script does the same thing: it lists the CI runs that
+# failed recently and looks at each. The event is only a wake-up call.
+#
+# Why workflow_run is safe here, although zizmor reports the trigger:
+#   * the job checks out the default branch, never the code of the run that
+#     triggered it;
+#   * it downloads no artifact from that run;
+#   * it reads one value from the event, the conclusion, and only in the
+#     job's `if`. Nothing from the event reaches the script.
+# tests/test_retry_never_started.py holds the workflow to these three points.
+#
+# One copy at a time. Two copies looking at the same run could each re-run
+# it and pass the limit on attempts. All starts share one concurrency group.
+# GitHub keeps one waiting start per group and drops the older waiting ones;
+# that loses nothing, because every start looks at every recent failed run.
 name: Retry jobs GitHub never started
 
 on:
+  workflow_run:  # zizmor: ignore[dangerous-triggers] default-branch code only, no artifacts; see the comment above
+    workflows: ["CI"]
+    types: [completed]
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    - cron: "37 * * * *"
   workflow_dispatch:
 
 permissions: {}
@@ -31,7 +55,11 @@ concurrency:
 jobs:
   retry:
     name: Re-run CI runs whose jobs were never started
-    if: github.repository == 'IvanSkainet/arena-agent'
+    # Only a failed CI run is worth waking up for. A run that a person
+    # cancelled ends with 'cancelled', a good one with 'success'.
+    if: >-
+      github.repository == 'IvanSkainet/arena-agent' &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'failure')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

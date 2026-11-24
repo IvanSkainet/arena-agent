@@ -10,6 +10,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
+import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / ".github" / "scripts" / "retry_never_started.py"
@@ -216,6 +217,18 @@ def test_a_quiet_tick_succeeds(retry: ModuleType, monkeypatch: pytest.MonkeyPatc
     assert retry.main() == 0
 
 
+def test_a_list_that_cannot_be_read_fails_the_job(retry: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An API error while listing the failed runs is reported, not raised as a traceback."""
+    def refuse(*_: object) -> None:
+        raise OSError("HTTP Error 502: Bad Gateway")
+
+    monkeypatch.setattr(retry, "recent_failed_runs", refuse)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    monkeypatch.setenv("GH_TOKEN", "t")
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    assert retry.main() == 1
+
+
 class FakeConnection:
     """Stand in for the HTTPS connection and remember what was asked of it."""
 
@@ -302,16 +315,66 @@ def test_a_broken_answer_is_the_same_kind_of_error(retry: ModuleType, monkeypatc
     assert fake.closed is True
 
 
-def test_the_workflow_takes_nothing_from_the_run_it_reads() -> None:
-    """The workflow runs on a schedule with a narrow token and no workflow_run trigger."""
+def workflow_code() -> str:
+    """Return the workflow without its comment lines."""
     text = WORKFLOW.read_text(encoding="utf-8")
-    code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
-    assert "workflow_run" not in code
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
+def test_the_workflow_reacts_when_ci_completes() -> None:
+    """The retry is started by the completion of CI; the schedule is only a fallback."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    triggers = workflow[True] if True in workflow else workflow["on"]
+    assert triggers["workflow_run"] == {"workflows": ["CI"], "types": ["completed"]}
+    assert "schedule" in triggers
+    assert "workflow_dispatch" in triggers
+    condition = " ".join(str(workflow["jobs"]["retry"]["if"]).split())
+    assert "github.event.workflow_run.conclusion == 'failure'" in condition
+    assert "github.repository == 'IvanSkainet/arena-agent'" in condition
+
+
+def test_the_workflow_takes_nothing_from_the_run_it_reads() -> None:
+    """The three points that make the workflow_run trigger safe here."""
+    code = workflow_code()
+    # 1. Default-branch code only: the checkout names no ref and keeps no credentials.
+    assert "ref:" not in code
+    assert "persist-credentials: false" in code
+    # 2. Nothing is downloaded from the triggering run.
+    assert "download-artifact" not in code
     assert "pull_request" not in code
-    assert "schedule:" in code
+    # 3. One value of the event is read, in the job condition, and nothing reaches the script.
+    assert set(re.findall(r"github\.event\.workflow_run\.(\w+)", code)) == {"conclusion"}
+    script = code[code.index("        run: python3"):]
+    assert "${{" not in script
+    assert "python3 .github/scripts/retry_never_started.py" in script
+
+
+def test_the_workflow_token_is_narrow() -> None:
+    """The job can re-run jobs and read checks; it cannot write to the repository."""
+    code = workflow_code()
     assert "permissions: {}" in code
     assert "actions: write" in code
     assert "contents: write" not in code
-    assert "persist-credentials: false" in code
     assert "egress-policy: block" in code
-    assert "python3 .github/scripts/retry_never_started.py" in code
+
+
+def test_the_jobs_are_read_for_the_attempt_that_is_decided_on(
+    retry: ModuleType, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The attempt number is in the request path, so jobs and limit describe the same attempt."""
+    asked: list[str] = []
+
+    def call(path: str, _token: str) -> dict[str, list[object]]:
+        asked.append(path)
+        return {"jobs": []}
+
+    monkeypatch.setattr(retry, "call", call)
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    assert retry.handle("o/r", {"id": 77, "run_attempt": 2}, "t") is False
+    assert asked == ["/repos/o/r/actions/runs/77/attempts/2/jobs?per_page=100&page=1"]
+
+
+def test_only_one_copy_runs_at_a_time() -> None:
+    """Every start shares one concurrency group, and a running copy is not cancelled."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    assert workflow["concurrency"] == {"group": "retry-never-started", "cancel-in-progress": False}
