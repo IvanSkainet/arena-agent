@@ -1,9 +1,7 @@
-"""A reader that has a state file open for a moment must not cost its next version (#581).
-
-Windows refuses to replace a file while another handle has it open. The final
-`meta.json` of a detached subagent was published exactly once, so a status poll
-at that moment left the run "spawned" for good while its monitor was gone.
-"""
+"""A reader that has a state file open for a moment must not cost its next version (#581)."""
+# Windows refuses to replace a file while another handle has it open. The final
+# `meta.json` of a detached subagent was published exactly once, so a status poll
+# at that moment left the run "spawned" for good while its monitor was gone.
 from __future__ import annotations
 
 import json
@@ -24,8 +22,8 @@ def _held_open(winerror: int) -> PermissionError:
     return refusal
 
 
-@pytest.fixture
-def clock(monkeypatch):
+@pytest.fixture(name="clock")
+def _clock(monkeypatch):
     """Replace the module's clock: a pause moves time forward and is recorded."""
     state = types.SimpleNamespace(now=100.0, pauses=[])
 

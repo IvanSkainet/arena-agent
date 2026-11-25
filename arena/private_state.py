@@ -93,13 +93,11 @@ def _publish(staged: Path, target: Path, replace: bool, parent_fd: int | None) -
 
 
 def _replace_once_released(source: Any, destination: Any, **kwargs: Any) -> None:
-    """Replace a file that a reader may have open for a moment (#581).
-
-    Windows refuses to replace a file while any other handle has it open, so
-    one status poll at the wrong moment lost the final state of a run for
-    good. A refusal of that kind is tried again for a bounded time; every
-    other error, and a file still held at the limit, is raised unchanged.
-    """
+    """Replace a file that a reader may have open for a moment (#581)."""
+    # Windows refuses to replace a file while any other handle has it open, so
+    # one status poll at the wrong moment lost the final state of a run for
+    # good. A refusal of that kind is tried again for a bounded time; every
+    # other error, and a file still held at the limit, is raised unchanged.
     deadline = time.monotonic() + _HELD_OPEN_PATIENCE
     pause = 0.005
     while True:
