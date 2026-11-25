@@ -53,6 +53,7 @@ from arena.exec.interpreters import (
     interpreter_runs_here,
 )
 from arena.exec.ndjson_stream import (
+    close_command_stream,
     prepared_ndjson_response,
     record_stream_outcome,
 )
@@ -476,9 +477,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 except Exception:
                     pass
         finally:
-            if stream is not None:
-                await stream.aclose()
-            slot.release()
+            await close_command_stream(stream, slot)
             if response is not None:
                 try:
                     await response.write_eof()

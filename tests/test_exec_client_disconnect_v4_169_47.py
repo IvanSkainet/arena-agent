@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import inspect
+import io
 import json
 import os
 import sys
@@ -10,12 +12,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import psutil
 import pytest
 from aiohttp import web
-from aiohttp.test_utils import TestServer
 
 from arena.app_keys import APP_CFG
-from arena.exec import runner
+from arena.exec import handlers as exec_handlers, runner
 from arena.exec.client_lifecycle import (
     ClientDisconnected,
     await_while_client_connected,
@@ -115,7 +117,11 @@ def test_request_without_transport_keeps_direct_call_semantics() -> None:
     asyncio.run(scenario())
 
 
-def _context(events: list[dict]) -> ExecHandlerContext:
+def _decode(data: bytes) -> str:
+    return data.decode("utf-8", "replace")
+
+
+def _context(events: list[dict], decode_output=_decode) -> ExecHandlerContext:
     return ExecHandlerContext(
         require_auth=lambda _request: None,
         record_request=lambda **_kwargs: None,
@@ -126,7 +132,7 @@ def _context(events: list[dict]) -> ExecHandlerContext:
         is_input_injection_cmd=lambda _cmd: None,
         first_word=lambda cmd: cmd.split()[0],
         under_root=lambda path, root: Path(path).is_relative_to(Path(root)),
-        decode_output=lambda data: data.decode("utf-8", "replace"),
+        decode_output=decode_output,
         run_shell_command=runner.run_shell_command,
         active_processes=runner.ACTIVE_PROCESSES,
         active_processes_snapshot=runner.active_processes_snapshot,
@@ -135,39 +141,124 @@ def _context(events: list[dict]) -> ExecHandlerContext:
     )
 
 
-async def _wait_until(predicate, timeout: float = 15.0) -> None:
+async def _wait_until(predicate, timeout: float = 15.0, stuck=None) -> None:
     # Hosted macOS process startup can exceed five seconds under matrix load.
     # The invariant is eventual registration/reaping before the 30s command
     # timeout, not a scheduler-speed assertion.
     deadline = asyncio.get_running_loop().time() + timeout
     while not predicate():
         if asyncio.get_running_loop().time() >= deadline:
-            raise AssertionError("condition did not become true")
+            raise AssertionError("condition did not become true" + (f"\n{stuck()}" if stuck else ""))
         await asyncio.sleep(0.01)
 
 
+def _recording(handler, seen: dict):
+    """Wrap a handler so a wait that gives up can say what became of it."""
+    async def run(request: web.Request) -> web.StreamResponse:
+        seen["transport"] = request.transport
+        seen["task"] = asyncio.current_task()
+        try:
+            return await handler(request)
+        except BaseException as exc:
+            # aiohttp logs a cancelled handler at debug level only.
+            seen["raised"] = repr(exc)
+            raise
+
+    return run
+
+
+def _stuck(seen: dict, events: list[dict], cfg: dict, request_id: str) -> str:
+    """Describe the server side of a wait that gave up (#571)."""
+    entry = runner.ACTIVE_PROCESSES.get(request_id)
+    transport = seen.get("transport")
+    out = io.StringIO()
+    out.write(f"active_exec: {cfg['active_exec']}\n")
+    out.write(f"ACTIVE_PROCESSES entry: {entry!r}\n")
+    out.write(f"pid alive: {psutil.pid_exists(entry['pid']) if entry else None}\n")
+    out.write(f"server transport closing: {transport.is_closing() if transport else None}\n")
+    out.write(f"handler task: {seen.get('task')!r}\n")
+    out.write(f"handler raised: {seen.get('raised')}\n")
+    out.write(f"audit: {[event['type'] for event in events]}\n")
+    for task in asyncio.all_tasks():
+        out.write(f"--- {task!r}\n")
+        task.print_stack(limit=6, file=out)
+    return out.getvalue()
+
+
+def test_a_wait_that_gives_up_describes_the_server_side() -> None:
+    async def scenario() -> None:
+        stuck = functools.partial(_stuck, {}, [{"type": "exec_stream_start"}], {"active_exec": 1}, "no-such-request")
+        with pytest.raises(AssertionError) as failure:
+            await _wait_until(bool, timeout=0, stuck=stuck)
+        message = str(failure.value)
+        assert "active_exec: 1" in message
+        assert "ACTIVE_PROCESSES entry: None" in message
+        assert "audit: ['exec_stream_start']" in message
+        # The stack of the task that waited.
+        assert "in scenario" in message
+
+    asyncio.run(scenario())
+
+
+def _config(root: Path) -> dict:
+    return {
+        "profile": "owner-shell",
+        "root": root,
+        "active_exec": 0,
+        "max_concurrent": 1,
+        "timeout": 30,
+        "max_timeout": 30,
+        "max_output": 100_000,
+        "allow_any_cwd": False,
+        "semaphore": asyncio.Semaphore(1),
+    }
+
+
+async def _serve(app: web.Application, *, handler_cancellation: bool) -> tuple[web.AppRunner, int]:
+    # Not aiohttp's TestServer: it accepts `handler_cancellation` and ignores
+    # it, because its start_server always passes True. AppRunner honours it.
+    app_runner = web.AppRunner(app, handler_cancellation=handler_cancellation)
+    await app_runner.setup()
+    await web.TCPSite(app_runner, "127.0.0.1", 0).start()
+    return app_runner, app_runner.addresses[0][1]
+
+
+async def _post(port: int, body: bytes, headers: dict[str, str]) -> asyncio.StreamWriter:
+    _reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    header_lines = [
+        "POST /run HTTP/1.1",
+        f"Host: 127.0.0.1:{port}",
+        f"Content-Length: {len(body)}",
+        "Connection: keep-alive",
+        *(f"{key}: {value}" for key, value in headers.items()),
+        "",
+        "",
+    ]
+    writer.write("\r\n".join(header_lines).encode() + body)
+    await writer.drain()
+    return writer
+
+
+# The bridge runs aiohttp without handler cancellation, where only the explicit
+# watcher notices a lost client. With it, aiohttp also cancels the handler.
+@pytest.mark.parametrize("handler_cancellation", [False, True])
 @pytest.mark.parametrize("endpoint", ["buffered", "script", "stream"])
-def test_real_tcp_abort_reaps_exec_and_releases_handler(tmp_path: Path, endpoint: str) -> None:
+def test_real_tcp_abort_reaps_exec_and_releases_handler(
+    tmp_path: Path, endpoint: str, handler_cancellation: bool,
+) -> None:
     async def scenario() -> None:
         request_id = f"disconnect-{endpoint}"
         events: list[dict] = []
-        cfg = {
-            "profile": "owner-shell",
-            "root": tmp_path,
-            "active_exec": 0,
-            "max_concurrent": 1,
-            "timeout": 30,
-            "max_timeout": 30,
-            "max_output": 100_000,
-            "allow_any_cwd": False,
-            "semaphore": asyncio.Semaphore(1),
-        }
+        seen: dict = {}
+        cfg = _config(tmp_path)
         handlers = make_exec_handlers(_context(events))
+        endpoint_handler = {"buffered": handlers.exec, "script": handlers.script, "stream": handlers.stream}[endpoint]
+        stuck = functools.partial(_stuck, seen, events, cfg, request_id)
         app = web.Application()
         app[APP_CFG] = cfg
+        app.router.add_post("/run", _recording(endpoint_handler, seen))
         command = f'"{sys.executable}" -c "import time; time.sleep(30)"'
         if endpoint == "script":
-            app.router.add_post("/run", handlers.script)
             is_windows = os.name == "nt"
             body = b"Start-Sleep -Seconds 30\n" if is_windows else b"import time; time.sleep(30)\n"
             headers = {
@@ -176,7 +267,6 @@ def test_real_tcp_abort_reaps_exec_and_releases_handler(tmp_path: Path, endpoint
                 "X-Arena-Request-Id": request_id,
             }
         else:
-            app.router.add_post("/run", handlers.stream if endpoint == "stream" else handlers.exec)
             body = json.dumps({
                 "cmd": command,
                 "request_id": request_id,
@@ -184,39 +274,23 @@ def test_real_tcp_abort_reaps_exec_and_releases_handler(tmp_path: Path, endpoint
             }).encode()
             headers = {"Content-Type": "application/json"}
 
-        # Match Bridge server semantics: aiohttp does not cancel buffered
-        # handlers automatically when the peer drops.
-        server = TestServer(app, handler_cancellation=False)
-        await server.start_server()
-        port = server.port
-        reader, writer = await asyncio.open_connection("127.0.0.1", port)
-        del reader
-        header_lines = [
-            "POST /run HTTP/1.1",
-            f"Host: 127.0.0.1:{port}",
-            f"Content-Length: {len(body)}",
-            "Connection: keep-alive",
-            *(f"{key}: {value}" for key, value in headers.items()),
-            "",
-            "",
-        ]
-        writer.write("\r\n".join(header_lines).encode() + body)
-        await writer.drain()
-        await _wait_until(lambda: request_id in runner.ACTIVE_PROCESSES, timeout=45)
+        server, port = await _serve(app, handler_cancellation=handler_cancellation)
+        writer = await _post(port, body, headers)
+        await _wait_until(lambda: request_id in runner.ACTIVE_PROCESSES, timeout=45, stuck=stuck)
 
         # Under matrix load (see _wait_until above) hosted macOS/Windows runners can
         # exceed the default 15 s to tear down the killed tree (taskkill / tree-kill
         # plus the up to 5 s pipe drain). Bump the reaping waits to 45 s so a slow but
         # correct teardown is not reported as a timing flake.
         writer.transport.abort()
-        await _wait_until(lambda: request_id not in runner.ACTIVE_PROCESSES, timeout=45)
-        await _wait_until(lambda: cfg["active_exec"] == 0, timeout=45)
+        await _wait_until(lambda: request_id not in runner.ACTIVE_PROCESSES, timeout=45, stuck=stuck)
+        await _wait_until(lambda: cfg["active_exec"] == 0, timeout=45, stuck=stuck)
         assert cfg["semaphore"].locked() is False
         # Depending on aiohttp's handler-cancellation setting, cleanup is
         # reached either by the explicit watcher or by task cancellation.
         # Both must converge on the runner's process-tree-killing finally.
         assert events[0]["type"].endswith("start")
-        await server.close()
+        await server.cleanup()
 
     try:
         asyncio.run(scenario())
@@ -224,6 +298,51 @@ def test_real_tcp_abort_reaps_exec_and_releases_handler(tmp_path: Path, endpoint
         runner.ACTIVE_PROCESSES.clear()
         if endpoint == "script":
             assert not list((tmp_path / ".arena_script_tmp").glob("*"))
+
+
+def test_a_stream_handler_cancelled_while_it_closes_the_command_gives_the_slot_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#571: the cancellation lands in the generator's cleanup, not in the handler's wait."""
+    async def scenario() -> None:
+        cleaning = asyncio.Event()
+        seen: dict = {}
+
+        async def command(**_kwargs):
+            try:
+                yield {"type": "stdout", "data": b"output"}
+            finally:
+                # Stands for the kill and the wait for the exit.
+                cleaning.set()
+                await asyncio.Event().wait()
+
+        def undecodable(_data: bytes) -> str:
+            raise ValueError("the handler leaves its loop with the generator still open")
+
+        monkeypatch.setattr(exec_handlers, "run_shell_command_stream", command)
+        handlers = make_exec_handlers(_context([], decode_output=undecodable))
+
+        cfg = _config(tmp_path)
+        app = web.Application()
+        app[APP_CFG] = cfg
+        app.router.add_post("/run", _recording(handlers.stream, seen))
+        server, port = await _serve(app, handler_cancellation=False)
+        body = json.dumps({"cmd": "echo output", "request_id": "cancelled-in-cleanup"}).encode()
+        writer = await _post(port, body, {"Content-Type": "application/json"})
+        try:
+            await asyncio.wait_for(cleaning.wait(), timeout=15)
+            assert cfg["active_exec"] == 1
+            seen["task"].cancel()
+            await asyncio.wait([seen["task"]], timeout=15)
+            assert seen["task"].cancelled()
+            assert seen["raised"] == "CancelledError()"
+            assert cfg["active_exec"] == 0
+            assert cfg["semaphore"].locked() is False
+        finally:
+            writer.close()
+            await server.cleanup()
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("remote, expected_client", [("203.0.113.7", "203.0.113.7"), ("", "127.0.0.1")])

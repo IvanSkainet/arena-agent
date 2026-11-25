@@ -10,7 +10,7 @@ from aiohttp import web
 
 from arena.web_utils import CORS_HEADERS
 
-__all__ = ["prepared_ndjson_response", "record_stream_outcome"]
+__all__ = ["close_command_stream", "prepared_ndjson_response", "record_stream_outcome"]
 
 
 async def prepared_ndjson_response(
@@ -30,6 +30,19 @@ async def prepared_ndjson_response(
     response.enable_chunked_encoding()
     await response.prepare(request)
     return response
+
+
+async def close_command_stream(stream, slot) -> None:
+    """Close the runner's generator and give the exec slot back."""
+    # Closing kills a command that is still running and waits for its exit.
+    # The handler can be cancelled during that wait (#571), so the slot is
+    # released whatever happens to the close. `stream` is None when the
+    # handler failed before it started a command.
+    try:
+        if stream is not None:
+            await stream.aclose()
+    finally:
+        slot.release()
 
 
 def record_stream_outcome(ctx, exit_event: dict | None, *,
