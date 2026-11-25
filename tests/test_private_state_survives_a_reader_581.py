@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 import os
 import threading
-import time
 import types
 
 import pytest
@@ -132,16 +131,17 @@ def test_windows_publishes_over_a_file_a_reader_closes_shortly_after(tmp_path):
     release = threading.Timer(0.3, reader.close)
     release.start()
     try:
-        started = time.monotonic()
         private_state.write_private_json(target, {"status": "timeout"})
-        waited = time.monotonic() - started
+        # No clock: Windows refuses the replace for as long as the reader is
+        # open, so publication can only have returned after the release.
+        released_first = reader.closed
     finally:
         release.cancel()
         reader.close()
         release.join()
 
+    assert released_first
     assert json.loads(target.read_text()) == {"status": "timeout"}
-    assert waited >= 0.2
     assert list(tmp_path.glob("*.tmp")) == []
 
 
