@@ -39,8 +39,10 @@ class _RaceLog:
         if not self.scans:
             return "\n".join([*lines, "files whose scan began: 0"])
         name, at = self.scans[-1]
-        lines.append(f"files whose scan began: {len(self.scans)}; "
-                     f"last: {name}, began at {at:.1f}s ({elapsed - at:.1f}s before this report)")
+        lines.append(
+            f"files whose scan began: {len(self.scans)}; "
+            f"last: {name}, began at {at:.1f}s ({elapsed - at:.1f}s before this report)"
+        )
         return "\n".join(lines)
 
 
