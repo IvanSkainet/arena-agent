@@ -76,12 +76,16 @@ class FakeProcess:
         self.stdout: Any = None
         self.stderr: Any = None
         self.reading = asyncio.Event()
+        self.reaping: asyncio.Event | None = None
 
     def kill(self) -> None:
         self.events.append(("kill",))
         self.returncode = -9
 
     async def wait(self) -> int:
+        if self.reaping is not None:  # a test wants the exit wait to hang
+            self.reaping.set()
+            await asyncio.Event().wait()
         self.returncode = -9 if self.returncode is None else self.returncode
         return self.returncode
 
@@ -175,6 +179,26 @@ def test_a_cancelled_command_is_killed_through_its_job(tmp_path, monkeypatch) ->
     _nothing_left("cancelled")
 
 
+def test_a_second_cancellation_during_cleanup_still_releases_the_job(tmp_path, monkeypatch) -> None:
+    events, made = _harness(monkeypatch, hangs=True)
+
+    async def scenario() -> None:
+        task = asyncio.create_task(_buffered(tmp_path, "cancelled-twice"))
+        while not made:
+            await asyncio.sleep(0)
+        await made[0].reading.wait()
+        made[0].reaping = asyncio.Event()
+        task.cancel()
+        await made[0].reaping.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+    assert events[-1] == ("close",)
+    _nothing_left("cancelled-twice")
+
+
 def test_cancellation_after_the_first_process_exited_still_kills_the_rest(tmp_path, monkeypatch) -> None:
     # The shell has exited; something it started still holds the output pipes.
     events, made = _harness(monkeypatch, hangs=True)
@@ -226,6 +250,31 @@ def test_a_stream_that_completed_leaves_its_job_disarmed(tmp_path, monkeypatch) 
     assert seen[-1]["type"] == "exit" and seen[-1]["timed_out"] is False
     assert events[3:] == [("disarm",), ("close",)]
     _nothing_left("stream-completed")
+
+
+def test_a_stream_whose_output_could_not_be_read_is_not_completed(tmp_path, monkeypatch) -> None:
+    events, made = _harness(monkeypatch)
+
+    class BrokenPipe:
+        async def read(self, _size: int) -> bytes:
+            raise OSError("the pipe broke")
+
+    async def scenario() -> list[dict]:
+        stream = _stream(tmp_path, "stream-broken")
+        seen = [await anext(stream)]
+        reader = asyncio.StreamReader()
+        reader.feed_eof()
+        made[0].stdout, made[0].stderr = BrokenPipe(), reader
+        made[0].returncode = 0
+        seen.extend([event async for event in stream])
+        return seen
+
+    seen = asyncio.run(scenario())
+    assert seen[-1]["type"] == "exit" and seen[-1]["timed_out"] is False
+    # The shell exited by itself, but nobody knows what it wrote: nothing it
+    # started is left running.
+    assert events[3:] == [("terminate",), ("close",)]
+    _nothing_left("stream-broken")
 
 
 def test_a_command_that_cannot_be_held_is_not_run(tmp_path, monkeypatch) -> None:

@@ -111,6 +111,22 @@ def _release_job(proc: Any, completed: bool) -> None:
     _quietly(job.disarm if completed else job.terminate, job.close)
 
 
+async def _end_command(proc: Any, request_id: str, completed: bool) -> None:
+    """Leave nothing of an unfinished command running, and forget the command."""
+    try:
+        await _terminate_if_running(proc)
+    finally:
+        # A second cancellation can interrupt the wait above. The job and the
+        # bookkeeping are released whatever happens to it.
+        _release_job(proc, completed)
+        ACTIVE_PROCESSES.pop(request_id, None)
+
+
+def _read_to_the_end(pumps: list[asyncio.Task]) -> bool:
+    """Whether every output pump finished and none of them failed."""
+    return all(pump.done() and not pump.cancelled() and pump.exception() is None for pump in pumps)
+
+
 def _kill_process_tree(proc: Any) -> None:
     """Kill the child and everything it started. Never raises.
 
@@ -321,9 +337,7 @@ async def run_shell_command(
         # A timeout is not the only abnormal exit: bridge shutdown, client
         # disconnect, and task cancellation all unwind through here. Before
         # v4.169.44 those paths removed bookkeeping but left the OS process.
-        await _terminate_if_running(proc)
-        _release_job(proc, completed)
-        ACTIVE_PROCESSES.pop(request_id, None)
+        await _end_command(proc, request_id, completed)
 
 
 async def _pump_stream_output(stream: asyncio.StreamReader, tag: str, queue: asyncio.Queue) -> None:
@@ -411,7 +425,7 @@ async def run_shell_command_stream(
 
         await _finish_stream_pumps(proc, [stdout_task, stderr_task], timed_out)
         exit_code = await _wait_for_exit(proc)
-        completed = not timed_out
+        completed = not timed_out and _read_to_the_end([stdout_task, stderr_task])
 
         duration = round(time.time() - t0, 3)
         yield {
@@ -425,10 +439,10 @@ async def run_shell_command_stream(
             "error": f"timeout after {timeout}s" if timed_out else None,
         }
     finally:
-        await _terminate_if_running(proc)
-        _release_job(proc, completed)
-        await _stop_reading(proc, [stdout_task, stderr_task])
-        ACTIVE_PROCESSES.pop(request_id, None)
+        try:
+            await _end_command(proc, request_id, completed)
+        finally:
+            await _stop_reading(proc, [stdout_task, stderr_task])
 
 
 def active_processes_snapshot(*, max_cmd_len: int = 200) -> list[dict[str, Any]]:
