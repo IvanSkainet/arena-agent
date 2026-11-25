@@ -57,7 +57,11 @@ from tests._worker_arena_leaks import (
 
 # #376: programs installed on the machine count as absent during tests.
 # Each xdist worker also gets per-user and temporary directories of its own.
-pytest_plugins = ("tests._host_process_guard", "tests._worker_directories")
+pytest_plugins = (
+    "tests._host_process_guard",
+    "tests._worker_directories",
+    "tests._post_update_marker",
+)
 
 _ALLOW_MARKER = "allow_network"
 

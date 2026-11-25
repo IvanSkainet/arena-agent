@@ -103,6 +103,11 @@ Keep the same source tree, dependencies and seed for sequential comparisons.
 - A barrier-controlled scanner test reproduces the deletion race with shared
   temporary inputs and proves that separate writer inputs avoid it. No sleep is
   used to choose the interleaving and the checkout is never used as sabotage data.
+- A test that leaves `<home>/update/post-update-smoke-pending.json` in a home
+  other tests share fails by name and the marker is removed
+  (`tests/_post_update_marker.py`). The marker tells the next bridge that starts
+  to run the ship smoke; left behind, it made that smoke run on an executor
+  thread under unrelated tests (#518, #534, #555, #587).
 
 ## Measured result and limits
 
