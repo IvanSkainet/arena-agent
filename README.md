@@ -244,6 +244,17 @@ server. Recent live scenarios proved the bridge can grow new hands at runtime:
   server stops responding, it is stopped and the bridge HTTP event loop remains
   responsive. This was added after Desktop-Commander froze an older bridge hard
   enough to require reinstalling the service.
+- **A Windows command that does not complete leaves nothing running.** Every
+  `/v1/exec` command runs inside a Job Object. A timeout, a cancelled request
+  or a closed stream terminates the whole job, including a program the shell
+  started and then exited without; a bridge that dies takes its running
+  commands with it. What a command starts stays up only if the command
+  completes: `start "" app` hands the command's output pipes to the app, so
+  the request waits for the app and kills it at the timeout. Start it without
+  the pipes (`Start-Process`) and the command completes and the app stays; a
+  process created outside the command (WMI `Win32_Process.Create`) is not part
+  of it at all. A program inside the job that asks for
+  `CREATE_BREAKAWAY_FROM_JOB` is refused with access denied.
 - **Agent-authored code runs under operator posture.** On Windows, fenced
   `code.run` engages AppContainer with no capabilities, grants only scratch
   modify + runtime read/execute, captures stdout/stderr, denies outbound TCP,

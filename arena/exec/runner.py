@@ -16,10 +16,17 @@ import signal
 import subprocess
 import sys
 import time
+import weakref
 from pathlib import Path
 from typing import Any, AsyncGenerator, Callable
 
+from arena.exec import win_job
+
 ACTIVE_PROCESSES: dict[str, dict[str, Any]] = {}
+
+# The Job Object of each Windows command that is still being cleaned up after.
+_JOBS: weakref.WeakKeyDictionary[Any, Any] = weakref.WeakKeyDictionary()
+_CREATE_SUSPENDED = 0x00000004
 
 
 def _process_group_kwargs() -> dict[str, Any]:
@@ -35,15 +42,91 @@ def _process_group_kwargs() -> dict[str, Any]:
     return {"start_new_session": True}
 
 
+def _new_job() -> Any:
+    """The job a Windows command runs in; None where a process group does that work."""
+    if sys.platform != "win32":
+        return None
+    return win_job.CommandJob.create()
+
+
+def _job_of(proc: Any) -> Any:
+    try:
+        return _JOBS.get(proc)
+    except TypeError:  # cannot be weakly referenced, so it was never registered
+        return None
+
+
+def _quietly(*steps: Callable[[], None]) -> bool:
+    """Run cleanup steps that must not raise; report whether all of them worked."""
+    worked = True
+    for step in steps:
+        try:
+            step()
+        except OSError:
+            worked = False
+    return worked
+
+
+async def _spawn_shell(cmd: str, cwd: Path, env: dict[str, str]) -> Any:
+    """Start the command. On Windows it starts inside a job it cannot leave.
+
+    The process is created suspended, put into the job and only then allowed
+    to run, so nothing it starts can be outside the job. A command that
+    cannot be held is not run at all: letting it run would bring back the
+    survivors this exists to prevent, and would do it silently.
+    """
+    job = _new_job()
+    kwargs = _process_group_kwargs()
+    if job is not None:
+        kwargs["creationflags"] = kwargs.get("creationflags", 0) | _CREATE_SUSPENDED
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            cmd, cwd=str(cwd), env=env,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, **kwargs)
+    except BaseException:
+        if job is not None:
+            _quietly(job.close)
+        raise
+    if job is None:
+        return proc
+    try:
+        # No await between the spawn and here: a cancellation that arrived in
+        # between would leave a suspended process that nothing owns.
+        job.hold(proc.pid)
+    except OSError:
+        _quietly(proc.kill, job.close)
+        await _wait_for_exit(proc)
+        await _release_pipes(proc)
+        raise
+    _JOBS[proc] = job
+    return proc
+
+
+def _release_job(proc: Any, completed: bool) -> None:
+    """The command is over. Whatever it left running stays if it completed, dies if not."""
+    job = _job_of(proc)
+    if job is None:
+        return
+    del _JOBS[proc]
+    # A job that cannot be disarmed is closed armed: that kills what is left,
+    # which is the safer of the two mistakes.
+    _quietly(job.disarm if completed else job.terminate, job.close)
+
+
 def _kill_process_tree(proc: Any) -> None:
     """Kill the child and everything it started. Never raises.
 
     ``CREATE_NEW_PROCESS_GROUP`` does not make ``Process.kill()`` recursive on
     Windows. v4.169.43 proved that live: a timed-out ``cmd.exe`` died while its
     PowerShell child kept serializing diagnostic objects for three hours,
-    reaching 44.5 GiB private bytes. ``taskkill /T`` is the Windows tree-kill
-    primitive; the direct kill remains the race/failure fallback.
+    reaching 44.5 GiB private bytes. ``taskkill /T`` kills the tree it finds
+    when it looks, so a command started by this module is killed through its
+    Job Object instead (#516). ``taskkill /T`` remains for a process that has
+    no job, and the direct kill remains the fallback for both.
     """
+    job = _job_of(proc)
+    if job is not None and _quietly(job.terminate):
+        return
     pid = getattr(proc, "pid", None)
     if pid:
         killer = _kill_windows_tree if sys.platform == "win32" else _kill_posix_group
@@ -206,18 +289,16 @@ async def run_shell_command(
     """Run a shell command, track active process, decode/truncate output."""
     t0 = time.time()
     timed_out = False
+    # Completed means the command ended by itself and its output was read to
+    # the end. Anything else -- timeout, cancellation, a failure in here --
+    # leaves nothing of the command running.
+    completed = False
     proc: asyncio.subprocess.Process | None = None
     try:
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
-            cwd=str(cwd),
-            env=env,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            **_process_group_kwargs(),
-        )
+        proc = await _spawn_shell(cmd, cwd, env)
         ACTIVE_PROCESSES[request_id] = {"cmd": cmd, "pid": proc.pid, "start": time.time()}
         stdout_bytes, stderr_bytes, timed_out = await _buffered_output(proc, timeout)
+        completed = not timed_out
         exit_code = proc.returncode if proc.returncode is not None else -1
 
         duration = round(time.time() - t0, 3)
@@ -243,6 +324,7 @@ async def run_shell_command(
         # disconnect, and task cancellation all unwind through here. Before
         # v4.169.44 those paths removed bookkeeping but left the OS process.
         await _terminate_if_running(proc)
+        _release_job(proc, completed)
         ACTIVE_PROCESSES.pop(request_id, None)
 
 
@@ -293,19 +375,13 @@ async def run_shell_command_stream(
     """
     t0 = time.time()
     timed_out = False
+    completed = False
     budget = _StreamBudget(max_output)
     proc: asyncio.subprocess.Process | None = None
     stdout_task: asyncio.Task | None = None
     stderr_task: asyncio.Task | None = None
     try:
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
-            cwd=str(cwd),
-            env=env,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            **_process_group_kwargs(),
-        )
+        proc = await _spawn_shell(cmd, cwd, env)
         ACTIVE_PROCESSES[request_id] = {"cmd": cmd, "pid": proc.pid, "start": time.time()}
         yield {"type": "start", "pid": proc.pid}
 
@@ -337,6 +413,7 @@ async def run_shell_command_stream(
 
         await _finish_stream_pumps(proc, [stdout_task, stderr_task], timed_out)
         exit_code = await _wait_for_exit(proc)
+        completed = not timed_out
 
         duration = round(time.time() - t0, 3)
         yield {
@@ -351,6 +428,7 @@ async def run_shell_command_stream(
         }
     finally:
         await _terminate_if_running(proc)
+        _release_job(proc, completed)
         await _stop_reading(proc, [stdout_task, stderr_task])
         ACTIVE_PROCESSES.pop(request_id, None)
 
