@@ -1,14 +1,19 @@
 """Detached subagent supervision using the same owned task lease as the bridge."""
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess  # nosec B404 -- fixed interpreter launches the private owned task worker
 import sys
 import time
+import traceback
 from pathlib import Path
 
 from arena.private_state import write_private_json
+
+MONITOR_LOG = "monitor-error.log"
+_ACTIVE = frozenset({"running", "spawned"})
 
 
 def output_tail(path: Path, lines: int) -> str:
@@ -81,5 +86,40 @@ def run(directory: Path) -> dict:
     return summary
 
 
+def supervise(directory: Path) -> dict:
+    """Run the command; a failure of the supervision itself is recorded, then raised (#602)."""
+    try:
+        return run(directory)
+    except Exception as failure:
+        _record_failure(directory, failure)
+        raise
+
+
+def _record_failure(directory: Path, failure: Exception) -> None:
+    # A detached monitor has no stderr anyone reads, and a run it abandons
+    # would look active for good: `rm` and `prune` refuse an active run.
+    # Leave the traceback in the run directory and end the run as failed.
+    notes = ["".join(traceback.format_exception(type(failure), failure, failure.__traceback__))]
+    error = f"monitor failed: {failure!r}"[:500]
+    # meta.json last, as in run(): it is the file that says a run has ended.
+    for name in ("summary.json", "meta.json"):
+        try:
+            _end_as_failed(directory / name, error)
+        except FileNotFoundError:
+            continue  # A waiting run has no summary yet; nothing to correct.
+        except (OSError, ValueError, AttributeError) as second:
+            notes.append(f"{name} could not be updated: {second!r}\n")
+    with contextlib.suppress(OSError), _private_output(directory / MONITOR_LOG) as log:
+        log.write("".join(notes).encode("utf-8", errors="replace"))
+
+
+def _end_as_failed(path: Path, error: str) -> None:
+    state = json.loads(path.read_text(encoding="utf-8"))
+    if state.get("status") not in _ACTIVE:
+        return  # Already ended: what was recorded stays.
+    state.update(status="fail", error=error)
+    write_private_json(path, state)
+
+
 if __name__ == "__main__":
-    run(Path(sys.argv[1]))
+    supervise(Path(sys.argv[1]))

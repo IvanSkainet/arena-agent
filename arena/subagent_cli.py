@@ -63,13 +63,13 @@ def _output_tail(path: Path, lines: int) -> str:
 
 
 def _run_waiting(sd: Path, env: dict[str, str]) -> dict:
-    from arena.subagent_lifecycle import run
+    from arena.subagent_lifecycle import supervise
 
     # Apply the same identity environment as a detached monitor.
     previous = {key: os.environ.get(key) for key in ("ARENA_SUBAGENT_ID", "ARENA_SUBAGENT_NAME", "ARENA_AGENT_HOME")}
     try:
         os.environ.update({key: env[key] for key in previous})
-        return run(sd)
+        return supervise(sd)
     finally:
         for key, value in previous.items():
             if value is None:

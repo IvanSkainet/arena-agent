@@ -1,0 +1,172 @@
+"""A subagent monitor that fails says so in the run directory and ends the run (#602)."""
+# The detached monitor is started with stdout and stderr discarded. When it
+# died, nothing recorded why, and the run stayed "spawned": `rm` and `prune`
+# refuse an active run, so it could not even be cleaned up.
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from types import SimpleNamespace
+
+import pytest
+
+from arena import subagent_lifecycle as lifecycle
+
+ERROR = "monitor failed: RuntimeError('the disk went away')"
+
+
+@pytest.fixture(name="run_dir")
+def _run_dir(tmp_path):
+    """Build a run directory the way `spawn` leaves it for a detached monitor."""
+    directory = tmp_path / "subagents" / "0123456789"
+    directory.mkdir(parents=True)
+    _write(directory / "meta.json", {
+        "id": "0123456789", "name": "probe", "cmd": "true", "timeout": 5,
+        "wait": False, "status": "spawned", "cwd": str(tmp_path), "max_out": 10,
+    })
+    _write(directory / "summary.json", {"id": "0123456789", "name": "probe", "status": "spawned", "exit": None})
+    return directory
+
+
+@pytest.fixture(name="failing_run")
+def _failing_run(monkeypatch):
+    """Make the supervised run raise, as a monitor whose last write is refused does."""
+    def run(_directory):
+        raise RuntimeError("the disk went away")
+
+    monkeypatch.setattr(lifecycle, "run", run)
+
+
+def _write(path, value):
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+
+def _read(path):
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@pytest.mark.usefixtures("failing_run")
+def test_a_monitor_that_fails_leaves_its_traceback_and_ends_the_run_as_failed(run_dir):
+    before = _read(run_dir / "meta.json")
+
+    with pytest.raises(RuntimeError, match="the disk went away"):
+        lifecycle.supervise(run_dir)
+
+    log = (run_dir / lifecycle.MONITOR_LOG).read_text(encoding="utf-8")
+    assert log.startswith("Traceback (most recent call last):")
+    assert log.rstrip().endswith("RuntimeError: the disk went away")
+    assert _read(run_dir / "meta.json") == {**before, "status": "fail", "error": ERROR}
+    assert _read(run_dir / "summary.json") == {
+        "id": "0123456789", "name": "probe", "status": "fail", "exit": None, "error": ERROR}
+
+
+@pytest.mark.usefixtures("failing_run")
+def test_a_run_that_had_already_ended_keeps_what_was_recorded(run_dir):
+    ended = {"id": "0123456789", "status": "timeout", "exit": 124}
+    _write(run_dir / "meta.json", ended)
+    _write(run_dir / "summary.json", ended)
+
+    with pytest.raises(RuntimeError):
+        lifecycle.supervise(run_dir)
+
+    assert _read(run_dir / "meta.json") == ended
+    assert _read(run_dir / "summary.json") == ended
+    assert "RuntimeError: the disk went away" in (run_dir / lifecycle.MONITOR_LOG).read_text(encoding="utf-8")
+
+
+@pytest.mark.usefixtures("failing_run")
+@pytest.mark.parametrize("unreadable", ["{", "[]"], ids=["not-json", "not-an-object"])
+def test_a_file_that_cannot_be_updated_is_named_in_the_log_and_the_first_failure_is_raised(run_dir, unreadable):
+    (run_dir / "meta.json").write_text(unreadable, encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="the disk went away"):
+        lifecycle.supervise(run_dir)
+
+    log = (run_dir / lifecycle.MONITOR_LOG).read_text(encoding="utf-8")
+    assert "RuntimeError: the disk went away" in log
+    assert "meta.json could not be updated: " in log
+    assert "summary.json could not be updated" not in log
+    assert (run_dir / "meta.json").read_text(encoding="utf-8") == unreadable
+    assert _read(run_dir / "summary.json")["status"] == "fail"
+
+
+@pytest.mark.usefixtures("failing_run")
+def test_a_log_that_cannot_be_written_does_not_replace_the_first_failure(tmp_path):
+    missing = tmp_path / "subagents" / "gone"
+
+    with pytest.raises(RuntimeError, match="the disk went away"):
+        lifecycle.supervise(missing)
+
+    assert not missing.exists()
+
+
+def test_a_monitor_that_succeeds_returns_the_summary_and_writes_no_error_log(run_dir, monkeypatch):
+    monkeypatch.setattr(lifecycle, "run", lambda _directory: {"status": "ok"})
+
+    assert lifecycle.supervise(run_dir) == {"status": "ok"}
+
+    assert not (run_dir / lifecycle.MONITOR_LOG).exists()
+    assert _read(run_dir / "meta.json")["status"] == "spawned"
+
+
+def test_the_recorded_error_is_bounded(run_dir, monkeypatch):
+    def run(_directory):
+        raise RuntimeError("x" * 5000)
+
+    monkeypatch.setattr(lifecycle, "run", run)
+
+    with pytest.raises(RuntimeError):
+        lifecycle.supervise(run_dir)
+
+    error = _read(run_dir / "meta.json")["error"]
+    assert len(error) == 500
+    assert error.startswith("monitor failed: RuntimeError('xxx")
+
+
+@pytest.mark.usefixtures("failing_run")
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits; Windows uses deployment ACLs")
+def test_the_error_log_is_private(run_dir):
+    with pytest.raises(RuntimeError):
+        lifecycle.supervise(run_dir)
+
+    assert (run_dir / lifecycle.MONITOR_LOG).stat().st_mode & 0o777 == 0o600
+
+
+def test_a_real_detached_monitor_that_dies_leaves_the_log_and_a_failed_run(run_dir):
+    meta = _read(run_dir / "meta.json")
+    del meta["cmd"]
+    _write(run_dir / "meta.json", meta)
+
+    finished = subprocess.run(
+        [sys.executable, "-m", "arena.subagent_lifecycle", str(run_dir)],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        timeout=120, check=False,
+    )
+
+    assert finished.returncode != 0
+    assert "KeyError: 'cmd'" in (run_dir / lifecycle.MONITOR_LOG).read_text(encoding="utf-8")
+    assert _read(run_dir / "meta.json") == {**meta, "status": "fail", "error": "monitor failed: KeyError('cmd')"}
+
+
+@pytest.mark.usefixtures("failing_run")
+def test_a_waiting_spawn_whose_supervision_fails_does_not_leave_an_active_run(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    from arena import subagent_cli as cli
+
+    monkeypatch.setattr(cli, "ROOT", tmp_path)
+    monkeypatch.setattr(cli, "SUB_DIR", tmp_path / "subagents")
+    cli.SUB_DIR.mkdir(exist_ok=True)
+
+    with pytest.raises(RuntimeError, match="the disk went away"):
+        cli.spawn(SimpleNamespace(cmd="true", name="probe", timeout=5, wait=True, max_out=10))
+
+    run = next(cli.SUB_DIR.iterdir())
+    assert _read(run / "meta.json")["status"] == "fail"
+    log = (run / lifecycle.MONITOR_LOG).read_text(encoding="utf-8")
+    assert "RuntimeError: the disk went away" in log
+    assert "could not be updated" not in log
+    assert cli.rm_cmd(SimpleNamespace(id=run.name)) == 0
+    assert not run.exists()
+    capsys.readouterr()
