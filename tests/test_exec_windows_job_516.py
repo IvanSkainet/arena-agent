@@ -67,14 +67,16 @@ class FakeJob:
 class FakeProcess:
     """A child that exits by itself, or hangs until it is killed."""
 
+    # No pipes unless a test gives it some.
+    stdout: Any = None
+    stderr: Any = None
+
     def __init__(self, events: list[tuple], *, hangs: bool = False, pid: int = 5160) -> None:
         """Share the event log; `hangs` keeps the child running until killed."""
         self.events = events
         self.pid = pid
         self.returncode: int | None = None
         self.hangs = hangs
-        self.stdout: Any = None
-        self.stderr: Any = None
         self.reading = asyncio.Event()
         self.reaping: asyncio.Event | None = None
 
