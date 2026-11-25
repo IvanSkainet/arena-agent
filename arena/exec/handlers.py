@@ -53,6 +53,7 @@ from arena.exec.interpreters import (
     interpreter_runs_here,
 )
 from arena.exec.ndjson_stream import (
+    close_command_stream,
     prepared_ndjson_response,
     record_stream_outcome,
 )
@@ -476,14 +477,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 except Exception:
                     pass
         finally:
-            try:
-                if stream is not None:
-                    await stream.aclose()
-            finally:
-                # Closing the generator kills the command and waits for it,
-                # and the handler can be cancelled during that wait (#571).
-                # The slot is given back whatever happens to the cleanup.
-                slot.release()
+            await close_command_stream(stream, slot)
             if response is not None:
                 try:
                     await response.write_eof()
