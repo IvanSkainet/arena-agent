@@ -476,9 +476,14 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
                 except Exception:
                     pass
         finally:
-            if stream is not None:
-                await stream.aclose()
-            slot.release()
+            try:
+                if stream is not None:
+                    await stream.aclose()
+            finally:
+                # Closing the generator kills the command and waits for it,
+                # and the handler can be cancelled during that wait (#571).
+                # The slot is given back whatever happens to the cleanup.
+                slot.release()
             if response is not None:
                 try:
                     await response.write_eof()
