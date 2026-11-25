@@ -1,10 +1,10 @@
-"""A post-update smoke marker must not reach a home that tests share.
+"""A post-update smoke marker must not reach a home that tests share."""
 
-One marker left in the shared home made the next test that started a bridge run
-the real ship smoke on an executor thread; its `systemctl` and `loginctl` calls,
-its `<home>/update` directory and its flight record then turned up in unrelated
-tests (#518, #534, #555, #587).
-"""
+# One marker left in the shared home made the next test that started a bridge
+# run the real ship smoke on an executor thread; its `systemctl` and `loginctl`
+# calls, its `<home>/update` directory and its flight record then turned up in
+# unrelated tests (#518, #534, #555, #587).
+
 from __future__ import annotations
 
 import json
@@ -75,6 +75,28 @@ def test_the_result_is_written_where_the_marker_was(monkeypatch, tmp_path):
     last = started_in / "update" / "post-update-smoke-last.json"
     assert json.loads(last.read_text(encoding="utf-8"))["smoke"]["mode"] == "nominal"
     assert list(moved_to.iterdir()) == []
+
+
+def test_the_result_is_written_even_if_the_directory_went_away(monkeypatch, tmp_path):
+    """Whoever cleaned up during the smoke does not lose its result."""
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    P.mark_pending({"tag": "vX"})
+
+    class _Smoke:
+        @staticmethod
+        def run():
+            P.pending_path().unlink()
+            (tmp_path / "update").rmdir()
+            return {"ok": True, "mode": "nominal"}
+
+    import arena.ship
+
+    monkeypatch.setattr(arena.ship, "smoke", _Smoke, raising=False)
+
+    outcome = P.run_if_pending()
+
+    assert outcome["ok"] is True
+    assert P.status()["last"]["smoke"]["mode"] == "nominal"
 
 
 # --- the guard around every test ---------------------------------------------
