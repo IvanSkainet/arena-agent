@@ -191,8 +191,26 @@ it. The test now uses the product's wait-state probe, gives the tree 10 s and
 checks that it was in place 2 s before the kill, and its failure message says
 when the child became ready. If the product really does leave a child behind,
 the next failure will say so. The second explanation is a real limit of
-`taskkill /T`, not a test artefact; closing it needs a Job Object and is
-tracked separately.
+`taskkill /T`, not a test artefact.
+
+That limit is closed (#516): a Windows command now runs inside a Job Object
+and is killed through it. Measured on one Windows 10 machine with Python 3.14:
+
+- A shell that exits and leaves a program holding its output pipes
+  (`start "" /b ...`) has no tree left for `taskkill /T` to walk. Without the
+  job the program outlived the request that timed out, every time;
+  `test_live_timeout_kills_what_the_shell_left_behind_after_exiting` and
+  `test_live_closed_stream_kills_what_the_shell_left_behind` fail when the job
+  is taken out.
+- Against a command that kept starting processes, about 40 a second,
+  `taskkill /T /F` with no time limit took 56 s to stop it and 2183 processes
+  were started meanwhile. `TerminateJobObject` returned in 1 ms and one process was started
+  after it; that one died too. The live test of this case stops by itself
+  after 30 processes, and it also passes without the job: it shows the job
+  contains such a command, not that `taskkill` cannot.
+- Holding a command costs about 0.1 ms on top of a 1.8 ms spawn. Resuming the
+  suspended process through a thread snapshot instead would have cost 22 ms of
+  event-loop time per command.
 
 What this does not show: the measurement is one day on GitHub's runners and
 says nothing about another runner size. A test that passes alone and fails

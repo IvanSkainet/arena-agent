@@ -123,6 +123,7 @@ def test_buffered_runner_cancellation_cleans_the_os_process(
         return proc
 
     monkeypatch.setattr(R.asyncio, "create_subprocess_shell", fake_create)
+    monkeypatch.setattr(R, "_new_job", lambda: None)  # the fake child has no real pid to hold
     monkeypatch.setattr(R, "_kill_process_tree", lambda child: killed.append(child.pid))
 
     async def scenario() -> None:
@@ -159,6 +160,7 @@ def test_stream_runner_close_cleans_the_os_process(
         return proc
 
     monkeypatch.setattr(R.asyncio, "create_subprocess_shell", fake_create)
+    monkeypatch.setattr(R, "_new_job", lambda: None)  # the fake child has no real pid to hold
     monkeypatch.setattr(R, "_kill_process_tree", lambda child: killed.append(child.pid))
 
     async def scenario() -> None:
