@@ -7,12 +7,17 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
 from arena.private_paths import create_staged_file, directory_matches, pinned_directory, unlink_staged
 
 _replace = os.replace
+# ERROR_ACCESS_DENIED and ERROR_SHARING_VIOLATION: what Windows answers while
+# another handle still has the file open. POSIX errors carry no winerror.
+_HELD_OPEN = frozenset({5, 32})
+_HELD_OPEN_PATIENCE = 2.0
 
 
 def private_directory(path: Path) -> None:
@@ -82,6 +87,25 @@ def _publish(staged: Path, target: Path, replace: bool, parent_fd: int | None) -
     destination = target if parent_fd is None else target.name
     kwargs = {} if parent_fd is None else {"src_dir_fd": parent_fd, "dst_dir_fd": parent_fd}
     if replace:
-        _replace(source, destination, **kwargs)
+        _replace_once_released(source, destination, **kwargs)
     else:
         os.link(source, destination, follow_symlinks=False, **kwargs)
+
+
+def _replace_once_released(source: Any, destination: Any, **kwargs: Any) -> None:
+    """Replace a file that a reader may have open for a moment (#581)."""
+    # Windows refuses to replace a file while any other handle has it open, so
+    # one status poll at the wrong moment lost the final state of a run for
+    # good. A refusal of that kind is tried again for a bounded time; every
+    # other error, and a file still held at the limit, is raised unchanged.
+    deadline = time.monotonic() + _HELD_OPEN_PATIENCE
+    pause = 0.005
+    while True:
+        try:
+            _replace(source, destination, **kwargs)
+            return
+        except PermissionError as exc:
+            if getattr(exc, "winerror", None) not in _HELD_OPEN or time.monotonic() >= deadline:
+                raise
+        time.sleep(pause)
+        pause = min(pause * 2, 0.05)
