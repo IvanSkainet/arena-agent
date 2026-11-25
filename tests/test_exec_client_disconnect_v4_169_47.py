@@ -281,10 +281,10 @@ def test_a_stream_handler_cancelled_while_it_closes_the_command_gives_the_slot_b
         body = json.dumps({"cmd": "echo output", "request_id": "cancelled-in-cleanup"}).encode()
         writer = await _post(port, body, {"Content-Type": "application/json"})
         try:
-            await _wait_until(lambda: cleaning.is_set())
+            await asyncio.wait_for(cleaning.wait(), timeout=15)
             assert cfg["active_exec"] == 1
             handler_tasks[0].cancel()
-            await _wait_until(lambda: handler_tasks[0].done())
+            await asyncio.wait(handler_tasks, timeout=15)
             assert handler_tasks[0].cancelled()
             assert cfg["active_exec"] == 0
             assert cfg["semaphore"].locked() is False
