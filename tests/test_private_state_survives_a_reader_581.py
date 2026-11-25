@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import json
 import os
-import threading
 import types
 
 import pytest
@@ -124,23 +123,30 @@ def test_a_new_file_that_must_not_overwrite_is_never_retried(tmp_path, monkeypat
 
 
 @pytest.mark.skipif(os.name != "nt", reason="only Windows refuses to replace a file that is open")
-def test_windows_publishes_over_a_file_a_reader_closes_shortly_after(tmp_path):
+def test_windows_publishes_over_a_file_once_its_reader_closes(tmp_path, monkeypatch):
     target = tmp_path / "meta.json"
     target.write_text('{"status": "spawned"}\n')
     reader = target.open(encoding="utf-8")
-    release = threading.Timer(0.3, reader.close)
-    release.start()
+    refused = []
+    real = private_state._replace
+
+    def replace(*args, **kwargs):
+        # No timer: the reader closes because Windows has just refused, so the
+        # refusal and the retry that follows it are both real.
+        try:
+            return real(*args, **kwargs)
+        except PermissionError as refusal:
+            refused.append(refusal.winerror)
+            reader.close()
+            raise
+
+    monkeypatch.setattr(private_state, "_replace", replace)
     try:
         private_state.write_private_json(target, {"status": "timeout"})
-        # No clock: Windows refuses the replace for as long as the reader is
-        # open, so publication can only have returned after the release.
-        released_first = reader.closed
     finally:
-        release.cancel()
         reader.close()
-        release.join()
 
-    assert released_first
+    assert refused == [5]
     assert json.loads(target.read_text()) == {"status": "timeout"}
     assert list(tmp_path.glob("*.tmp")) == []
 
@@ -152,8 +158,9 @@ def test_windows_gives_up_on_a_file_that_stays_open(tmp_path, monkeypatch):
     target.write_text('{"status": "spawned"}\n')
     before = target.read_bytes()
 
-    with target.open(encoding="utf-8"), pytest.raises(PermissionError):
+    with target.open(encoding="utf-8"), pytest.raises(PermissionError) as raised:
         private_state.write_private_json(target, {"status": "timeout"})
 
+    assert raised.value.winerror == 5
     assert target.read_bytes() == before
     assert list(tmp_path.glob("*.tmp")) == []
