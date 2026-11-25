@@ -61,7 +61,7 @@ def test_a_file_held_open_for_a_moment_is_published_once_it_is_released(tmp_path
 
     assert json.loads(target.read_text()) == {"status": "timeout"}
     assert len(calls) == 3
-    assert clock.pauses == [0.005, 0.01]
+    assert clock.pauses == pytest.approx([0.005, 0.01])
     assert list(tmp_path.glob("*.tmp")) == []
 
 
@@ -79,7 +79,7 @@ def test_a_file_held_past_the_limit_raises_the_refusal_and_keeps_the_old_bytes(t
     assert list(tmp_path.glob("*.tmp")) == []
     waited = sum(clock.pauses)
     assert private_state._HELD_OPEN_PATIENCE <= waited <= private_state._HELD_OPEN_PATIENCE + 0.05
-    assert max(clock.pauses) == 0.05
+    assert max(clock.pauses) == pytest.approx(0.05)
     assert len(calls) == len(clock.pauses) + 1
 
 
