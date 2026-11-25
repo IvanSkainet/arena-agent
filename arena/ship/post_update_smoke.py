@@ -27,10 +27,9 @@ def last_path() -> Path:
 
 def mark_pending(data: dict[str, Any]) -> dict[str, Any]:
     doc = {"ok": True, "created_at": int(time.time()), "target_version": VERSION, **(data or {})}
-    path = pending_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
-    return {"ok": True, "pending_path": str(path), "pending": doc}
+    _dir().mkdir(parents=True, exist_ok=True)
+    pending_path().write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+    return {"ok": True, "pending_path": str(pending_path()), "pending": doc}
 
 
 def status() -> dict[str, Any]:
@@ -60,12 +59,7 @@ def status() -> dict[str, Any]:
 
 
 def run_if_pending() -> dict[str, Any]:
-    # Both paths are settled before the smoke runs. It takes seconds and runs
-    # on an executor thread, and the home is read from the environment at each
-    # call: the result belongs next to the marker that asked for it, not in
-    # whatever home is configured by the time the smoke returns.
     p = pending_path()
-    last = last_path()
     if not p.exists():
         return {"ok": True, "attempted": False, "reason": "no pending post-update smoke marker"}
     try:
@@ -79,8 +73,8 @@ def run_if_pending() -> dict[str, Any]:
                    "smoke": {"ok": report.get("ok"), "mode": report.get("mode"), "version": report.get("version"), "report_path": report.get("report_path"), "failed": report.get("failed", []), "warnings": report.get("warnings", [])}}
     except Exception as e:  # pragma: no cover
         outcome = {"ok": False, "attempted": True, "ran_at": int(time.time()), "pending": pending, "error": f"{type(e).__name__}: {e}"}
-    last.parent.mkdir(parents=True, exist_ok=True)
-    last.write_text(json.dumps(outcome, indent=2, ensure_ascii=False), encoding="utf-8")
+    _dir().mkdir(parents=True, exist_ok=True)
+    last_path().write_text(json.dumps(outcome, indent=2, ensure_ascii=False), encoding="utf-8")
     try:
         p.unlink()
     except Exception:

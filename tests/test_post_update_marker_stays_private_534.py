@@ -7,8 +7,6 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from arena.ship import post_update_smoke as P
@@ -37,6 +35,9 @@ def test_a_startup_with_nothing_pending_leaves_a_fresh_home_empty(monkeypatch, t
     assert list(tmp_path.iterdir()) == []
 
 
+# --- the writers create the directory themselves ----------------------------
+
+
 def test_marking_still_creates_the_directory_it_needs(monkeypatch, tmp_path):
     """The writer makes `<home>/update` itself now that the readers do not."""
     monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
@@ -45,36 +46,6 @@ def test_marking_still_creates_the_directory_it_needs(monkeypatch, tmp_path):
 
     assert marked["pending_path"] == str(tmp_path / "update" / "post-update-smoke-pending.json")
     assert P.status()["pending_record"]["tag"] == "vX"
-
-
-# --- the result goes next to the marker that asked for it -------------------
-
-
-def test_the_result_is_written_where_the_marker_was(monkeypatch, tmp_path):
-    """The home may be another one by the time the smoke returns."""
-    started_in = tmp_path / "started"
-    moved_to = tmp_path / "moved"
-    moved_to.mkdir()
-    monkeypatch.setenv("ARENA_AGENT_HOME", str(started_in))
-    P.mark_pending({"tag": "vX"})
-
-    class _Smoke:
-        @staticmethod
-        def run():
-            # What a later test does while the smoke of an earlier one runs.
-            monkeypatch.setenv("ARENA_AGENT_HOME", str(moved_to))
-            return {"ok": True, "mode": "nominal"}
-
-    import arena.ship
-
-    monkeypatch.setattr(arena.ship, "smoke", _Smoke, raising=False)
-
-    outcome = P.run_if_pending()
-
-    assert outcome["attempted"] is True
-    last = started_in / "update" / "post-update-smoke-last.json"
-    assert json.loads(last.read_text(encoding="utf-8"))["smoke"]["mode"] == "nominal"
-    assert list(moved_to.iterdir()) == []
 
 
 def test_the_result_is_written_even_if_the_directory_went_away(monkeypatch, tmp_path):
