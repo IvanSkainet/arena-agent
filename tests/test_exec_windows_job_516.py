@@ -160,7 +160,8 @@ def test_a_timed_out_command_is_killed_through_its_job(tmp_path, monkeypatch) ->
     result = asyncio.run(_buffered(tmp_path, "timed-out", timeout=1))
     assert result["timed_out"] is True
     assert events[3:] == [("terminate",), ("terminate",), ("close",)]
-    assert ("disarm",) not in events and ("taskkill",) not in events
+    assert ("disarm",) not in events
+    assert ("taskkill",) not in events
     _nothing_left("timed-out")
 
 
@@ -249,7 +250,8 @@ def test_a_stream_that_completed_leaves_its_job_disarmed(tmp_path, monkeypatch) 
         return seen
 
     seen = asyncio.run(scenario())
-    assert seen[-1]["type"] == "exit" and seen[-1]["timed_out"] is False
+    assert seen[-1]["type"] == "exit"
+    assert seen[-1]["timed_out"] is False
     assert events[3:] == [("disarm",), ("close",)]
     _nothing_left("stream-completed")
 
@@ -272,7 +274,8 @@ def test_a_stream_whose_output_could_not_be_read_is_not_completed(tmp_path, monk
         return seen
 
     seen = asyncio.run(scenario())
-    assert seen[-1]["type"] == "exit" and seen[-1]["timed_out"] is False
+    assert seen[-1]["type"] == "exit"
+    assert seen[-1]["timed_out"] is False
     # The shell exited by itself, but nobody knows what it wrote: nothing it
     # started is left running.
     assert events[3:] == [("terminate",), ("close",)]
@@ -281,8 +284,9 @@ def test_a_stream_whose_output_could_not_be_read_is_not_completed(tmp_path, monk
 
 def test_a_command_that_cannot_be_held_is_not_run(tmp_path, monkeypatch) -> None:
     events, _made = _harness(monkeypatch, failing=("hold",))
+    command = _buffered(tmp_path, "not-held")
     with pytest.raises(OSError, match="hold failed"):
-        asyncio.run(_buffered(tmp_path, "not-held"))
+        asyncio.run(command)
     # The suspended process is killed and the job closed; nothing is resumed.
     assert events == [("create",), ("spawn", True), ("hold", 5160), ("kill",), ("close",)]
     _nothing_left("not-held")
@@ -296,8 +300,9 @@ def test_a_failed_spawn_closes_the_job(tmp_path, monkeypatch) -> None:
         raise FileNotFoundError("no such directory")
 
     monkeypatch.setattr(R, "asyncio", View(asyncio, create_subprocess_shell=refused))
+    command = _buffered(tmp_path, "no-spawn")
     with pytest.raises(FileNotFoundError):
-        asyncio.run(_buffered(tmp_path, "no-spawn"))
+        asyncio.run(command)
     assert events == [("create",), ("spawn",), ("close",)]
     _nothing_left("no-spawn")
 
@@ -326,7 +331,8 @@ def test_there_is_no_job_off_windows(tmp_path) -> None:
     result = asyncio.run(R.run_shell_command(
         request_id="posix", cmd="echo plain", cwd=tmp_path, env=dict(os.environ),
         timeout=30, max_output=1000, decode_output_fn=lambda b: b.decode()))
-    assert result["ok"] is True and result["stdout"].strip() == "plain"
+    assert result["ok"] is True
+    assert result["stdout"].strip() == "plain"
     _nothing_left("posix")
 
 
@@ -509,7 +515,8 @@ def test_live_completed_command_leaves_its_background_program_running(tmp_path: 
         return outcome, await _appeared(pidfile, 30)
 
     result, reported = asyncio.run(scenario())
-    assert result["timed_out"] is False and result["exit_code"] == 0
+    assert result["timed_out"] is False
+    assert result["exit_code"] == 0
     assert reported, "the background program did not report its pid"
     pid = int(pidfile.read_text())
     try:
@@ -577,8 +584,9 @@ def test_live_command_that_cannot_be_held_leaves_no_suspended_process(tmp_path: 
     monkeypatch.setattr(R, "_new_job", Unholdable.create)
     monkeypatch.setattr(R, "asyncio", View(asyncio, create_subprocess_shell=spawn))
     marker = tmp_path / "ran.txt"
+    command = _live(tmp_path, "live-unheld", f'echo ran> "{marker}"', 30)
     with pytest.raises(OSError, match="cannot hold"):
-        asyncio.run(_live(tmp_path, "live-unheld", f'echo ran> "{marker}"', 30))
+        asyncio.run(command)
     assert len(started) == 1
     assert _gone_within(started[0], 10), "the suspended shell was left behind"
     assert not marker.exists(), "the command ran although it could not be held"
