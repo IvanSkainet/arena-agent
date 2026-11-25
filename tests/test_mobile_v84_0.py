@@ -3,6 +3,8 @@ extractor, and the arena-mobile CLI arg-parser shape."""
 from __future__ import annotations
 
 import struct
+import time
+import types
 import zipfile
 
 import pytest
@@ -64,16 +66,53 @@ def test_batch_allowed_types_do_not_expose_dangerous_actions():
 
 
 def test_batch_sleep_step_runs_synchronously():
-    """`sleep` blocks the requested duration and returns ok. Bounded
-    at 10s to prevent aiohttp worker starvation."""
-    import time
+    """`sleep` has waited by the time the batch returns."""
+    # Only the lower bound is a fact about the code: a 100 ms sleep cannot
+    # return early. How soon afterwards a busy runner gives the thread back is
+    # a fact about the machine, and 300 ms was once not enough (#566). What the
+    # step asks for is checked exactly in the two tests below.
     started = time.monotonic()
     r = _batch.run_batch("dummy", [{"type": "sleep", "duration_ms": 100}])
     elapsed = time.monotonic() - started
     assert r["ok"] is True
     assert r["executed"] == 1
-    assert 0.09 <= elapsed <= 0.30, f"sleep didn't wait ~100ms: {elapsed}s"
+    assert elapsed >= 0.09, f"sleep returned early: {elapsed}s"
     assert r["results"][0]["type"] == "sleep"
+
+
+@pytest.fixture(name="sleeps_asked_for")
+def _sleeps_asked_for(monkeypatch):
+    """Record what the batch module asks `time.sleep` for, without sleeping."""
+    # The module gets a `time` of its own: replacing `sleep` on the real one
+    # would replace it for every thread of the worker.
+    asked: list[float] = []
+    monkeypatch.setattr(
+        _batch, "time", types.SimpleNamespace(sleep=asked.append, monotonic=time.monotonic)
+    )
+    return asked
+
+
+def test_batch_sleep_asks_for_the_requested_duration_once(sleeps_asked_for):
+    """100 ms in the step is one request for 0.1 s."""
+    r = _batch.run_batch("dummy", [{"type": "sleep", "duration_ms": 100}])
+    assert r["ok"] is True
+    assert sleeps_asked_for == [0.1]
+
+
+@pytest.mark.parametrize(
+    ("duration_ms", "accepted", "asked"),
+    [
+        (10_000, True, [10.0]),
+        (10_001, False, []),
+        (0, True, [0.0]),
+        (-1, False, []),
+    ],
+)
+def test_batch_sleep_is_capped_at_ten_seconds(sleeps_asked_for, duration_ms, accepted, asked):
+    """A step outside 0..10 s is refused before anything waits."""
+    r = _batch.run_batch("dummy", [{"type": "sleep", "duration_ms": duration_ms}])
+    assert r["results"][0]["ok"] is accepted
+    assert sleeps_asked_for == asked
 
 
 def test_batch_sleep_rejects_out_of_range():
