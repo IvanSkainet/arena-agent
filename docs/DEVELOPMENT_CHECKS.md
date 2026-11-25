@@ -206,7 +206,7 @@ and is killed through it. Measured on one Windows 10 machine with Python 3.14:
   `taskkill /T /F` with no time limit took 56 s to stop it and 2183 processes
   were started meanwhile. `TerminateJobObject` returned in 1 ms and one process was started
   after it; that one died too. The live test of this case stops by itself
-  after 60 processes, and it also passes without the job: it shows the job
+  after 30 processes, and it also passes without the job: it shows the job
   contains such a command, not that `taskkill` cannot.
 - Holding a command costs about 0.1 ms on top of a 1.8 ms spawn. Resuming the
   suspended process through a thread snapshot instead would have cost 22 ms of

@@ -1,15 +1,12 @@
-"""#516: a Windows command runs inside a Job Object and is killed through it.
-
-``taskkill /T`` kills the tree it finds when it looks. It misses a process
-created while it runs, and it finds nothing at all once the first process of
-the tree has exited. The second gap is not a race, so the live test for it
-fails every time without the job.
-"""
+"""#516: a Windows command runs inside a Job Object and is killed through it."""
+# ``taskkill /T`` kills the tree it finds when it looks. It misses a process
+# created while it runs, and it finds nothing at all once the first process of
+# the tree has exited. The second gap is not a race, so the live test for it
+# fails every time without the job.
 from __future__ import annotations
 
 import asyncio
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -23,23 +20,26 @@ from arena.tasks import ownership
 SUSPENDED = 0x00000004
 
 
+# `R.asyncio` is the process-wide asyncio; replacing a name on it would replace
+# it for every test running beside this one.
 class View:
-    """The runner's own view of a module, with some names replaced.
-
-    `R.asyncio` is the process-wide asyncio; replacing a name on it would
-    replace it for every test running beside this one.
-    """
+    """The runner's own view of a module, with some names replaced."""
 
     def __init__(self, module: Any, **replaced: Any) -> None:
+        """Replace the given names; everything else is the module's own."""
         self._module = module
         self.__dict__.update(replaced)
 
     def __getattr__(self, name: str) -> Any:
+        """Fall through to the real module."""
         return getattr(self._module, name)
 
 
 class FakeJob:
+    """Records what the runner asks of a job; fails where a test tells it to."""
+
     def __init__(self, events: list[tuple], members: list, failing: tuple[str, ...] = ()) -> None:
+        """Share the event log and the list of processes the job would kill."""
         self.events = events
         self.members = members
         self.failing = failing
@@ -68,6 +68,7 @@ class FakeProcess:
     """A child that exits by itself, or hangs until it is killed."""
 
     def __init__(self, events: list[tuple], *, hangs: bool = False, pid: int = 5160) -> None:
+        """Share the event log; `hangs` keeps the child running until killed."""
         self.events = events
         self.pid = pid
         self.returncode: int | None = None
@@ -112,7 +113,7 @@ def _harness(monkeypatch: pytest.MonkeyPatch, *, failing: tuple[str, ...] = (), 
 
     monkeypatch.setattr(R, "_new_job", new_job)
     monkeypatch.setattr(R, "asyncio", View(asyncio, create_subprocess_shell=spawn))
-    monkeypatch.setattr(R, "subprocess", View(subprocess, run=no_taskkill))
+    monkeypatch.setattr(R, "subprocess", View(R.subprocess, run=no_taskkill))
     return events, made
 
 
@@ -290,15 +291,18 @@ def test_a_process_without_a_job_is_killed_the_old_way(monkeypatch) -> None:
 
 def test_a_process_that_cannot_be_registered_is_killed_the_old_way() -> None:
     class Slotted:
-        __slots__ = ("killed",)
+        __slots__ = ("kills",)
+
+        def __init__(self) -> None:
+            self.kills = 0
 
         def kill(self) -> None:
-            self.killed = True
+            self.kills += 1
 
     proc = Slotted()
     R._kill_process_tree(proc)
     R._release_job(proc, completed=False)
-    assert proc.killed is True
+    assert proc.kills == 1
 
 
 # ---------------------------------------------------------------------------
@@ -314,8 +318,9 @@ SLEEPER = (
 )
 
 # The spawner stops by itself. The test must stay harmless on a build where
-# the kill does not work: at most CHILDREN short-lived processes, then nothing.
-CHILDREN = 60
+# the kill does not work, and light for the tests running beside it: two new
+# processes a second, at most CHILDREN of them, each gone in half a minute.
+CHILDREN = 30
 SPAWNER = (
     "import os, pathlib, subprocess, sys, time\n"
     "seen = sys.argv[1]\n"
@@ -323,7 +328,7 @@ SPAWNER = (
     "         \"pathlib.Path(sys.argv[1], str(os.getpid())).write_text(''); time.sleep(30)\")\n"
     f"for _ in range({CHILDREN}):\n"
     "    subprocess.Popen([sys.executable, '-c', child, seen])\n"
-    "    time.sleep(0.25)\n"
+    "    time.sleep(0.5)\n"
     "time.sleep(30)\n"
 )
 
@@ -344,7 +349,12 @@ def _gone_within(pid: int, seconds: float) -> bool:
 def _kill_leftovers(pids: list[int]) -> None:
     for pid in pids:
         if _alive(pid):
-            subprocess.run(["taskkill.exe", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True)
+            R._kill_windows_tree(pid)
+
+
+def _command(*argv: Any) -> str:
+    """A command line for cmd.exe; the paths here hold no quotes."""
+    return " ".join(f'"{part}"' for part in argv)
 
 
 def _expect_killed(pidfile: Path, outlived: str) -> None:
@@ -388,10 +398,10 @@ DETACH = (
 
 def _background(tmp_path: Path, pidfile: Path, seconds: int, *, keeps_pipes: bool) -> str:
     """A command whose shell exits at once and leaves a program running."""
-    sleeper = [str(_script(tmp_path, "sleeper.py", SLEEPER)), str(pidfile), str(seconds)]
+    sleeper = (_script(tmp_path, "sleeper.py", SLEEPER), pidfile, seconds)
     if keeps_pipes:
-        return 'start "" /b ' + subprocess.list2cmdline([sys.executable, *sleeper])
-    return subprocess.list2cmdline([sys.executable, str(_script(tmp_path, "detach.py", DETACH)), *sleeper])
+        return 'start "" /b ' + _command(sys.executable, *sleeper)
+    return _command(sys.executable, _script(tmp_path, "detach.py", DETACH), *sleeper)
 
 
 @live_windows
@@ -416,7 +426,7 @@ def test_live_timeout_kills_what_the_shell_left_behind_after_exiting(tmp_path: P
 def test_live_timeout_stops_a_command_that_keeps_starting_processes(tmp_path: Path) -> None:
     seen = tmp_path / "seen"
     seen.mkdir()
-    cmd = subprocess.list2cmdline([sys.executable, str(_script(tmp_path, "spawner.py", SPAWNER)), str(seen)])
+    cmd = _command(sys.executable, _script(tmp_path, "spawner.py", SPAWNER), seen)
 
     def reported() -> list[int]:
         return sorted(int(entry.name) for entry in seen.iterdir())
@@ -466,8 +476,7 @@ def test_live_cancellation_kills_the_whole_command(tmp_path: Path) -> None:
         "import subprocess, sys, time\n"
         "subprocess.Popen([sys.executable, sys.argv[1], sys.argv[2], '60'])\n"
         "time.sleep(60)\n"))
-    cmd = subprocess.list2cmdline(
-        [sys.executable, str(parent), str(_script(tmp_path, "sleeper.py", SLEEPER)), str(pidfile)])
+    cmd = _command(sys.executable, parent, _script(tmp_path, "sleeper.py", SLEEPER), pidfile)
 
     async def scenario() -> bool:
         task = asyncio.create_task(_live(tmp_path, "live-cancel", cmd, 120))

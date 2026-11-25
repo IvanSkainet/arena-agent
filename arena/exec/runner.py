@@ -67,14 +67,12 @@ def _quietly(*steps: Callable[[], None]) -> bool:
     return worked
 
 
+# The process is created suspended, put into the job and only then allowed to
+# run, so nothing it starts can be outside the job. A command that cannot be
+# held is not run at all: letting it run would bring back the survivors this
+# exists to prevent, and would do it silently.
 async def _spawn_shell(cmd: str, cwd: Path, env: dict[str, str]) -> Any:
-    """Start the command. On Windows it starts inside a job it cannot leave.
-
-    The process is created suspended, put into the job and only then allowed
-    to run, so nothing it starts can be outside the job. A command that
-    cannot be held is not run at all: letting it run would bring back the
-    survivors this exists to prevent, and would do it silently.
-    """
+    """Start the command. On Windows it starts inside a job it cannot leave."""
     job = _new_job()
     kwargs = _process_group_kwargs()
     if job is not None:

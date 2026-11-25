@@ -1,13 +1,11 @@
-"""Windows Job Object that contains one command's process tree (#516).
-
-``taskkill /T`` kills the tree it finds when it looks. A process created
-while the kill is running is not in that tree, and a tree whose first process
-has already exited cannot be found at all. A Job Object has neither gap:
-everything a member starts is a member from its first instruction, and the
-job is terminated as a whole.
-
-The module imports on every platform and touches Win32 only when called.
-"""
+"""Windows Job Object that contains one command's process tree (#516)."""
+# ``taskkill /T`` kills the tree it finds when it looks. A process created
+# while the kill is running is not in that tree, and a tree whose first process
+# has already exited cannot be found at all. A Job Object has neither gap:
+# everything a member starts is a member from its first instruction, and the
+# job is terminated as a whole.
+#
+# The module imports on every platform and touches Win32 only when called.
 from __future__ import annotations
 
 import ctypes
@@ -81,6 +79,7 @@ class CommandJob:
     """A Job Object owned by one command; closing it kills whoever is still in it."""
 
     def __init__(self, handle: int) -> None:
+        """Own an open job handle; `create` is the way to get one."""
         self._handle: int | None = handle
 
     @classmethod
@@ -109,11 +108,9 @@ class CommandJob:
             raise _failure("SetInformationJobObject")
 
     def hold(self, pid: int) -> None:
-        """Put a process that was created suspended into the job, then let it run.
-
-        The process has executed nothing yet, so there is nothing it could
-        have started outside the job.
-        """
+        """Put a process that was created suspended into the job, then let it run."""
+        # The process has executed nothing yet, so there is nothing it could
+        # have started outside the job.
         kernel = _kernel32()
         job = self._open()
         process = kernel.OpenProcess(_HOLD_ACCESS, False, pid)
