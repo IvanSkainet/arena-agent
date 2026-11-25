@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from arena import subagent_lifecycle as lifecycle
+from arena.home import code_root
 
 ERROR = "monitor failed: RuntimeError('the disk went away')"
 
@@ -77,7 +78,7 @@ def test_a_run_that_had_already_ended_keeps_what_was_recorded(run_dir):
 
 
 @pytest.mark.usefixtures("failing_run")
-@pytest.mark.parametrize("unreadable", ["{", "[]"], ids=["not-json", "not-an-object"])
+@pytest.mark.parametrize("unreadable", ["{", "[]", "[" * 200_000], ids=["not-json", "not-an-object", "too-deep"])
 def test_a_file_that_cannot_be_updated_is_named_in_the_log_and_the_first_failure_is_raised(run_dir, unreadable):
     (run_dir / "meta.json").write_text(unreadable, encoding="utf-8")
 
@@ -141,7 +142,7 @@ def test_a_real_detached_monitor_that_dies_leaves_the_log_and_a_failed_run(run_d
 
     finished = subprocess.run(
         [sys.executable, "-m", "arena.subagent_lifecycle", str(run_dir)],
-        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        cwd=str(code_root()), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         timeout=120, check=False,
     )
 
