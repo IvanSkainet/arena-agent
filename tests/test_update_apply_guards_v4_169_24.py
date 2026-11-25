@@ -33,6 +33,7 @@ import asyncio
 import json
 from typing import Any
 
+import pytest
 from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 
@@ -78,6 +79,17 @@ def _post(handler, body: dict[str, Any]):
 
 def _handlers():
     return make_update_handlers(_Ctx())
+
+
+@pytest.fixture(autouse=True)
+def _a_home_of_its_own(monkeypatch, tmp_path):
+    """Give every test here a home that is removed with it."""
+    # An apply that succeeds with `restart` on writes the post-update smoke
+    # marker into the agent home. Written into the home the whole run shares,
+    # it made the next test that started the bridge run the real ship smoke on
+    # an executor thread, seconds of `systemctl` and `loginctl` under whichever
+    # tests came next (#518, #534, #555, #587).
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
 
 
 # --- mutant 90: the digest requirement --------------------------------------
@@ -365,7 +377,7 @@ def test_every_required_field_is_required_on_its_own() -> None:
         assert "required" in parsed["error"]
 
 
-def test_restart_defaults_to_true_for_the_apply_endpoint(monkeypatch) -> None:
+def test_restart_defaults_to_true_for_the_apply_endpoint(monkeypatch, tmp_path) -> None:
     """`restart` defaults True here (unlike `force`): the dashboard
     Install button relies on it, and flipping the default silently turns
     every install into one that needs a manual restart."""
@@ -389,6 +401,9 @@ def test_restart_defaults_to_true_for_the_apply_endpoint(monkeypatch) -> None:
         "asset_name": "a.zip", "expected_sha256": digest, "consent": consent,
     })
     assert seen.get("restart") is True
+    # The marker the restarted bridge acts on is in this test's home.
+    marker = tmp_path / "update" / "post-update-smoke-pending.json"
+    assert json.loads(marker.read_text(encoding="utf-8"))["tag"] == "v9.9.9"
 
 
 def test_sweep_stashes_the_original_before_mutating() -> None:

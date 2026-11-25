@@ -11,9 +11,10 @@ from arena.workbench.runtimes import home
 
 
 def _dir() -> Path:
-    p = home() / "update"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+    # Named, not created: `status()` and `run_if_pending()` only look, and a
+    # look must leave a fresh home as it found it (#518). The two writers
+    # create the directory themselves.
+    return home() / "update"
 
 
 def pending_path() -> Path:
@@ -26,6 +27,7 @@ def last_path() -> Path:
 
 def mark_pending(data: dict[str, Any]) -> dict[str, Any]:
     doc = {"ok": True, "created_at": int(time.time()), "target_version": VERSION, **(data or {})}
+    _dir().mkdir(parents=True, exist_ok=True)
     pending_path().write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
     return {"ok": True, "pending_path": str(pending_path()), "pending": doc}
 
@@ -71,6 +73,7 @@ def run_if_pending() -> dict[str, Any]:
                    "smoke": {"ok": report.get("ok"), "mode": report.get("mode"), "version": report.get("version"), "report_path": report.get("report_path"), "failed": report.get("failed", []), "warnings": report.get("warnings", [])}}
     except Exception as e:  # pragma: no cover
         outcome = {"ok": False, "attempted": True, "ran_at": int(time.time()), "pending": pending, "error": f"{type(e).__name__}: {e}"}
+    _dir().mkdir(parents=True, exist_ok=True)
     last_path().write_text(json.dumps(outcome, indent=2, ensure_ascii=False), encoding="utf-8")
     try:
         p.unlink()

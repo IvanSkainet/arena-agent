@@ -5,6 +5,7 @@ import importlib.machinery
 import json
 import os
 import sys
+import threading
 import types
 import webbrowser
 
@@ -97,10 +98,15 @@ def _process_creation(monkeypatch):
     # CreateProcess on Windows.  The module is taken from sys.modules because
     # nothing here starts a program with it.
     launcher = sys.modules["subprocess"]
+    asked_by = threading.get_ident()
     reached = []
 
     def never(*args, **_kwargs):
-        reached.append(args[0])
+        # The replacement is seen by every thread of the worker, the count is
+        # the test's own: a process that work left over from another test
+        # tries to create is refused too, but not charged to this test (#534).
+        if threading.get_ident() == asked_by:
+            reached.append(args[0])
         raise RuntimeError("process creation was reached")
 
     if os.name == "nt":
@@ -110,6 +116,38 @@ def _process_creation(monkeypatch):
     monkeypatch.setattr(launcher, "_fork_exec", never, raising=False)
     monkeypatch.setattr(sys.modules["_posixsubprocess"], "fork_exec", never)
     return reached
+
+
+def reach_process_creation(command: list[str]) -> None:
+    """Call what `subprocess.Popen` calls to create a process on this system."""
+    launcher = sys.modules["subprocess"]
+    create = launcher._winapi.CreateProcess if os.name == "nt" else launcher._fork_exec
+    create(command)
+
+
+def test_a_process_another_thread_tries_to_create_is_refused_but_not_counted(process_creation):
+    """Count only what the test's own thread reaches."""
+    refused = []
+
+    def left_over_from_another_test():
+        try:
+            reach_process_creation(["loginctl", "show-user"])
+        except RuntimeError as error:
+            refused.append(str(error))
+
+    stray = threading.Thread(target=left_over_from_another_test)
+    stray.start()
+    stray.join()
+
+    assert refused == ["process creation was reached"]
+    assert process_creation == []
+
+
+def test_a_process_the_test_itself_tries_to_create_is_counted(process_creation):
+    """The same call from the test's thread is the one the tests below look for."""
+    with pytest.raises(RuntimeError, match="process creation was reached"):
+        reach_process_creation(["loginctl", "show-user"])
+    assert process_creation == [["loginctl", "show-user"]]
 
 
 @pytest.fixture(name="macos_controller")
