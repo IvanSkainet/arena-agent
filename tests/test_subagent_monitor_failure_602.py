@@ -100,7 +100,8 @@ def test_a_run_that_had_already_ended_keeps_what_was_recorded(run_dir):
 
 
 @pytest.mark.usefixtures("failing_run")
-@pytest.mark.parametrize("unreadable", ["{", "[]", "[" * 200_000], ids=["not-json", "not-an-object", "too-deep"])
+@pytest.mark.parametrize("unreadable", ["{", "[]", '{"status": []}', "[" * 200_000],
+    ids=["not-json", "not-an-object", "status-not-a-string", "too-deep"])
 def test_a_file_that_cannot_be_updated_is_named_in_the_log_and_the_first_failure_is_raised(run_dir, unreadable):
     (run_dir / "meta.json").write_text(unreadable, encoding="utf-8")
 
@@ -191,3 +192,15 @@ def test_a_waiting_spawn_whose_supervision_fails_does_not_leave_an_active_run(tm
     assert cli.rm_cmd(SimpleNamespace(id=run.name)) == 0
     assert not run.exists()
     capsys.readouterr()
+
+
+def test_a_status_that_is_not_a_string_counts_as_unknown_and_is_not_removed(run_dir, monkeypatch, capsys):
+    from arena import subagent_cli as cli
+
+    monkeypatch.setattr(cli, "SUB_DIR", run_dir.parent)
+    (run_dir / "meta.json").write_text('{"status": []}', encoding="utf-8")
+
+    assert cli.rm_cmd(SimpleNamespace(id=run_dir.name)) == 1
+
+    assert run_dir.exists()
+    assert "refusing to remove an active or unreadable subagent" in capsys.readouterr().err

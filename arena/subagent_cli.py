@@ -153,7 +153,7 @@ def _active_run(directory: Path) -> bool:
     try:
         meta = json.loads((directory / META_FILE).read_text())
         return meta.get("status") in {"running", "spawned"}
-    except (OSError, ValueError, AttributeError):
+    except (OSError, ValueError, AttributeError, TypeError):
         return True  # Unknown state is not permission to delete a live workspace.
 
 
