@@ -156,13 +156,14 @@ def _worker(request, monkeypatch):
 
 @pytest.mark.parametrize("worker", [False], indirect=True)
 def test_a_worker_that_does_not_exit_leaves_the_run_active_and_says_so(run_dir, cli, worker, capsys):
-    before = _read(run_dir / "meta.json"), _read(run_dir / "summary.json")
+    before = [_read(run_dir / name) for name in ("meta.json", "summary.json")]
 
     with pytest.raises(lifecycle.subprocess.TimeoutExpired):
         lifecycle.supervise(run_dir)
 
+    after = [_read(run_dir / name) for name in ("meta.json", "summary.json")]
     assert worker.killed
-    assert (_read(run_dir / "meta.json"), _read(run_dir / "summary.json")) == before
+    assert after == before
     log = (run_dir / lifecycle.MONITOR_LOG).read_text(encoding="utf-8")
     assert "TimeoutExpired" in log
     assert log.endswith("the worker did not exit; the run is left active\n")
