@@ -1,7 +1,7 @@
 """T74: barrier-controlled proof that shared probe inputs cause scanner races."""
 import shutil
 import time
-from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeout
+from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeout, wait
 from threading import Event
 
 import pytest
@@ -47,11 +47,12 @@ class _RaceLog:
 
 
 def _result_or_report(future, timeout, log):
-    """Return the future's result; on a timeout fail with what the race had reached."""
-    try:
-        return future.result(timeout=timeout)
-    except FutureTimeout:
-        raise AssertionError(f"no result within {timeout}s\n{log.report()}") from None
+    """Return the future's result; if none arrives in time, fail with what the race had reached."""
+    # Only the wait is converted. A timeout raised by the work itself is the
+    # work's own failure and comes out of `result()` as it is.
+    if not wait([future], timeout=timeout).done:
+        raise AssertionError(f"no result within {timeout}s\n{log.report()}")
+    return future.result()
 
 
 @pytest.mark.parametrize("shared_inputs", [False, True])
@@ -161,6 +162,15 @@ def test_a_result_that_never_arrives_fails_with_the_report_instead_of_a_bare_tim
     assert message.startswith("no result within 0.01s\nafter ")
     assert "probe_ready: reached at " in message
     assert "enumerated: not reached" in message
+
+
+def test_a_timeout_raised_by_the_work_itself_is_not_reported_as_a_missing_result():
+    failed = Future()
+    failed.set_exception(FutureTimeout("the scan itself timed out"))
+    log = _RaceLog()
+
+    with pytest.raises(FutureTimeout, match="the scan itself timed out"):
+        _result_or_report(failed, 0.01, log)
 
 
 def test_a_result_that_arrives_is_returned_and_its_own_error_is_kept():
