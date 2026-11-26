@@ -43,7 +43,7 @@ def test_a_saved_token_is_read_back_and_nothing_else_is_left(target):
 
 @pytest.mark.skipif(os.name != "posix", reason="mode bits are not the protection on Windows")
 def test_the_staged_file_is_owner_only_from_the_moment_it_exists(target, monkeypatch):
-    """Not created with the umask and narrowed afterwards."""
+    """The mode is read from the descriptor at the point the staged file is created."""
     created = []
     real = token_storage._create_staged_file
 

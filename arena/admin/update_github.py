@@ -114,6 +114,38 @@ def _unlink_if_present(path: Path) -> bool:
     return True
 
 
+_TOKEN_FILE_HEADER = (
+    "# arena-agent GitHub token (v4.50.0).\n"
+    "# Read by arena.admin.update_github.github_token() when no\n"
+    "# GITHUB_TOKEN / GH_TOKEN env var is set. Overwrite via the\n"
+    "# Dashboard Settings tab or delete the file to clear.\n"
+)
+
+
+def _token_problem(token: str) -> str | None:
+    """Why `token` cannot be what the operator meant to paste; None when it can."""
+    if not token:
+        return "token is empty"
+    if any(c.isspace() for c in token):
+        return ("token contains whitespace "
+                "(likely a bad paste); expected a single fine-grained "
+                "PAT starting with 'github_pat_' or a classic PAT "
+                "starting with 'ghp_'")
+    if len(token) < 8 or len(token) > 400:
+        return "token length looks wrong"
+    return None
+
+
+def _legacy_staging_left(p: Path) -> str | None:
+    """Remove the staging file of an earlier version; say what is left when that fails."""
+    legacy = _legacy_staging_file(p)
+    try:
+        _unlink_if_present(legacy)
+    except OSError as e:
+        return f"{legacy}, left by an earlier version; it may still hold a token ({e!r})"
+    return None
+
+
 def save_github_token(raw: str) -> dict:
     """Atomically write the operator-supplied token to
     <install_root>/.github_token with 0600 permissions. Called by
@@ -123,40 +155,24 @@ def save_github_token(raw: str) -> dict:
         return {"ok": False, "error": "install root not resolvable; "
                 "cannot decide where to store the token"}
     token = (raw or "").strip()
-    if not token:
-        return {"ok": False, "error": "token is empty"}
-    if any(c.isspace() for c in token):
-        return {"ok": False, "error": "token contains whitespace "
-                "(likely a bad paste); expected a single fine-grained "
-                "PAT starting with 'github_pat_' or a classic PAT "
-                "starting with 'ghp_'"}
-    if len(token) < 8 or len(token) > 400:
-        return {"ok": False, "error": "token length looks wrong"}
-    header = (
-        "# arena-agent GitHub token (v4.50.0).\n"
-        "# Read by arena.admin.update_github.github_token() when no\n"
-        "# GITHUB_TOKEN / GH_TOKEN env var is set. Overwrite via the\n"
-        "# Dashboard Settings tab or delete the file to clear.\n"
-    )
-    # The same writer as the bridge's own bearer token. The file is created
-    # owner-only under a name nobody can predict, and is removed when the
-    # write fails. This function used to stage the token itself: it created
-    # `.github_token.tmp` with the process umask and narrowed it afterwards,
-    # and left it behind when the replace failed.
+    problem = _token_problem(token)
+    if problem:
+        return {"ok": False, "error": problem}
+    # The same writer as the bridge's own bearer token: the staged file is
+    # owner-only from creation, under a name of its own, and is removed when
+    # the write fails (#611).
     warnings = []
     try:
-        write_owner_token(p, header + token + "\n")
+        write_owner_token(p, _TOKEN_FILE_HEADER + token + "\n")
     except TokenFileModeWarning as warned:
         # The file already holds the new token; only its mode is in doubt.
         # Reporting a failure would be wrong: the next read uses this token.
         warnings.append(str(warned))
     except Exception as e:
         return {"ok": False, "error": f"failed to write token file: {e!r}"}
-    legacy = _legacy_staging_file(p)
-    try:
-        _unlink_if_present(legacy)
-    except OSError as e:
-        warnings.append(f"could not remove {legacy}, left by an earlier version; it may still hold a token ({e!r})")
+    left = _legacy_staging_left(p)
+    if left:
+        warnings.append(f"could not remove {left}")
     result = {"ok": True, "path": str(p), "source": "file"}
     if warnings:
         result["warning"] = "; ".join(warnings)
@@ -176,12 +192,9 @@ def clear_github_token() -> dict:
         return {"ok": False, "error": f"failed to remove: {e!r}"}
     # An earlier version could leave the token in its staging file; "clear"
     # has to mean no copy is left.
-    legacy = _legacy_staging_file(p)
-    try:
-        _unlink_if_present(legacy)
-    except OSError as e:
-        error = f"failed to remove {legacy}, left by an earlier version; it may still hold a token: {e!r}"
-        return {"ok": False, "removed": removed, "error": error}
+    left = _legacy_staging_left(p)
+    if left:
+        return {"ok": False, "removed": removed, "error": f"failed to remove {left}"}
     return {"ok": True, "removed": removed, "path": str(p)}
 
 
