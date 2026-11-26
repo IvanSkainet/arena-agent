@@ -114,7 +114,7 @@ def _unlink_if_present(path: Path) -> bool:
     return True
 
 
-_TOKEN_FILE_HEADER = (
+_FILE_COMMENT = (
     "# arena-agent GitHub token (v4.50.0).\n"
     "# Read by arena.admin.update_github.github_token() when no\n"
     "# GITHUB_TOKEN / GH_TOKEN env var is set. Overwrite via the\n"
@@ -163,7 +163,7 @@ def save_github_token(raw: str) -> dict:
     # the write fails (#611).
     warnings = []
     try:
-        write_owner_token(p, _TOKEN_FILE_HEADER + token + "\n")
+        write_owner_token(p, _FILE_COMMENT + token + "\n")
     except TokenFileModeWarning as warned:
         # The file already holds the new token; only its mode is in doubt.
         # Reporting a failure would be wrong: the next read uses this token.
