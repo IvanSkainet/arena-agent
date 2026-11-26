@@ -124,6 +124,18 @@ def test_parallel_run_leaves_no_worker_directory_behind(tmp_path):
     assert [root for root in roots if root.exists()] == []
 
 
+def test_a_run_without_workers_leaves_no_directory_behind_either(tmp_path):
+    """The same exit handler, in the one process of a serial run (#608)."""
+    result = _run(tmp_path, case="late-home-writer", workers=0)
+    assert result.returncode == 0, result.stdout + result.stderr
+    # One record, whatever its name: started from a worker, the run inherits
+    # that worker's `PYTEST_XDIST_WORKER` and names the file after it.
+    (record,) = tmp_path.glob("root-*")
+    root = Path(record.read_text(encoding="utf-8"))
+    assert root.name.startswith("arena-test-worker-serial-")
+    assert not root.exists()
+
+
 def test_mismatched_worker_collection_is_rejected(tmp_path):
     result = _run(tmp_path, case="mismatched-collection", workers=2)
     assert result.returncode == 1, result.stdout + result.stderr
