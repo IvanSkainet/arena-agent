@@ -240,7 +240,7 @@ def test_a_run_that_does_not_distribute_is_not_taken_for_a_controller(base):
 
 
 def test_this_session_obeys_the_rule(request, tmp_path):
-    """This very test runs in moved directories, with or without workers."""
+    """The test itself runs in moved directories, with or without workers."""
     home = Path(os.environ.get("USERPROFILE" if os.name == "nt" else "HOME", ""))
     label = getattr(request.config, "workerinput", {}).get("workerid", "serial")
     assert home.parent.name.startswith(f"arena-test-worker-{label}-")
