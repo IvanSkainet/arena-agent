@@ -1,6 +1,7 @@
 """A process that runs tests has per-user and temporary directories nobody else uses."""
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -215,6 +216,56 @@ def test_browsers_that_are_not_installed_are_not_named(base, browsers):
 def test_a_worker_is_not_told_where_the_browsers_are(base, browsers):
     """A parallel run skips the browser tests today; this change leaves that alone."""
     assert _browsers_after_the_move(_Config(workerinput={"workerid": "gw0"})) is None
+
+
+@pytest.fixture(name="logs")
+def _logs(tmp_path):
+    """Attach one log file inside a root and one outside it, and detach both afterwards."""
+    root = tmp_path / "root"
+    (root / "home").mkdir(parents=True)
+    logger = logging.getLogger("arena.test.worker_directories.child")
+    inside = logging.FileHandler(root / "home" / "bridge.log", encoding="utf-8")
+    outside = logging.FileHandler(tmp_path / "kept.log", encoding="utf-8")
+    console = logging.StreamHandler()
+    for handler in (inside, outside, console):
+        logger.addHandler(handler)
+    logger.warning("a line in both files")
+    yield SimpleNamespace(root=root.resolve(), logger=logger, inside=inside, outside=outside, console=console)
+    for handler in (inside, outside, console):
+        logger.removeHandler(handler)
+        handler.close()
+
+
+def test_a_log_file_inside_the_root_is_closed_and_detached(logs):
+    """Nothing keeps the file open, and nothing reopens it with the next record."""
+    worker_directories._close_logs_under(logs.root)
+    assert logs.inside.stream is None
+    assert logs.inside not in logs.logger.handlers
+
+
+def test_a_log_file_outside_the_root_stays_open(logs):
+    """Only what is about to be removed is closed."""
+    worker_directories._close_logs_under(logs.root)
+    assert logs.outside.stream is not None
+    assert logs.logger.handlers == [logs.outside, logs.console]
+
+
+def test_a_root_logger_file_inside_the_root_is_closed_too(logs):
+    """The bridge logs through the root logger; it is searched as well."""
+    logs.logger.removeHandler(logs.inside)
+    logging.getLogger().addHandler(logs.inside)
+    try:
+        worker_directories._close_logs_under(logs.root)
+        assert logs.inside not in logging.getLogger().handlers
+    finally:
+        logging.getLogger().removeHandler(logs.inside)
+    assert logs.inside.stream is None
+
+
+def test_removing_the_root_removes_a_log_file_that_was_open(logs):
+    """The whole of it: on Windows the open file used to keep the directory (#612)."""
+    worker_directories._remove(logs.root)
+    assert not logs.root.exists()
 
 
 @pytest.mark.parametrize("dist", ["load", "worksteal"])

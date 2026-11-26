@@ -23,6 +23,22 @@ _LATE_HOME_WRITER = (
     "atexit.register(lambda: (home / 'arena-bridge' / 'mcp' / 'run').mkdir(parents=True, exist_ok=True))"
 )
 
+# What importing `unified_bridge` does: keep a log file open under the home
+# until the interpreter is gone. Windows does not delete an open file, so the
+# exit handler below also records whether the file had been closed by then;
+# that is what tells the two apart on the other platforms.
+_OPEN_LOG_FILE = (
+    "import atexit, logging, os, pathlib; home = pathlib.Path(os.environ['HOME']); "
+    "worker = os.environ.get('PYTEST_XDIST_WORKER', 'main'); "
+    "pathlib.Path('root-' + worker).write_text(str(home.parent), encoding='utf-8'); "
+    "(home / 'arena-bridge').mkdir(); "
+    "handler = logging.FileHandler(home / 'arena-bridge' / 'bridge.log', encoding='utf-8'); "
+    "logging.getLogger('arena.contract').addHandler(handler); "
+    "logging.getLogger('arena.contract').warning('a line in the log'); "
+    "closed = pathlib.Path('closed-' + worker); "
+    "atexit.register(lambda: closed.write_text(str(handler.stream is None), encoding='utf-8'))"
+)
+
 
 def _source(case: str) -> str:
     first = "def test_one():\n    assert True\n"
@@ -33,6 +49,7 @@ def _source(case: str) -> str:
         "environment-leak": 'import os; os.environ["ARENA_CONTRACT_LEAK"] = "fixture-value"',
         "coverage-failure": "import contract_target; assert contract_target.used() == 1",
         "late-home-writer": _LATE_HOME_WRITER,
+        "open-log-file": _OPEN_LOG_FILE,
     }
     if case == "under-collected":
         return first
@@ -65,7 +82,7 @@ def _run(tmp_path: Path, *, case: str, workers: int) -> subprocess.CompletedProc
         command += ["-p", "no:xdist"]
     if case == "environment-leak":
         command += ["-p", "tests.conftest"]
-    if case == "late-home-writer":
+    if case in {"late-home-writer", "open-log-file"}:
         command += ["-p", "tests._worker_directories"]
     if case == "coverage-failure":
         (tmp_path / "contract_target.py").write_text(
@@ -134,6 +151,18 @@ def test_a_run_without_workers_leaves_no_directory_behind_either(tmp_path):
     root = Path(record.read_text(encoding="utf-8"))
     assert root.name.startswith("arena-test-worker-serial-")
     assert not root.exists()
+
+
+@pytest.mark.parametrize("workers", [0, 2])
+def test_a_log_file_still_open_does_not_keep_the_directory(tmp_path, workers):
+    """A log file under the moved home is closed before the home is removed (#612)."""
+    result = _run(tmp_path, case="open-log-file", workers=workers)
+    assert result.returncode == 0, result.stdout + result.stderr
+    roots = [Path(record.read_text(encoding="utf-8")) for record in tmp_path.glob("root-*")]
+    assert roots, "no process recorded its directory"
+    assert [root for root in roots if root.exists()] == []
+    closed = sorted(record.read_text(encoding="utf-8") for record in tmp_path.glob("closed-*"))
+    assert closed == ["True"] * len(roots)
 
 
 def test_mismatched_worker_collection_is_rejected(tmp_path):
