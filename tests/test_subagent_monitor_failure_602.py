@@ -42,10 +42,20 @@ def _run_dir(tmp_path):
     return directory
 
 
+@pytest.fixture(name="cli")
+def _cli(run_dir, tmp_path, monkeypatch):
+    """The subagent CLI looking at the directory that holds `run_dir`."""
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))  # Importing the CLI creates its home.
+    from arena import subagent_cli
+
+    monkeypatch.setattr(subagent_cli, "SUB_DIR", run_dir.parent)
+    return subagent_cli
+
+
 @pytest.fixture(name="failing_run")
 def _failing_run(monkeypatch):
     """Make the supervised run raise, as a monitor whose last write is refused does."""
-    def run(_directory):
+    def run(_directory, _workers):
         raise RuntimeError("the disk went away")
 
     monkeypatch.setattr(lifecycle, "run", run)
@@ -113,6 +123,71 @@ def test_a_refused_last_write_keeps_the_result_in_the_summary_and_ends_the_run(r
     assert "could not be updated" not in (run_dir / lifecycle.MONITOR_LOG).read_text(encoding="utf-8")
 
 
+class _Worker:
+    """Stand in for the worker process: it exits when asked to, or never."""
+
+    stdin = None
+    pid = 0
+
+    def __init__(self, exits):
+        self.exits, self.waits, self.killed = exits, 0, False
+
+    def wait(self, timeout=None):
+        self.waits += 1
+        if self.waits > 1 and not self.exits:
+            raise lifecycle.subprocess.TimeoutExpired("worker", timeout)
+        return 0
+
+    def poll(self):
+        return 0 if self.exits and self.waits > 1 else None
+
+    def kill(self):
+        self.killed = True
+
+
+@pytest.fixture(name="worker")
+def _worker(request, monkeypatch):
+    """Let `run()` start a stand-in worker; only this module's view of `subprocess` changes."""
+    stand_in, real = _Worker(exits=request.param), lifecycle.subprocess
+    monkeypatch.setattr(lifecycle, "subprocess", SimpleNamespace(
+        Popen=lambda *_args, **_kwargs: stand_in, PIPE=real.PIPE, TimeoutExpired=real.TimeoutExpired))
+    return stand_in
+
+
+@pytest.mark.parametrize("worker", [False], indirect=True)
+def test_a_worker_that_does_not_exit_leaves_the_run_active_and_says_so(run_dir, cli, worker, capsys):
+    before = _read(run_dir / "meta.json"), _read(run_dir / "summary.json")
+
+    with pytest.raises(lifecycle.subprocess.TimeoutExpired):
+        lifecycle.supervise(run_dir)
+
+    assert worker.killed
+    assert (_read(run_dir / "meta.json"), _read(run_dir / "summary.json")) == before
+    log = (run_dir / lifecycle.MONITOR_LOG).read_text(encoding="utf-8")
+    assert "TimeoutExpired" in log
+    assert log.endswith("the worker did not exit; the run is left active\n")
+    assert cli.rm_cmd(SimpleNamespace(id=run_dir.name)) == 1
+    assert run_dir.exists()
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("worker", [True], indirect=True)
+def test_a_failure_after_the_worker_has_exited_ends_the_run(run_dir, monkeypatch, worker):
+    def refuse(path, _value):
+        if path.name == "summary.json":
+            raise PermissionError(13, "held open")
+
+    publish = lifecycle.write_private_json
+    monkeypatch.setattr(lifecycle, "write_private_json", lambda path, value: refuse(path, value) or publish(path, value))
+
+    with pytest.raises(PermissionError, match="held open"):
+        lifecycle.supervise(run_dir)
+
+    assert worker.waits == 2
+    assert _read(run_dir / "meta.json")["status"] == "fail"
+    assert "the run is left active" not in (run_dir / lifecycle.MONITOR_LOG).read_text(encoding="utf-8")
+
+
 @pytest.mark.usefixtures("failing_run")
 def test_a_run_that_had_already_ended_keeps_what_was_recorded(run_dir):
     ended = {"id": "0123456789", "status": "timeout", "exit": 124}
@@ -154,7 +229,7 @@ def test_a_log_that_cannot_be_written_does_not_replace_the_first_failure(tmp_pat
 
 
 def test_a_monitor_that_succeeds_returns_the_summary_and_writes_no_error_log(run_dir, monkeypatch):
-    monkeypatch.setattr(lifecycle, "run", lambda _directory: {"status": "ok"})
+    monkeypatch.setattr(lifecycle, "run", lambda _directory, _workers: {"status": "ok"})
 
     assert lifecycle.supervise(run_dir) == {"status": "ok"}
 
@@ -163,7 +238,7 @@ def test_a_monitor_that_succeeds_returns_the_summary_and_writes_no_error_log(run
 
 
 def test_the_recorded_error_is_bounded(run_dir, monkeypatch):
-    def run(_directory):
+    def run(_directory, _workers):
         raise RuntimeError("x" * 5000)
 
     monkeypatch.setattr(lifecycle, "run", run)
@@ -222,10 +297,7 @@ def test_a_waiting_spawn_whose_supervision_fails_does_not_leave_an_active_run(tm
 
 
 @pytest.mark.parametrize("unknown", _UNKNOWN_STATES, ids=_UNKNOWN_IDS)
-def test_a_run_whose_state_is_unknown_is_not_removed(run_dir, monkeypatch, capsys, unknown):
-    from arena import subagent_cli as cli
-
-    monkeypatch.setattr(cli, "SUB_DIR", run_dir.parent)
+def test_a_run_whose_state_is_unknown_is_not_removed(run_dir, cli, capsys, unknown):
     (run_dir / "meta.json").write_text(unknown, encoding="utf-8")
 
     assert cli.rm_cmd(SimpleNamespace(id=run_dir.name)) == 1
@@ -236,10 +308,7 @@ def test_a_run_whose_state_is_unknown_is_not_removed(run_dir, monkeypatch, capsy
 
 
 @pytest.mark.parametrize("status", ["ok", "fail", "timeout"])
-def test_a_run_that_has_ended_is_still_removed(run_dir, monkeypatch, capsys, status):
-    from arena import subagent_cli as cli
-
-    monkeypatch.setattr(cli, "SUB_DIR", run_dir.parent)
+def test_a_run_that_has_ended_is_still_removed(run_dir, cli, capsys, status):
     _write(run_dir / "meta.json", {"id": run_dir.name, "status": status})
 
     assert cli.rm_cmd(SimpleNamespace(id=run_dir.name)) == 0

@@ -44,7 +44,7 @@ def _worker_timed_out(task: Path) -> bool:
         return False  # A crashed worker is a failure, not proof of timeout.
 
 
-def run(directory: Path) -> dict:
+def run(directory: Path, workers: list | None = None) -> dict:
     meta = json.loads((directory / "meta.json").read_text(encoding="utf-8"))
     out_path, err_path = directory / "stdout.log", directory / "stderr.log"
     started = time.monotonic()
@@ -56,6 +56,8 @@ def run(directory: Path) -> dict:
         process = subprocess.Popen([sys.executable, "-I", str(worker), str(task)],  # nosec B603 -- fixed interpreter and package-owned worker; task is private operator input, never an executable path
                                    stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
                                    env=os.environ.copy(), close_fds=True)
+        if workers is not None:
+            workers.append(process)  # Lets the caller see whether the worker is gone.
         try:
             rc = process.wait(timeout=float(meta["timeout"]) + 20)
             timed_out = _worker_timed_out(task)
@@ -88,19 +90,31 @@ def run(directory: Path) -> dict:
 
 def supervise(directory: Path) -> dict:
     """Run the command; a failure of the supervision itself is recorded, then raised (#602)."""
+    workers: list = []
     try:
-        return run(directory)
+        return run(directory, workers)
     except Exception as failure:
-        _record_failure(directory, failure)
+        _record_failure(directory, failure, all(worker.poll() is not None for worker in workers))
         raise
 
 
-def _record_failure(directory: Path, failure: Exception) -> None:
+def _record_failure(directory: Path, failure: Exception, worker_gone: bool) -> None:
     # A detached monitor has no stderr anyone reads, and a run it abandons
     # would look active for good: `rm` and `prune` refuse an active run.
     # Leave the traceback in the run directory and end the run as failed.
     notes = ["".join(traceback.format_exception(type(failure), failure, failure.__traceback__))]
-    error = f"monitor failed: {failure!r}"[:500]
+    if worker_gone:
+        notes.extend(_end_run(directory, f"monitor failed: {failure!r}"[:500]))
+    else:
+        # Ending the run would let `rm` and `prune` delete a workspace that a
+        # live worker still writes to. It stays active; the log says why.
+        notes.append("the worker did not exit; the run is left active\n")
+    with contextlib.suppress(OSError), _private_output(directory / MONITOR_LOG) as log:
+        log.write("".join(notes).encode("utf-8", errors="replace"))
+
+
+def _end_run(directory: Path, error: str) -> list[str]:
+    problems = []
     # The summary first and meta last, as in run(): meta is the file that says a run has ended.
     for stem in ("summary", "meta"):
         name = f"{stem}.json"
@@ -109,9 +123,8 @@ def _record_failure(directory: Path, failure: Exception) -> None:
         except FileNotFoundError:
             continue  # A waiting run has no summary yet; nothing to correct.
         except (OSError, ValueError, AttributeError, RecursionError) as second:
-            notes.append(f"{name} could not be updated: {second!r}\n")
-    with contextlib.suppress(OSError), _private_output(directory / MONITOR_LOG) as log:
-        log.write("".join(notes).encode("utf-8", errors="replace"))
+            problems.append(f"{name} could not be updated: {second!r}\n")
+    return problems
 
 
 def _end_as_failed(path: Path, error: str) -> None:

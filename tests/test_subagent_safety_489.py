@@ -211,7 +211,7 @@ def test_synchronous_identity_includes_selected_state_home(cli, tmp_path, monkey
     monkeypatch.delenv("ARENA_AGENT_HOME", raising=False)
     seen = {}
 
-    def run(_directory):
+    def run(_directory, _workers):
         seen.update({key: os.environ[key] for key in ("ARENA_AGENT_HOME", "ARENA_SUBAGENT_ID")})
         return {"status": "ok"}
 
