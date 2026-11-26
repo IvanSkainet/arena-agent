@@ -6,14 +6,14 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
+import runpy
 import sys
+import warnings
 from types import SimpleNamespace
 
 import pytest
 
 from arena import subagent_lifecycle as lifecycle
-from arena.home import code_root
 
 ERROR = "monitor failed: RuntimeError('the disk went away')"
 
@@ -135,18 +135,17 @@ def test_the_error_log_is_private(run_dir):
     assert (run_dir / lifecycle.MONITOR_LOG).stat().st_mode & 0o777 == 0o600
 
 
-def test_a_real_detached_monitor_that_dies_leaves_the_log_and_a_failed_run(run_dir):
+def test_the_detached_entry_point_is_supervised(run_dir, monkeypatch):
     meta = _read(run_dir / "meta.json")
     del meta["cmd"]
     _write(run_dir / "meta.json", meta)
+    monkeypatch.setattr(sys, "argv", ["arena.subagent_lifecycle", str(run_dir)])
 
-    finished = subprocess.run(
-        [sys.executable, "-m", "arena.subagent_lifecycle", str(run_dir)],
-        cwd=str(code_root()), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        timeout=120, check=False,
-    )
+    with pytest.raises(KeyError, match="cmd"), warnings.catch_warnings():
+        # runpy notes that the module is already imported; that is the point here.
+        warnings.simplefilter("ignore", RuntimeWarning)
+        runpy.run_module("arena.subagent_lifecycle", run_name="__main__")
 
-    assert finished.returncode != 0
     assert "KeyError: 'cmd'" in (run_dir / lifecycle.MONITOR_LOG).read_text(encoding="utf-8")
     assert _read(run_dir / "meta.json") == {**meta, "status": "fail", "error": "monitor failed: KeyError('cmd')"}
 
