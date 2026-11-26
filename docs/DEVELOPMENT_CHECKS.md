@@ -180,6 +180,21 @@ it, and the path contains no symlink: the first attempt put the home under
 macOS's `/var/folders`, which is reached through a symlink and is inside
 `TMPDIR`, and 32 tests failed for those two reasons while Linux stayed green.
 
+A run without workers is moved the same way, as `arena-test-worker-serial-*`
+(#608). It has no other worker to meet, but before this it wrote into the
+account's own agent home: on an empty home, one serial run of the suite left
+128 lines in `~/arena-bridge/audit.jsonl`, 1877 in `requests.jsonl`, a memory
+database, and `~/.arena/last_urls.json` holding addresses of test servers.
+`tmp_path` stays where pytest would have put it, so what a failed test left
+there can still be read after the run. The controller of a parallel run is not
+moved: it runs no test.
+
+Playwright looks for its browsers under the per-user cache, so in a moved home
+it finds none and `tests/e2e/test_dashboard_browser.py` skips every test. A run
+without workers is told where they were installed (`PLAYWRIGHT_BROWSERS_PATH`,
+unless the variable is already set). A worker is not: a parallel run skips the
+browser tests, as it did before.
+
 With those fixes in place the chosen setting was run again on every Python the
 matrix uses (3.10-3.14) with four seeds on Windows and macOS and two on Linux:
 50 runs, 49 passed. Median seconds of the test step: Linux 180 (154-262),

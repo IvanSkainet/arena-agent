@@ -1,4 +1,4 @@
-"""An xdist worker runs in per-user and temporary directories nobody else uses."""
+"""A process that runs tests has per-user and temporary directories nobody else uses."""
 from __future__ import annotations
 
 import os
@@ -12,7 +12,7 @@ from tests import _worker_directories as worker_directories
 
 
 class _Config(SimpleNamespace):
-    """The two things the plugin reads from pytest's config."""
+    """The three things the plugin reads from pytest's config."""
 
     def __init__(self, **attributes):
         """Start with an empty stash, as pytest does."""
@@ -116,9 +116,111 @@ def test_two_workers_never_share_a_directory(base):
     assert seen[0].isdisjoint(seen[1])
 
 
-def test_the_serial_run_keeps_its_environment(base):
-    """One process has nobody to share with, so nothing is moved or created."""
+def test_a_run_without_workers_is_moved_too(base, monkeypatch):
+    """It has no worker to meet, but it has the account's own files (#608)."""
+    monkeypatch.delenv(worker_directories.TMP_PATH_ROOT, raising=False)
     config = _Config()
+    before = dict(os.environ)
+    worker_directories.pytest_configure(config)
+    try:
+        moved = {name: Path(os.environ[name]) for name in worker_directories.PRIVATE}
+        (root,) = {path.parent for path in moved.values()}
+        assert root.parent == base
+        assert root.name.startswith("arena-test-worker-serial-")
+        assert Path.home() == moved["USERPROFILE" if os.name == "nt" else "HOME"]
+        assert Path(tempfile.gettempdir()) in {moved["TMPDIR"], moved["TEMP"], moved["TMP"]}
+    finally:
+        worker_directories.pytest_unconfigure(config)
+    assert dict(os.environ) == before
+    assert list(base.iterdir()) == []
+
+
+@pytest.mark.parametrize("inherited", [None, "somewhere-the-developer-chose"])
+def test_a_run_without_workers_keeps_tmp_path_where_it_was(base, monkeypatch, inherited):
+    """What a failed test left in `tmp_path` must outlive the moved directories."""
+    if inherited is None:
+        monkeypatch.delenv(worker_directories.TMP_PATH_ROOT, raising=False)
+    else:
+        monkeypatch.setenv(worker_directories.TMP_PATH_ROOT, inherited)
+    expected = str(base) if inherited is None else inherited
+    config = _Config()
+    worker_directories.pytest_configure(config)
+    try:
+        assert os.environ[worker_directories.TMP_PATH_ROOT] == expected
+    finally:
+        worker_directories.pytest_unconfigure(config)
+    assert os.environ.get(worker_directories.TMP_PATH_ROOT) == inherited
+
+
+def test_a_worker_is_handed_its_tmp_path_and_the_variable_is_left_alone(base, monkeypatch):
+    """The controller names a worker's base directory itself."""
+    monkeypatch.delenv(worker_directories.TMP_PATH_ROOT, raising=False)
+    config, _ = _moved("gw0")
+    try:
+        assert worker_directories.TMP_PATH_ROOT not in os.environ
+    finally:
+        worker_directories.pytest_unconfigure(config)
+
+
+@pytest.mark.parametrize(("platform", "environ", "expected"), [
+    ("linux", {}, Path("home", ".cache", "ms-playwright")),
+    ("linux", {"XDG_CACHE_HOME": "cache"}, Path("cache", "ms-playwright")),
+    ("darwin", {"XDG_CACHE_HOME": "cache"}, Path("home", "Library", "Caches", "ms-playwright")),
+    ("win32", {}, Path("home", "AppData", "Local", "ms-playwright")),
+    ("win32", {"LOCALAPPDATA": "local"}, Path("local", "ms-playwright")),
+])
+def test_the_browsers_are_looked_for_where_playwright_puts_them(platform, environ, expected):
+    """The three rules of Playwright's own `computeDefaultCacheDirectory`."""
+    found = worker_directories.installed_browsers(platform, environ, Path("home"))
+    assert found == expected
+
+
+@pytest.fixture(name="browsers")
+def _browsers(monkeypatch, tmp_path_factory):
+    """Browsers installed in the account, and no variable naming them."""
+    installed = tmp_path_factory.mktemp("ms-playwright")
+    monkeypatch.setattr(worker_directories, "installed_browsers", lambda *_: installed)
+    monkeypatch.delenv(worker_directories.BROWSERS, raising=False)
+    return installed
+
+
+def _browsers_after_the_move(config: _Config) -> str | None:
+    """Configure one run and read back what Playwright will be told."""
+    worker_directories.pytest_configure(config)
+    try:
+        return os.environ.get(worker_directories.BROWSERS)
+    finally:
+        worker_directories.pytest_unconfigure(config)
+
+
+def test_a_run_without_workers_still_finds_the_installed_browsers(base, browsers):
+    """In a moved home Playwright finds none and every browser test is skipped."""
+    assert _browsers_after_the_move(_Config()) == str(browsers)
+    assert worker_directories.BROWSERS not in os.environ
+
+
+def test_browsers_somebody_named_are_left_as_named(base, browsers, monkeypatch):
+    """`0` is Playwright's word for "inside the package", not a path to replace."""
+    monkeypatch.setenv(worker_directories.BROWSERS, "0")
+    assert _browsers_after_the_move(_Config()) == "0"
+    assert os.environ[worker_directories.BROWSERS] == "0"
+
+
+def test_browsers_that_are_not_installed_are_not_named(base, browsers):
+    """A path to nothing would only hide where a later install went."""
+    browsers.rmdir()
+    assert _browsers_after_the_move(_Config()) is None
+
+
+def test_a_worker_is_not_told_where_the_browsers_are(base, browsers):
+    """A parallel run skips the browser tests today; this change leaves that alone."""
+    assert _browsers_after_the_move(_Config(workerinput={"workerid": "gw0"})) is None
+
+
+@pytest.mark.parametrize("dist", ["load", "worksteal"])
+def test_the_controller_of_a_parallel_run_keeps_its_environment(base, dist):
+    """It runs no test and starts the workers, which move themselves."""
+    config = _Config(option=SimpleNamespace(dist=dist))
     before = dict(os.environ)
     worker_directories.pytest_configure(config)
     worker_directories.pytest_unconfigure(config)
@@ -127,7 +229,19 @@ def test_the_serial_run_keeps_its_environment(base):
     assert list(base.iterdir()) == []
 
 
-def test_this_session_obeys_the_rule(request):
-    """Under xdist this very test runs in moved directories; serially it does not."""
+def test_a_run_that_does_not_distribute_is_not_taken_for_a_controller(base):
+    """`-n 0` and a run without xdist both say "no"."""
+    config = _Config(option=SimpleNamespace(dist="no"))
+    worker_directories.pytest_configure(config)
+    try:
+        assert Path.home().parent.name.startswith("arena-test-worker-serial-")
+    finally:
+        worker_directories.pytest_unconfigure(config)
+
+
+def test_this_session_obeys_the_rule(request, tmp_path):
+    """This very test runs in moved directories, with or without workers."""
     home = Path(os.environ.get("USERPROFILE" if os.name == "nt" else "HOME", ""))
-    assert home.parent.name.startswith("arena-test-worker-") == hasattr(request.config, "workerinput")
+    label = getattr(request.config, "workerinput", {}).get("workerid", "serial")
+    assert home.parent.name.startswith(f"arena-test-worker-{label}-")
+    assert home.parent not in tmp_path.parents
