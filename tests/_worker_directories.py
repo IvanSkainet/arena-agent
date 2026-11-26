@@ -47,6 +47,7 @@
 from __future__ import annotations
 
 import atexit
+import logging
 import os
 import shutil
 import sys
@@ -161,8 +162,35 @@ def pytest_unconfigure(config: pytest.Config) -> None:
     _remove(root)
 
 
+def _loggers() -> list[object]:
+    """The root logger and everything registered under it."""
+    # A name that only has children is a placeholder without handlers.
+    return [logging.getLogger(), *logging.Logger.manager.loggerDict.values()]
+
+
+def _writes_under(handler: logging.Handler, root: Path) -> bool:
+    """Whether `handler` holds a file inside `root`."""
+    name = getattr(handler, "baseFilename", None)
+    return bool(name) and root in Path(name).resolve().parents
+
+
+def _close_logs_under(root: Path) -> None:
+    """Close the log files inside `root`, which is about to be removed."""
+    # Importing the bridge attaches a handler for `<home>/arena-bridge/bridge.log`
+    # and nothing closes it before the interpreter is gone: `logging.shutdown`
+    # was registered at exit earlier than `_remove`, so it runs later. Windows
+    # does not delete an open file, and that one file kept the whole root in the
+    # temporary directory after every run (#612).
+    for logger in _loggers():
+        for handler in list(getattr(logger, "handlers", ())):
+            if _writes_under(handler, root):
+                logger.removeHandler(handler)
+                handler.close()
+
+
 def _remove(root: Path) -> None:
     """Remove the moved directories; called at teardown and again at exit."""
-    # A handle still open on Windows keeps its file; the directory lives
-    # under the temporary root either way, never in the account's home.
+    _close_logs_under(root)
+    # Any other handle still open on Windows keeps its file; the directory
+    # lives under the temporary root either way, never in the account's home.
     shutil.rmtree(root, ignore_errors=True)

@@ -62,7 +62,11 @@ every process of the run had exited within 25 seconds and the two workers'
 directories stayed in the temporary directory. That is one observation, not a
 contract, and nothing was tried on macOS. On every platform a worker that is
 killed leaves its `arena-test-worker-*` directory in the temporary directory;
-a run that ends normally removes them.
+a run that ends normally removes them. Before the directories are removed, the
+log files inside them are closed: importing the bridge keeps `bridge.log` open,
+and on Windows that one open file used to keep the whole directory (#612). A
+file some other code still holds open on Windows is not covered by this and
+would stay.
 
 The existing full-preflight pytest command uses `--no-cov` and disables random
 ordering. This option preserves that contract; it does **not** replace CI's
