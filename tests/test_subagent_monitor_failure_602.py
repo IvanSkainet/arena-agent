@@ -62,6 +62,22 @@ def test_a_monitor_that_fails_leaves_its_traceback_and_ends_the_run_as_failed(ru
         "id": "0123456789", "name": "probe", "status": "fail", "exit": None, "error": ERROR}
 
 
+@pytest.mark.usefixtures("failing_run")
+def test_meta_is_ended_last_so_a_run_never_reads_as_ended_before_its_summary_says_why(run_dir, monkeypatch):
+    publish, written = lifecycle.write_private_json, []
+
+    def write(path, value):
+        written.append(path.name)
+        return publish(path, value)
+
+    monkeypatch.setattr(lifecycle, "write_private_json", write)
+
+    with pytest.raises(RuntimeError):
+        lifecycle.supervise(run_dir)
+
+    assert written == ["summary.json", "meta.json"]
+
+
 def test_a_refused_last_write_keeps_the_result_in_the_summary_and_ends_the_run(run_dir, monkeypatch):
     """The #581 case: the command finished, and the final `meta.json` write was refused."""
     publish, refused = lifecycle.write_private_json, []

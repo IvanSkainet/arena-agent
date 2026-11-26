@@ -12,7 +12,6 @@ from pathlib import Path
 
 from arena.private_state import write_private_json
 
-META_FILE = "meta.json"
 MONITOR_LOG = "monitor-error.log"
 _ACTIVE = frozenset({"running", "spawned"})
 
@@ -46,7 +45,7 @@ def _worker_timed_out(task: Path) -> bool:
 
 
 def run(directory: Path) -> dict:
-    meta = json.loads((directory / META_FILE).read_text(encoding="utf-8"))
+    meta = json.loads((directory / "meta.json").read_text(encoding="utf-8"))
     out_path, err_path = directory / "stdout.log", directory / "stderr.log"
     started = time.monotonic()
     task = directory / "task.json"
@@ -83,7 +82,7 @@ def run(directory: Path) -> dict:
                "paths": {"stdout": str(out_path), "stderr": str(err_path), "dir": str(directory)}}
     write_private_json(directory / "summary.json", summary)
     meta.update(status=status, exit=rc, duration_sec=duration)
-    write_private_json(directory / META_FILE, meta)
+    write_private_json(directory / "meta.json", meta)
     return summary
 
 
@@ -102,8 +101,9 @@ def _record_failure(directory: Path, failure: Exception) -> None:
     # Leave the traceback in the run directory and end the run as failed.
     notes = ["".join(traceback.format_exception(type(failure), failure, failure.__traceback__))]
     error = f"monitor failed: {failure!r}"[:500]
-    # meta.json last, as in run(): it is the file that says a run has ended.
-    for name in ("summary.json", META_FILE):
+    # The summary first and meta last, as in run(): meta is the file that says a run has ended.
+    for stem in ("summary", "meta"):
+        name = f"{stem}.json"
         try:
             _end_as_failed(directory / name, error)
         except FileNotFoundError:
