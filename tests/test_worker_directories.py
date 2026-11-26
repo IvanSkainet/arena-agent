@@ -220,7 +220,7 @@ def test_a_worker_is_not_told_where_the_browsers_are(base, browsers):
 @pytest.mark.parametrize("dist", ["load", "worksteal"])
 def test_the_controller_of_a_parallel_run_keeps_its_environment(base, dist):
     """It runs no test and starts the workers, which move themselves."""
-    config = _Config(option=SimpleNamespace(dist=dist))
+    config = _Config(option=SimpleNamespace(dist=dist, tx=["popen"], collectonly=False))
     before = dict(os.environ)
     worker_directories.pytest_configure(config)
     worker_directories.pytest_unconfigure(config)
@@ -229,9 +229,17 @@ def test_the_controller_of_a_parallel_run_keeps_its_environment(base, dist):
     assert list(base.iterdir()) == []
 
 
-def test_a_run_that_does_not_distribute_is_not_taken_for_a_controller(base):
-    """`-n 0` and a run without xdist both say "no"."""
-    config = _Config(option=SimpleNamespace(dist="no"))
+@pytest.mark.parametrize("option", [
+    SimpleNamespace(dist="no"),
+    SimpleNamespace(dist="no", tx=[], collectonly=False),
+    SimpleNamespace(dist="load", tx=[], collectonly=False),
+    SimpleNamespace(dist="load", tx=None, collectonly=False),
+    SimpleNamespace(dist="no", tx=["popen"], collectonly=False),
+    SimpleNamespace(dist="load", tx=["popen"], collectonly=True),
+], ids=["no-xdist", "n0", "dist-without-workers", "dist-without-tx", "tx-without-dist", "collect-only"])
+def test_a_run_that_keeps_its_tests_is_not_taken_for_a_controller(base, option):
+    """A mode with nowhere to send tests, or a collection, happens in this process."""
+    config = _Config(option=option)
     worker_directories.pytest_configure(config)
     try:
         assert Path.home().parent.name.startswith("arena-test-worker-serial-")

@@ -106,7 +106,13 @@ def installed_browsers(platform: str, environ: Mapping[str, str], home: Path) ->
 
 def _only_starts_workers(config: pytest.Config) -> bool:
     """True for the controller of a parallel run, which runs no test itself."""
-    return getattr(getattr(config, "option", None), "dist", "no") != "no"
+    # xdist's own rule (`_is_distribution_mode`, and its early return when
+    # only collecting): a mode alone is not enough. `--dist=load` with nowhere
+    # to send tests runs them here, and `-n 2 --collect-only` imports every
+    # test module here.
+    option = getattr(config, "option", None)
+    sends_tests_away = getattr(option, "dist", "no") != "no" and bool(getattr(option, "tx", None))
+    return sends_tests_away and not getattr(option, "collectonly", False)
 
 
 def pytest_configure(config: pytest.Config) -> None:
