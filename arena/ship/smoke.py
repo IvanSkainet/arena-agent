@@ -23,6 +23,12 @@ def _record_root() -> Path:
     return p
 
 
+def _on_linux() -> bool:
+    # A name of this module's own: a test replaces it without changing
+    # platform.system for every thread in the process.
+    return platform.system().lower() == "linux"
+
+
 def _check(name: str, ok: bool, *, severity: str = "fail", detail: Any = None) -> dict[str, Any]:
     return {"name": name, "ok": bool(ok), "severity": severity, "detail": detail}
 
@@ -65,6 +71,10 @@ def _mcp_registry() -> dict[str, Any]:
 def run() -> dict[str, Any]:
     started = time.time()
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(started))
+    # Resolved now and not when the report is written: the probes below take
+    # seconds, the configured home can change meanwhile, and the record
+    # belongs to the home the run started in (#555).
+    record_root = _record_root()
     posture_view = _posture.get_posture()
     _risk = str(posture_view.get("risk") or "unknown")
     # v4.148.0: align smoke posture semantics with ship.preflight.
@@ -85,7 +95,7 @@ def run() -> dict[str, Any]:
     ship_status = _safe("ship.status", lambda: __import__("arena.ship.status", fromlist=["status"]).status())
     ship_preflight = _safe("ship.preflight", lambda: __import__("arena.ship.status", fromlist=["preflight"]).preflight())
     linux_flight = None
-    if platform.system().lower() == "linux":
+    if _on_linux():
         linux_flight = _safe("ship.linux_flight_check", lambda: __import__("arena.ship.linux_flight", fromlist=["status"]).status())
 
     checks = [
@@ -132,7 +142,7 @@ def run() -> dict[str, Any]:
             "linux_flight": linux_flight,
         },
     }
-    path = _record_root() / f"{stamp}-ship-smoke.json"
+    path = record_root / f"{stamp}-ship-smoke.json"
     path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     report["report_path"] = str(path)
     return report
