@@ -152,8 +152,10 @@ def test_a_result_that_never_arrives_fails_with_the_report_instead_of_a_bare_tim
     log = _RaceLog()
     log.reach("probe_ready", Event())
 
+    pending = Future()
+
     with pytest.raises(AssertionError) as raised:
-        _result_or_report(Future(), 0.01, log)
+        _result_or_report(pending, 0.01, log)
 
     message = str(raised.value)
     assert message.startswith("no result within 0.01s\nafter ")
@@ -168,5 +170,6 @@ def test_a_result_that_arrives_is_returned_and_its_own_error_is_kept():
 
     failed = Future()
     failed.set_exception(FileNotFoundError("test_zz_t74_race_probe"))
+    log = _RaceLog()
     with pytest.raises(FileNotFoundError, match="test_zz_t74_race_probe"):
-        _result_or_report(failed, 0.01, _RaceLog())
+        _result_or_report(failed, 0.01, log)
