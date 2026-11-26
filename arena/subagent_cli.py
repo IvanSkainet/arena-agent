@@ -63,13 +63,13 @@ def _output_tail(path: Path, lines: int) -> str:
 
 
 def _run_waiting(sd: Path, env: dict[str, str]) -> dict:
-    from arena.subagent_lifecycle import run
+    from arena.subagent_lifecycle import supervise
 
     # Apply the same identity environment as a detached monitor.
     previous = {key: os.environ.get(key) for key in ("ARENA_SUBAGENT_ID", "ARENA_SUBAGENT_NAME", "ARENA_AGENT_HOME")}
     try:
         os.environ.update({key: env[key] for key in previous})
-        return run(sd)
+        return supervise(sd)
     finally:
         for key, value in previous.items():
             if value is None:
@@ -151,10 +151,11 @@ def _contained_run(run_id: str) -> Path | None:
 
 def _active_run(directory: Path) -> bool:
     try:
-        meta = json.loads((directory / META_FILE).read_text())
-        return meta.get("status") in {"running", "spawned"}
-    except (OSError, ValueError, AttributeError):
+        status = json.loads((directory / META_FILE).read_text()).get("status")
+    except (OSError, ValueError, AttributeError, RecursionError):
         return True  # Unknown state is not permission to delete a live workspace.
+    # Every writer sets a string. Anything else is as unknown as an unreadable file.
+    return not isinstance(status, str) or status in {"running", "spawned"}
 
 
 def rm_cmd(args) -> int:
