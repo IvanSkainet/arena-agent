@@ -15,6 +15,18 @@ import pytest
 from arena import subagent_lifecycle as lifecycle
 
 ERROR = "monitor failed: RuntimeError('the disk went away')"
+# Contents of a state file that do not say whether the run is active.
+_UNKNOWN = {
+    "not-json": "{",
+    "not-an-object": "[]",
+    "too-deep": "[" * 200_000,
+    "status-missing": "{}",
+    "status-null": '{"status": null}',
+    "status-number": '{"status": 0}',
+    "status-true": '{"status": true}',
+    "status-list": '{"status": []}',
+}
+_UNKNOWN_IDS, _UNKNOWN_STATES = list(_UNKNOWN), list(_UNKNOWN.values())
 
 
 @pytest.fixture(name="run_dir")
@@ -116,8 +128,7 @@ def test_a_run_that_had_already_ended_keeps_what_was_recorded(run_dir):
 
 
 @pytest.mark.usefixtures("failing_run")
-@pytest.mark.parametrize("unreadable", ["{", "[]", '{"status": []}', "[" * 200_000],
-    ids=["not-json", "not-an-object", "status-not-a-string", "too-deep"])
+@pytest.mark.parametrize("unreadable", _UNKNOWN_STATES, ids=_UNKNOWN_IDS)
 def test_a_file_that_cannot_be_updated_is_named_in_the_log_and_the_first_failure_is_raised(run_dir, unreadable):
     (run_dir / "meta.json").write_text(unreadable, encoding="utf-8")
 
@@ -210,13 +221,28 @@ def test_a_waiting_spawn_whose_supervision_fails_does_not_leave_an_active_run(tm
     capsys.readouterr()
 
 
-def test_a_status_that_is_not_a_string_counts_as_unknown_and_is_not_removed(run_dir, monkeypatch, capsys):
+@pytest.mark.parametrize("unknown", _UNKNOWN_STATES, ids=_UNKNOWN_IDS)
+def test_a_run_whose_state_is_unknown_is_not_removed(run_dir, monkeypatch, capsys, unknown):
     from arena import subagent_cli as cli
 
     monkeypatch.setattr(cli, "SUB_DIR", run_dir.parent)
-    (run_dir / "meta.json").write_text('{"status": []}', encoding="utf-8")
+    (run_dir / "meta.json").write_text(unknown, encoding="utf-8")
 
     assert cli.rm_cmd(SimpleNamespace(id=run_dir.name)) == 1
+    assert cli.prune_cmd(SimpleNamespace(keep=0)) == 0
 
     assert run_dir.exists()
     assert "refusing to remove an active or unreadable subagent" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("status", ["ok", "fail", "timeout"])
+def test_a_run_that_has_ended_is_still_removed(run_dir, monkeypatch, capsys, status):
+    from arena import subagent_cli as cli
+
+    monkeypatch.setattr(cli, "SUB_DIR", run_dir.parent)
+    _write(run_dir / "meta.json", {"id": run_dir.name, "status": status})
+
+    assert cli.rm_cmd(SimpleNamespace(id=run_dir.name)) == 0
+
+    assert not run_dir.exists()
+    capsys.readouterr()

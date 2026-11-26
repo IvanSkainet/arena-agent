@@ -108,7 +108,7 @@ def _record_failure(directory: Path, failure: Exception) -> None:
             _end_as_failed(directory / name, error)
         except FileNotFoundError:
             continue  # A waiting run has no summary yet; nothing to correct.
-        except (OSError, ValueError, AttributeError, TypeError, RecursionError) as second:
+        except (OSError, ValueError, AttributeError, RecursionError) as second:
             notes.append(f"{name} could not be updated: {second!r}\n")
     with contextlib.suppress(OSError), _private_output(directory / MONITOR_LOG) as log:
         log.write("".join(notes).encode("utf-8", errors="replace"))
@@ -116,7 +116,10 @@ def _record_failure(directory: Path, failure: Exception) -> None:
 
 def _end_as_failed(path: Path, error: str) -> None:
     state = json.loads(path.read_text(encoding="utf-8"))
-    if state.get("status") not in _ACTIVE:
+    status = state.get("status")
+    if not isinstance(status, str):
+        raise ValueError(f"status is {type(status).__name__}, not a string")
+    if status not in _ACTIVE:
         return  # Already ended: what was recorded stays.
     state.update(status="fail", error=error)
     write_private_json(path, state)

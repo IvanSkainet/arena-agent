@@ -151,10 +151,11 @@ def _contained_run(run_id: str) -> Path | None:
 
 def _active_run(directory: Path) -> bool:
     try:
-        meta = json.loads((directory / META_FILE).read_text())
-        return meta.get("status") in {"running", "spawned"}
-    except (OSError, ValueError, AttributeError, TypeError):
+        status = json.loads((directory / META_FILE).read_text()).get("status")
+    except (OSError, ValueError, AttributeError, RecursionError):
         return True  # Unknown state is not permission to delete a live workspace.
+    # Every writer sets a string. Anything else is as unknown as an unreadable file.
+    return not isinstance(status, str) or status in {"running", "spawned"}
 
 
 def rm_cmd(args) -> int:
