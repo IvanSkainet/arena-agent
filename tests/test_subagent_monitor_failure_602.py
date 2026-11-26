@@ -63,6 +63,29 @@ def test_a_monitor_that_fails_leaves_its_traceback_and_ends_the_run_as_failed(ru
         "id": "0123456789", "name": "probe", "status": "fail", "exit": None, "error": ERROR}
 
 
+def test_a_refused_last_write_keeps_the_result_in_the_summary_and_ends_the_run(run_dir, monkeypatch):
+    """The #581 case: the command finished, and the final `meta.json` write was refused."""
+    publish, refused = lifecycle.write_private_json, []
+
+    def write(path, value):
+        if path.name == "meta.json" and not refused:
+            refused.append(path)
+            raise PermissionError(13, "held open")
+        return publish(path, value)
+
+    monkeypatch.setattr(lifecycle, "write_private_json", write)
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(run_dir.parent.parent))
+    _write(run_dir / "meta.json", {**_read(run_dir / "meta.json"), "cmd": f'"{sys.executable}" -c pass'})
+
+    with pytest.raises(PermissionError, match="held open"):
+        lifecycle.supervise(run_dir)
+
+    summary, meta = _read(run_dir / "summary.json"), _read(run_dir / "meta.json")
+    assert (summary["status"], summary["exit"], summary.get("error")) == ("ok", 0, None)
+    assert (meta["status"], meta["error"]) == ("fail", "monitor failed: PermissionError(13, 'held open')")
+    assert "could not be updated" not in (run_dir / lifecycle.MONITOR_LOG).read_text(encoding="utf-8")
+
+
 @pytest.mark.usefixtures("failing_run")
 def test_a_run_that_had_already_ended_keeps_what_was_recorded(run_dir):
     ended = {"id": "0123456789", "status": "timeout", "exit": 124}
