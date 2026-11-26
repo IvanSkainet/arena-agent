@@ -35,8 +35,8 @@
 # installed. It looks for them under the per-user cache, and in a moved home
 # finds none, so every browser test would be skipped and the run would still
 # be green. A run without workers is therefore told where they were. A worker
-# is told nothing, as before: a parallel run skips those tests today and this
-# file does not change that.
+# is told nothing, as before: a parallel run skips those tests, and the reason
+# they print says that this is why (tests/e2e/test_dashboard_browser.py, #610).
 #
 # `tmp_path` is not moved. The controller hands each worker its base directory
 # explicitly, and pytest already names it per worker. A run without workers

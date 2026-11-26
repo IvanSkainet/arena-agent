@@ -68,7 +68,11 @@ _INSTALL = "run: python -m playwright install chromium"
 
 def _why_no_browser(worker: str | None, named: str | None, expected: str | None) -> str:
     """What to tell the developer when the browser is not where Playwright looks."""
-    looked = f"nothing at {expected}" if expected else "Playwright did not say where it looks"
+    if not expected:
+        # Nothing is known about the browser then; saying "not installed"
+        # would be a guess.
+        return "Playwright did not start or did not say where its chromium is; whether one is installed is not known"
+    looked = f"nothing at {expected}"
     if worker and not named:
         # A worker of a parallel run has a home and a per-user cache of its
         # own (tests/_worker_directories.py), and Playwright looks for its
@@ -179,10 +183,19 @@ def test_the_skip_reason_tells_a_parallel_run_from_a_missing_browser(worker, nam
     assert does_not_say not in reason
 
 
-def test_the_skip_reason_does_not_invent_a_place_playwright_did_not_name():
-    """When Playwright could not be asked, the reason says so instead of printing None."""
-    reason = _why_no_browser(None, None, None)
-    assert reason == f"chromium not installed: Playwright did not say where it looks ({_INSTALL})"
+@pytest.mark.parametrize("worker", [None, "gw1"])
+def test_the_skip_reason_does_not_diagnose_what_playwright_did_not_say(worker):
+    """When Playwright could not be asked, the reason claims neither a missing browser nor a worker's cache."""
+    reason = _why_no_browser(worker, None, None)
+    assert "whether one is installed is not known" in reason
+    assert "not installed" not in reason
+    assert "worker" not in reason
+
+
+def test_the_skip_reason_carries_the_command_that_installs_the_browser():
+    """Spelled out here, so a mistyped constant does not agree with itself."""
+    reason = _why_no_browser(None, None, "/cache/chrome")
+    assert reason.endswith("(run: python -m playwright install chromium)")
 
 
 @requires_browser
