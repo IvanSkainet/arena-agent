@@ -8,7 +8,6 @@ import json
 import os
 import runpy
 import sys
-import warnings
 from types import SimpleNamespace
 
 import pytest
@@ -158,15 +157,14 @@ def test_the_error_log_is_private(run_dir):
     assert (run_dir / lifecycle.MONITOR_LOG).stat().st_mode & 0o777 == 0o600
 
 
+@pytest.mark.filterwarnings("ignore:.*found in sys.modules:RuntimeWarning")  # runpy: already imported, on purpose
 def test_the_detached_entry_point_is_supervised(run_dir, monkeypatch):
     meta = _read(run_dir / "meta.json")
     del meta["cmd"]
     _write(run_dir / "meta.json", meta)
     monkeypatch.setattr(sys, "argv", ["arena.subagent_lifecycle", str(run_dir)])
 
-    with pytest.raises(KeyError, match="cmd"), warnings.catch_warnings():
-        # runpy notes that the module is already imported; that is the point here.
-        warnings.simplefilter("ignore", RuntimeWarning)
+    with pytest.raises(KeyError, match="cmd"):
         runpy.run_module("arena.subagent_lifecycle", run_name="__main__")
 
     assert "KeyError: 'cmd'" in (run_dir / lifecycle.MONITOR_LOG).read_text(encoding="utf-8")
