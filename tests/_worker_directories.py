@@ -162,6 +162,18 @@ def pytest_unconfigure(config: pytest.Config) -> None:
     _remove(root)
 
 
+def _loggers() -> list[object]:
+    """The root logger and everything registered under it."""
+    # A name that only has children is a placeholder without handlers.
+    return [logging.getLogger(), *logging.Logger.manager.loggerDict.values()]
+
+
+def _writes_under(handler: logging.Handler, root: Path) -> bool:
+    """Whether `handler` holds a file inside `root`."""
+    name = getattr(handler, "baseFilename", None)
+    return bool(name) and root in Path(name).resolve().parents
+
+
 def _close_logs_under(root: Path) -> None:
     """Close the log files inside `root`, which is about to be removed."""
     # Importing the bridge attaches a handler for `<home>/arena-bridge/bridge.log`
@@ -169,12 +181,9 @@ def _close_logs_under(root: Path) -> None:
     # was registered at exit earlier than `_remove`, so it runs later. Windows
     # does not delete an open file, and that one file kept the whole root in the
     # temporary directory after every run (#612).
-    loggers = [logging.getLogger(), *logging.Logger.manager.loggerDict.values()]
-    for logger in loggers:
-        # A name that only has children is a placeholder without handlers.
+    for logger in _loggers():
         for handler in list(getattr(logger, "handlers", ())):
-            name = getattr(handler, "baseFilename", None)
-            if name and root in Path(name).resolve().parents:
+            if _writes_under(handler, root):
                 logger.removeHandler(handler)
                 handler.close()
 
