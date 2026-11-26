@@ -197,7 +197,10 @@ Playwright looks for its browsers under the per-user cache, so in a moved home
 it finds none and `tests/e2e/test_dashboard_browser.py` skips every test. A run
 without workers is told where they were installed (`PLAYWRIGHT_BROWSERS_PATH`,
 unless the variable is already set). A worker is not: a parallel run skips the
-browser tests, as it did before.
+browser tests, and the skip reason says that this is why and where Playwright
+looked (#610). To run them in
+a parallel run as well, set `PLAYWRIGHT_BROWSERS_PATH` yourself; workers
+inherit it.
 
 With those fixes in place the chosen setting was run again on every Python the
 matrix uses (3.10-3.14) with four seeds on Windows and macOS and two on Linux:

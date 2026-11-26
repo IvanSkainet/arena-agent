@@ -49,8 +49,8 @@ pytestmark = pytest.mark.skipif(
     reason="browser E2E disabled via ARENA_SKIP_BROWSER_E2E=1")
 
 
-def _chromium_available() -> bool:
-    """True when a Playwright browser binary is actually installed.
+def _chromium_executable() -> str | None:
+    """Where this Playwright expects its Chromium, whether or not it is there.
 
     `pip install playwright` does not download browsers; without
     `playwright install chromium` every test here would fail with a launch
@@ -58,15 +58,30 @@ def _chromium_available() -> bool:
     """
     try:
         with playwright_api.sync_playwright() as p:
-            path = p.chromium.executable_path
+            return p.chromium.executable_path or None
     except Exception:
-        return False
-    return bool(path) and os.path.exists(path)
+        return None
 
 
-requires_browser = pytest.mark.skipif(
-    not _chromium_available(),
-    reason="chromium not installed (run: python -m playwright install chromium)")
+_INSTALL = "run: python -m playwright install chromium"
+
+
+def _why_no_browser(worker: str | None, named: str | None, expected: str | None) -> str:
+    """What to tell the developer when the browser is not where Playwright looks."""
+    looked = f"nothing at {expected}" if expected else "Playwright did not say where it looks"
+    if worker and not named:
+        # A worker of a parallel run has a home and a per-user cache of its
+        # own (tests/_worker_directories.py), and Playwright looks for its
+        # browsers there. "Not installed" would send a developer who has the
+        # browser to install it again (#610).
+        return (f"a parallel run does not look for chromium in your own cache, and worker {worker} has none "
+                f"({looked}); run this file without -n, or name the browsers with PLAYWRIGHT_BROWSERS_PATH")
+    return f"chromium not installed: {looked} ({_INSTALL})"
+
+
+_EXPECTED = _chromium_executable()
+_WHY = _why_no_browser(os.environ.get("PYTEST_XDIST_WORKER"), os.environ.get("PLAYWRIGHT_BROWSERS_PATH"), _EXPECTED)
+requires_browser = pytest.mark.skipif(not (_EXPECTED and os.path.exists(_EXPECTED)), reason=_WHY)
 
 
 @pytest.fixture(scope="module")
@@ -149,6 +164,25 @@ def _open_dashboard(browser, bridge, *, token: str | None = "use-real"):
 VISIBLE_PANELS_JS = """() => [...document.querySelectorAll('[id^=tab-]')]
     .filter(e => e.getBoundingClientRect().height > 0)
     .map(e => e.id)"""
+
+
+@pytest.mark.parametrize(("worker", "named", "says", "does_not_say"), [
+    (None, None, "chromium not installed: nothing at /cache/chrome (run:", "parallel"),
+    ("gw1", None, "worker gw1 has none (nothing at /cache/chrome); run this file without -n", "not installed"),
+    ("gw1", "/named", "chromium not installed: nothing at /cache/chrome (run:", "parallel"),
+    ("gw1", "", "worker gw1 has none (nothing at /cache/chrome); run this file without -n", "not installed"),
+], ids=["no-workers", "worker", "worker-with-named-browsers", "worker-with-an-empty-name"])
+def test_the_skip_reason_tells_a_parallel_run_from_a_missing_browser(worker, named, says, does_not_say):
+    """A developer who has the browser is not told to install it (#610)."""
+    reason = _why_no_browser(worker, named, "/cache/chrome")
+    assert says in reason
+    assert does_not_say not in reason
+
+
+def test_the_skip_reason_does_not_invent_a_place_playwright_did_not_name():
+    """When Playwright could not be asked, the reason says so instead of printing None."""
+    reason = _why_no_browser(None, None, None)
+    assert reason == f"chromium not installed: Playwright did not say where it looks ({_INSTALL})"
 
 
 @requires_browser
