@@ -24,7 +24,10 @@ import re
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
+
+from arena.token_storage import TokenFileModeWarning, write_owner_token
 
 _USER_AGENT_PREFIX = "arena-agent-auto-update"
 _HTTP_TIMEOUT = 15
@@ -97,6 +100,20 @@ def github_token_source() -> str:
     return "none"
 
 
+def _legacy_staging_file(p: Path) -> Path:
+    """`<install_root>/.github_token.tmp`, where versions up to 4.171.0 staged the token."""
+    return p.with_suffix(p.suffix + ".tmp")
+
+
+def _unlink_if_present(path: Path) -> bool:
+    """Remove `path`; False when there was nothing to remove."""
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return False
+    return True
+
+
 def save_github_token(raw: str) -> dict:
     """Atomically write the operator-supplied token to
     <install_root>/.github_token with 0600 permissions. Called by
@@ -115,23 +132,35 @@ def save_github_token(raw: str) -> dict:
                 "starting with 'ghp_'"}
     if len(token) < 8 or len(token) > 400:
         return {"ok": False, "error": "token length looks wrong"}
-    tmp = p.with_suffix(p.suffix + ".tmp")
     header = (
         "# arena-agent GitHub token (v4.50.0).\n"
         "# Read by arena.admin.update_github.github_token() when no\n"
         "# GITHUB_TOKEN / GH_TOKEN env var is set. Overwrite via the\n"
         "# Dashboard Settings tab or delete the file to clear.\n"
     )
+    # The same writer as the bridge's own bearer token. The file is created
+    # owner-only under a name nobody can predict, and is removed when the
+    # write fails. This function used to stage the token itself: it created
+    # `.github_token.tmp` with the process umask and narrowed it afterwards,
+    # and left it behind when the replace failed.
+    warnings = []
     try:
-        tmp.write_text(header + token + "\n", encoding="utf-8")
-        try:
-            os.chmod(tmp, 0o600)  # noqa: PTH101 - Windows silently ignores
-        except Exception:
-            pass
-        os.replace(tmp, p)  # noqa: PTH105 - atomic on both POSIX + Windows
+        write_owner_token(p, header + token + "\n")
+    except TokenFileModeWarning as warned:
+        # The file already holds the new token; only its mode is in doubt.
+        # Reporting a failure would be wrong: the next read uses this token.
+        warnings.append(str(warned))
     except Exception as e:
         return {"ok": False, "error": f"failed to write token file: {e!r}"}
-    return {"ok": True, "path": str(p), "source": "file"}
+    legacy = _legacy_staging_file(p)
+    try:
+        _unlink_if_present(legacy)
+    except OSError as e:
+        warnings.append(f"could not remove {legacy}, left by an earlier version; it may still hold a token ({e!r})")
+    result = {"ok": True, "path": str(p), "source": "file"}
+    if warnings:
+        result["warning"] = "; ".join(warnings)
+    return result
 
 
 def clear_github_token() -> dict:
@@ -141,13 +170,19 @@ def clear_github_token() -> dict:
     p = _token_file_path()
     if p is None:
         return {"ok": False, "error": "install root not resolvable"}
-    if not p.exists():
-        return {"ok": True, "removed": False, "path": str(p)}
     try:
-        p.unlink()
+        removed = _unlink_if_present(p)
     except Exception as e:
         return {"ok": False, "error": f"failed to remove: {e!r}"}
-    return {"ok": True, "removed": True, "path": str(p)}
+    # An earlier version could leave the token in its staging file; "clear"
+    # has to mean no copy is left.
+    legacy = _legacy_staging_file(p)
+    try:
+        _unlink_if_present(legacy)
+    except OSError as e:
+        error = f"failed to remove {legacy}, left by an earlier version; it may still hold a token: {e!r}"
+        return {"ok": False, "removed": removed, "error": error}
+    return {"ok": True, "removed": removed, "path": str(p)}
 
 
 def http_get_json(url: str) -> Any:
