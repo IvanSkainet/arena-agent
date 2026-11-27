@@ -500,6 +500,8 @@ def test_the_document_tells_a_client_about_every_way_the_route_refuses():
     ctx = SimpleNamespace(version="test", hostname=lambda: "h", bridge_port=lambda: 8765)
     operation = build_openapi_spec(ctx)["paths"]["/v1/desktop/sequence"]["post"]
     assert {"200", "400", "403", "409", "500", "501"} <= set(operation["responses"])
+    refused = operation["responses"]["400"]["content"]["application/json"]["schema"]["properties"]
+    assert {"ok", "error", "step", "received"} <= set(refused)
     body = operation["requestBody"]["content"]["application/json"]["schema"]
     assert body["required"] == ["steps", "require_active_title"]
 

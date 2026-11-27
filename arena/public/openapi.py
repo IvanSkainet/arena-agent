@@ -478,7 +478,12 @@ _SEQUENCE_OPERATION = {
     }}}},
     "responses": {
         "200": {"description": "Every step ran; whatever was still held has been released"},
-        "400": _error_response("A step is malformed or over a limit, or require_active_title is missing"),
+        "400": _error_response(
+            "A step is malformed or over a limit, require_active_title is missing, or the body is not an object",
+            {**_JSON_BODY_ERROR_ENVELOPE, "properties": {
+                **_JSON_BODY_ERROR_ENVELOPE["properties"],
+                "step": {"type": "integer", "description": "Index of the step that was refused, when one was."},
+            }}),
         "403": _error_response("Desktop control was paused or revoked; held input has been released"),
         "409": _error_response(_ACTIVE_TITLE_CONFLICT),
         "500": _error_response("The system refused an input event; held input has been released"),
