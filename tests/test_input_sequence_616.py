@@ -312,6 +312,21 @@ def test_a_move_spread_over_time_takes_the_time_it_was_given(ms):
     assert clock.now == pytest.approx(ms / 1000, abs=1e-6)
 
 
+def test_what_sending_the_events_costs_does_not_stretch_a_timed_move():
+    """Found live: 200 events at about a millisecond each turned 1799 ms into 1975."""
+    driver, clock = Recorder(), Clock()
+    send = driver.move_rel
+
+    def slow_send(dx: int, dy: int) -> None:
+        clock.now += 0.001
+        send(dx, dy)
+
+    driver.move_rel = slow_send
+    result, _, _ = _run([{"do": "move", "dx": 20_000, "dy": 0, "ms": 1799}], driver, clock=clock)
+    assert sum(event[1] for event in driver.events) == 20_000
+    assert result["elapsed_ms"] == pytest.approx(1799, abs=60)
+
+
 def _host_that_oversleeps(clock: Clock, after: float, by: float) -> None:
     """From `after` seconds on, one sleep takes `by` seconds longer than it was asked to."""
     state = {"done": False}

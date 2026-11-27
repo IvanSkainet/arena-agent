@@ -305,7 +305,10 @@ class _Run:
             })
 
     def wait(self, ms: int) -> None:
-        deadline = self.clock.now() + ms / 1000.0
+        self.wait_until(self.clock.now() + ms / 1000.0)
+
+    def wait_until(self, deadline: float) -> None:
+        """Sleep in slices up to a point in time, checking the guards after each slice."""
         while True:
             left = deadline - self.clock.now()
             if left <= 0:
@@ -343,13 +346,16 @@ class _Run:
         """Send the delta at once, or spread over `ms` so the counts add up exactly."""
         parts = max(1, min(200, ms // 8))
         sent_x = sent_y = 0
+        began = self.clock.now()
         for part in range(1, parts + 1):
             want_x, want_y = round(dx * part / parts), round(dy * part / parts)
             if (want_x, want_y) != (sent_x, sent_y):
                 self.driver.move_rel(want_x - sent_x, want_y - sent_y)
                 sent_x, sent_y = want_x, want_y
-            # Cumulative, so the parts add up to `ms`: `ms // parts` each lost up to 199 ms.
-            self.wait(ms * part // parts - ms * (part - 1) // parts)
+            # Each part ends at its place on the move's own timeline. `ms // parts`
+            # per part lost up to 199 ms, and waits measured from "now" let the cost
+            # of sending 200 events add itself to the total (measured: 1799 -> 1975 ms).
+            self.wait_until(began + ms * part / parts / 1000.0)
 
     def release_all(self) -> tuple[dict[str, list[str]], list[str]]:
         """Let go of everything still down; returns what was released and what refused to be."""
