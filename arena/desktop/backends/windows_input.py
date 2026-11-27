@@ -1,16 +1,15 @@
-"""Windows input primitives over SendInput, for input sequences (#616).
+"""Windows input primitives over SendInput, for input sequences (#616)."""
+# `windows.py` presses with `keybd_event(vk, 0, ...)` and moves with
+# `SetCursorPos`. Both are fine for a dialog and neither is enough for an
+# application that reads the keyboard by scan code or the mouse as raw motion:
+# a virtual key with no scan code is not a key such a program knows, and
+# `SetCursorPos` produces no motion at all. `SendInput` with the scan code
+# filled in, and `MOUSEEVENTF_MOVE` for deltas, are what a physical device
+# would have produced.
+#
+# The `user32` handle is passed in, so everything here can be exercised on any
+# platform with a stand-in that records what it was sent.
 
-`windows.py` presses with `keybd_event(vk, 0, ...)` and moves with
-`SetCursorPos`. Both are fine for a dialog and neither is enough for an
-application that reads the keyboard by scan code or the mouse as raw motion:
-a virtual key with no scan code is not a key such a program knows, and
-`SetCursorPos` produces no motion at all. `SendInput` with the scan code
-filled in, and `MOUSEEVENTF_MOVE` for deltas, are what a physical device
-would have produced.
-
-The `user32` handle is passed in, so everything here can be exercised on any
-platform with a stand-in that records what it was sent.
-"""
 from __future__ import annotations
 
 import ctypes
@@ -72,6 +71,7 @@ class WindowsInputDriver:
     """The `InputDriver` of `arena.desktop.input_sequence`, on user32."""
 
     def __init__(self, user32: Any) -> None:
+        """Bind to a user32 handle; tests pass a stand-in that records what it is sent."""
         self._user32 = user32
 
     def _send(self, event: INPUT) -> None:
@@ -87,9 +87,9 @@ class WindowsInputDriver:
         event.u.ki = KEYBDINPUT(vk, self._user32.MapVirtualKeyW(vk, _MAPVK_VK_TO_VSC), flags, 0, 0)
         self._send(event)
 
-    def _mouse(self, flags: int, dx: int = 0, dy: int = 0, data: int = 0) -> None:
+    def _mouse(self, flags: int, delta: tuple[int, int] = (0, 0), data: int = 0) -> None:
         event = INPUT(type=INPUT_MOUSE)
-        event.u.mi = MOUSEINPUT(dx, dy, data & 0xFFFFFFFF, flags, 0, 0)
+        event.u.mi = MOUSEINPUT(delta[0], delta[1], data & 0xFFFFFFFF, flags, 0, 0)
         self._send(event)
 
     def knows_key(self, name: str) -> bool:
@@ -108,7 +108,7 @@ class WindowsInputDriver:
         self._mouse(_BUTTON_FLAGS[name][1])
 
     def move_rel(self, dx: int, dy: int) -> None:
-        self._mouse(MOUSEEVENTF_MOVE, dx, dy)
+        self._mouse(MOUSEEVENTF_MOVE, (dx, dy))
 
     def move_to(self, x: int, y: int) -> None:
         self._user32.SetCursorPos(x, y)
@@ -140,8 +140,8 @@ def mouse_move(x: int, y: int, absolute: bool = True) -> None:
         from arena.desktop.backends import windows
 
         windows.mouse_move(x, y)
-    else:
-        system_driver().move_rel(x, y)
+        return
+    system_driver().move_rel(x, y)
 
 
 __all__ = ["VIRTUAL_KEYS", "WindowsInputDriver", "mouse_move", "system_driver"]

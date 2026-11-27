@@ -1,25 +1,26 @@
-"""Timed input sequences: held keys, relative motion, one call (#616, #617).
+"""Timed input sequences: held keys, relative motion, one call (#616, #617)."""
+# `desktop.key` presses and releases in one call and `desktop.mouse` only
+# teleports the cursor, so an agent could not hold a key, turn a camera or time
+# two actions against each other. `POST /v1/desktop/sequence` runs a list of
+# steps on the host. These tests pin the properties that make that safe to
+# hand to an agent:
+#
+# * a bad step is refused before anything is pressed;
+# * whatever was pressed is released, however the sequence ends;
+# * the sequence names its window and stops when another one is in front;
+# * a paused control lease stops it in the middle.
+#
+# Nothing here sends real input: the driver is a recorder, and the Windows
+# driver is given a stand-in for user32.
 
-`desktop.key` presses and releases in one call and `desktop.mouse` only
-teleports the cursor, so an agent could not hold a key, turn a camera or time
-two actions against each other. `POST /v1/desktop/sequence` runs a list of
-steps on the host. These tests pin the properties that make that safe to
-hand to an agent:
-
-* a bad step is refused before anything is pressed;
-* whatever was pressed is released, however the sequence ends;
-* the sequence names its window and stops when another one is in front;
-* a paused control lease stops it in the middle.
-
-Nothing here sends real input: the driver is a recorder, and the Windows
-driver is given a stand-in for user32.
-"""
 from __future__ import annotations
 
 import asyncio
 import ctypes
+import inspect
 import io
 import json
+import re
 import sys
 import urllib.error
 from pathlib import Path
@@ -32,6 +33,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from arena.desktop import input_sequence_handler
 from arena.desktop.backends import windows_input
 from arena.desktop.input import build_mouse_command
+from arena.desktop.input_handlers import make_desktop_input_handlers
 from arena.desktop.input_sequence import (
     MAX_HOLD_MS,
     MAX_STEPS,
@@ -58,6 +60,7 @@ class Recorder:
     """An input driver that writes down what it was asked to do."""
 
     def __init__(self, title: str = "My Game Window") -> None:
+        """Start with a window title that matches the guard used below."""
         self.events: list[tuple] = []
         self.title = title
         self.fail_on: str | None = None
@@ -70,20 +73,36 @@ class Recorder:
     def knows_key(self, name: str) -> bool:
         return name in {"w", "space", "shift", "f3", "esc"}
 
-    def key_down(self, name): self._note("key_down", name)
-    def key_up(self, name): self._note("key_up", name)
-    def button_down(self, name): self._note("button_down", name)
-    def button_up(self, name): self._note("button_up", name)
-    def move_rel(self, dx, dy): self._note("move_rel", dx, dy)
-    def move_to(self, x, y): self._note("move_to", x, y)
-    def scroll(self, clicks): self._note("scroll", clicks)
-    def foreground_title(self) -> str: return self.title
+    def key_down(self, name: str) -> None:
+        self._note("key_down", name)
+
+    def key_up(self, name: str) -> None:
+        self._note("key_up", name)
+
+    def button_down(self, name: str) -> None:
+        self._note("button_down", name)
+
+    def button_up(self, name: str) -> None:
+        self._note("button_up", name)
+
+    def move_rel(self, dx: int, dy: int) -> None:
+        self._note("move_rel", dx, dy)
+
+    def move_to(self, x: int, y: int) -> None:
+        self._note("move_to", x, y)
+
+    def scroll(self, clicks: int) -> None:
+        self._note("scroll", clicks)
+
+    def foreground_title(self) -> str:
+        return self.title
 
 
 class Clock:
     """Virtual time: sleeping advances it, so no test waits for real."""
 
     def __init__(self) -> None:
+        """Start at zero with nothing watching the sleeps."""
         self.now = 0.0
         self.on_sleep = None
 
@@ -288,6 +307,7 @@ def test_absolute_moves_and_the_wheel_reach_the_driver():
 # ---------------------------------------------------------------------
 class FakeUser32:
     def __init__(self) -> None:
+        """Deliver every event until a test says otherwise."""
         self.sent: list[windows_input.INPUT] = []
         self.cursor: tuple[int, int] | None = None
         self.deliver = 1
@@ -371,14 +391,6 @@ def test_an_event_the_system_drops_is_an_error_and_not_a_silent_success(user32):
     user32.deliver = 0
     with pytest.raises(OSError, match="delivered 0 of 1"):
         windows_input.WindowsInputDriver(user32).key_down("w")
-
-
-def test_a_relative_mouse_move_goes_through_the_driver(user32, monkeypatch):
-    """What `desktop.mouse` calls on Windows when `absolute` is false (#617)."""
-    monkeypatch.setattr(windows_input, "system_driver", lambda: windows_input.WindowsInputDriver(user32))
-    windows_input.mouse_move(-5, 7, absolute=False)
-    assert (user32.sent[0].u.mi.dx, user32.sent[0].u.mi.dy) == (-5, 7)
-    assert user32.cursor is None
 
 
 def test_the_driver_reads_the_foreground_title_and_knows_its_keys(user32):
@@ -531,57 +543,60 @@ def test_the_tool_is_listed_and_needs_approval():
     assert classify_tool_risk("desktop.sequence") == "dangerous"
 
 
-def test_the_tool_waits_as_long_as_the_sequence_takes(monkeypatch):
+def test_the_tool_posts_the_sequence_and_returns_the_bridge_s_answer(monkeypatch):
     seen = {}
 
-    def bridge_call(ctx, path, payload, *, timeout):
-        seen.update(path=path, payload=payload, timeout=timeout)
+    def bridge_call(ctx, path, payload):
+        seen.update(path=path, payload=payload)
         return {"ok": True, "steps_done": 2}
 
     monkeypatch.setattr(tool_desktop_sequence, "_bridge_call", bridge_call)
-    args = {"require_active_title": "game",
-            "steps": [{"do": "key_down", "key": "w"}, {"do": "wait", "ms": 40_000}]}
+    args = {"require_active_title": "game", "steps": [{"do": "key_down", "key": "w"}, {"do": "wait", "ms": 400}]}
     result = tool_desktop_sequence.handle_desktop_sequence_tool("desktop.sequence", args, ctx=None)
-    assert seen["path"] == "/v1/desktop/sequence" and seen["payload"] is args
-    assert seen["timeout"] == 55
+    assert seen == {"path": "/v1/desktop/sequence", "payload": args}
     assert json.loads(result["content"][0]["text"]) == {"ok": True, "steps_done": 2}
+    assert "isError" not in result
     assert tool_desktop_sequence.handle_desktop_sequence_tool("desktop.key", {}, ctx=None) is None
+
+
+def test_the_tool_outwaits_the_longest_sequence():
+    """The helper's timeout is a literal in another module; the limit here must stay under it."""
+    waits = [int(found) for found in re.findall(r"timeout=(\d+)", inspect.getsource(tool_desktop_sequence._bridge_call))]
+    assert waits, "the helper no longer states its timeout where this test can read it"
+    assert MAX_TOTAL_MS / 1000 + 10 <= min(waits)
 
 
 def test_the_dispatcher_reaches_the_tool_through_the_desktop_input_handler(monkeypatch):
     """`arena/mcp/tools.py` lists one handler for desktop input; the sequence tool hangs off it."""
-    monkeypatch.setattr(tool_desktop_sequence, "_bridge_call", lambda ctx, path, payload, *, timeout: {"ok": True})
+    monkeypatch.setattr(tool_desktop_sequence, "_bridge_call", lambda ctx, path, payload: {"ok": True})
     assert handle_desktop_input_tool("desktop.sequence", {"steps": []}, ctx=None)["content"][0]["text"] == '{"ok": true}'
     assert handle_desktop_input_tool("desktop.no_such_tool", {}, ctx=None) is None
 
 
-@pytest.mark.parametrize("steps", [None, "x", [1, {"ms": "long"}, {"ms": 10**9}]])
-def test_the_tool_s_timeout_survives_any_arguments(steps):
-    assert 15 <= tool_desktop_sequence._timeout({"steps": steps}) <= 90
-
-
 def test_the_tool_passes_a_refusal_on_in_the_bridge_s_own_words(monkeypatch):
     """Not "HTTP Error 409: Conflict": the agent has to learn which window was in front."""
-    refusal = {"ok": False, "error": "input_guard_failed", "active_title": "Terminal", "steps_done": 0}
-
-    def bridge_call(ctx, path, payload, *, timeout):
-        raise urllib.error.HTTPError(path, 409, "Conflict", {}, io.BytesIO(json.dumps(refusal).encode()))
-
-    monkeypatch.setattr(tool_desktop_sequence, "_bridge_call", bridge_call)
+    refusal = {"ok": False, "error": "input_guard_failed", "active_title": "Terminal", "steps_done": 0, "status": 409}
+    monkeypatch.setattr(tool_desktop_sequence, "_bridge_call", lambda ctx, path, payload: dict(refusal))
     result = tool_desktop_sequence.handle_desktop_sequence_tool(
         "desktop.sequence", {"steps": [], "require_active_title": "game"}, ctx=None)
     assert result["isError"] is True
     assert json.loads(result["content"][0]["text"]) == refusal
 
 
-def test_a_refusal_that_is_not_json_still_says_what_happened(monkeypatch):
-    def bridge_call(ctx, path, payload, *, timeout):
-        raise urllib.error.HTTPError(path, 502, "Bad Gateway", {}, io.BytesIO(b"<html>upstream</html>"))
+def test_a_refusal_reaches_the_tool_from_a_real_http_error(monkeypatch):
+    """Through the helper itself: the body the route wrote survives the HTTPError."""
+    body = json.dumps({"ok": False, "error": "input_guard_failed", "active_title": "Terminal"}).encode()
 
-    monkeypatch.setattr(tool_desktop_sequence, "_bridge_call", bridge_call)
-    result = tool_desktop_sequence.handle_desktop_sequence_tool("desktop.sequence", {}, ctx=None)
+    def refuse(request, timeout):
+        raise urllib.error.HTTPError(request.full_url, 409, "Conflict", {}, io.BytesIO(body))
+
+    monkeypatch.setattr("urllib.request.urlopen", refuse)
+    ctx = SimpleNamespace(app_config=lambda: {"port": 1, "token": "t"})
+    result = tool_desktop_sequence.handle_desktop_sequence_tool(
+        "desktop.sequence", {"steps": [], "require_active_title": "game"}, ctx=ctx)
     answer = json.loads(result["content"][0]["text"])
-    assert answer["error"] == "sequence failed with HTTP 502" and "upstream" in answer["detail"]
+    assert result["isError"] is True
+    assert answer["error"] == "input_guard_failed" and answer["active_title"] == "Terminal"
 
 
 # ---------------------------------------------------------------------
@@ -597,6 +612,31 @@ def test_xdotool_moves_by_a_delta_when_asked_to():
 def test_xdotool_still_moves_to_a_point_by_default():
     command, _, _ = build_mouse_command(env={"has_xdotool": True}, x=50, y=60)
     assert command.endswith("xdotool mousemove 50 60")
+
+
+def _mouse_route(body: dict):
+    """POST /v1/desktop/mouse on a desktop that reports the native Windows backend."""
+    ctx, _ = _handler_ctx(env={"has_win32_input": True})
+    mouse = make_desktop_input_handlers(ctx)[3]
+
+    async def go():
+        app = web.Application()
+        app.router.add_post("/v1/desktop/mouse", mouse)
+        async with TestClient(TestServer(app)) as client:
+            response = await client.post("/v1/desktop/mouse", json=body)
+            return response.status, await response.json()
+
+    return asyncio.run(go())
+
+
+def test_the_windows_route_moves_by_a_delta_when_asked_to(user32, monkeypatch):
+    """It used to call SetCursorPos with the delta and answer `"absolute": false`."""
+    monkeypatch.setattr(windows_input, "system_driver", lambda: windows_input.WindowsInputDriver(user32))
+    status, body = _mouse_route({"x": -5, "y": 7, "absolute": False})
+    assert status == 200 and body["absolute"] is False
+    assert [(event.u.mi.dx, event.u.mi.dy, event.u.mi.dwFlags) for event in user32.sent] == [
+        (-5, 7, windows_input.MOUSEEVENTF_MOVE)]
+    assert user32.cursor is None
 
 
 def test_the_description_no_longer_promises_more_than_the_tool_does():

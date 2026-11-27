@@ -1,26 +1,26 @@
-"""Timed input sequences: what a caller may ask for, and the runner (#616).
+"""Timed input sequences: what a caller may ask for, and the runner (#616)."""
+# `desktop.key` and `desktop.click` press and release in one call, and every
+# call is a round trip. That leaves three things out of reach: holding a key or
+# a button, moving the pointer by a delta, and timing two actions against each
+# other ("hold jump, 280 ms later right-click"). A sequence is a list of steps
+# the bridge runs on the host in one call.
+#
+# This module is the part that does not depend on a platform: it validates the
+# steps before anything is pressed, and it runs them against a driver. Two
+# properties are deliberate:
+#
+# * Nothing stays held. Whatever a sequence pressed is released when it ends,
+#   however it ends -- finished, refused by the window guard, stopped by the
+#   control lease, or broken by an exception. If the system refuses a release,
+#   the result says which key or button is still down instead of reporting success.
+# * The window is named. A sequence is refused unless the caller says which
+#   foreground window it is meant for, and it stops the moment that window is
+#   no longer in front. Held keys in the wrong window are how an agent types
+#   into a terminal it never meant to touch.
 
-`desktop.key` and `desktop.click` press and release in one call, and every
-call is a round trip. That leaves three things out of reach: holding a key or
-a button, moving the pointer by a delta, and timing two actions against each
-other ("hold jump, 280 ms later right-click"). A sequence is a list of steps
-the bridge runs on the host in one call.
-
-This module is the part that does not depend on a platform: it validates the
-steps before anything is pressed, and it runs them against a driver. Two
-properties are deliberate:
-
-* Nothing stays held. Whatever a sequence pressed is released when it ends,
-  however it ends -- finished, refused by the window guard, stopped by the
-  control lease, or broken by an exception. If the system refuses a release,
-  the result says which key or button is still down instead of reporting success.
-* The window is named. A sequence is refused unless the caller says which
-  foreground window it is meant for, and it stops the moment that window is
-  no longer in front. Held keys in the wrong window are how an agent types
-  into a terminal it never meant to touch.
-"""
 from __future__ import annotations
 
+import contextlib
 import time
 from collections.abc import Callable
 from typing import Any, NamedTuple, Protocol
@@ -29,7 +29,7 @@ MAX_STEPS = 200
 #: The longest one key or button may stay down.
 MAX_HOLD_MS = 15_000
 #: The longest a whole sequence may run.
-MAX_TOTAL_MS = 60_000
+MAX_TOTAL_MS = 45_000
 #: A wait is slept in slices so a stop request is noticed inside it.
 _SLICE_MS = 50
 _DEFAULT_PRESS_MS = 60
@@ -47,6 +47,7 @@ class SequenceError(ValueError):
     """A step the bridge will not run; `index` is the step's position."""
 
     def __init__(self, message: str, index: int | None = None) -> None:
+        """Remember which step was refused, when it was one step."""
         super().__init__(message)
         self.index = index
 
@@ -54,15 +55,32 @@ class SequenceError(ValueError):
 class InputDriver(Protocol):
     """What a platform has to provide for a sequence to run on it."""
 
-    def knows_key(self, name: str) -> bool: ...
-    def key_down(self, name: str) -> None: ...
-    def key_up(self, name: str) -> None: ...
-    def button_down(self, name: str) -> None: ...
-    def button_up(self, name: str) -> None: ...
-    def move_rel(self, dx: int, dy: int) -> None: ...
-    def move_to(self, x: int, y: int) -> None: ...
-    def scroll(self, clicks: int) -> None: ...
-    def foreground_title(self) -> str: ...
+    def knows_key(self, name: str) -> bool:
+        """Whether `name` is a key this platform can press."""
+
+    def key_down(self, name: str) -> None:
+        """Press a key and leave it down."""
+
+    def key_up(self, name: str) -> None:
+        """Release a key."""
+
+    def button_down(self, name: str) -> None:
+        """Press a mouse button and leave it down."""
+
+    def button_up(self, name: str) -> None:
+        """Release a mouse button."""
+
+    def move_rel(self, dx: int, dy: int) -> None:
+        """Move the pointer by a delta, as a device would."""
+
+    def move_to(self, x: int, y: int) -> None:
+        """Put the pointer at a desktop position."""
+
+    def scroll(self, clicks: int) -> None:
+        """Turn the wheel; positive is away from the user."""
+
+    def foreground_title(self) -> str:
+        """Title of the window that would receive the input now."""
 
 
 class _Int(NamedTuple):
@@ -238,6 +256,7 @@ class _Stopped(Exception):
     """Raised inside the runner to unwind to the release-everything block."""
 
     def __init__(self, reason: dict[str, Any]) -> None:
+        """Carry the reason, which becomes the body of the answer."""
         super().__init__(reason.get("error", "stopped"))
         self.reason = reason
 
@@ -246,6 +265,7 @@ class _Run:
     """One execution: remembers what is down so it can always be let go."""
 
     def __init__(self, driver: InputDriver, guard: Guard, clock: Clock) -> None:
+        """Start with nothing held."""
         self.driver = driver
         self.required_title = guard.title.lower()
         self.should_stop = guard.should_stop
@@ -324,12 +344,11 @@ class _Run:
 
 
 def _released(action: Callable[[str], None], name: str) -> bool:
-    """Try one release; a failure must not stop the releases after it."""
-    try:
+    """Try one release; whatever goes wrong, the releases after it still have to happen."""
+    with contextlib.suppress(Exception):
         action(name)
-    except Exception:  # noqa: BLE001 -- the next input still has to be let go
-        return False
-    return True
+        return True
+    return False
 
 
 def _do_tap(run: _Run, step: dict[str, Any]) -> None:
@@ -344,17 +363,49 @@ def _do_click(run: _Run, step: dict[str, Any]) -> None:
     run.button_up(step["button"])
 
 
+def _do_wait(run: _Run, step: dict[str, Any]) -> None:
+    run.wait(step["ms"])
+
+
+def _do_key_down(run: _Run, step: dict[str, Any]) -> None:
+    run.key_down(step["key"])
+
+
+def _do_key_up(run: _Run, step: dict[str, Any]) -> None:
+    run.key_up(step["key"])
+
+
+def _do_mouse_down(run: _Run, step: dict[str, Any]) -> None:
+    run.button_down(step["button"])
+
+
+def _do_mouse_up(run: _Run, step: dict[str, Any]) -> None:
+    run.button_up(step["button"])
+
+
+def _do_move(run: _Run, step: dict[str, Any]) -> None:
+    run.move(step["dx"], step["dy"], step["ms"])
+
+
+def _do_move_to(run: _Run, step: dict[str, Any]) -> None:
+    run.driver.move_to(step["x"], step["y"])
+
+
+def _do_scroll(run: _Run, step: dict[str, Any]) -> None:
+    run.driver.scroll(step["clicks"])
+
+
 _ACTIONS: dict[str, Callable[[_Run, dict[str, Any]], None]] = {
-    "wait": lambda run, step: run.wait(step["ms"]),
-    "key_down": lambda run, step: run.key_down(step["key"]),
-    "key_up": lambda run, step: run.key_up(step["key"]),
+    "wait": _do_wait,
+    "key_down": _do_key_down,
+    "key_up": _do_key_up,
     "tap": _do_tap,
-    "mouse_down": lambda run, step: run.button_down(step["button"]),
-    "mouse_up": lambda run, step: run.button_up(step["button"]),
+    "mouse_down": _do_mouse_down,
+    "mouse_up": _do_mouse_up,
     "click": _do_click,
-    "move": lambda run, step: run.move(step["dx"], step["dy"], step["ms"]),
-    "move_to": lambda run, step: run.driver.move_to(step["x"], step["y"]),
-    "scroll": lambda run, step: run.driver.scroll(step["clicks"]),
+    "move": _do_move,
+    "move_to": _do_move_to,
+    "scroll": _do_scroll,
 }
 
 

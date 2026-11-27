@@ -2,45 +2,25 @@
 from __future__ import annotations
 
 import json
-import urllib.error
 from typing import Any
 
-from arena.jsonshape import loads_object
 from arena.mcp.image_result import error_result
-from arena.mcp.tool_desktop import _bridge_call
+
+# The mission tools' helper, not the desktop one, for two reasons: it waits
+# 60 s where the desktop helper waits 30 (a sequence may run 45), and it hands
+# a refusal back as the body the bridge wrote instead of raising "HTTP Error
+# 409" -- the agent has to learn which window was in front.
+from arena.mcp.tool_mission import _bridge_call
 from arena.mcp.tool_utils import text_content
-
-#: Added to the sequence's own duration: the route answers only when it is done.
-_TIMEOUT_MARGIN_S = 15
-_MAX_TIMEOUT_S = 90
-
-
-def _timeout(args: dict[str, Any]) -> float:
-    """Long enough for the steps to finish; the route itself refuses anything over a minute."""
-    steps = args.get("steps") if isinstance(args.get("steps"), list) else []
-    total_ms = sum(step.get("ms", 0) for step in steps
-                   if isinstance(step, dict) and isinstance(step.get("ms"), int))
-    return min(_MAX_TIMEOUT_S, total_ms / 1000 + _TIMEOUT_MARGIN_S)
-
-
-def _refusal(exc: urllib.error.HTTPError) -> dict[str, Any]:
-    """Keep the bridge's own explanation when the route refuses or stops early."""
-    body = exc.read().decode("utf-8", "replace")
-    try:
-        answer = loads_object(body)
-    except ValueError:
-        answer = {}
-    return answer or {"ok": False, "error": f"sequence failed with HTTP {exc.code}", "detail": body[:500]}
 
 
 def handle_desktop_sequence_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
     """Dispatch ``desktop.sequence``; a refusal comes back in the bridge's own words."""
     if name != "desktop.sequence":
         return None
-    try:
-        result = _bridge_call(ctx, "/v1/desktop/sequence", args, timeout=_timeout(args))
-    except urllib.error.HTTPError as exc:
-        return error_result(_refusal(exc))
+    result = _bridge_call(ctx, "/v1/desktop/sequence", args)
+    if result.get("ok") is False:
+        return error_result(result)
     return text_content(json.dumps(result, ensure_ascii=False))
 
 
@@ -57,7 +37,7 @@ DESKTOP_SEQUENCE_MCP_TOOLS = [
             "enough: holding, relative motion, or two actions timed against each other. Everything still "
             "held is released when the sequence ends. `require_active_title` is mandatory; the sequence "
             "stops as soon as another window is in front. One key or button may stay down for 15 s and the "
-            "whole sequence may run for 60 s. Native Windows input only for now."
+            "whole sequence may run for 45 s. Native Windows input only for now."
         ),
         "inputSchema": {
             "type": "object",
