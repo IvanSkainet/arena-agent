@@ -478,11 +478,11 @@ _SEQUENCE_OPERATION = {
     }}}},
     "responses": {
         "200": {"description": "Every step ran; whatever was still held has been released"},
-        "400": {"description": "A step is malformed or over a limit, or require_active_title is missing"},
-        "403": {"description": "Desktop control was paused or revoked; held input has been released"},
+        "400": _error_response("A step is malformed or over a limit, or require_active_title is missing"),
+        "403": _error_response("Desktop control was paused or revoked; held input has been released"),
         "409": _error_response(_ACTIVE_TITLE_CONFLICT),
-        "500": {"description": "The system refused an input event; held input has been released"},
-        "501": {"description": "No input driver for this desktop (native Windows only for now)"},
+        "500": _error_response("The system refused an input event; held input has been released"),
+        "501": _error_response("No input driver for this desktop (native Windows only for now)"),
     },
 }
 

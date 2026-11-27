@@ -44,6 +44,7 @@ from arena.desktop.input_sequence import (
 from arena.extension_bridge.policy import classify_tool_risk
 from arena.mcp import tool_desktop_sequence
 from arena.mcp.tool_registry import MCP_TOOLS
+from arena.public.openapi import build_openapi_spec
 from arena.route_registry.registry import ROUTES
 from tests._live_bridge import auth_header, json_payload, running_client
 
@@ -493,6 +494,14 @@ def test_the_route_is_registered_and_guarded_on_a_running_bridge(tmp_path: Path)
     # On Windows the guard refuses before any input; elsewhere there is no driver.
     assert nobody == (409 if sys.platform == "win32" else 501)
     assert answer["ok"] is False
+
+
+def test_the_document_tells_a_client_about_every_way_the_route_refuses():
+    ctx = SimpleNamespace(version="test", hostname=lambda: "h", bridge_port=lambda: 8765)
+    operation = build_openapi_spec(ctx)["paths"]["/v1/desktop/sequence"]["post"]
+    assert {"200", "400", "403", "409", "500", "501"} <= set(operation["responses"])
+    body = operation["requestBody"]["content"]["application/json"]["schema"]
+    assert body["required"] == ["steps", "require_active_title"]
 
 
 def test_the_route_is_in_the_registry():
