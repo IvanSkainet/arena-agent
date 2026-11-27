@@ -14,6 +14,21 @@ from arena.handler_helpers import controlled, json_object_body
 from arena.handler_params import body_float
 
 
+async def _windows_mouse(ctx: DesktopHandlerContext, point: tuple[int, int], absolute: bool) -> web.Response:
+    """Move the pointer through user32: to a position, or by a delta when not `absolute` (#617)."""
+    from arena.desktop.backends import windows_input
+
+    x, y = point
+    try:
+        await asyncio.get_running_loop().run_in_executor(None, lambda: windows_input.mouse_move(x, y, absolute))
+    except Exception as exc:
+        ctx.record_request(is_error=True, count_request=False)
+        return ctx.cors_json_response({"ok": False, "error": f"Windows mouse move failed: {exc}"}, status=500)
+    return ctx.cors_json_response({
+        "ok": True, "x": x, "y": y, "absolute": absolute, "tool": "user32", "backend": "windows",
+    })
+
+
 def make_desktop_input_handlers(ctx: DesktopHandlerContext):
     async def _check_required_title(body):
         require_title = body.get("require_active_title")
@@ -219,26 +234,15 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing 'x' and/or 'y'"}, status=400)
         env = ctx.detect_desktop_env()
+        absolute = bool(body.get("absolute", True))
+        if env.get("has_win32_input"):
+            return await _windows_mouse(ctx, (int(x), int(y)), absolute)
 
-        # v4.81.0: native Windows path.
-        if env.get("has_win32_input"):  # pragma: no cover
-            try:
-                from arena.desktop.backends import windows_input as _win_input
-                await _win32_call(_win_input.mouse_move, int(x), int(y), bool(body.get("absolute", True)))
-                return ctx.cors_json_response({
-                    "ok": True, "x": int(x), "y": int(y),
-                    "absolute": body.get("absolute", True),
-                    "tool": "user32", "backend": "windows",
-                })
-            except Exception as exc:
-                ctx.record_request(is_error=True, count_request=False)
-                return ctx.cors_json_response({"ok": False, "error": f"Windows mouse move failed: {exc}"}, status=500)
-
-        cmd, tool, err = build_mouse_command(env=env, x=int(x), y=int(y), absolute=body.get("absolute", True))
+        cmd, tool, err = build_mouse_command(env=env, x=int(x), y=int(y), absolute=absolute)
         if err:
             body_, status = builder_refusal(err)
             return ctx.cors_json_response(body_, status=status)
         result = await ctx.desktop_exec(cmd, timeout=10)
-        return ctx.cors_json_response({"ok": result.get("ok"), "x": int(x), "y": int(y), "absolute": body.get("absolute", True), "tool": tool})
+        return ctx.cors_json_response({"ok": result.get("ok"), "x": int(x), "y": int(y), "absolute": absolute, "tool": tool})
 
     return handle_v1_desktop_click, handle_v1_desktop_type, handle_v1_desktop_key, handle_v1_desktop_mouse

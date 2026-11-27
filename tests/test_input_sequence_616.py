@@ -639,6 +639,16 @@ def test_the_windows_route_moves_by_a_delta_when_asked_to(user32, monkeypatch):
     assert user32.cursor is None
 
 
+def test_a_windows_move_the_system_refuses_is_a_500_with_the_reason(monkeypatch):
+    def refuse(x, y, absolute=True):
+        raise OSError("SendInput delivered 0 of 1 events")
+
+    monkeypatch.setattr(windows_input, "mouse_move", refuse)
+    status, body = _mouse_route({"x": 1, "y": 1, "absolute": False})
+    assert status == 500
+    assert body == {"ok": False, "error": "Windows mouse move failed: SendInput delivered 0 of 1 events"}
+
+
 def test_the_description_no_longer_promises_more_than_the_tool_does():
     tool = next(tool for tool in MCP_TOOLS if tool["name"] == "desktop.mouse")
     assert "by (x, y) when `absolute` is false" in tool["description"]
