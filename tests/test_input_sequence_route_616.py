@@ -178,6 +178,24 @@ def test_a_run_that_blows_up_still_lets_the_next_one_in(driver, monkeypatch):
     assert answer["ok"] is True
 
 
+def test_a_run_that_could_not_be_started_does_not_keep_the_desk(driver, monkeypatch):
+    """An executor that is already shut down raises on submit; the next request must still get in."""
+    class _NoExecutor:
+        def run_in_executor(self, executor, call):
+            raise RuntimeError("cannot schedule new futures after shutdown")
+
+    ctx, _ = handler_ctx()
+    body = {"require_active_title": "game", "steps": [{"do": "tap", "key": "w"}]}
+    with monkeypatch.context() as broken:
+        broken.setattr(input_sequence_handler, "asyncio",
+                       SimpleNamespace(get_running_loop=_NoExecutor, shield=asyncio.shield))
+        status, _ = post_raw(ctx, body)
+    assert status == 500
+    status, answer = post(ctx, body)
+    assert status == 200
+    assert answer["ok"] is True
+
+
 def test_a_host_that_fell_behind_is_a_500_and_says_so(driver, monkeypatch):
     def overran(steps, driver, guard):
         return {"ok": False, "error": "input_overran", "message": "key:w has been down longer than 15000 ms"}

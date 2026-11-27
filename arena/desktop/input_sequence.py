@@ -32,6 +32,9 @@ MAX_HOLD_MS = 15_000
 MAX_TOTAL_MS = 45_000
 #: A wait is slept in slices so a stop request is noticed inside it.
 _SLICE_MS = 50
+#: How a held key or button is named in messages: "key:w", "button:left".
+_KEY = "key:"
+_BUTTON = "button:"
 #: How far a run may fall behind its plan before it is stopped. The plan is
 #: checked in planned milliseconds; a host that sleeps longer than it was asked
 #: to would otherwise hold a key past the limit with nothing to notice.
@@ -189,7 +192,7 @@ def planned_duration_ms(steps: list[dict[str, Any]]) -> int:
 
 
 def _held_name(step: dict[str, Any]) -> str:
-    return "key:" + step["key"] if "key" in step else "button:" + step["button"]
+    return _KEY + step["key"] if "key" in step else _BUTTON + step["button"]
 
 
 def _note_press_or_release(down_since: dict[str, int], step: dict[str, Any], now: int) -> None:
@@ -284,8 +287,8 @@ class _Run:
         now = self.clock.now()
         if (now - self.started) * 1000 > MAX_TOTAL_MS + _GRACE_MS:
             return f"the sequence has run longer than {MAX_TOTAL_MS} ms"
-        held = [("key:" + name, since) for name, since in self.keys.items()]
-        held += [("button:" + name, since) for name, since in self.buttons.items()]
+        held = [(_KEY + name, since) for name, since in self.keys.items()]
+        held += [(_BUTTON + name, since) for name, since in self.buttons.items()]
         late = next((name for name, since in held if (now - since) * 1000 > MAX_HOLD_MS + _GRACE_MS), None)
         return f"{late} has been down longer than {MAX_HOLD_MS} ms" if late else None
 
@@ -352,8 +355,8 @@ class _Run:
         """Let go of everything still down; returns what was released and what refused to be."""
         released: dict[str, list[str]] = {"keys": [], "buttons": []}
         stuck: list[str] = []
-        pending = [("buttons", "button:", self.driver.button_up, name) for name in reversed(self.buttons)]
-        pending += [("keys", "key:", self.driver.key_up, name) for name in reversed(self.keys)]
+        pending = [("buttons", _BUTTON, self.driver.button_up, name) for name in reversed(self.buttons)]
+        pending += [("keys", _KEY, self.driver.key_up, name) for name in reversed(self.keys)]
         for kind, prefix, release, name in pending:
             if _released(release, name):
                 released[kind].append(name)

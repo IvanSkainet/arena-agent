@@ -283,6 +283,19 @@ def test_a_key_released_in_time_does_not_count_against_a_later_press():
     assert result["ok"] is True
 
 
+def test_a_slow_small_move_sends_only_as_many_events_as_it_has_counts():
+    _, driver, clock = run([{"do": "move", "dx": 3, "dy": 0, "ms": 400}])
+    assert driver.events == [("move_rel", 1, 0)] * 3
+    assert clock.now == pytest.approx(0.4, abs=1e-6)
+
+
+def test_a_button_the_caller_released_is_not_released_again():
+    result, driver, _ = run([{"do": "mouse_down", "button": "right"}, {"do": "wait", "ms": 100},
+                             {"do": "mouse_up", "button": "right"}])
+    assert driver.events == [("button_down", "right"), ("button_up", "right")]
+    assert result["released_at_end"] == {"keys": [], "buttons": []}
+
+
 def test_absolute_moves_and_the_wheel_reach_the_driver():
     _, driver, _ = run([{"do": "move_to", "x": 1208, "y": 976}, {"do": "scroll", "clicks": -2}])
     assert driver.events == [("move_to", 1208, 976), ("scroll", -2)]

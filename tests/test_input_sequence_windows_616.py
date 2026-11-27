@@ -111,9 +111,15 @@ def test_xdotool_still_moves_to_a_point_by_default():
     assert command.endswith("xdotool mousemove 50 60")
 
 
-def _mouse_route(body: dict):
-    """POST /v1/desktop/mouse on a desktop that reports the native Windows backend."""
-    ctx, _ = handler_ctx(env={"has_win32_input": True})
+def _mouse_route(body: dict, env: dict | None = None, executed: list | None = None):
+    """POST /v1/desktop/mouse; by default on a desktop that reports the native Windows backend."""
+    ctx, _ = handler_ctx(env=env or {"has_win32_input": True})
+
+    async def desktop_exec(command, timeout):
+        (executed if executed is not None else []).append(command)
+        return {"ok": True}
+
+    ctx.desktop_exec = desktop_exec
     mouse = make_desktop_input_handlers(ctx)[3]
 
     async def go():
@@ -163,6 +169,40 @@ def test_a_windows_move_the_system_refuses_is_a_500_with_the_reason(monkeypatch)
     status, body = _mouse_route({"x": 1, "y": 1, "absolute": False})
     assert status == 500
     assert body == {"ok": False, "error": "Windows mouse move failed: SendInput delivered 0 of 1 events"}
+
+
+def test_the_route_runs_the_relative_xdotool_command_and_reports_what_it_did():
+    executed: list[str] = []
+    status, body = _mouse_route({"x": -5, "y": 7, "absolute": False}, {"has_xdotool": True}, executed)
+    assert status == 200
+    assert body == {"ok": True, "x": -5, "y": 7, "absolute": False, "tool": "xdotool"}
+    assert len(executed) == 1
+    assert "mousemove_relative -- -5 7" in executed[0]
+
+
+@pytest.mark.parametrize("sent", [0, "", "no", None, False])
+def test_anything_falsy_for_absolute_is_relative_and_the_answer_says_false(sent):
+    """The answer used to echo what was sent, so `0` moved by a delta and reported `"absolute": 0`."""
+    executed: list[str] = []
+    _, body = _mouse_route({"x": 1, "y": 1, "absolute": sent}, {"has_xdotool": True}, executed)
+    assert body["absolute"] is bool(sent)
+    assert ("mousemove_relative" in executed[0]) is not bool(sent)
+
+
+def test_a_move_without_both_coordinates_is_refused_before_anything_runs():
+    executed: list[str] = []
+    status, body = _mouse_route({"x": 5}, {"has_xdotool": True}, executed)
+    assert status == 400
+    assert body == {"ok": False, "error": "missing 'x' and/or 'y'"}
+    assert executed == []
+
+
+def test_a_desktop_with_no_pointer_tool_says_which_one_to_install():
+    executed: list[str] = []
+    status, body = _mouse_route({"x": 5, "y": 5}, {"session_type": "x11"}, executed)
+    assert status == 503
+    assert body["ok"] is False
+    assert executed == []
 
 
 def test_the_description_no_longer_promises_more_than_the_tool_does():
