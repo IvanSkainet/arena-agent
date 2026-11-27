@@ -89,8 +89,9 @@ DESKTOP_INPUT_MCP_TOOLS = [
     {
         "name": "desktop.mouse",
         "description": (
-            "Move the mouse cursor to (x, y), or by (x, y) when `absolute` is false. For motion timed "
-            "against key presses use desktop.sequence."
+            "Move the mouse cursor to (x, y), or by (x, y) pixels when `absolute` is false. A program that "
+            "reads raw mouse motion, as most games do, does not see either; the `move` step of "
+            "desktop.sequence is for that."
         ),
         "inputSchema": {
             "type": "object",

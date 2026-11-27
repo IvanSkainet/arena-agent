@@ -312,6 +312,7 @@ class FakeUser32:
         self.sent: list[windows_input.INPUT] = []
         self.cursor: tuple[int, int] | None = None
         self.deliver = 1
+        self.cursor_is_readable = 1
 
     def SendInput(self, count, pointer, size):  # noqa: N802 -- the Win32 name
         assert count == 1
@@ -325,6 +326,11 @@ class FakeUser32:
 
     def SetCursorPos(self, x, y):  # noqa: N802
         self.cursor = (x, y)
+
+    def GetCursorPos(self, pointer):  # noqa: N802
+        if self.cursor_is_readable:
+            pointer._obj.x, pointer._obj.y = self.cursor
+        return self.cursor_is_readable
 
     def GetForegroundWindow(self):  # noqa: N802
         return 42
@@ -633,11 +639,30 @@ def _mouse_route(body: dict):
 def test_the_windows_route_moves_by_a_delta_when_asked_to(user32, monkeypatch):
     """It used to call SetCursorPos with the delta and answer `"absolute": false`."""
     monkeypatch.setattr(windows_input, "system_driver", lambda: windows_input.WindowsInputDriver(user32))
-    status, body = _mouse_route({"x": -5, "y": 7, "absolute": False})
-    assert status == 200 and body["absolute"] is False
-    assert [(event.u.mi.dx, event.u.mi.dy, event.u.mi.dwFlags) for event in user32.sent] == [
-        (-5, 7, windows_input.MOUSEEVENTF_MOVE)]
-    assert user32.cursor is None
+    user32.cursor = (1337, 511)
+    status, body = _mouse_route({"x": -60, "y": 35, "absolute": False})
+    assert status == 200
+    assert body["absolute"] is False
+    assert user32.cursor == (1277, 546)
+
+
+def test_a_relative_move_of_the_cursor_is_in_pixels_not_in_device_motion(user32, monkeypatch):
+    """Found on a real desktop: with the pointer speed at 1 of 20, 640 counts of motion moved the cursor 20 px."""
+    monkeypatch.setattr(windows_input, "system_driver", lambda: windows_input.WindowsInputDriver(user32))
+    user32.cursor = (0, 0)
+    _mouse_route({"x": 640, "y": 320, "absolute": False})
+    assert user32.sent == [], "SendInput motion is scaled by the pointer speed before it reaches the cursor"
+    assert user32.cursor == (640, 320)
+
+
+def test_a_cursor_that_cannot_be_read_is_a_500_and_nothing_moves(user32, monkeypatch):
+    monkeypatch.setattr(windows_input, "system_driver", lambda: windows_input.WindowsInputDriver(user32))
+    user32.cursor = (10, 10)
+    user32.cursor_is_readable = 0
+    status, body = _mouse_route({"x": 5, "y": 5, "absolute": False})
+    assert status == 500
+    assert "GetCursorPos failed" in body["error"]
+    assert user32.cursor == (10, 10)
 
 
 def test_a_windows_move_the_system_refuses_is_a_500_with_the_reason(monkeypatch):
@@ -652,4 +677,5 @@ def test_a_windows_move_the_system_refuses_is_a_500_with_the_reason(monkeypatch)
 
 def test_the_description_no_longer_promises_more_than_the_tool_does():
     tool = next(tool for tool in MCP_TOOLS if tool["name"] == "desktop.mouse")
-    assert "by (x, y) when `absolute` is false" in tool["description"]
+    assert "by (x, y) pixels when `absolute` is false" in tool["description"]
+    assert "raw mouse motion" in tool["description"] and "desktop.sequence" in tool["description"]

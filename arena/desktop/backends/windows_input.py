@@ -113,6 +113,16 @@ class WindowsInputDriver:
     def move_to(self, x: int, y: int) -> None:
         self._user32.SetCursorPos(x, y)
 
+    def shift_cursor(self, dx: int, dy: int) -> None:
+        """Move the cursor by exactly (dx, dy) pixels from where it is."""
+        # Not `move_rel`: that is device motion, and the system scales it by the
+        # pointer speed before it reaches the cursor. On a machine with the
+        # speed at its lowest, 640 counts moved the cursor 20 pixels.
+        here = wt.POINT()
+        if not self._user32.GetCursorPos(ctypes.byref(here)):
+            raise OSError("GetCursorPos failed: the cursor position is not available to this process")
+        self._user32.SetCursorPos(here.x + dx, here.y + dy)
+
     def scroll(self, clicks: int) -> None:
         self._mouse(MOUSEEVENTF_WHEEL, data=clicks * WHEEL_DELTA)
 
@@ -131,17 +141,19 @@ def system_driver() -> WindowsInputDriver:  # pragma: no cover -- needs a real u
     user32.MapVirtualKeyW.restype = wt.UINT
     user32.GetForegroundWindow.restype = wt.HWND
     user32.GetWindowTextW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
+    user32.GetCursorPos.argtypes = [ctypes.POINTER(wt.POINT)]
+    user32.GetCursorPos.restype = wt.BOOL
     return WindowsInputDriver(user32)
 
 
 def mouse_move(x: int, y: int, absolute: bool = True) -> None:
-    """Move the cursor to (x, y), or by (x, y) when `absolute` is false (#617)."""
+    """Move the cursor to (x, y), or by (x, y) pixels when `absolute` is false (#617)."""
     if absolute:  # pragma: no cover -- Windows only
         from arena.desktop.backends import windows
 
         windows.mouse_move(x, y)
         return
-    system_driver().move_rel(x, y)
+    system_driver().shift_cursor(x, y)
 
 
 __all__ = ["VIRTUAL_KEYS", "WindowsInputDriver", "mouse_move", "system_driver"]

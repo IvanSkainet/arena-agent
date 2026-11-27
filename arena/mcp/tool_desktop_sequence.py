@@ -56,8 +56,11 @@ DESKTOP_SEQUENCE_MCP_TOOLS = [
                             "button": _BUTTON,
                             "ms": {"type": "integer", "description": "wait: how long. tap, click: how long "
                                    "the press lasts (default 60). move: spread the motion over this time."},
-                            "dx": {"type": "integer", "description": "move: horizontal delta in mouse counts."},
-                            "dy": {"type": "integer", "description": "move: vertical delta in mouse counts."},
+                            "dx": {"type": "integer", "description": (
+                                "move: horizontal motion in mouse counts, as a device reports it. A program "
+                                "reading raw input gets the counts as they are; the desktop cursor moves by "
+                                "them scaled by the system pointer speed, so place the cursor with move_to.")},
+                            "dy": {"type": "integer", "description": "move: vertical motion in mouse counts."},
                             "x": {"type": "integer", "description": "move_to: desktop x in physical pixels."},
                             "y": {"type": "integer", "description": "move_to: desktop y in physical pixels."},
                             "clicks": {"type": "integer", "description": "scroll: wheel notches, positive is up."},

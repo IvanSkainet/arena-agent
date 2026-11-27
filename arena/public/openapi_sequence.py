@@ -13,7 +13,9 @@ _STEP = {
         "key": {"type": "string"},
         "button": {"type": "string", "enum": ["left", "right", "middle"], "default": "left"},
         "ms": {"type": "integer", "description": "wait: duration. tap, click: length of the press. move: spread."},
-        "dx": {"type": "integer"}, "dy": {"type": "integer"},
+        "dx": {"type": "integer", "description": "move: mouse counts, as a device reports them. The desktop "
+               "cursor follows at the system pointer speed; a program reading raw input gets the counts as they are."},
+        "dy": {"type": "integer"},
         "x": {"type": "integer"}, "y": {"type": "integer"},
         "clicks": {"type": "integer"},
     },
