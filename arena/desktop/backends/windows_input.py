@@ -134,4 +134,14 @@ def system_driver() -> WindowsInputDriver:  # pragma: no cover -- needs a real u
     return WindowsInputDriver(user32)
 
 
-__all__ = ["VIRTUAL_KEYS", "WindowsInputDriver", "system_driver"]
+def mouse_move(x: int, y: int, absolute: bool = True) -> None:
+    """Move the cursor to (x, y), or by (x, y) when `absolute` is false (#617)."""
+    if absolute:  # pragma: no cover -- Windows only
+        from arena.desktop.backends import windows
+
+        windows.mouse_move(x, y)
+    else:
+        system_driver().move_rel(x, y)
+
+
+__all__ = ["VIRTUAL_KEYS", "WindowsInputDriver", "mouse_move", "system_driver"]

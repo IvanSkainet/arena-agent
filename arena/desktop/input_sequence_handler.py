@@ -6,7 +6,7 @@ from typing import Any
 
 from aiohttp import web
 
-from arena.desktop.input_sequence import InputDriver, SequenceError, plan_sequence, run_sequence
+from arena.desktop.input_sequence import Guard, InputDriver, SequenceError, plan_sequence, run_sequence
 from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import controlled, json_object_body
 
@@ -58,7 +58,7 @@ def make_desktop_sequence_handler(ctx: DesktopHandlerContext):
             return _refuse({"error": str(exc), "step": exc.index}, 400)
         ctx.control_record_agent_action()
         result = await asyncio.get_running_loop().run_in_executor(
-            None, lambda: run_sequence(steps, driver, required_title=title, should_stop=ctx.control_check))
+            None, run_sequence, steps, driver, Guard(title, ctx.control_check))
         status = _STOP_STATUS.get(str(result.get("error")), 200)
         if status != 200:
             ctx.record_request(is_error=True, count_request=False)

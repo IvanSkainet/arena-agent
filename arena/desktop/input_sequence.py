@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 MAX_STEPS = 200
 #: The longest one key or button may stay down.
@@ -38,7 +38,7 @@ _MAX_DELTA = 100_000
 _MAX_CLICKS = 100
 
 __all__ = [
-    "MAX_HOLD_MS", "MAX_STEPS", "MAX_TOTAL_MS",
+    "Clock", "Guard", "MAX_HOLD_MS", "MAX_STEPS", "MAX_TOTAL_MS",
     "InputDriver", "SequenceError", "plan_sequence", "planned_duration_ms", "run_sequence",
 ]
 
@@ -65,12 +65,31 @@ class InputDriver(Protocol):
     def foreground_title(self) -> str: ...
 
 
-def _integer(step: dict[str, Any], field: str, index: int, *, low: int, high: int, default: int | None = None) -> int:
-    value = step.get(field, default)
+class _Int(NamedTuple):
+    """An integer field of a step: its name, its bounds, and its default if it has one."""
+
+    field: str
+    low: int
+    high: int
+    default: int | None = None
+
+
+_WAIT_MS = _Int("ms", 0, MAX_TOTAL_MS)
+_PRESS_MS = _Int("ms", 1, MAX_HOLD_MS, _DEFAULT_PRESS_MS)
+_MOVE_MS = _Int("ms", 0, MAX_HOLD_MS, 0)
+_DX = _Int("dx", -_MAX_DELTA, _MAX_DELTA, 0)
+_DY = _Int("dy", -_MAX_DELTA, _MAX_DELTA, 0)
+_X = _Int("x", -_MAX_DELTA, _MAX_DELTA)
+_Y = _Int("y", -_MAX_DELTA, _MAX_DELTA)
+_CLICKS = _Int("clicks", -_MAX_CLICKS, _MAX_CLICKS)
+
+
+def _integer(step: dict[str, Any], index: int, spec: _Int) -> int:
+    value = step.get(spec.field, spec.default)
     if isinstance(value, bool) or not isinstance(value, int):
-        raise SequenceError(f"step {index}: '{field}' must be an integer", index)
-    if not low <= value <= high:
-        raise SequenceError(f"step {index}: '{field}' must be between {low} and {high}", index)
+        raise SequenceError(f"step {index}: '{spec.field}' must be an integer", index)
+    if not spec.low <= value <= spec.high:
+        raise SequenceError(f"step {index}: '{spec.field}' must be between {spec.low} and {spec.high}", index)
     return value
 
 
@@ -91,12 +110,8 @@ def _button_name(step: dict[str, Any], index: int) -> str:
     return name
 
 
-def _press_ms(step: dict[str, Any], index: int) -> int:
-    return _integer(step, "ms", index, low=1, high=MAX_HOLD_MS, default=_DEFAULT_PRESS_MS)
-
-
 def _plan_wait(step, index, _driver):
-    return {"do": "wait", "ms": _integer(step, "ms", index, low=0, high=MAX_TOTAL_MS)}
+    return {"do": "wait", "ms": _integer(step, index, _WAIT_MS)}
 
 
 def _plan_key(step, index, driver):
@@ -104,7 +119,7 @@ def _plan_key(step, index, driver):
 
 
 def _plan_tap(step, index, driver):
-    return {"do": "tap", "key": _key_name(step, index, driver), "ms": _press_ms(step, index)}
+    return {"do": "tap", "key": _key_name(step, index, driver), "ms": _integer(step, index, _PRESS_MS)}
 
 
 def _plan_button(step, index, _driver):
@@ -112,28 +127,20 @@ def _plan_button(step, index, _driver):
 
 
 def _plan_click(step, index, _driver):
-    return {"do": "click", "button": _button_name(step, index), "ms": _press_ms(step, index)}
+    return {"do": "click", "button": _button_name(step, index), "ms": _integer(step, index, _PRESS_MS)}
 
 
 def _plan_move(step, index, _driver):
-    return {
-        "do": "move",
-        "dx": _integer(step, "dx", index, low=-_MAX_DELTA, high=_MAX_DELTA, default=0),
-        "dy": _integer(step, "dy", index, low=-_MAX_DELTA, high=_MAX_DELTA, default=0),
-        "ms": _integer(step, "ms", index, low=0, high=MAX_HOLD_MS, default=0),
-    }
+    return {"do": "move", "dx": _integer(step, index, _DX), "dy": _integer(step, index, _DY),
+            "ms": _integer(step, index, _MOVE_MS)}
 
 
 def _plan_move_to(step, index, _driver):
-    return {
-        "do": "move_to",
-        "x": _integer(step, "x", index, low=-_MAX_DELTA, high=_MAX_DELTA),
-        "y": _integer(step, "y", index, low=-_MAX_DELTA, high=_MAX_DELTA),
-    }
+    return {"do": "move_to", "x": _integer(step, index, _X), "y": _integer(step, index, _Y)}
 
 
 def _plan_scroll(step, index, _driver):
-    return {"do": "scroll", "clicks": _integer(step, "clicks", index, low=-_MAX_CLICKS, high=_MAX_CLICKS)}
+    return {"do": "scroll", "clicks": _integer(step, index, _CLICKS)}
 
 
 _PLANNERS: dict[str, Callable[[dict[str, Any], int, InputDriver], dict[str, Any]]] = {
@@ -163,41 +170,68 @@ def _held_name(step: dict[str, Any]) -> str:
     return "key:" + step["key"] if "key" in step else "button:" + step["button"]
 
 
+def _note_press_or_release(down_since: dict[str, int], step: dict[str, Any], now: int) -> None:
+    if step["do"] in ("key_down", "mouse_down"):
+        down_since.setdefault(_held_name(step), now)
+    elif step["do"] in ("key_up", "mouse_up"):
+        down_since.pop(_held_name(step), None)
+
+
+def _held_too_long(down_since: dict[str, int], now: int) -> str | None:
+    return next((name for name, since in down_since.items() if now - since > MAX_HOLD_MS), None)
+
+
 def _check_holds(steps: list[dict[str, Any]]) -> None:
     """Refuse a plan that keeps one key or button down past MAX_HOLD_MS."""
     down_since: dict[str, int] = {}
     now = 0
     for index, step in enumerate(steps):
-        if step["do"] in ("key_down", "mouse_down"):
-            down_since.setdefault(_held_name(step), now)
-        elif step["do"] in ("key_up", "mouse_up"):
-            down_since.pop(_held_name(step), None)
+        _note_press_or_release(down_since, step, now)
         now += _step_ms(step)
-        for name, since in down_since.items():
-            if now - since > MAX_HOLD_MS:
-                raise SequenceError(
-                    f"step {index}: {name} would stay down longer than {MAX_HOLD_MS} ms", index)
+        name = _held_too_long(down_since, now)
+        if name:
+            raise SequenceError(f"step {index}: {name} would stay down longer than {MAX_HOLD_MS} ms", index)
 
 
-def plan_sequence(raw_steps: Any, driver: InputDriver) -> list[dict[str, Any]]:
-    """Validate the caller's steps; raises SequenceError before anything is pressed."""
+def _check_shape(raw_steps: Any) -> None:
     if not isinstance(raw_steps, list) or not raw_steps:
         raise SequenceError("'steps' must be a non-empty list")
     if len(raw_steps) > MAX_STEPS:
         raise SequenceError(f"'steps' may hold at most {MAX_STEPS} steps")
-    steps = []
-    for index, raw in enumerate(raw_steps):
-        if not isinstance(raw, dict):
-            raise SequenceError(f"step {index}: must be an object", index)
-        planner = _PLANNERS.get(str(raw.get("do")))
-        if planner is None:
-            raise SequenceError(f"step {index}: 'do' must be one of {', '.join(_PLANNERS)}", index)
-        steps.append(planner(raw, index, driver))
+
+
+def _plan_step(raw: Any, index: int, driver: InputDriver) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise SequenceError(f"step {index}: must be an object", index)
+    planner = _PLANNERS.get(str(raw.get("do")))
+    if planner is None:
+        raise SequenceError(f"step {index}: 'do' must be one of {', '.join(_PLANNERS)}", index)
+    return planner(raw, index, driver)
+
+
+def plan_sequence(raw_steps: Any, driver: InputDriver) -> list[dict[str, Any]]:
+    """Validate the caller's steps; raises SequenceError before anything is pressed."""
+    _check_shape(raw_steps)
+    steps = [_plan_step(raw, index, driver) for index, raw in enumerate(raw_steps)]
     total = planned_duration_ms(steps)
     if total > MAX_TOTAL_MS:
         raise SequenceError(f"the sequence would run {total} ms; the limit is {MAX_TOTAL_MS} ms")
     _check_holds(steps)
     return steps
+
+
+class Guard(NamedTuple):
+    """What may stop a run: the window it is for, and the control lease's verdict."""
+
+    title: str
+    should_stop: Callable[[], Any] | None = None
+
+
+class Clock(NamedTuple):
+    """Time as the runner sees it; tests pass a virtual one."""
+
+    sleep: Callable[[float], None] = time.sleep
+    now: Callable[[], float] = time.monotonic
 
 
 class _Stopped(Exception):
@@ -211,11 +245,10 @@ class _Stopped(Exception):
 class _Run:
     """One execution: remembers what is down so it can always be let go."""
 
-    def __init__(self, driver: InputDriver, required_title: str, should_stop, sleep, clock) -> None:
+    def __init__(self, driver: InputDriver, guard: Guard, clock: Clock) -> None:
         self.driver = driver
-        self.required_title = required_title.lower()
-        self.should_stop = should_stop
-        self.sleep = sleep
+        self.required_title = guard.title.lower()
+        self.should_stop = guard.should_stop
         self.clock = clock
         self.keys: list[str] = []
         self.buttons: list[str] = []
@@ -234,12 +267,12 @@ class _Run:
             })
 
     def wait(self, ms: int) -> None:
-        deadline = self.clock() + ms / 1000.0
+        deadline = self.clock.now() + ms / 1000.0
         while True:
-            left = deadline - self.clock()
+            left = deadline - self.clock.now()
             if left <= 0:
                 return
-            self.sleep(min(left, _SLICE_MS / 1000.0))
+            self.clock.sleep(min(left, _SLICE_MS / 1000.0))
             self.check()
 
     def key_down(self, name: str) -> None:
@@ -325,18 +358,10 @@ _ACTIONS: dict[str, Callable[[_Run, dict[str, Any]], None]] = {
 }
 
 
-def run_sequence(
-    steps: list[dict[str, Any]],
-    driver: InputDriver,
-    *,
-    required_title: str,
-    should_stop: Callable[[], Any] | None = None,
-    sleep: Callable[[float], None] = time.sleep,
-    clock: Callable[[], float] = time.monotonic,
-) -> dict[str, Any]:
+def run_sequence(steps: list[dict[str, Any]], driver: InputDriver, guard: Guard, clock: Clock = Clock()) -> dict[str, Any]:
     """Run planned steps; whatever happens, nothing is left held down."""
-    run = _Run(driver, required_title, should_stop, sleep, clock)
-    started = clock()
+    run = _Run(driver, guard, clock)
+    started = clock.now()
     done = 0
     result: dict[str, Any] = {"ok": True}
     try:
@@ -358,7 +383,7 @@ def run_sequence(
     result.update({
         "steps_done": done,
         "steps_total": len(steps),
-        "elapsed_ms": round((clock() - started) * 1000),
+        "elapsed_ms": round((clock.now() - started) * 1000),
         "released_at_end": released,
     })
     return result

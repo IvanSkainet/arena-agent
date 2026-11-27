@@ -63,6 +63,16 @@ checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 503]
 include-name = "GET /v1/desktop/screenshot"
 checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 503]
 
+# One documented 501 (#616). Input sequences have a driver on native Windows
+# only; everywhere else the route says so, and a CI runner is "everywhere
+# else", so a well-formed request gets 501 every time. It is a 501 and not
+# one of the 503s above because nothing is missing that could be installed.
+# Allowed for this operation alone, and `tests/test_api_fuzz_gate_258.py`
+# fails if the list here and the operations that document a 501 ever differ.
+[[operations]]
+include-name = "POST /v1/desktop/sequence"
+checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 501]
+
 # Not fuzzed, because fuzzing it ends the run rather than testing it: the
 # operation issues a new bridge token, so the header every later request
 # carries stops working and the remaining operations report 401 instead of

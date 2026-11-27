@@ -210,14 +210,17 @@ def build_key_command(*, env: dict[str, Any], key: str | None = None, keys: list
         ("ydotool", "xdotool")), key_label
 
 
+def _xdotool_mouse_verb(absolute: bool) -> str:
+    """The `--` ends the options, so a negative delta is not read as one (#617)."""
+    return "mousemove" if absolute else "mousemove_relative --"
+
+
 def build_mouse_command(*, env: dict[str, Any], x: int, y: int, absolute: bool = True) -> tuple[str | None, str, MissingTool | None]:
     disp = display_env()
     if env.get("has_ydotool"):
         abs_flag = "--absolute" if absolute else ""
         return f'ydotool mousemove {abs_flag} {int(x)} {int(y)}', "ydotool", None
     if env.get("has_xdotool"):
-        # `--` so a negative delta is not read as an option (#617).
-        verb = "mousemove" if absolute else "mousemove_relative --"
-        return f'{disp} xdotool {verb} {int(x)} {int(y)}', "xdotool", None
+        return f'{disp} xdotool {_xdotool_mouse_verb(absolute)} {int(x)} {int(y)}', "xdotool", None
     return None, "none", MissingTool(
         "No mouse tool available (need ydotool or xdotool)", ("ydotool", "xdotool"))

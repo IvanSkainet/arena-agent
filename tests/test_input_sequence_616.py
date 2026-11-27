@@ -36,6 +36,8 @@ from arena.desktop.input_sequence import (
     MAX_HOLD_MS,
     MAX_STEPS,
     MAX_TOTAL_MS,
+    Clock as RunnerClock,
+    Guard,
     SequenceError,
     plan_sequence,
     planned_duration_ms,
@@ -43,6 +45,7 @@ from arena.desktop.input_sequence import (
 )
 from arena.extension_bridge.policy import classify_tool_risk
 from arena.mcp import tool_desktop_sequence
+from arena.mcp.tool_desktop_input import handle_desktop_input_tool
 from arena.mcp.tool_registry import MCP_TOOLS
 from arena.public.openapi import build_openapi_spec
 from arena.route_registry.registry import ROUTES
@@ -92,13 +95,14 @@ class Clock:
         if self.on_sleep:
             self.on_sleep(self.now)
 
+    def as_runner_clock(self) -> RunnerClock:
+        return RunnerClock(self.sleep, self.time)
 
-def _run(steps, driver=None, *, clock=None, should_stop=None, title=TITLE):
+
+def _run(steps, driver=None, *, clock=None, guard=Guard(TITLE)):
     driver = driver or Recorder()
     clock = clock or Clock()
-    planned = plan_sequence(steps, driver)
-    result = run_sequence(planned, driver, required_title=title, should_stop=should_stop,
-                          sleep=clock.sleep, clock=clock.time)
+    result = run_sequence(plan_sequence(steps, driver), driver, guard, clock.as_runner_clock())
     return result, driver, clock
 
 
@@ -214,7 +218,7 @@ def test_a_window_change_during_a_hold_releases_the_key():
 
 
 def test_the_title_match_ignores_case():
-    result, _, _ = _run([{"do": "tap", "key": "w"}], Recorder(title="MY GAME"), title="my game")
+    result, _, _ = _run([{"do": "tap", "key": "w"}], Recorder(title="MY GAME"), guard=Guard("my game"))
     assert result["ok"] is True
 
 
@@ -224,7 +228,7 @@ def test_a_paused_lease_stops_the_sequence_in_the_bridge_s_own_words():
               "status": "paused", "reason": "hands off"}
     result, driver, _ = _run(
         [{"do": "mouse_down"}, {"do": "wait", "ms": 3_000}, {"do": "mouse_up"}],
-        clock=clock, should_stop=lambda: paused if clock.now >= 1.0 else None)
+        clock=clock, guard=Guard(TITLE, lambda: paused if clock.now >= 1.0 else None))
     assert driver.events == [("button_down", "left"), ("button_up", "left")]
     assert result["ok"] is False
     assert result["error"] == "control_paused"
@@ -367,6 +371,14 @@ def test_an_event_the_system_drops_is_an_error_and_not_a_silent_success(user32):
     user32.deliver = 0
     with pytest.raises(OSError, match="delivered 0 of 1"):
         windows_input.WindowsInputDriver(user32).key_down("w")
+
+
+def test_a_relative_mouse_move_goes_through_the_driver(user32, monkeypatch):
+    """What `desktop.mouse` calls on Windows when `absolute` is false (#617)."""
+    monkeypatch.setattr(windows_input, "system_driver", lambda: windows_input.WindowsInputDriver(user32))
+    windows_input.mouse_move(-5, 7, absolute=False)
+    assert (user32.sent[0].u.mi.dx, user32.sent[0].u.mi.dy) == (-5, 7)
+    assert user32.cursor is None
 
 
 def test_the_driver_reads_the_foreground_title_and_knows_its_keys(user32):
@@ -534,6 +546,13 @@ def test_the_tool_waits_as_long_as_the_sequence_takes(monkeypatch):
     assert seen["timeout"] == 55
     assert json.loads(result["content"][0]["text"]) == {"ok": True, "steps_done": 2}
     assert tool_desktop_sequence.handle_desktop_sequence_tool("desktop.key", {}, ctx=None) is None
+
+
+def test_the_dispatcher_reaches_the_tool_through_the_desktop_input_handler(monkeypatch):
+    """`arena/mcp/tools.py` lists one handler for desktop input; the sequence tool hangs off it."""
+    monkeypatch.setattr(tool_desktop_sequence, "_bridge_call", lambda ctx, path, payload, *, timeout: {"ok": True})
+    assert handle_desktop_input_tool("desktop.sequence", {"steps": []}, ctx=None)["content"][0]["text"] == '{"ok": true}'
+    assert handle_desktop_input_tool("desktop.no_such_tool", {}, ctx=None) is None
 
 
 @pytest.mark.parametrize("steps", [None, "x", [1, {"ms": "long"}, {"ms": 10**9}]])

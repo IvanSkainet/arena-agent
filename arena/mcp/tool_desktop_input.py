@@ -12,19 +12,23 @@ import json
 from typing import Any
 
 from arena.mcp.tool_desktop import _bridge_call
+from arena.mcp.tool_desktop_sequence import handle_desktop_sequence_tool
 from arena.mcp.tool_utils import text_content
+
+_ROUTES = {
+    "desktop.click": "/v1/desktop/click",
+    "desktop.type": "/v1/desktop/type",
+    "desktop.key": "/v1/desktop/key",
+    "desktop.mouse": "/v1/desktop/mouse",
+}
 
 
 def handle_desktop_input_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
-    if name == "desktop.click":
-        return text_content(json.dumps(_bridge_call(ctx, "/v1/desktop/click", args), ensure_ascii=False))
-    if name == "desktop.type":
-        return text_content(json.dumps(_bridge_call(ctx, "/v1/desktop/type", args), ensure_ascii=False))
-    if name == "desktop.key":
-        return text_content(json.dumps(_bridge_call(ctx, "/v1/desktop/key", args), ensure_ascii=False))
-    if name == "desktop.mouse":
-        return text_content(json.dumps(_bridge_call(ctx, "/v1/desktop/mouse", args), ensure_ascii=False))
-    return None
+    """Dispatch the desktop input tools; anything else is offered to the sequence tool (#616)."""
+    path = _ROUTES.get(name)
+    if path is None:
+        return handle_desktop_sequence_tool(name, args, ctx=ctx)
+    return text_content(json.dumps(_bridge_call(ctx, path, args), ensure_ascii=False))
 
 
 DESKTOP_INPUT_MCP_TOOLS = [
