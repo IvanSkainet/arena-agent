@@ -50,8 +50,10 @@ def sequence_path_item(title_guard: str, title_conflict: str) -> dict:
             "400": _refusal("A step is malformed or over a limit, require_active_title is missing, "
                             "or the body is not an object", _BAD_REQUEST),
             "403": _refusal("Desktop control was paused or revoked; held input has been released"),
-            "409": _refusal(title_conflict),
-            "500": _refusal("The system refused an input event; held input has been released"),
+            "409": _refusal(title_conflict + ". Also returned, with error `sequence_in_progress`, while another "
+                            "sequence is still running: one sequence drives the desktop at a time."),
+            "500": _refusal("The system refused an input event, or the host fell more than 2 s behind the plan "
+                            "(`input_overran`); held input has been released"),
             "501": _refusal("No input driver for this desktop (native Windows only for now)"),
         },
     }}

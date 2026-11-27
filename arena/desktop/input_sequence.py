@@ -32,6 +32,10 @@ MAX_HOLD_MS = 15_000
 MAX_TOTAL_MS = 45_000
 #: A wait is slept in slices so a stop request is noticed inside it.
 _SLICE_MS = 50
+#: How far a run may fall behind its plan before it is stopped. The plan is
+#: checked in planned milliseconds; a host that sleeps longer than it was asked
+#: to would otherwise hold a key past the limit with nothing to notice.
+_GRACE_MS = 2_000
 _DEFAULT_PRESS_MS = 60
 _BUTTONS = ("left", "right", "middle")
 _MAX_DELTA = 100_000
@@ -272,12 +276,26 @@ class _Run:
         self.clock = clock
         self.keys: list[str] = []
         self.buttons: list[str] = []
+        self.started = clock.now()
+        self.down_since: dict[str, float] = {}
+
+    def _overrun(self) -> str | None:
+        """What has lasted longer than the limits allow, measured and not planned."""
+        now = self.clock.now()
+        if (now - self.started) * 1000 > MAX_TOTAL_MS + _GRACE_MS:
+            return f"the sequence has run longer than {MAX_TOTAL_MS} ms"
+        late = next((name for name, since in self.down_since.items()
+                     if (now - since) * 1000 > MAX_HOLD_MS + _GRACE_MS), None)
+        return f"{late} has been down longer than {MAX_HOLD_MS} ms" if late else None
 
     def check(self) -> None:
-        """Stop if the control lease refuses or another window came to the front."""
+        """Stop if the lease refuses, another window came to the front, or the run fell behind."""
         blocked = self.should_stop() if self.should_stop else None
         if blocked:
             raise _Stopped({key: value for key, value in dict(blocked).items() if key != "ok"})
+        overrun = self._overrun()
+        if overrun:
+            raise _Stopped({"error": "input_overran", "message": overrun})
         title = self.driver.foreground_title()
         if self.required_title not in title.lower():
             raise _Stopped({
@@ -295,25 +313,31 @@ class _Run:
             self.clock.sleep(min(left, _SLICE_MS / 1000.0))
             self.check()
 
+    def _went_down(self, held: list[str], label: str, name: str) -> None:
+        if name not in held:
+            held.append(name)
+        self.down_since.setdefault(label + name, self.clock.now())
+
+    def _went_up(self, held: list[str], label: str, name: str) -> None:
+        if name in held:
+            held.remove(name)
+        self.down_since.pop(label + name, None)
+
     def key_down(self, name: str) -> None:
         self.driver.key_down(name)
-        if name not in self.keys:
-            self.keys.append(name)
+        self._went_down(self.keys, "key:", name)
 
     def key_up(self, name: str) -> None:
         self.driver.key_up(name)
-        if name in self.keys:
-            self.keys.remove(name)
+        self._went_up(self.keys, "key:", name)
 
     def button_down(self, name: str) -> None:
         self.driver.button_down(name)
-        if name not in self.buttons:
-            self.buttons.append(name)
+        self._went_down(self.buttons, "button:", name)
 
     def button_up(self, name: str) -> None:
         self.driver.button_up(name)
-        if name in self.buttons:
-            self.buttons.remove(name)
+        self._went_up(self.buttons, "button:", name)
 
     def move(self, dx: int, dy: int, ms: int) -> None:
         """Send the delta at once, or spread over `ms` so the counts add up exactly."""
@@ -324,8 +348,8 @@ class _Run:
             if (want_x, want_y) != (sent_x, sent_y):
                 self.driver.move_rel(want_x - sent_x, want_y - sent_y)
                 sent_x, sent_y = want_x, want_y
-            if ms:
-                self.wait(ms // parts)
+            # Cumulative, so the parts add up to `ms`: `ms // parts` each lost up to 199 ms.
+            self.wait(ms * part // parts - ms * (part - 1) // parts)
 
     def release_all(self) -> tuple[dict[str, list[str]], list[str]]:
         """Let go of everything still down; returns what was released and what refused to be."""
@@ -340,6 +364,7 @@ class _Run:
                 stuck.append(prefix + name)
         self.keys.clear()
         self.buttons.clear()
+        self.down_since.clear()
         return released, stuck
 
 
@@ -412,7 +437,7 @@ _ACTIONS: dict[str, Callable[[_Run, dict[str, Any]], None]] = {
 def run_sequence(steps: list[dict[str, Any]], driver: InputDriver, guard: Guard, clock: Clock = Clock()) -> dict[str, Any]:
     """Run planned steps; whatever happens, nothing is left held down."""
     run = _Run(driver, guard, clock)
-    started = clock.now()
+    started = run.started
     done = 0
     result: dict[str, Any] = {"ok": True}
     try:

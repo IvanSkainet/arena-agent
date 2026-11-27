@@ -37,7 +37,7 @@ DESKTOP_SEQUENCE_MCP_TOOLS = [
             "enough: holding, relative motion, or two actions timed against each other. Everything still "
             "held is released when the sequence ends. `require_active_title` is mandatory; the sequence "
             "stops as soon as another window is in front. One key or button may stay down for 15 s and the "
-            "whole sequence may run for 45 s. Native Windows input only for now."
+            "whole sequence may run for 45 s. One sequence runs at a time. Native Windows input only for now."
         ),
         "inputSchema": {
             "type": "object",

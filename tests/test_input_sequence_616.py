@@ -23,6 +23,7 @@ import json
 import re
 import secrets
 import sys
+import threading
 import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
@@ -304,6 +305,66 @@ def test_a_move_spread_over_time_adds_up_to_the_exact_delta():
     assert 0.3 <= clock.now <= 0.401
 
 
+@pytest.mark.parametrize("ms", [1799, 1601, 400, 9, 7])
+def test_a_move_spread_over_time_takes_the_time_it_was_given(ms):
+    """`ms // parts` per part lost the remainder: 1799 ms took 1600, and the next step came 199 ms early."""
+    _, _, clock = _run([{"do": "move", "dx": 500, "dy": 0, "ms": ms}])
+    assert clock.now == pytest.approx(ms / 1000, abs=1e-6)
+
+
+def _host_that_oversleeps(clock: Clock, after: float, by: float) -> None:
+    """From `after` seconds on, one sleep takes `by` seconds longer than it was asked to."""
+    state = {"done": False}
+
+    def oversleep(now: float) -> None:
+        if now >= after and not state["done"]:
+            state["done"] = True
+            clock.now += by
+
+    clock.on_sleep = oversleep
+
+
+def test_a_key_held_longer_than_planned_is_let_go_and_the_run_stops():
+    """The plan said one second. The host slept sixteen; the limit is on what happened, not on what was asked."""
+    driver, clock = Recorder(), Clock()
+    _host_that_oversleeps(clock, after=0.5, by=MAX_HOLD_MS / 1000 + 3)
+    result, _, _ = _run([{"do": "key_down", "key": "w"}, {"do": "wait", "ms": 1_000},
+                         {"do": "tap", "key": "space"}, {"do": "key_up", "key": "w"}], driver, clock=clock)
+    assert result["ok"] is False
+    assert result["error"] == "input_overran"
+    assert "key:w has been down longer" in result["message"]
+    assert driver.events == [("key_down", "w"), ("key_up", "w")]
+    assert result["released_at_end"] == {"keys": ["w"], "buttons": []}
+
+
+def test_a_run_that_outlasts_the_sequence_limit_stops_before_its_next_step():
+    driver, clock = Recorder(), Clock()
+    _host_that_oversleeps(clock, after=0.1, by=MAX_TOTAL_MS / 1000 + 3)
+    result, _, _ = _run([{"do": "wait", "ms": 200}, {"do": "tap", "key": "space"}], driver, clock=clock)
+    assert result["error"] == "input_overran"
+    assert "the sequence has run longer" in result["message"]
+    assert driver.events == []
+
+
+def test_a_hold_at_the_limit_on_a_host_that_is_a_little_late_is_not_refused():
+    """The grace is for this: a plan at exactly the limit must survive ordinary lateness."""
+    driver, clock = Recorder(), Clock()
+    _host_that_oversleeps(clock, after=1.0, by=0.5)
+    result, _, _ = _run([{"do": "key_down", "key": "w"}, {"do": "wait", "ms": MAX_HOLD_MS},
+                         {"do": "key_up", "key": "w"}], driver, clock=clock)
+    assert result["ok"] is True
+    assert result["steps_done"] == 3
+
+
+def test_a_key_released_in_time_does_not_count_against_a_later_press():
+    driver, clock = Recorder(), Clock()
+    steps = [{"do": "key_down", "key": "w"}, {"do": "wait", "ms": 10_000}, {"do": "key_up", "key": "w"},
+             {"do": "wait", "ms": 10_000}, {"do": "key_down", "key": "w"}, {"do": "wait", "ms": 10_000},
+             {"do": "key_up", "key": "w"}]
+    result, _, _ = _run(steps, driver, clock=clock)
+    assert result["ok"] is True
+
+
 def test_absolute_moves_and_the_wheel_reach_the_driver():
     _, driver, _ = _run([{"do": "move_to", "x": 1208, "y": 976}, {"do": "scroll", "clicks": -2}])
     assert driver.events == [("move_to", 1208, 976), ("scroll", -2)]
@@ -319,6 +380,7 @@ class FakeUser32:
         self.cursor: tuple[int, int] | None = None
         self.deliver = 1
         self.cursor_is_readable = 1
+        self.cursor_can_be_set = 1
 
     def SendInput(self, count, pointer, size):  # noqa: N802 -- the Win32 name
         assert count == 1
@@ -331,7 +393,9 @@ class FakeUser32:
         return 0x100 + vk
 
     def SetCursorPos(self, x, y):  # noqa: N802
-        self.cursor = (x, y)
+        if self.cursor_can_be_set:
+            self.cursor = (x, y)
+        return self.cursor_can_be_set
 
     def GetCursorPos(self, pointer):  # noqa: N802
         if self.cursor_is_readable:
@@ -407,6 +471,15 @@ def test_an_event_the_system_drops_is_an_error_and_not_a_silent_success(user32):
         driver.key_down("w")
 
 
+def test_a_cursor_the_system_will_not_move_is_an_error(user32):
+    """SetCursorPos answers zero when it is refused; it does not raise."""
+    user32.cursor_can_be_set = 0
+    driver = windows_input.WindowsInputDriver(user32)
+    with pytest.raises(OSError, match="SetCursorPos failed"):
+        driver.move_to(10, 20)
+    assert user32.cursor is None
+
+
 def test_the_driver_reads_the_foreground_title_and_knows_its_keys(user32):
     driver = windows_input.WindowsInputDriver(user32)
     assert driver.foreground_title() == "Abyssal Ascent - Minecraft"
@@ -431,15 +504,21 @@ def _handler_ctx(*, env=None, control=lambda: None):
     return ctx, recorded
 
 
-def _post(ctx, body):
+def _post_raw(ctx, body):
+    """Status and text, for answers that are not the handler's own JSON."""
     async def go():
         app = web.Application()
         app.router.add_post("/v1/desktop/sequence", input_sequence_handler.make_desktop_sequence_handler(ctx))
         async with TestClient(TestServer(app)) as client:
             response = await client.post("/v1/desktop/sequence", json=body)
-            return response.status, await response.json()
+            return response.status, await response.text()
 
     return asyncio.run(go())
+
+
+def _post(ctx, body):
+    status, text = _post_raw(ctx, body)
+    return status, json.loads(text)
 
 
 @pytest.fixture(name="driver")
@@ -516,6 +595,86 @@ def test_a_desktop_without_a_driver_says_so_instead_of_pretending():
     assert status == 501
     assert body["ok"] is False
     assert "Windows" in body["error"]
+
+
+def test_a_refused_plan_with_no_step_at_fault_has_no_step_field(driver):
+    """The schema says `step` is an integer; `null` was what an empty list got."""
+    ctx, _ = _handler_ctx()
+    status, body = _post(ctx, {"require_active_title": "game", "steps": []})
+    assert status == 400
+    assert "step" not in body
+    status, body = _post(ctx, {"require_active_title": "game", "steps": [{"do": "tap", "key": "hyper"}]})
+    assert status == 400
+    assert body["step"] == 0
+
+
+class _SlowDriver(Recorder):
+    """Blocks in its first key press until the test lets it go on."""
+
+    def __init__(self) -> None:
+        """Nothing pressed, nothing allowed to finish yet."""
+        super().__init__()
+        self.pressing = threading.Event()
+        self.go_on = threading.Event()
+
+    def key_down(self, name: str) -> None:
+        self.pressing.set()
+        assert self.go_on.wait(10), "the test never let the first sequence finish"
+        super().key_down(name)
+
+
+def test_a_second_sequence_is_refused_while_the_first_is_still_running(monkeypatch):
+    """Two at once interleave, and each lets go of the keys the other still holds."""
+    slow = _SlowDriver()
+    monkeypatch.setattr(input_sequence_handler, "sequence_driver", lambda env: slow)
+    ctx, _ = _handler_ctx()
+    body = {"require_active_title": "game", "steps": [{"do": "key_down", "key": "w"}]}
+
+    async def go():
+        app = web.Application()
+        app.router.add_post("/v1/desktop/sequence", input_sequence_handler.make_desktop_sequence_handler(ctx))
+        async with TestClient(TestServer(app)) as client:
+            first = asyncio.ensure_future(client.post("/v1/desktop/sequence", json=body))
+            await asyncio.get_running_loop().run_in_executor(None, slow.pressing.wait, 10)
+            second = await client.post("/v1/desktop/sequence", json=body)
+            refused = second.status, await second.json()
+            slow.go_on.set()
+            finished = await first
+            third = await client.post("/v1/desktop/sequence", json=body)
+            return refused, finished.status, third.status
+
+    refused, first_status, third_status = asyncio.run(go())
+    assert refused[0] == 409
+    assert refused[1]["error"] == "sequence_in_progress"
+    assert first_status == 200
+    assert third_status == 200, "the lock was not released when the first sequence ended"
+
+
+def test_a_run_that_blows_up_still_lets_the_next_one_in(driver, monkeypatch):
+    def explode(steps, driver, guard):
+        raise RuntimeError("not an input failure")
+
+    ctx, _ = _handler_ctx()
+    body = {"require_active_title": "game", "steps": [{"do": "tap", "key": "w"}]}
+    with monkeypatch.context() as broken:
+        broken.setattr(input_sequence_handler, "run_sequence", explode)
+        status, _ = _post_raw(ctx, body)
+    assert status == 500
+    status, answer = _post(ctx, body)
+    assert status == 200
+    assert answer["ok"] is True
+
+
+def test_a_host_that_fell_behind_is_a_500_and_says_so(driver, monkeypatch):
+    def overran(steps, driver, guard):
+        return {"ok": False, "error": "input_overran", "message": "key:w has been down longer than 15000 ms"}
+
+    monkeypatch.setattr(input_sequence_handler, "run_sequence", overran)
+    ctx, recorded = _handler_ctx()
+    status, body = _post(ctx, {"require_active_title": "game", "steps": [{"do": "tap", "key": "w"}]})
+    assert status == 500
+    assert body["error"] == "input_overran"
+    assert {"is_error": True, "count_request": False} in recorded
 
 
 def test_the_route_is_registered_and_guarded_on_a_running_bridge(tmp_path: Path):

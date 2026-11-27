@@ -111,7 +111,9 @@ class WindowsInputDriver:
         self._mouse(MOUSEEVENTF_MOVE, (dx, dy))
 
     def move_to(self, x: int, y: int) -> None:
-        self._user32.SetCursorPos(x, y)
+        # SetCursorPos reports a refusal by returning zero, not by raising.
+        if not self._user32.SetCursorPos(x, y):
+            raise OSError("SetCursorPos failed: the system refused to move the cursor")
 
     def shift_cursor(self, dx: int, dy: int) -> None:
         """Move the cursor by exactly (dx, dy) pixels from where it is."""
@@ -121,7 +123,7 @@ class WindowsInputDriver:
         here = wt.POINT()
         if not self._user32.GetCursorPos(ctypes.byref(here)):
             raise OSError("GetCursorPos failed: the cursor position is not available to this process")
-        self._user32.SetCursorPos(here.x + dx, here.y + dy)
+        self.move_to(here.x + dx, here.y + dy)
 
     def scroll(self, clicks: int) -> None:
         self._mouse(MOUSEEVENTF_WHEEL, data=clicks * WHEEL_DELTA)
@@ -143,6 +145,8 @@ def system_driver() -> WindowsInputDriver:  # pragma: no cover -- needs a real u
     user32.GetWindowTextW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
     user32.GetCursorPos.argtypes = [ctypes.POINTER(wt.POINT)]
     user32.GetCursorPos.restype = wt.BOOL
+    user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
+    user32.SetCursorPos.restype = wt.BOOL
     return WindowsInputDriver(user32)
 
 
