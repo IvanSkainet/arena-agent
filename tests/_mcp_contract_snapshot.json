@@ -186,6 +186,15 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_desktop_sequence.py",
+    "handlers": [
+      "handle_desktop_sequence_tool"
+    ],
+    "tool_names": [
+      "desktop.sequence"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_document.py",
     "handlers": [
       "handle_document_tool"

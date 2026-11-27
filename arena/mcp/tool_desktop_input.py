@@ -84,7 +84,10 @@ DESKTOP_INPUT_MCP_TOOLS = [
     },
     {
         "name": "desktop.mouse",
-        "description": "Move mouse cursor to (x, y). `absolute` true (default) uses screen coords, false uses relative delta.",
+        "description": (
+            "Move the mouse cursor to (x, y), or by (x, y) when `absolute` is false. For motion timed "
+            "against key presses use desktop.sequence."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {

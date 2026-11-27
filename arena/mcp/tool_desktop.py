@@ -10,7 +10,7 @@ from arena.jsonshape import loads_object
 from arena.mcp.tool_utils import text_content
 
 
-def _bridge_call(ctx, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _bridge_call(ctx, path: str, payload: dict[str, Any], *, timeout: float = 30) -> dict[str, Any]:
     cfg = ctx.app_config() or {}
     port = int(cfg.get("port", 8765) or 8765)
     token = cfg.get("token", "")
@@ -20,7 +20,7 @@ def _bridge_call(ctx, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:  # nosec B310 -- loopback bridge URL for local MCP tool  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 -- loopback bridge URL for local MCP tool  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
         return loads_object(resp.read().decode("utf-8", "replace"))
 
 

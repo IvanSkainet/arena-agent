@@ -34,7 +34,7 @@ _CATEGORY_MAP: list[tuple[list[str], str]] = [
     # mobile / external device
     (["mobile.", "emulator."], "external"),
     # desktop interaction
-    (["desktop.click", "desktop.type", "desktop.key", "desktop.focus",
+    (["desktop.click", "desktop.type", "desktop.key", "desktop.sequence", "desktop.focus",
       "desktop_app.click", "desktop_app.type", "desktop_app.key",
       "desktop_input."], "execute"),
     # read-only
@@ -89,7 +89,7 @@ _MEDIUM_RISK_PREFIXES = [
     "mobile.shell", "mobile.tap", "mobile.swipe", "mobile.type",
     "emulator.start", "emulator.stop",
     "net.http", "browser.",
-    "desktop.click", "desktop.type", "desktop.key",
+    "desktop.click", "desktop.type", "desktop.key", "desktop.sequence",
     "desktop_input.", "desktop_app.click", "desktop_app.type",
     "git.commit",
     "memory.write", "memory.delete",

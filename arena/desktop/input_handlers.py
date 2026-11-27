@@ -14,6 +14,16 @@ from arena.handler_helpers import controlled, json_object_body
 from arena.handler_params import body_float
 
 
+def _windows_mouse_move(x: int, y: int, absolute: bool) -> None:  # pragma: no cover -- Windows only
+    """Move to (x, y), or by (x, y) when `absolute` is false (#617)."""
+    if absolute:
+        from arena.desktop.backends import windows as _win
+        _win.mouse_move(x, y)
+        return
+    from arena.desktop.backends import windows_input
+    windows_input.system_driver().move_rel(x, y)
+
+
 def make_desktop_input_handlers(ctx: DesktopHandlerContext):
     async def _check_required_title(body):
         require_title = body.get("require_active_title")
@@ -223,11 +233,11 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
         # v4.81.0: native Windows path.
         if env.get("has_win32_input"):  # pragma: no cover
             try:
-                from arena.desktop.backends import windows as _win
-                await _win32_call(_win.mouse_move, int(x), int(y))
+                absolute = bool(body.get("absolute", True))
+                await _win32_call(_windows_mouse_move, int(x), int(y), absolute)
                 return ctx.cors_json_response({
                     "ok": True, "x": int(x), "y": int(y),
-                    "absolute": body.get("absolute", True),
+                    "absolute": absolute,
                     "tool": "user32", "backend": "windows",
                 })
             except Exception as exc:

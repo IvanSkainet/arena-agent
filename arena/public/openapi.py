@@ -450,6 +450,43 @@ def _watch_file_operations() -> dict:
     }
 
 
+# #616: the one input route that holds, moves by a delta and keeps time.
+_SEQUENCE_STEP = {
+    "type": "object",
+    "properties": {
+        "do": {"type": "string", "enum": ["wait", "key_down", "key_up", "tap", "mouse_down", "mouse_up",
+                                          "click", "move", "move_to", "scroll"]},
+        "key": {"type": "string"},
+        "button": {"type": "string", "enum": ["left", "right", "middle"], "default": "left"},
+        "ms": {"type": "integer", "description": "wait: duration. tap, click: length of the press. move: spread."},
+        "dx": {"type": "integer"}, "dy": {"type": "integer"},
+        "x": {"type": "integer"}, "y": {"type": "integer"},
+        "clicks": {"type": "integer"},
+    },
+    "required": ["do"],
+}
+_SEQUENCE_OPERATION = {
+    "summary": "Run timed input steps: hold keys and buttons, move by a delta, scroll, wait",
+    "tags": ["Desktop"],
+    "requestBody": {"content": {"application/json": {"schema": {
+        "type": "object",
+        "properties": {
+            "steps": {"type": "array", "minItems": 1, "maxItems": 200, "items": _SEQUENCE_STEP},
+            "require_active_title": {"type": "string", "description": _ACTIVE_TITLE_GUARD},
+        },
+        "required": ["steps", "require_active_title"],
+    }}}},
+    "responses": {
+        "200": {"description": "Every step ran; whatever was still held has been released"},
+        "400": {"description": "A step is malformed or over a limit, or require_active_title is missing"},
+        "403": {"description": "Desktop control was paused or revoked; held input has been released"},
+        "409": _error_response(_ACTIVE_TITLE_CONFLICT),
+        "500": {"description": "The system refused an input event; held input has been released"},
+        "501": {"description": "No input driver for this desktop (native Windows only for now)"},
+    },
+}
+
+
 def build_openapi_spec(ctx) -> dict:
     plan_schema, react_schema, reflect_schema = _cognitive_request_schemas()
     spec: dict = {
@@ -501,6 +538,7 @@ def build_openapi_spec(ctx) -> dict:
             "/v1/desktop/ocr": {"post": {"summary": "Run OCR on a fresh desktop screenshot", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": _ACTIVE_TITLE_GUARD}, "query": {"type": "string"}, "display": {"type": "string"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": False}, "within_active_window": {"type": "boolean", "default": False}}}}}}, "responses": {"409": _error_response(_ACTIVE_TITLE_CONFLICT), "200": {"description": "OCR text, words, and optional matches"}, "404": {"description": "Unknown display, or no match for the query"}}}},
             "/v1/desktop/find_text": {"post": {"summary": "Find text on the current desktop", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": _ACTIVE_TITLE_GUARD}, "query": {"type": "string"}, "display": {"type": "string"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": False}, "within_active_window": {"type": "boolean", "default": False}}, "required": ["query"]}}}}, "responses": {"409": _error_response(_ACTIVE_TITLE_CONFLICT), "200": {"description": "Match results"}, "404": {"description": "No match found"}}}},
             "/v1/desktop/click_text": {"post": {"summary": "Find text on the current desktop and click the best match", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"require_active_title": {"type": "string", "description": _ACTIVE_TITLE_GUARD}, "query": {"type": "string"}, "display": {"type": "string"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": True}, "within_active_window": {"type": "boolean", "default": False}, "target_position": {"type": "string", "enum": ["center", "left", "right", "top", "bottom"], "default": "center"}, "offset_x": {"type": "integer", "default": 0}, "offset_y": {"type": "integer", "default": 0}, "button": {"type": "string", "default": "left"}, "double": {"type": "boolean", "default": False}, "activate": {"type": "boolean", "default": True}, "dry_run": {"type": "boolean", "default": False}}, "required": ["query"]}}}}, "responses": {"409": _error_response(_ACTIVE_TITLE_CONFLICT), "200": {"description": "Click result"}, "404": {"description": "No match found"}}}},
+            "/v1/desktop/sequence": {"post": _SEQUENCE_OPERATION},
             "/v1/browser/head": {"get": {"summary": "HTTP HEAD request", "tags": ["Browser"], "parameters": [{"name": "url", "in": "query", "required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "HEAD result"}, "400": {"description": "Missing or unusable url parameter"}}}},
             "/v1/tasks": {"get": {"summary": "List tasks", "tags": ["Tasks"], "responses": {"200": {"description": "Task list"}}}, "post": {"summary": "Create task", "tags": ["Tasks"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"cmd": {"type": "string"}, "title": {"type": "string"}}}}}}, "responses": {"200": {"description": "Task created"}}}},
             "/v1/mission/status": {"get": {"summary": "Get structured mission status", "tags": ["Planner"], "parameters": [{"name": "name", "in": "query", "required": False, "schema": {"type": "string"}, "description": "Mission name or id. Either this or mission_id is required; a short scenario name resolves to its stored mission."}, {"name": "mission_id", "in": "query", "required": False, "schema": {"type": "string"}, "description": "Alias of name (#130)."}], "responses": {"200": {"description": "Mission status"}, "404": {"description": "Mission not found"}, "400": {"description": "Missing or unusable mission id"}}}},
