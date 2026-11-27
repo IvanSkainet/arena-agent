@@ -52,8 +52,8 @@ WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 SERVER_PATH = REPO_ROOT / "scripts" / "serve_bridge_for_fuzzing.py"
 
 
-@pytest.fixture(scope="module")
-def config() -> dict:
+@pytest.fixture(scope="module", name="config")
+def _config() -> dict:
     return tomllib.loads(CONFIG_PATH.read_text(encoding="utf-8"))
 
 
@@ -64,9 +64,9 @@ def fuzz_job() -> dict:
     return workflow["jobs"]["api-fuzz"]
 
 
-def _operations_allowed(config: dict, status: int) -> set[str]:
+def _operations_allowed(settings: dict, status: int) -> set[str]:
     allowed = set()
-    for operation in config.get("operations", []):
+    for operation in settings.get("operations", []):
         statuses = (operation.get("checks", {})
                     .get("not_a_server_error", {})
                     .get("expected-statuses", []))
@@ -96,15 +96,13 @@ def test_the_503_exceptions_are_exactly_the_operations_that_need_a_tool():
 
 
 def test_a_501_is_allowed_only_where_the_document_declares_one(config):
-    """The second kind of deliberate 5xx, held to the same rule as the first (#616).
-
-    `POST /v1/desktop/sequence` answers 501 where the desktop has no input
-    driver, which on a CI runner is always. The exception is safe only while
-    it is tied to the document: an operation listed here that no longer
-    documents a 501 would let a crash through under that number, and one
-    that documents a 501 without being listed turns the gate red for an
-    answer the bridge promised.
-    """
+    """The second kind of deliberate 5xx, held to the same rule as the first (#616)."""
+    # `POST /v1/desktop/sequence` answers 501 where the desktop has no input
+    # driver, which on a CI runner is always. The exception is safe only while
+    # it is tied to the document: an operation listed here that no longer
+    # documents a 501 would let a crash through under that number, and one
+    # that documents a 501 without being listed turns the gate red for an
+    # answer the bridge promised.
     from types import SimpleNamespace
 
     from arena.public.openapi import build_openapi_spec

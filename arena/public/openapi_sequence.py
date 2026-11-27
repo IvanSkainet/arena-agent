@@ -1,8 +1,6 @@
-"""The OpenAPI entry for POST /v1/desktop/sequence (#616).
-
-Kept apart from `openapi.py`: that module's builder is one long literal, and
-this operation has more refusals worth documenting than fit on a line of it.
-"""
+"""The OpenAPI entry for POST /v1/desktop/sequence (#616)."""
+# Kept apart from `openapi.py`: that module's builder is one long literal, and
+# this operation has more refusals worth documenting than fit on a line of it.
 from __future__ import annotations
 
 from arena.public.error_envelopes import _ERROR_ENVELOPE, _JSON_BODY_ERROR_ENVELOPE
@@ -28,8 +26,8 @@ _BAD_REQUEST = {**_JSON_BODY_ERROR_ENVELOPE, "properties": {
 }}
 
 
-def _refusal(description: str, schema: dict = _ERROR_ENVELOPE) -> dict:
-    return {"description": description, "content": {"application/json": {"schema": schema}}}
+def _refusal(description: str, schema: dict | None = None) -> dict:
+    return {"description": description, "content": {"application/json": {"schema": schema or _ERROR_ENVELOPE}}}
 
 
 def sequence_path_item(title_guard: str, title_conflict: str) -> dict:

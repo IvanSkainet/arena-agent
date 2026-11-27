@@ -21,6 +21,7 @@ import inspect
 import io
 import json
 import re
+import secrets
 import sys
 import urllib.error
 from pathlib import Path
@@ -501,7 +502,7 @@ def test_a_desktop_without_a_driver_says_so_instead_of_pretending():
 
 def test_the_route_is_registered_and_guarded_on_a_running_bridge(tmp_path: Path):
     """Through the real application: auth first, then the window guard or the honest 501."""
-    token = "sequence-616-token"
+    token = secrets.token_hex(8)
 
     async def go():
         async with running_client(tmp_path, token) as client:
@@ -591,7 +592,7 @@ def test_a_refusal_reaches_the_tool_from_a_real_http_error(monkeypatch):
         raise urllib.error.HTTPError(request.full_url, 409, "Conflict", {}, io.BytesIO(body))
 
     monkeypatch.setattr("urllib.request.urlopen", refuse)
-    ctx = SimpleNamespace(app_config=lambda: {"port": 1, "token": "t"})
+    ctx = SimpleNamespace(app_config=lambda: {"port": 1, "token": secrets.token_hex(8)})
     result = tool_desktop_sequence.handle_desktop_sequence_tool(
         "desktop.sequence", {"steps": [], "require_active_title": "game"}, ctx=ctx)
     answer = json.loads(result["content"][0]["text"])
