@@ -29,6 +29,28 @@ async def _windows_mouse(ctx: DesktopHandlerContext, point: tuple[int, int], abs
     })
 
 
+async def _move_mouse(ctx: DesktopHandlerContext, request: web.Request) -> web.Response:
+    """POST /v1/desktop/mouse: to a position, or by a delta when `absolute` is false."""
+    ctx.control_record_agent_action()
+    body = await json_object_body(request)
+    x = body.get("x")
+    y = body.get("y")
+    if x is None or y is None:
+        ctx.record_request(is_error=True, count_request=False)
+        return ctx.cors_json_response({"ok": False, "error": "missing 'x' and/or 'y'"}, status=400)
+    env = ctx.detect_desktop_env()
+    absolute = bool(body.get("absolute", True))
+    if env.get("has_win32_input"):
+        return await _windows_mouse(ctx, (int(x), int(y)), absolute)
+
+    cmd, tool, err = build_mouse_command(env=env, x=int(x), y=int(y), absolute=absolute)
+    if err:
+        refusal, status = builder_refusal(err)
+        return ctx.cors_json_response(refusal, status=status)
+    result = await ctx.desktop_exec(cmd, timeout=10)
+    return ctx.cors_json_response({"ok": result.get("ok"), "x": int(x), "y": int(y), "absolute": absolute, "tool": tool})
+
+
 def make_desktop_input_handlers(ctx: DesktopHandlerContext):
     async def _check_required_title(body):
         require_title = body.get("require_active_title")
@@ -226,23 +248,6 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
 
     @controlled(ctx)
     async def handle_v1_desktop_mouse(request: web.Request) -> web.Response:
-        ctx.control_record_agent_action()
-        body = await json_object_body(request)
-        x = body.get("x")
-        y = body.get("y")
-        if x is None or y is None:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": "missing 'x' and/or 'y'"}, status=400)
-        env = ctx.detect_desktop_env()
-        absolute = bool(body.get("absolute", True))
-        if env.get("has_win32_input"):
-            return await _windows_mouse(ctx, (int(x), int(y)), absolute)
-
-        cmd, tool, err = build_mouse_command(env=env, x=int(x), y=int(y), absolute=absolute)
-        if err:
-            body_, status = builder_refusal(err)
-            return ctx.cors_json_response(body_, status=status)
-        result = await ctx.desktop_exec(cmd, timeout=10)
-        return ctx.cors_json_response({"ok": result.get("ok"), "x": int(x), "y": int(y), "absolute": absolute, "tool": tool})
+        return await _move_mouse(ctx, request)
 
     return handle_v1_desktop_click, handle_v1_desktop_type, handle_v1_desktop_key, handle_v1_desktop_mouse
