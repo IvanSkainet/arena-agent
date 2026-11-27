@@ -274,18 +274,19 @@ class _Run:
         self.required_title = guard.title.lower()
         self.should_stop = guard.should_stop
         self.clock = clock
-        self.keys: list[str] = []
-        self.buttons: list[str] = []
+        #: What is down, and since when on this run's clock, in the order it was pressed.
+        self.keys: dict[str, float] = {}
+        self.buttons: dict[str, float] = {}
         self.started = clock.now()
-        self.down_since: dict[str, float] = {}
 
     def _overrun(self) -> str | None:
         """What has lasted longer than the limits allow, measured and not planned."""
         now = self.clock.now()
         if (now - self.started) * 1000 > MAX_TOTAL_MS + _GRACE_MS:
             return f"the sequence has run longer than {MAX_TOTAL_MS} ms"
-        late = next((name for name, since in self.down_since.items()
-                     if (now - since) * 1000 > MAX_HOLD_MS + _GRACE_MS), None)
+        held = [("key:" + name, since) for name, since in self.keys.items()]
+        held += [("button:" + name, since) for name, since in self.buttons.items()]
+        late = next((name for name, since in held if (now - since) * 1000 > MAX_HOLD_MS + _GRACE_MS), None)
         return f"{late} has been down longer than {MAX_HOLD_MS} ms" if late else None
 
     def check(self) -> None:
@@ -316,31 +317,21 @@ class _Run:
             self.clock.sleep(min(left, _SLICE_MS / 1000.0))
             self.check()
 
-    def _went_down(self, held: list[str], label: str, name: str) -> None:
-        if name not in held:
-            held.append(name)
-        self.down_since.setdefault(label + name, self.clock.now())
-
-    def _went_up(self, held: list[str], label: str, name: str) -> None:
-        if name in held:
-            held.remove(name)
-        self.down_since.pop(label + name, None)
-
     def key_down(self, name: str) -> None:
         self.driver.key_down(name)
-        self._went_down(self.keys, "key:", name)
+        self.keys.setdefault(name, self.clock.now())
 
     def key_up(self, name: str) -> None:
         self.driver.key_up(name)
-        self._went_up(self.keys, "key:", name)
+        self.keys.pop(name, None)
 
     def button_down(self, name: str) -> None:
         self.driver.button_down(name)
-        self._went_down(self.buttons, "button:", name)
+        self.buttons.setdefault(name, self.clock.now())
 
     def button_up(self, name: str) -> None:
         self.driver.button_up(name)
-        self._went_up(self.buttons, "button:", name)
+        self.buttons.pop(name, None)
 
     def move(self, dx: int, dy: int, ms: int) -> None:
         """Send the delta at once, or spread over `ms` so the counts add up exactly."""
@@ -370,7 +361,6 @@ class _Run:
                 stuck.append(prefix + name)
         self.keys.clear()
         self.buttons.clear()
-        self.down_since.clear()
         return released, stuck
 
 

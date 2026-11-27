@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import threading
 from typing import Any
 
 from aiohttp import web
@@ -20,10 +19,35 @@ _STOP_STATUS = {
     "input_failed": 500,
     "input_overran": 500,
 }
-#: One sequence drives the host's input at a time. Two would interleave their
-#: steps, and each releases what it pressed when it ends, so one would let go of
-#: a key the other is still holding.
-_ONE_AT_A_TIME = threading.Lock()
+
+
+class _Desk:
+    """One sequence drives the host's input at a time."""
+
+    # Two would interleave their steps, and each releases what it pressed when
+    # it ends, so one would let go of a key the other is still holding.
+    #
+    # A flag and not a lock: it is taken on the event loop, where nothing runs
+    # between the test and the set, and given back by the worker thread with one
+    # assignment when its run is over -- which may be after the request is gone.
+
+    def __init__(self) -> None:
+        """Free until a sequence takes it."""
+        self._busy = False
+
+    def take(self) -> bool:
+        """On the event loop: True if the desk was free and is now this caller's."""
+        if self._busy:
+            return False
+        self._busy = True
+        return True
+
+    def give_back(self) -> None:
+        """From the worker thread, when its run is over."""
+        self._busy = False
+
+
+_DESK = _Desk()
 _BUSY = {
     "error": "sequence_in_progress",
     "message": "another input sequence is still running on this desktop; wait for it to end",
@@ -49,24 +73,24 @@ def _required_title(body: dict[str, Any]) -> str:
 
 
 def _run_then_free(steps: list[dict[str, Any]], driver: InputDriver, guard: Guard) -> dict[str, Any]:
-    """In the worker thread: the lock is held until the run is over, not until the request is."""
+    """In the worker thread: the desk is held until the run is over, not until the request is."""
     try:
         return run_sequence(steps, driver, guard)
     finally:
-        _ONE_AT_A_TIME.release()
+        _DESK.give_back()
 
 
 async def _run_alone(steps: list[dict[str, Any]], driver: InputDriver, guard: Guard) -> dict[str, Any] | None:
     """Run the steps off the event loop, or return None while another sequence is running."""
-    if not _ONE_AT_A_TIME.acquire(blocking=False):
+    if not _DESK.take():
         return None
     try:
         started = asyncio.get_running_loop().run_in_executor(None, lambda: _run_then_free(steps, driver, guard))
     except BaseException:
-        _ONE_AT_A_TIME.release()
+        _DESK.give_back()
         raise
     # Shielded: a caller that goes away must not cancel a run still queued for a
-    # thread, because then nothing would ever release the lock.
+    # thread, because then nothing would ever give the desk back.
     return await asyncio.shield(started)
 
 
