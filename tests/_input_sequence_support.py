@@ -90,6 +90,12 @@ def run(steps, driver=None, *, clock=None, guard=Guard(TITLE)):
     return result, driver, clock
 
 
+def _expect(holds: bool, otherwise: str) -> None:
+    """Fail the test that got the stand-in called the wrong way."""
+    if not holds:
+        raise AssertionError(otherwise)
+
+
 class FakeUser32:
     def __init__(self) -> None:
         """Deliver every event until a test says otherwise."""
@@ -100,13 +106,13 @@ class FakeUser32:
         self.cursor_can_be_set = 1
 
     def SendInput(self, count, pointer, size):  # noqa: N802 -- the Win32 name
-        assert count == 1
-        assert size == ctypes.sizeof(windows_input.INPUT)
+        _expect(count == 1, f"SendInput was given {count} events at once")
+        _expect(size == ctypes.sizeof(windows_input.INPUT), f"SendInput was told an INPUT is {size} bytes")
         self.sent.append(pointer._obj)
         return self.deliver
 
     def MapVirtualKeyW(self, vk, kind):  # noqa: N802
-        assert kind == 0
+        _expect(kind == 0, f"MapVirtualKeyW was asked for mapping {kind}, not virtual key to scan code")
         return 0x100 + vk
 
     def SetCursorPos(self, x, y):  # noqa: N802
@@ -123,7 +129,7 @@ class FakeUser32:
         return 42
 
     def GetWindowTextW(self, hwnd, buffer, size):  # noqa: N802
-        assert hwnd == 42
+        _expect(hwnd == 42, f"GetWindowTextW was asked about window {hwnd}, not the foreground one")
         buffer.value = "Abyssal Ascent - Minecraft"[: size - 1]
 
 
