@@ -147,34 +147,39 @@ def _run(steps, driver=None, *, clock=None, guard=Guard(TITLE)):
     ([{"do": "scroll", "clicks": 1000}], "between -100 and 100"),
 ])
 def test_a_bad_step_is_refused_with_its_reason(steps, fragment):
+    driver = Recorder()
     with pytest.raises(SequenceError, match=fragment):
-        plan_sequence(steps, Recorder())
+        plan_sequence(steps, driver)
 
 
 def test_the_refusal_names_the_step():
+    driver = Recorder()
     with pytest.raises(SequenceError) as caught:
-        plan_sequence([{"do": "wait", "ms": 1}, {"do": "tap", "key": "hyper"}], Recorder())
+        plan_sequence([{"do": "wait", "ms": 1}, {"do": "tap", "key": "hyper"}], driver)
     assert caught.value.index == 1
 
 
 def test_a_sequence_longer_than_the_limit_is_refused():
     steps = [{"do": "wait", "ms": MAX_TOTAL_MS // 2}] * 3
+    driver = Recorder()
     with pytest.raises(SequenceError, match="the limit is"):
-        plan_sequence(steps, Recorder())
+        plan_sequence(steps, driver)
 
 
 def test_a_key_held_past_the_limit_is_refused():
     """Found by adding up the waits between the press and the release."""
     steps = [{"do": "key_down", "key": "w"}, {"do": "wait", "ms": 9_000},
              {"do": "wait", "ms": 9_000}, {"do": "key_up", "key": "w"}]
+    driver = Recorder()
     with pytest.raises(SequenceError, match="key:w would stay down longer"):
-        plan_sequence(steps, Recorder())
+        plan_sequence(steps, driver)
 
 
 def test_a_button_never_released_counts_as_held_to_the_end():
     steps = [{"do": "mouse_down"}, {"do": "wait", "ms": MAX_HOLD_MS + 1}]
+    driver = Recorder()
     with pytest.raises(SequenceError, match="button:left would stay down longer"):
-        plan_sequence(steps, Recorder())
+        plan_sequence(steps, driver)
 
 
 def test_a_hold_released_in_time_is_accepted_and_names_are_normalised():
@@ -277,7 +282,8 @@ def test_one_failed_release_does_not_strand_the_others():
     assert ("key_up", "w") in driver.events
     assert result["released_at_end"] == {"keys": ["w"], "buttons": []}
     # A key the system would not let go is still down for the user: the result says which.
-    assert result["ok"] is False and result["error"] == "input_failed"
+    assert result["ok"] is False
+    assert result["error"] == "input_failed"
     assert result["release_failed"] == ["key:shift"]
     assert "key:shift" in result["message"]
 
@@ -396,14 +402,17 @@ def test_each_button_has_its_own_pair_of_events(user32, button, down, up):
 
 def test_an_event_the_system_drops_is_an_error_and_not_a_silent_success(user32):
     user32.deliver = 0
+    driver = windows_input.WindowsInputDriver(user32)
     with pytest.raises(OSError, match="delivered 0 of 1"):
-        windows_input.WindowsInputDriver(user32).key_down("w")
+        driver.key_down("w")
 
 
 def test_the_driver_reads_the_foreground_title_and_knows_its_keys(user32):
     driver = windows_input.WindowsInputDriver(user32)
     assert driver.foreground_title() == "Abyssal Ascent - Minecraft"
-    assert driver.knows_key("f3") and driver.knows_key("7") and not driver.knows_key("hyper")
+    assert driver.knows_key("f3")
+    assert driver.knows_key("7")
+    assert not driver.knows_key("hyper")
 
 
 # ---------------------------------------------------------------------
@@ -445,7 +454,8 @@ def test_the_route_runs_a_sequence_and_reports_it(driver):
     status, body = _post(ctx, {"require_active_title": "game", "steps": [
         {"do": "key_down", "key": "w"}, {"do": "wait", "ms": 30}, {"do": "key_up", "key": "w"}]})
     assert status == 200
-    assert body["ok"] is True and body["steps_done"] == 3
+    assert body["ok"] is True
+    assert body["steps_done"] == 3
     assert driver.events == [("key_down", "w"), ("key_up", "w")]
     assert {"agent_action": True} in recorded
 
@@ -478,7 +488,8 @@ def test_the_wrong_window_is_a_409(driver):
     ctx, _ = _handler_ctx()
     status, body = _post(ctx, {"require_active_title": "game", "steps": [{"do": "tap", "key": "w"}]})
     assert status == 409
-    assert body["error"] == "input_guard_failed" and body["active_title"] == "Terminal"
+    assert body["error"] == "input_guard_failed"
+    assert body["active_title"] == "Terminal"
     assert driver.events == []
 
 
@@ -503,7 +514,8 @@ def test_a_desktop_without_a_driver_says_so_instead_of_pretending():
     ctx, _ = _handler_ctx(env={"has_win32_input": False, "has_xdotool": True})
     status, body = _post(ctx, {"require_active_title": "game", "steps": [{"do": "tap", "key": "w"}]})
     assert status == 501
-    assert body["ok"] is False and "Windows" in body["error"]
+    assert body["ok"] is False
+    assert "Windows" in body["error"]
 
 
 def test_the_route_is_registered_and_guarded_on_a_running_bridge(tmp_path: Path):
@@ -603,7 +615,8 @@ def test_a_refusal_reaches_the_tool_from_a_real_http_error(monkeypatch):
         "desktop.sequence", {"steps": [], "require_active_title": "game"}, ctx=ctx)
     answer = json.loads(result["content"][0]["text"])
     assert result["isError"] is True
-    assert answer["error"] == "input_guard_failed" and answer["active_title"] == "Terminal"
+    assert answer["error"] == "input_guard_failed"
+    assert answer["active_title"] == "Terminal"
 
 
 # ---------------------------------------------------------------------
@@ -612,7 +625,8 @@ def test_a_refusal_reaches_the_tool_from_a_real_http_error(monkeypatch):
 def test_xdotool_moves_by_a_delta_when_asked_to():
     """It used to send `mousemove -5 7`: a jump to a corner, reported as a relative move."""
     command, tool, error = build_mouse_command(env={"has_xdotool": True}, x=-5, y=7, absolute=False)
-    assert error is None and tool == "xdotool"
+    assert error is None
+    assert tool == "xdotool"
     assert command.endswith("xdotool mousemove_relative -- -5 7")
 
 
@@ -678,4 +692,5 @@ def test_a_windows_move_the_system_refuses_is_a_500_with_the_reason(monkeypatch)
 def test_the_description_no_longer_promises_more_than_the_tool_does():
     tool = next(tool for tool in MCP_TOOLS if tool["name"] == "desktop.mouse")
     assert "by (x, y) pixels when `absolute` is false" in tool["description"]
-    assert "raw mouse motion" in tool["description"] and "desktop.sequence" in tool["description"]
+    assert "raw mouse motion" in tool["description"]
+    assert "desktop.sequence" in tool["description"]
