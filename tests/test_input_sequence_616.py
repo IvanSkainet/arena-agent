@@ -349,11 +349,12 @@ def test_a_run_that_outlasts_the_sequence_limit_stops_before_its_next_step():
 def test_a_hold_at_the_limit_on_a_host_that_is_a_little_late_is_not_refused():
     """The grace is for this: a plan at exactly the limit must survive ordinary lateness."""
     driver, clock = Recorder(), Clock()
-    _host_that_oversleeps(clock, after=1.0, by=0.5)
+    _host_that_oversleeps(clock, after=MAX_HOLD_MS / 1000 - 0.01, by=0.5)
     result, _, _ = _run([{"do": "key_down", "key": "w"}, {"do": "wait", "ms": MAX_HOLD_MS},
                          {"do": "key_up", "key": "w"}], driver, clock=clock)
     assert result["ok"] is True
     assert result["steps_done"] == 3
+    assert result["elapsed_ms"] >= MAX_HOLD_MS + 400, "the late wake-up never happened, so nothing was tested"
 
 
 def test_a_key_released_in_time_does_not_count_against_a_later_press():
