@@ -1,0 +1,142 @@
+"""#620: a desktop MCP tool passes on what the route said when it refused.
+
+`desktop.find_text` over MCP returned "ERROR: HTTPError: HTTP Error 503:
+Service Unavailable" while the route had answered `503 {"error": "tesseract
+is not installed", "unavailable": ["tesseract"]}`. The reason and the list of
+missing tools never reached the agent.
+"""
+from __future__ import annotations
+
+import io
+import json
+import secrets
+import urllib.error
+from types import SimpleNamespace
+
+import pytest
+
+from arena.mcp import tool_desktop
+from arena.mcp.tool_desktop import handle_desktop_tool
+from arena.mcp.tool_desktop_app import handle_desktop_app_tool
+from arena.mcp.tool_desktop_input import handle_desktop_input_tool
+from arena.mcp.tool_registry import MCP_TOOLS
+
+_NO_TESSERACT = {"ok": False, "error": "tesseract is not installed", "unavailable": ["tesseract"]}
+_DISPATCHERS = (handle_desktop_tool, handle_desktop_input_tool, handle_desktop_app_tool)
+_DESKTOP_TOOLS = sorted(tool["name"] for tool in MCP_TOOLS if tool["name"].startswith(("desktop.", "desktop_app.")))
+
+
+def _ctx() -> SimpleNamespace:
+    return SimpleNamespace(app_config=lambda: {"port": 1, "token": secrets.token_hex(8)})
+
+
+def _call(name: str, args: dict) -> dict | None:
+    for dispatch in _DISPATCHERS:
+        result = dispatch(name, args, ctx=_ctx())
+        if result is not None:
+            return result
+    return None
+
+
+def _words(result: dict) -> dict:
+    return json.loads(result["content"][0]["text"])
+
+
+class _Bridge:
+    """Stands in for `urlopen`: every request is refused with the same status and body."""
+
+    def __init__(self, status: int, body: bytes):
+        """Remember what to answer; `asked` collects the URLs that were requested."""
+        self.status, self.body, self.asked = status, body, []
+
+    def __call__(self, request, timeout):
+        self.asked.append(request.full_url)
+        raise urllib.error.HTTPError(request.full_url, self.status, "refused", {}, io.BytesIO(self.body))
+
+
+@pytest.fixture(name="refusing")
+def _refusing(monkeypatch):
+    bridge = _Bridge(503, json.dumps(_NO_TESSERACT).encode())
+    monkeypatch.setattr("urllib.request.urlopen", bridge)
+    return bridge
+
+
+def test_the_refusal_from_the_issue_reaches_the_agent(refusing):
+    result = _call("desktop.find_text", {"query": "Play"})
+    assert result["isError"] is True
+    assert _words(result) == {**_NO_TESSERACT, "status": 503, "route": "/v1/desktop/find_text"}
+    assert refusing.asked == ["http://127.0.0.1:1/v1/desktop/find_text"]
+
+
+def test_there_are_desktop_tools_to_sweep():
+    assert {"desktop.find_text", "desktop.key", "desktop.windows", "desktop_app.focus"} <= set(_DESKTOP_TOOLS)
+
+
+@pytest.mark.parametrize("name", _DESKTOP_TOOLS)
+def test_no_desktop_tool_hides_a_refusal_behind_the_name_of_an_exception(name, refusing):
+    """Every desktop tool, whichever module dispatches it and however many calls it makes."""
+    result = _call(name, {"query": "x", "title": "x", "text": "x", "key": "a", "x": 1, "y": 1,
+                          "steps": [], "require_active_title": "x"})
+    assert result is not None, f"{name} is registered and nothing dispatches it"
+    text = result["content"][0]["text"]
+    assert "HTTPError" not in text
+    if refusing.asked:
+        assert result["isError"] is True
+        assert _words(result)["error"] == "tesseract is not installed"
+        assert _words(result)["unavailable"] == ["tesseract"]
+        assert _words(result)["status"] == 503
+
+
+def test_a_tool_that_makes_several_calls_says_which_route_refused(refusing):
+    words = _words(_call("desktop_app.focus", {"title": "Editor"}))
+    assert words["route"] == "/v1/desktop/windows"
+    assert len(refusing.asked) == 1
+
+
+def test_a_refusal_that_is_not_json_still_says_what_happened(monkeypatch):
+    monkeypatch.setattr("urllib.request.urlopen", _Bridge(502, b"<html>upstream</html>"))
+    result = _call("desktop.windows", {})
+    words = _words(result)
+    assert result["isError"] is True
+    assert words["ok"] is False
+    assert "502" in words["error"]
+    assert "upstream" in words["detail"]
+    assert words["status"] == 502
+
+
+def test_a_refusal_that_is_json_but_not_an_object_is_treated_the_same(monkeypatch):
+    monkeypatch.setattr("urllib.request.urlopen", _Bridge(500, b"[1, 2]"))
+    words = _words(_call("desktop.key", {"key": "a"}))
+    assert words["ok"] is False
+    assert "500" in words["error"]
+
+
+def test_what_the_route_says_about_itself_is_not_overwritten(monkeypatch):
+    body = {"ok": False, "error": "paused", "status": "paused-by-owner", "route": "elsewhere"}
+    monkeypatch.setattr("urllib.request.urlopen", _Bridge(403, json.dumps(body).encode()))
+    assert _words(_call("desktop.click", {"x": 1, "y": 1})) == body
+
+
+def test_an_answer_is_still_an_answer(monkeypatch):
+    class _Answer(io.BytesIO):
+        status = 200
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout: _Answer(b'{"ok": true, "windows": []}'))
+    result = _call("desktop.windows", {})
+    assert "isError" not in result
+    assert _words(result) == {"ok": True, "windows": []}
+
+
+def test_a_failure_that_is_not_a_refusal_is_not_dressed_up_as_one(monkeypatch):
+    """Only an HTTP answer is a refusal; a bridge that is not there stays the error it is."""
+    def nobody_home(request, timeout):
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr("urllib.request.urlopen", nobody_home)
+    with pytest.raises(urllib.error.URLError):
+        _call("desktop.windows", {})
+
+
+def test_a_dispatcher_still_passes_on_a_name_that_is_not_its_own():
+    assert handle_desktop_tool("browser.open", {}, ctx=_ctx()) is None
+    assert tool_desktop.answers_refusals(lambda name, args, *, ctx: None)("x", {}, ctx=None) is None

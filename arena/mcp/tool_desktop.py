@@ -1,13 +1,46 @@
 """MCP desktop OCR tools via local bridge endpoints."""
 from __future__ import annotations
 
+import functools
 import json
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
 
 from arena.jsonshape import loads_object
+from arena.mcp.image_result import error_result
 from arena.mcp.tool_utils import text_content
+
+
+def bridge_refusal(exc: urllib.error.HTTPError) -> dict[str, Any]:
+    """What the route answered when it refused, with the status and the route added if it did not say."""
+    body = exc.read().decode("utf-8", "replace")
+    try:
+        answer = loads_object(body)
+    except ValueError:
+        answer = {}
+    if not answer:
+        answer = {"ok": False, "error": f"the bridge answered HTTP {exc.code}", "detail": body[:500]}
+    answer.setdefault("ok", False)
+    answer.setdefault("status", exc.code)
+    # A tool such as desktop_app.click_window makes several calls; this says which one refused.
+    answer.setdefault("route", urllib.parse.urlsplit(exc.url or "").path)
+    return answer
+
+
+def answers_refusals(handler):
+    """Wrap a desktop tool dispatcher so a refusing route is reported in the route's own words (#620)."""
+    # The helpers below let HTTPError escape, and the generic MCP handler turned
+    # it into "ERROR: HTTPError: HTTP Error 503: Service Unavailable": the reason
+    # the route gave, and the list of tools it was missing, never reached the agent.
+    @functools.wraps(handler)
+    def answering(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
+        try:
+            return handler(name, args, ctx=ctx)
+        except urllib.error.HTTPError as exc:
+            return error_result(bridge_refusal(exc))
+    return answering
 
 
 def _bridge_call(ctx, path: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -42,7 +75,7 @@ def _bridge_get(ctx, path: str, params: dict[str, Any] | None = None) -> dict[st
         return loads_object(resp.read().decode("utf-8", "replace"))
 
 
-
+@answers_refusals
 def handle_desktop_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
     if name == "desktop.displays":
         return text_content(json.dumps(_bridge_get(ctx, "/v1/desktop/displays"), ensure_ascii=False))

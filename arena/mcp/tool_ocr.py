@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.desktop.ocr import parse_tesseract_tsv
+from arena.desktop.tesseract import find_tesseract as _find_tesseract
 from arena.desktop.text_matching import build_ocr_text, find_text_matches
 from arena.image.preprocess import preprocess_for_ocr
 from arena.mcp.tool_utils import text_content
@@ -35,37 +36,6 @@ _ENG_TRAINEDDATA_URL = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/
 
 def _err(msg: str) -> dict[str, Any]:
     return {"isError": True, "content": [{"type": "text", "text": f"ERROR: {msg}"}]}
-
-
-def _candidate_tesseract_paths() -> list[Path]:
-    paths: list[Path] = []
-    which = shutil.which("tesseract")
-    if which:
-        paths.append(Path(which))
-    home = Path.home()
-    for root in [
-        home / ".local" / "bin",
-        Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Tesseract-OCR",
-        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Tesseract-OCR",
-        Path(os.environ.get("LOCALAPPDATA", str(home / "AppData" / "Local"))) / "Programs" / "Tesseract-OCR",
-    ]:
-        paths.append(root / "tesseract.exe")
-    # Preserve order, drop duplicates.
-    seen = set()
-    out = []
-    for p in paths:
-        key = str(p).lower()
-        if key not in seen:
-            seen.add(key)
-            out.append(p)
-    return out
-
-
-def _find_tesseract() -> str | None:
-    for p in _candidate_tesseract_paths():
-        if p.is_file():
-            return str(p)
-    return None
 
 
 def _candidate_tessdata_dirs(binary: str | None = None) -> list[Path]:
