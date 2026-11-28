@@ -172,8 +172,8 @@
    "total": 24
   },
   "arena/desktop/frame_compare.py": {
-   "fingerprint": "bf83a3cd920c127b99000f519d9431dbe95bde45466086f367feff3cd41208d3",
-   "reason": "#621 first run; 0/49 survivors",
+   "fingerprint": "54972fa14354c50145f8caee9319296d2bcbca73f175c8ebff402a26c86d99fb",
+   "reason": "#621 after review round 1; 0/49 survivors",
    "survived": 0,
    "tests": [
     "tests/test_desktop_wait_looks_621.py"
@@ -192,18 +192,18 @@
    "total": 69
   },
   "arena/desktop/wait.py": {
-   "fingerprint": "fa1d6b0597957430d6879692462b6b469fb64118727be606b4d9c6ccc68a5b17",
-   "reason": "#621 first run; 0/183 survivors",
+   "fingerprint": "265713821a6dc0e378befe2241e5c633fd4472897f0ee7f694ff17d1afa18e5c",
+   "reason": "#621 after review round 1; 0/198 survivors",
    "survived": 0,
    "tests": [
     "tests/test_desktop_wait_621.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 183
+   "total": 198
   },
   "arena/desktop/wait_handler.py": {
-   "fingerprint": "147c2c170a70c18d954d469e584d2a85eb79ec387ce536c33a6c3e2c85e2180a",
-   "reason": "#621 first run; 0/27 survivors",
+   "fingerprint": "8a9d1ae1dc213d9668870cf2c0e10db4a174117b8591d7b746b2f625162df803",
+   "reason": "#621 after review round 1; 0/27 survivors",
    "survived": 0,
    "tests": [
     "tests/test_desktop_wait_route_621.py"
@@ -212,24 +212,24 @@
    "total": 27
   },
   "arena/desktop/wait_looks.py": {
-   "fingerprint": "639d54deeb70e754815eb9cd9732b5363c8d792fb53274182659a6d999914df9",
-   "reason": "#621 first run; 0/92 survivors",
+   "fingerprint": "021ae5a5fa43440f6e0b411f9fec231ec8a921ea6c408fb73c894ad650bd8aba",
+   "reason": "#621 after review round 1; 0/110 survivors",
    "survived": 0,
    "tests": [
     "tests/test_desktop_wait_looks_621.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 92
+   "total": 110
   },
   "arena/desktop/wait_schema.py": {
-   "fingerprint": "059e78e08e90b13edf8cfca69ba436c2fb7299968deaf18a99b53563e8e24686",
-   "reason": "#621 first run; 0/106 survivors",
+   "fingerprint": "dce719d3b273a34474faa2a937b4f64fc2791daf96971a94a610aff81381fbe8",
+   "reason": "#621 after review round 1; 0/101 survivors",
    "survived": 0,
    "tests": [
     "tests/test_desktop_wait_schema_621.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 106
+   "total": 101
   },
   "arena/exec/client_lifecycle.py": {
    "fingerprint": "8ffe18038c0d242bc00a03f013aadd85cc707282d44ea020f7a54a4bb1212de3",
