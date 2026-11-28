@@ -293,7 +293,7 @@
    "total": 90
   },
   "arena/mcp/desktop_refusal.py": {
-   "fingerprint": "91071c3d2c708d55b9c6269e6e3ce411236a3d8a506ebe654745eff04b50d796",
+   "fingerprint": "b993a2edd17ff7984ed84ef4aba919c91d7654c53d7be3f39f424f33825875b6",
    "reason": "#619/#620 exact run on the PR head; 0 survivors",
    "survived": 0,
    "tests": [

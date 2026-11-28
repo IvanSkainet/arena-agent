@@ -25,7 +25,7 @@ def _said(raw: bytes) -> dict[str, Any]:
 def bridge_refusal(exc: urllib.error.HTTPError) -> dict[str, Any]:
     """What the route answered when it refused, with the status and the route added if it did not say."""
     raw = exc.read(REFUSAL_LIMIT + 1)  # a refusal is a few hundred bytes; anything else is not read whole
-    answer = _said(raw)
+    answer: dict[str, Any] = _said(raw)
     if not answer:
         answer = {"error": f"the bridge answered HTTP {exc.code}", "detail": raw[:500].decode("utf-8", "replace")}
         if len(raw) > REFUSAL_LIMIT:
