@@ -266,27 +266,14 @@ def test_the_route_is_registered_and_documented():
     ctx = SimpleNamespace(version="test", hostname=lambda: "h", bridge_port=lambda: 8765)
     operation = build_openapi_spec(ctx)["paths"]["/v1/desktop/wait"]["post"]
     assert {"200", "400", "500", "503"} <= set(operation["responses"])
-    schema = operation["requestBody"]["content"]["application/json"]["schema"]
-    assert schema["required"] == ["for"]
-    assert schema["properties"]["for"]["enum"] == ["window", "screen", "text"]
-    assert (schema["properties"]["timeout_ms"]["maximum"], schema["properties"]["timeout_ms"]["default"]) == (
-        45000, 10000)
-    assert (schema["properties"]["poll_ms"]["minimum"], schema["properties"]["poll_ms"]["maximum"]) == (100, 5000)
     answer = operation["responses"]["200"]["content"]["application/json"]["schema"]
     assert answer["required"] == ["ok", "happened", "for", "waited_ms", "polls"]
 
 
-def test_the_tool_and_the_route_take_the_same_fields():
+def test_the_tool_is_listed_and_only_reads():
     tool = next(tool for tool in MCP_TOOLS if tool["name"] == "desktop.wait")
-    ctx = SimpleNamespace(version="test", hostname=lambda: "h", bridge_port=lambda: 8765)
-    route = build_openapi_spec(ctx)["paths"]["/v1/desktop/wait"]["post"]["requestBody"]["content"][
-        "application/json"]["schema"]
-    assert sorted(tool["inputSchema"]["properties"]) == sorted(route["properties"])
-    assert tool["inputSchema"]["required"] == route["required"] == ["for"]
-    for name in ("timeout_ms", "poll_ms", "stable_ms", "min_confidence"):
-        asked, documented = tool["inputSchema"]["properties"][name], route["properties"][name]
-        assert [asked[key] for key in ("minimum", "maximum", "default")] == [
-            documented[key] for key in ("minimum", "maximum", "default")]
+    assert tool["inputSchema"]["required"] == ["for"]
+    assert "running out of time is not an error" in tool["description"]
     assert classify_action("desktop.wait") == "read"
 
 

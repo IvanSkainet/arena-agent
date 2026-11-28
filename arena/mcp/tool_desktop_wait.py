@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from arena.desktop.wait_schema import wait_request_schema
 from arena.mcp.image_result import error_result
 
 # The mission tools' helper, for the reasons `desktop.sequence` uses it: it
@@ -23,14 +24,6 @@ def handle_desktop_wait_tool(name: str, args: dict[str, Any], *, ctx) -> dict[st
     return text_content(json.dumps(result, ensure_ascii=False))
 
 
-_REGION = {
-    "type": "object",
-    "description": "screen, text: look at this rectangle only (desktop pixels). Default: the whole desktop.",
-    "properties": {name: {"type": "integer"} for name in ("x", "y", "width", "height")},
-    "required": ["x", "y", "width", "height"],
-    "additionalProperties": False,
-}
-
 DESKTOP_WAIT_MCP_TOOLS = [
     {
         "name": "desktop.wait",
@@ -45,29 +38,7 @@ DESKTOP_WAIT_MCP_TOOLS = [
             "Returns happened: true or false with waited_ms and what was seen; running out of time is not an "
             "error. At most 45 s per call: for longer waits call again."
         ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "for": {"type": "string", "enum": ["window", "screen", "text"]},
-                "timeout_ms": {"type": "integer", "minimum": 1, "maximum": 45000, "default": 10000},
-                "poll_ms": {"type": "integer", "minimum": 100, "maximum": 5000, "default": 500,
-                            "description": "Pause between looks."},
-                "title": {"type": "string", "description": "window: words from the window title."},
-                "class": {"type": "string", "description": "window: words from the window class."},
-                "state": {"type": "string", "enum": ["present", "absent", "active"], "default": "present",
-                          "description": "window: present, absent or active. text: present or absent."},
-                "until": {"type": "string", "enum": ["change", "stable"], "default": "change",
-                          "description": "screen: wait for a change, or for the picture to stop changing."},
-                "stable_ms": {"type": "integer", "minimum": 100, "maximum": 45000, "default": 1000,
-                              "description": "screen, until=stable: how long the picture must stay the same."},
-                "text": {"type": "string", "description": "text: the words to look for."},
-                "min_confidence": {"type": "integer", "minimum": 0, "maximum": 100, "default": 40,
-                                   "description": "text: ignore words read with less confidence."},
-                "region": _REGION,
-            },
-            "required": ["for"],
-            "additionalProperties": False,
-        },
+        "inputSchema": wait_request_schema(),
     },
 ]
 

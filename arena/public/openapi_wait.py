@@ -3,26 +3,10 @@
 # is one long literal.
 from __future__ import annotations
 
-from arena.desktop.wait import (
-    DEFAULT_POLL_MS,
-    DEFAULT_STABLE_MS,
-    DEFAULT_TIMEOUT_MS,
-    FIELDS,
-    MAX_POLL_MS,
-    MAX_TIMEOUT_MS,
-    MIN_POLL_MS,
-)
+from arena.desktop.wait import FIELDS, MAX_TIMEOUT_MS
+from arena.desktop.wait_schema import wait_request_schema
 from arena.public.error_envelopes import _ERROR_ENVELOPE, _JSON_BODY_ERROR_ENVELOPE
 
-_REGION = {
-    "type": "object",
-    "description": (
-        "screen, text: look at this rectangle only, in desktop pixels. Default: the whole desktop. A host that "
-        "cannot cut its capture to a region (no Pillow, where the capture tool takes the whole desktop) answers "
-        "503 and does not watch the whole desktop instead."),
-    "properties": {name: {"type": "integer"} for name in ("x", "y", "width", "height")},
-    "required": ["x", "y", "width", "height"],
-}
 _ANSWER = {
     "type": "object",
     "properties": {
@@ -64,29 +48,7 @@ def wait_path_item() -> dict:
             "not change (#618), so `screen` and `text` waits cannot watch it. Fields that do not belong to the "
             "chosen `for` are refused."),
         "tags": ["Desktop"],
-        "requestBody": {"content": {"application/json": {"schema": {
-            "type": "object",
-            "properties": {
-                "for": {"type": "string", "enum": list(FIELDS)},
-                "timeout_ms": {"type": "integer", "minimum": 1, "maximum": MAX_TIMEOUT_MS,
-                               "default": DEFAULT_TIMEOUT_MS},
-                "poll_ms": {"type": "integer", "minimum": MIN_POLL_MS, "maximum": MAX_POLL_MS,
-                            "default": DEFAULT_POLL_MS},
-                "title": {"type": "string", "description": "window: words from the window title."},
-                "class": {"type": "string", "description": "window: words from the window class."},
-                "state": {"type": "string", "enum": ["present", "absent", "active"], "default": "present",
-                          "description": "window: present, absent or active (in front). text: present or absent."},
-                "until": {"type": "string", "enum": ["change", "stable"], "default": "change",
-                          "description": "screen: a change since the first look, or no change for `stable_ms`."},
-                "stable_ms": {"type": "integer", "minimum": MIN_POLL_MS, "maximum": MAX_TIMEOUT_MS,
-                              "default": DEFAULT_STABLE_MS, "description": "screen, until=stable only."},
-                "text": {"type": "string", "description": "text: the words to look for (OCR)."},
-                "min_confidence": {"type": "integer", "minimum": 0, "maximum": 100, "default": 40,
-                                   "description": "text: ignore words read with less confidence."},
-                "region": _REGION,
-            },
-            "required": ["for"],
-        }}}},
+        "requestBody": {"content": {"application/json": {"schema": wait_request_schema()}}},
         "responses": {
             "200": {"description": "The wait ended: `happened` says whether the state was reached",
                     "content": {"application/json": {"schema": _ANSWER}}},
