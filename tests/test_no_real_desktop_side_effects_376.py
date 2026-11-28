@@ -244,6 +244,7 @@ def test_no_test_calls_the_real_notifier_unsubstituted() -> None:
 _POINTER_APIS = frozenset({
     "SetCursorPos", "mouse_event", "SendInput",   # raw user32
     "mouse_move", "do_move", "do_click",          # desktop backend / helper
+    "system_driver",                              # the real SendInput driver (#616)
 })
 
 # Backend objects whose `.click()` really does drive the hardware. Scoped

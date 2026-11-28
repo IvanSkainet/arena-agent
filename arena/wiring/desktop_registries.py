@@ -39,6 +39,7 @@ def build_desktop_registries(g: MutableMapping[str, Any]) -> dict[str, Callable]
             "handle_v1_desktop_type": "type",
             "handle_v1_desktop_key": "key",
             "handle_v1_desktop_mouse": "mouse",
+            "handle_v1_desktop_sequence": "sequence",
             "handle_v1_desktop_windows": "windows",
             "handle_v1_desktop_active_window": "active_window",
             "handle_v1_desktop_focus": "focus",

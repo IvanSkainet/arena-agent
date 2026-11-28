@@ -19,7 +19,7 @@ PUBLIC_ENDPOINTS = [
     "POST /v1/browser/cdp/navigate", "GET /v1/browser/cdp/screenshot", "GET /v1/browser/cdp/dom",
     "POST /v1/browser/cdp/eval", "POST /v1/browser/cdp/click (selector|x,y)", "POST /v1/browser/cdp/type",
     "GET /v1/desktop/screenshot", "POST /v1/desktop/click", "POST /v1/desktop/type",
-    "POST /v1/desktop/key", "POST /v1/desktop/mouse", "GET /v1/desktop/windows",
+    "POST /v1/desktop/key", "POST /v1/desktop/mouse", "POST /v1/desktop/sequence", "GET /v1/desktop/windows",
     "GET /v1/desktop/active_window", "POST /v1/desktop/focus",
     "POST /v1/desktop/window_action", "POST /v1/desktop/resolve_text_target", "POST /v1/desktop/text_action",
     "GET /v1/control/status", "POST /v1/control/pause", "POST /v1/control/resume", "POST /v1/control/revoke",

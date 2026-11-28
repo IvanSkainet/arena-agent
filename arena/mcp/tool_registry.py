@@ -15,6 +15,7 @@ from arena.mcp.tool_code_session import SESSION_TOOLS
 from arena.mcp.tool_desktop_app import DESKTOP_APP_MCP_TOOLS
 from arena.mcp.tool_desktop_input import DESKTOP_INPUT_MCP_TOOLS
 from arena.mcp.tool_desktop_screenshot import DESKTOP_SCREENSHOT_MCP_TOOLS
+from arena.mcp.tool_desktop_sequence import DESKTOP_SEQUENCE_MCP_TOOLS
 from arena.mcp.tool_emulator import EMULATOR_TOOLS
 from arena.mcp.tool_foundry import FOUNDRY_TOOLS
 from arena.mcp.tool_input_helper import INPUT_HELPER_TOOLS
@@ -249,6 +250,7 @@ MCP_TOOLS.extend(MCP_EXT_MCP_TOOLS)
 MCP_TOOLS.extend(DESKTOP_INPUT_MCP_TOOLS)
 MCP_TOOLS.extend(DESKTOP_APP_MCP_TOOLS)
 MCP_TOOLS.extend(DESKTOP_SCREENSHOT_MCP_TOOLS)
+MCP_TOOLS.extend(DESKTOP_SEQUENCE_MCP_TOOLS)
 MCP_TOOLS.extend(MOBILE_EXT_MCP_TOOLS)
 MCP_TOOLS.extend(EMULATOR_TOOLS)
 MCP_TOOLS.extend(CAPABILITY_GAP_TOOLS)

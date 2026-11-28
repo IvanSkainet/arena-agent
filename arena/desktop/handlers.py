@@ -7,6 +7,7 @@ from typing import Any
 
 from arena.desktop.display_handler import make_desktop_display_handler
 from arena.desktop.input_handlers import make_desktop_input_handlers
+from arena.desktop.input_sequence_handler import make_desktop_sequence_handler
 from arena.desktop.ocr_handler import make_desktop_ocr_handlers
 from arena.desktop.screenshot_handler import make_desktop_screenshot_handler
 from arena.desktop.text_action_handler import make_desktop_text_action_handler
@@ -24,6 +25,7 @@ class DesktopHandlers:
     type: Callable[..., Any]
     key: Callable[..., Any]
     mouse: Callable[..., Any]
+    sequence: Callable[..., Any]
     windows: Callable[..., Any]
     active_window: Callable[..., Any]
     focus: Callable[..., Any]
@@ -47,6 +49,7 @@ def make_desktop_handlers(ctx: DesktopHandlerContext) -> DesktopHandlers:
         type=type_handler,
         key=key,
         mouse=mouse,
+        sequence=make_desktop_sequence_handler(ctx),
         windows=windows,
         active_window=active_window,
         focus=focus,

@@ -52,8 +52,8 @@ WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 SERVER_PATH = REPO_ROOT / "scripts" / "serve_bridge_for_fuzzing.py"
 
 
-@pytest.fixture(scope="module")
-def config() -> dict:
+@pytest.fixture(scope="module", name="config")
+def _config() -> dict:
     return tomllib.loads(CONFIG_PATH.read_text(encoding="utf-8"))
 
 
@@ -64,15 +64,19 @@ def fuzz_job() -> dict:
     return workflow["jobs"]["api-fuzz"]
 
 
-def _operations_allowed_a_503(config: dict) -> set[str]:
+def _operations_allowed(settings: dict, status: int) -> set[str]:
     allowed = set()
-    for operation in config.get("operations", []):
+    for operation in settings.get("operations", []):
         statuses = (operation.get("checks", {})
                     .get("not_a_server_error", {})
                     .get("expected-statuses", []))
-        if 503 in statuses:
+        if status in statuses:
             allowed.add(operation["include-name"])
     return allowed
+
+
+def _operations_allowed_a_503(config: dict) -> set[str]:
+    return _operations_allowed(config, 503)
 
 
 def test_the_503_exceptions_are_exactly_the_operations_that_need_a_tool():
@@ -89,6 +93,37 @@ def test_the_503_exceptions_are_exactly_the_operations_that_need_a_tool():
     config = tomllib.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     expected = {f"{method.upper()} {path}" for method, path in _NEEDS_LOCAL_TOOL}
     assert _operations_allowed_a_503(config) == expected
+
+
+def test_a_501_is_allowed_only_where_the_document_declares_one(config):
+    """The second kind of deliberate 5xx, held to the same rule as the first (#616)."""
+    # `POST /v1/desktop/sequence` answers 501 where the desktop has no input
+    # driver, which on a CI runner is always. The exception is safe only while
+    # it is tied to the document: an operation listed here that no longer
+    # documents a 501 would let a crash through under that number, and one
+    # that documents a 501 without being listed turns the gate red for an
+    # answer the bridge promised.
+    from types import SimpleNamespace
+
+    from arena.public.openapi import build_openapi_spec
+
+    spec = build_openapi_spec(SimpleNamespace(version="test", hostname=lambda: "h", bridge_port=lambda: 8765))
+    documented = {
+        f"{method.upper()} {path}"
+        for path, item in spec["paths"].items()
+        for method, operation in item.items()
+        if isinstance(operation, dict) and "501" in operation.get("responses", {})
+    }
+    assert _operations_allowed(config, 501) == documented == {"POST /v1/desktop/sequence"}
+
+
+def test_no_other_server_error_has_an_exception(config):
+    """503 for a missing tool and 501 for a missing driver; nothing else is waved through."""
+    for operation in config.get("operations", []):
+        statuses = operation.get("checks", {}).get("not_a_server_error", {}).get("expected-statuses", [])
+        numbers = {status for status in statuses if isinstance(status, int)}
+        assert numbers <= {501, 503}, operation["include-name"]
+        assert "5xx" not in statuses, operation["include-name"]
 
 
 def test_the_gate_still_watches_for_server_errors(config):

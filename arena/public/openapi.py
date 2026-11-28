@@ -10,6 +10,7 @@ from arena.public.error_envelopes import (
     _QUERY_PARAM_ERROR_ENVELOPE,
     _UNAVAILABLE_ENVELOPE,
 )
+from arena.public.openapi_sequence import sequence_path_item
 
 
 def _text_schema(*, required: bool = False) -> dict:
@@ -450,6 +451,12 @@ def _watch_file_operations() -> dict:
     }
 
 
+def _with_input_sequence(spec: dict) -> dict:
+    """Add the sequence route (#616); its entry lives in `openapi_sequence.py`."""
+    spec["paths"]["/v1/desktop/sequence"] = sequence_path_item(_ACTIVE_TITLE_GUARD, _ACTIVE_TITLE_CONFLICT)
+    return spec
+
+
 def build_openapi_spec(ctx) -> dict:
     plan_schema, react_schema, reflect_schema = _cognitive_request_schemas()
     spec: dict = {
@@ -547,4 +554,4 @@ def build_openapi_spec(ctx) -> dict:
             {"name": "Events", "description": "Real-time WebSocket event stream"},
         ],
     }
-    return _apply_success_schemas(_apply_universal_responses(spec))
+    return _apply_success_schemas(_apply_universal_responses(_with_input_sequence(spec)))

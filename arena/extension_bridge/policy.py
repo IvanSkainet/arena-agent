@@ -81,6 +81,8 @@ _DANGEROUS_TOOLS = {
     "sudo.run", "admin.run",
     # v4.59.0: real GUI control + writing to device fs.
     "mobile.push_file", "desktop.click", "desktop.type", "desktop.key", "desktop.mouse",
+    # #616: held keys and buttons, relative motion.
+    "desktop.sequence",
 }
 _TRUSTED_HOSTS = {
     "arena.ai", "www.arena.ai",
