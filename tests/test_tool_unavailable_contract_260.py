@@ -129,14 +129,12 @@ def _nothing_installed(needs: list[str]) -> bool:
 
 
 def _installed(tool: str) -> bool:
-    """Ask the way the bridge asks. Tesseract is looked for beyond PATH since #619.
-
-    On a Windows desktop with tesseract in Program Files and not on PATH, the
-    old question (`shutil.which`) said "missing" while desktop OCR found it.
-    The rows below then ran for real: OCR of the screen in front of the
-    owner, and `click_text` on whatever matched. That happened once, on the
-    machine this fix was being verified on.
-    """
+    """Ask the way the bridge asks: tesseract is looked for beyond PATH since #619."""
+    # On a Windows desktop with tesseract in Program Files and not on PATH, the
+    # old question (`shutil.which`) said "missing" while desktop OCR found it.
+    # The rows below then ran for real: OCR of the screen in front of the
+    # owner, and `click_text` on whatever matched. That happened once, on the
+    # machine this fix was being verified on.
     if tool == "tesseract":
         return find_tesseract() is not None
     return shutil.which(tool) is not None

@@ -12,17 +12,22 @@ from arena.jsonshape import loads_object
 from arena.mcp.image_result import error_result
 from arena.mcp.tool_utils import text_content
 
+_REFUSAL_LIMIT = 64 * 1024
+
 
 def bridge_refusal(exc: urllib.error.HTTPError) -> dict[str, Any]:
     """What the route answered when it refused, with the status and the route added if it did not say."""
-    body = exc.read().decode("utf-8", "replace")
+    raw = exc.read(_REFUSAL_LIMIT + 1)  # a refusal is a few hundred bytes; anything else is not read whole
+    body = raw[:_REFUSAL_LIMIT].decode("utf-8", "replace")
     answer: dict[str, Any] = {}
     try:
-        answer = loads_object(body)
+        answer = loads_object(body) if len(raw) <= _REFUSAL_LIMIT else {}
     except ValueError:
         pass  # not JSON: said below in words, with the start of the body
     if not answer:
         answer = {"ok": False, "error": f"the bridge answered HTTP {exc.code}", "detail": body[:500]}
+        if len(raw) > _REFUSAL_LIMIT:
+            answer["error"] += f" with a body over {_REFUSAL_LIMIT} bytes, which was not read"
     answer.setdefault("ok", False)
     answer.setdefault("status", exc.code)
     # A tool such as desktop_app.click_window makes several calls; this says which one refused.

@@ -98,7 +98,7 @@ def test_ocr_extract_happy_path(tmp_path, monkeypatch):
 
     def fake_run(cmd, capture_output, text, timeout, env, **kwargs):
         assert cmd[0] == str(exe)
-        assert cmd[-1] == "tsv"
+        assert cmd[-2:] == ["-c", "tessedit_create_tsv=1"]  # the parameter, not the `tsv` config file (#619)
         assert env.get("TESSDATA_PREFIX") == str(tess)
         class R:
             returncode = 0

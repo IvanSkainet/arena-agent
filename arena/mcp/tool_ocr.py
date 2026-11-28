@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.desktop.ocr import parse_tesseract_tsv
-from arena.desktop.tesseract import find_tesseract as _find_tesseract
+from arena.desktop.tesseract import TSV_OUTPUT, find_tesseract as _find_tesseract
 from arena.desktop.text_matching import build_ocr_text, find_text_matches
 from arena.image.preprocess import preprocess_for_ocr
 from arena.mcp.tool_utils import text_content
@@ -183,7 +183,7 @@ def _handle_ocr_extract(args: dict[str, Any]) -> dict[str, Any]:
     timeout = float(args.get("timeout") or 120)
     query = str(args.get("query") or "").strip()
     max_results = int(args.get("max_results") or 20)
-    cmd = [binary, str(src), "stdout", "--psm", str(psm), "-l", lang, "tsv"]
+    cmd = [binary, str(src), "stdout", "--psm", str(psm), "-l", lang, *TSV_OUTPUT]
     env = os.environ.copy()
     if tessdata:
         env["TESSDATA_PREFIX"] = str(Path(tessdata))

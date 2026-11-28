@@ -1,16 +1,15 @@
-"""#620: a desktop MCP tool passes on what the route said when it refused.
-
-`desktop.find_text` over MCP returned "ERROR: HTTPError: HTTP Error 503:
-Service Unavailable" while the route had answered `503 {"error": "tesseract
-is not installed", "unavailable": ["tesseract"]}`. The reason and the list of
-missing tools never reached the agent.
-"""
+"""#620: a desktop MCP tool passes on what the route said when it refused."""
+# `desktop.find_text` over MCP returned "ERROR: HTTPError: HTTP Error 503:
+# Service Unavailable" while the route had answered `503 {"error": "tesseract
+# is not installed", "unavailable": ["tesseract"]}`. The reason and the list of
+# missing tools never reached the agent.
 from __future__ import annotations
 
 import io
 import json
 import secrets
 import urllib.error
+import urllib.parse
 from types import SimpleNamespace
 
 import pytest
@@ -78,19 +77,67 @@ def test_no_desktop_tool_hides_a_refusal_behind_the_name_of_an_exception(name, r
     result = _call(name, {"query": "x", "title": "x", "text": "x", "key": "a", "x": 1, "y": 1,
                           "steps": [], "require_active_title": "x"})
     assert result is not None, f"{name} is registered and nothing dispatches it"
-    text = result["content"][0]["text"]
-    assert "HTTPError" not in text
-    if refusing.asked:
-        assert result["isError"] is True
-        assert _words(result)["error"] == "tesseract is not installed"
-        assert _words(result)["unavailable"] == ["tesseract"]
-        assert _words(result)["status"] == 503
+    assert refusing.asked, f"{name} answered without asking the bridge, so this sweep says nothing about it"
+    assert result["isError"] is True
+    assert _words(result)["error"] == "tesseract is not installed"
+    assert _words(result)["unavailable"] == ["tesseract"]
+    assert _words(result)["status"] == 503
 
 
 def test_a_tool_that_makes_several_calls_says_which_route_refused(refusing):
     words = _words(_call("desktop_app.focus", {"title": "Editor"}))
     assert words["route"] == "/v1/desktop/windows"
     assert len(refusing.asked) == 1
+
+
+class _Answer(io.BytesIO):
+    status = 200
+
+
+def test_a_refusal_after_a_call_that_was_answered_names_the_later_route(monkeypatch):
+    """The window list is answered, the focus is refused: the refusal is the focus route's, not the first one asked."""
+    asked: list[str] = []
+
+    def bridge(request, timeout):
+        path = urllib.parse.urlsplit(request.full_url).path
+        asked.append(path)
+        if path == "/v1/desktop/windows":
+            window = {"id": "7", "title": "Editor", "geometry": {"x": 0, "y": 0, "width": 800, "height": 600}}
+            return _Answer(json.dumps({"ok": True, "windows": [window]}).encode())
+        raise urllib.error.HTTPError(request.full_url, 409, "refused", {}, io.BytesIO(b'{"error": "window_gone"}'))
+
+    monkeypatch.setattr("urllib.request.urlopen", bridge)
+    result = _call("desktop_app.focus", {"title": "Editor"})
+    assert asked == ["/v1/desktop/windows", "/v1/desktop/focus"]
+    assert result["isError"] is True
+    assert _words(result) == {"error": "window_gone", "ok": False, "status": 409, "route": "/v1/desktop/focus"}
+
+
+def test_a_refusal_too_large_to_be_one_is_not_read_whole(monkeypatch):
+    class _Counting(io.BytesIO):
+        taken = 0
+
+        def read(self, size=-1):
+            data = super().read(size)
+            type(self).taken += len(data)
+            return data
+
+    body = _Counting(b'{"error": "' + b"x" * 1_000_000 + b'"}')
+    monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout: (_ for _ in ()).throw(
+        urllib.error.HTTPError(request.full_url, 500, "refused", {}, body)))
+    result = _call("desktop.windows", {})
+    words = _words(result)
+    assert result["isError"] is True
+    assert _Counting.taken == tool_desktop._REFUSAL_LIMIT + 1
+    assert "was not read" in words["error"]
+    assert len(words["detail"]) == 500
+    assert words["status"] == 500
+
+
+def test_a_refusal_of_exactly_the_limit_is_still_read_as_what_it_is(monkeypatch):
+    padding = tool_desktop._REFUSAL_LIMIT - len(b'{"error": ""}')
+    monkeypatch.setattr("urllib.request.urlopen", _Bridge(503, b'{"error": "' + b"x" * padding + b'"}'))
+    assert _words(_call("desktop.windows", {}))["error"] == "x" * padding
 
 
 def test_a_refusal_that_is_not_json_still_says_what_happened(monkeypatch):
@@ -106,7 +153,9 @@ def test_a_refusal_that_is_not_json_still_says_what_happened(monkeypatch):
 
 def test_a_refusal_that_is_json_but_not_an_object_is_treated_the_same(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", _Bridge(500, b"[1, 2]"))
-    words = _words(_call("desktop.key", {"key": "a"}))
+    result = _call("desktop.key", {"key": "a"})
+    words = _words(result)
+    assert result["isError"] is True
     assert words["ok"] is False
     assert "500" in words["error"]
 
@@ -118,9 +167,6 @@ def test_what_the_route_says_about_itself_is_not_overwritten(monkeypatch):
 
 
 def test_an_answer_is_still_an_answer(monkeypatch):
-    class _Answer(io.BytesIO):
-        status = 200
-
     monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout: _Answer(b'{"ok": true, "windows": []}'))
     result = _call("desktop.windows", {})
     assert "isError" not in result

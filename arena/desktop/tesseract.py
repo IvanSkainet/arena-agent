@@ -13,6 +13,8 @@ from pathlib import Path
 # touch PATH, so one said "ok" and the other "tesseract is not installed" on
 # the same machine. Both now ask here.
 
+TSV_OUTPUT = ("-c", "tessedit_create_tsv=1")
+
 
 def candidate_paths() -> list[Path]:
     """Every place tesseract is looked for, in order: PATH first, then the usual install directories."""
@@ -21,6 +23,7 @@ def candidate_paths() -> list[Path]:
     if which:
         paths.append(Path(which))
     home = Path.home()
+    paths.append(home / ".local" / "bin" / "tesseract")
     for root in [
         home / ".local" / "bin",
         Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Tesseract-OCR",
@@ -43,23 +46,49 @@ def find_tesseract() -> str | None:
     return next((str(path) for path in candidate_paths() if path.is_file()), None)
 
 
+def _has_english(directory: Path) -> bool:
+    return (directory / "eng.traineddata").is_file()
+
+
+def _environment_names_data() -> bool:
+    # TESSDATA_PREFIX is the data directory itself for tesseract 4 and 5, and its parent for 3.
+    prefix = os.environ.get("TESSDATA_PREFIX", "").strip()
+    if not prefix:
+        return False
+    named = Path(prefix).expanduser()
+    return _has_english(named) or _has_english(named / "tessdata")
+
+
 def tessdata_beside(binary: str) -> str | None:
-    """The language data installed next to the binary, which is where the Windows installer puts it."""
+    """The language data next to the binary when it has to be named, else None: tesseract finds its own."""
+    # `--tessdata-dir` outranks TESSDATA_PREFIX inside tesseract. So it is given
+    # only when the environment does not already point at usable data, and only
+    # for a directory that has the language desktop OCR reads.
+    if _environment_names_data():
+        return None
     beside = Path(binary).parent / "tessdata"
-    return str(beside) if beside.is_dir() else None
+    return str(beside) if _has_english(beside) else None
+
+
+def _quoted(piece: str) -> str:
+    # Backslashes are literal to the program unless a quote follows them, so
+    # only the ones before the closing quote are doubled.
+    trailing = len(piece) - len(piece.rstrip("\\"))
+    return '"' + piece + "\\" * trailing + '"' if piece else ""
 
 
 def _for_cmd(arg: str) -> str:
     # cmd.exe does not know single quotes, which is what shlex writes. Inside
     # double quotes it takes & | < > ^ and spaces literally. A double quote
-    # cannot be passed at all, and no Windows path contains one. Backslashes
-    # are literal to the program unless a quote follows them, so only the ones
-    # before the closing quote are doubled. `%NAME%` is still expanded by
-    # cmd.exe inside quotes; nothing here can prevent that.
+    # cannot be passed at all, and no Windows path contains one.
+    #
+    # `%NAME%` is expanded before quotes are looked at, inside them too. So a
+    # percent sign is written outside the quotes as `^%`: the name cmd.exe then
+    # looks up ends in a caret, no such variable exists, the text is left as it
+    # is, and the caret is dropped on the next pass.
     if '"' in arg:
         raise ValueError("an argument with a double quote cannot be passed through cmd.exe")
-    trailing = len(arg) - len(arg.rstrip("\\"))
-    return '"' + arg + "\\" * trailing + '"'
+    return "^%".join(_quoted(piece) for piece in arg.split("%")) or '""'
 
 
 def command_line(argv: list[str], *, windows: bool | None = None) -> str:
@@ -77,4 +106,7 @@ def tesseract_command(binary: str, image: str, psm: int) -> str:
     tessdata = tessdata_beside(binary)
     if tessdata:
         argv += ["--tessdata-dir", tessdata]
-    return command_line([*argv, "tsv"])
+    # The parameter, not the `tsv` config file: the file is looked for in the
+    # data directory, and where it is missing tesseract prints plain text,
+    # which the TSV reader takes for "no words on screen".
+    return command_line([*argv, *TSV_OUTPUT])
