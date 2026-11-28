@@ -125,17 +125,17 @@ def _window(body: Mapping[str, Any], _timeout_ms: int) -> dict[str, Any]:
 
 
 def _screen(body: Mapping[str, Any], timeout_ms: int) -> dict[str, Any]:
-    want = {"until": _choice(body, "screen", "until"), "region": _region(body)}
+    want: dict[str, Any] = {"until": _choice(body, "screen", "until"), "region": _region(body)}
     if want["until"] == "change":
         if "stable_ms" in body:
             raise WaitError("'stable_ms' belongs to until: stable")
         return want
     # Left out, it is a second -- or the whole timeout when that is shorter.
     usual = max(MIN_POLL_MS, min(DEFAULT_STABLE_MS, timeout_ms))
-    want["stable_ms"] = _whole(body, "stable_ms", usual, (MIN_POLL_MS, MAX_TIMEOUT_MS))
-    if want["stable_ms"] > timeout_ms:
+    stable_ms = _whole(body, "stable_ms", usual, (MIN_POLL_MS, MAX_TIMEOUT_MS))
+    if stable_ms > timeout_ms:
         raise WaitError("'stable_ms' is longer than 'timeout_ms': the screen could never be still for that long")
-    return want
+    return {**want, "stable_ms": stable_ms}
 
 
 def _text(body: Mapping[str, Any], _timeout_ms: int) -> dict[str, Any]:

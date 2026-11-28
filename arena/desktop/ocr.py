@@ -138,6 +138,7 @@ async def ocr_desktop(
             "prefer_active_window": bool(prefer_active_window),
             "within_active_window": bool(within_active_window),
             "crop_region": shot.get("crop_region"),
+            "captured_region": shot.get("captured_region"),
         }
     finally:
         try:

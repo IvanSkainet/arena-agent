@@ -178,7 +178,7 @@ class Screen:
     async def __call__(self, region):
         self.regions.append(region)
         picture = self.pictures.pop(0) if len(self.pictures) > 1 else self.pictures[0]
-        return {"ok": True, "bytes": picture, "encoding": "png"}
+        return {"ok": True, "bytes": picture, "encoding": "png", "captured_region": region}
 
 
 def test_the_screen_has_changed_when_it_differs_from_the_first_look():
@@ -234,6 +234,26 @@ def test_a_capture_that_failed_is_handed_on_as_it_is(until):
     assert failed.value.result == {"ok": False, "error": "no screenshot tool", "unavailable": ["grim"]}
 
 
+@pytest.mark.parametrize("until", ["change", "stable"])
+@pytest.mark.parametrize("shot", [
+    {"ok": True, "bytes": b"BM whole desktop", "captured_region": None},
+    {"ok": True, "bytes": b"BM whole desktop"},
+])
+def test_a_capture_that_was_not_cut_to_the_region_is_not_watched_instead(until, shot):
+    """Without Pillow the whole desktop comes back; a change anywhere on it would be reported for the region."""
+    async def capture(_region):
+        return shot
+
+    region = {"x": 0, "y": 0, "width": 10, "height": 10}
+    with pytest.raises(CannotLook) as failed:
+        _look(screen_look({"until": until, "stable_ms": 1000, "region": region}, capture))
+    assert failed.value.result["unavailable"] == ["pillow"]
+    assert failed.value.result["error"].startswith("the capture could not be cut to the region")
+    assert "pip install Pillow" in failed.value.result["error"]
+    # The same capture is what was asked for when no region was.
+    assert _look(screen_look({"until": until, "stable_ms": 1000, "region": None}, capture)).done is False
+
+
 def _reader(*answers):
     given = list(answers)
     asked = []
@@ -270,6 +290,18 @@ def test_a_reader_with_no_word_count_reports_none_read():
     find_text, _ = _reader({"ok": True, "matches": None})
     want = {"text": "x", "state": "present", "region": None, "min_confidence": 40}
     assert _look(text_look(want, find_text)) == Look(False, {"matches": 0, "word_count": 0})
+
+
+def test_words_read_from_the_whole_desktop_do_not_answer_for_a_region():
+    region = {"x": 5, "y": 5, "width": 50, "height": 20}
+    want = {"text": "x", "state": "present", "region": region, "min_confidence": 40}
+    whole, _ = _reader({"ok": True, "matches": [MATCH], "word_count": 9, "captured_region": None})
+    with pytest.raises(CannotLook) as failed:
+        _look(text_look(want, whole))
+    assert failed.value.result["unavailable"] == ["pillow"]
+    cut, _ = _reader({"ok": True, "matches": [MATCH], "word_count": 2, "captured_region": region})
+    assert _look(text_look(want, cut)).done is True
+    assert _look(text_look({**want, "region": None}, whole)).done is True
 
 
 def test_a_reader_that_failed_is_handed_on_as_it_is():

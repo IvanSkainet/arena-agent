@@ -21,6 +21,9 @@ Region = dict[str, int] | None
 _NO_LISTING = MissingTool(
     "no tool to list windows: install wmctrl or xdotool, or run a desktop whose window list the bridge can read",
     ("wmctrl", "xdotool"))
+_NO_CROP = MissingTool(
+    "the capture could not be cut to the region, so it shows the whole desktop: on this host that needs the "
+    "Pillow package (pip install Pillow)", ("pillow",))
 
 
 def _matching(windows: list[dict[str, Any]], want: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -36,6 +39,18 @@ def _listed(listing: Mapping[str, Any]) -> list[dict[str, Any]]:
         # every wait for a window to go away succeed at once.
         raise CannotLook(unavailable_result(_NO_LISTING))
     return list(listing.get("windows") or [])
+
+
+def _cut_to(region: Region, result: Mapping[str, Any]) -> None:
+    """Refuse a capture that shows more than the region asked for.
+
+    Where the capture tool takes the whole desktop, Pillow cuts the region out
+    of it; without Pillow the whole picture comes back, with nothing in
+    `captured_region`. Watching that instead would answer for a place the
+    caller did not ask about.
+    """
+    if region and not result.get("captured_region"):
+        raise CannotLook(unavailable_result(_NO_CROP))
 
 
 def _present(hits: list[dict[str, Any]]) -> Look:
@@ -72,6 +87,7 @@ async def _frame(capture: Callable[[Region], Awaitable[Mapping[str, Any]]], regi
     shot = await capture(region)
     if not shot.get("ok"):
         raise CannotLook(shot)
+    _cut_to(region, shot)
     # Off the event loop: inflating a full-screen capture takes tens of milliseconds.
     return await asyncio.to_thread(read_frame, shot["bytes"])
 
@@ -107,6 +123,7 @@ def text_look(want: Mapping[str, Any],
         result = await find_text(want)
         if not result.get("ok"):
             raise CannotLook(result)
+        _cut_to(want["region"], result)
         matches = list(result.get("matches") or [])
         seen: dict[str, Any] = {"matches": len(matches), "word_count": result.get("word_count", 0)}
         if matches:

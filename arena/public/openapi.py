@@ -128,7 +128,7 @@ _NEEDS_LOCAL_TOOL = {
     ("post", "/v1/desktop/focus"): _OCR_NEEDS,
     ("post", "/v1/desktop/window_action"): _OCR_NEEDS,
     # #621: a window wait needs a way to list windows, the other two a capture (and OCR).
-    ("post", "/v1/desktop/wait"): _OCR_NEEDS + ("wmctrl", "xdotool"),
+    ("post", "/v1/desktop/wait"): _OCR_NEEDS + ("wmctrl", "xdotool", "pillow"),
 }
 
 

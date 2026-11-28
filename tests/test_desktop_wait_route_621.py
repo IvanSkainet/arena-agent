@@ -11,7 +11,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from arena.desktop import wait_handler
+from arena.desktop import ocr, wait_handler
 from arena.mcp import tool_desktop_wait
 from arena.mcp.tool_desktop_app import handle_desktop_app_tool
 from arena.mcp.tool_registry import MCP_TOOLS
@@ -63,11 +63,17 @@ class Desk:
 
     async def capture_screenshot(self, **kwargs):
         self.asked.append(("capture", kwargs))
-        return self.shot
+        return {"captured_region": self._region(kwargs), **self.shot}
 
     async def ocr_desktop(self, **kwargs):
         self.asked.append(("ocr", kwargs))
-        return self.read
+        return {"captured_region": self._region(kwargs), **self.read}
+
+    @staticmethod
+    def _region(asked: dict) -> dict | None:
+        """The region a producer was asked for, as it reports the one it captured."""
+        edges = {name[len("region_"):]: value for name, value in asked.items() if name.startswith("region_")}
+        return edges or None
 
 
 @pytest.fixture(name="desk")
@@ -185,6 +191,10 @@ def test_a_body_that_is_not_an_object_is_a_400(desk, sent):
      ["grim", "scrot"]),
     ({"for": "text", "text": "x"},
      ("read", {"ok": False, "error": "tesseract is not installed", "unavailable": ["tesseract"]}), ["tesseract"]),
+    ({"for": "screen", "region": {"x": 0, "y": 0, "width": 9, "height": 9}},
+     ("shot", {"ok": True, "bytes": PICTURE, "captured_region": None}), ["pillow"]),
+    ({"for": "text", "text": "x", "region": {"x": 0, "y": 0, "width": 9, "height": 9}},
+     ("read", {"ok": True, "matches": [], "word_count": 3, "captured_region": None}), ["pillow"]),
 ])
 def test_a_host_that_cannot_look_answers_503_with_what_is_missing(desk, body, broken, needs):
     setattr(desk, *broken)
@@ -311,3 +321,22 @@ def test_the_tool_answers_to_its_own_name_only(bridge):
     assert tool_desktop_wait.handle_desktop_wait_tool("desktop.screenshot", {}, ctx=None) is None
     assert tool_desktop_wait.handle_desktop_wait_tool("desktop.waiting", {}, ctx=None) is None
     assert calls == []
+
+
+def test_the_real_reader_says_which_region_its_picture_shows(monkeypatch):
+    """`ocr_desktop` hands on the capture's `captured_region`, which is how a text wait knows the crop happened."""
+    async def capture(**_kwargs):
+        return {"ok": True, "bytes": b"picture", "crop_region": {"x": 1, "y": 2, "width": 3, "height": 4},
+                "captured_region": None, "tool": "grim"}
+
+    async def run(_command, timeout):
+        assert timeout
+        return {"ok": True, "stdout": ""}
+
+    monkeypatch.setattr(ocr, "find_tesseract", lambda: "tesseract")
+    result = asyncio.run(ocr.ocr_desktop(query="x", region_x=1, region_y=2, region_width=3, region_height=4,
+                                         capture_screenshot=capture, desktop_exec=run, detect_env=dict))
+    assert result["ok"] is True
+    assert result["crop_region"] == {"x": 1, "y": 2, "width": 3, "height": 4}
+    assert "captured_region" in result
+    assert result["captured_region"] is None

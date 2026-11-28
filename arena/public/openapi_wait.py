@@ -16,7 +16,10 @@ from arena.public.error_envelopes import _ERROR_ENVELOPE, _JSON_BODY_ERROR_ENVEL
 
 _REGION = {
     "type": "object",
-    "description": "screen, text: look at this rectangle only, in desktop pixels. Default: the whole desktop.",
+    "description": (
+        "screen, text: look at this rectangle only, in desktop pixels. Default: the whole desktop. A host that "
+        "cannot cut its capture to a region (no Pillow, where the capture tool takes the whole desktop) answers "
+        "503 and does not watch the whole desktop instead."),
     "properties": {name: {"type": "integer"} for name in ("x", "y", "width", "height")},
     "required": ["x", "y", "width", "height"],
 }
@@ -56,7 +59,9 @@ def wait_path_item() -> dict:
             f"until the state is there or `timeout_ms` (at most {MAX_TIMEOUT_MS}) has passed, and looks once more "
             "at the deadline. Read-only: it sends no input and works while desktop control is paused. "
             "`for: screen` with `until: change` compares against the first look, so a change that finished "
-            "before the call is not seen; `until: stable` has no such gap. Fields that do not belong to the "
+            "before the call is not seen; `until: stable` has no such gap. A capture shows what the capture "
+            "tool sees: on Windows an application in exclusive full screen is captured as a picture that does "
+            "not change (#618), so `screen` and `text` waits cannot watch it. Fields that do not belong to the "
             "chosen `for` are refused."),
         "tags": ["Desktop"],
         "requestBody": {"content": {"application/json": {"schema": {
