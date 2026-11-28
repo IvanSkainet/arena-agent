@@ -16,10 +16,11 @@ from arena.mcp.tool_utils import text_content
 def bridge_refusal(exc: urllib.error.HTTPError) -> dict[str, Any]:
     """What the route answered when it refused, with the status and the route added if it did not say."""
     body = exc.read().decode("utf-8", "replace")
+    answer: dict[str, Any] = {}
     try:
         answer = loads_object(body)
     except ValueError:
-        answer = {}
+        pass  # not JSON: said below in words, with the start of the body
     if not answer:
         answer = {"ok": False, "error": f"the bridge answered HTTP {exc.code}", "detail": body[:500]}
     answer.setdefault("ok", False)

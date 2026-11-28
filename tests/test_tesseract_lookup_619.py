@@ -80,7 +80,7 @@ def test_a_binary_without_language_data_beside_it_is_left_to_find_its_own(tmp_pa
     binary.write_bytes(b"")
     command = tesseract.tesseract_command(str(binary), str(tmp_path / "shot.png"), 11)
     assert "--tessdata-dir" not in command
-    assert command.endswith(" tsv")
+    assert command.split()[-1].strip('"') == "tsv"
 
 
 def test_path_is_asked_first(installed, tmp_path, monkeypatch):
