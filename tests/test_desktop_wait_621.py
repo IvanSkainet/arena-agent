@@ -15,6 +15,7 @@ from arena.desktop.wait import (
     MAX_POLL_MS,
     MAX_TIMEOUT_MS,
     MIN_POLL_MS,
+    REGION_BOUNDS,
     CannotLook,
     Look,
     WaitError,
@@ -189,6 +190,12 @@ def test_the_numbers_of_each_kind_are_read_the_same_way():
     assert plan_wait(WORDS | {"min_confidence": 55.0}).want["min_confidence"] == 55
     assert plan_wait(WORDS | {"min_confidence": None}).want["min_confidence"] == 40
     assert plan_wait({"for": "screen", "region": BOX | {"x": "10", "width": 3.0}}).want["region"] == BOX | {"x": 10}
+
+
+def test_the_limits_of_a_region_are_these():
+    assert REGION_BOUNDS == {"x": (-1000000, 1000000), "y": (-1000000, 1000000),
+                             "width": (1, 1000000), "height": (1, 1000000)}
+    assert list(REGION_BOUNDS) == ["x", "y", "width", "height"]
 
 
 def test_a_region_may_start_left_of_or_above_the_main_display_and_be_one_pixel():

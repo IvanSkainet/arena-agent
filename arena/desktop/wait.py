@@ -32,13 +32,12 @@ DEFAULT_STABLE_MS = 1_000
 LOOK_GRACE_MS = 10_000
 
 _COMMON = ("for", "timeout_ms", "poll_ms")
-#: Further than any desktop reaches, and well inside what the capture calls take as a C int.
-REGION_FAR = 1_000_000
 #: The least and the most each side of a region may be. A display left of or above the main one has
-#: negative corners; a region has at least one pixel.
+#: negative corners; a region has at least one pixel; a million is further than any desktop reaches and
+#: well inside what the capture calls take as a C int. Written out, with nothing computed at import.
 REGION_BOUNDS: dict[str, tuple[int, int]] = {
-    "x": (-REGION_FAR, REGION_FAR), "y": (-REGION_FAR, REGION_FAR),
-    "width": (1, REGION_FAR), "height": (1, REGION_FAR),
+    "x": (-1_000_000, 1_000_000), "y": (-1_000_000, 1_000_000),
+    "width": (1, 1_000_000), "height": (1, 1_000_000),
 }
 #: What each kind of wait may be told, besides the common fields.
 FIELDS: dict[str, tuple[str, ...]] = {
@@ -212,5 +211,5 @@ async def wait_for(plan: WaitPlan, look: Looker, *, clock: Callable[[], float] =
 
 
 __all__ = ["DEFAULT_POLL_MS", "DEFAULT_STABLE_MS", "DEFAULT_TIMEOUT_MS", "FIELDS", "LOOK_GRACE_MS", "MAX_POLL_MS",
-           "MAX_TIMEOUT_MS", "MIN_POLL_MS", "REGION_BOUNDS", "REGION_FAR", "CannotLook", "Look", "Looker",
+           "MAX_TIMEOUT_MS", "MIN_POLL_MS", "REGION_BOUNDS", "CannotLook", "Look", "Looker",
            "WaitError", "WaitPlan", "plan_wait", "wait_for"]

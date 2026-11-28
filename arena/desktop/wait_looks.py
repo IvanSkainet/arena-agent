@@ -34,7 +34,7 @@ class Capture(Protocol):
 
 _NO_CLASS = ("the window list on this host does not say which class a window has, so 'class' cannot be "
              "matched here: wait by 'title' instead")
-#: Where a window record says its class. The wmctrl and xdotool listings have neither.
+#: Where a window record says its class. The wmctrl and xdotool listings have neither (#632).
 _CLASS_KEYS = frozenset({"class", "resource_class"})
 
 
