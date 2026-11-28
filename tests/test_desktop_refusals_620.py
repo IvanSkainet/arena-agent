@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from arena.mcp import tool_desktop
+from arena.mcp.desktop_refusal import REFUSAL_LIMIT, answers_refusals, bridge_refusal
 from arena.mcp.tool_desktop import handle_desktop_tool
 from arena.mcp.tool_desktop_app import handle_desktop_app_tool
 from arena.mcp.tool_desktop_input import handle_desktop_input_tool
@@ -128,14 +128,38 @@ def test_a_refusal_too_large_to_be_one_is_not_read_whole(monkeypatch):
     result = _call("desktop.windows", {})
     words = _words(result)
     assert result["isError"] is True
-    assert _Counting.taken == tool_desktop._REFUSAL_LIMIT + 1
-    assert "was not read" in words["error"]
-    assert len(words["detail"]) == 500
+    assert _Counting.taken == REFUSAL_LIMIT + 1
+    assert words["error"] == "the bridge answered HTTP 500 with a body over 65536 bytes, which was not read"
+    assert words["detail"] == '{"error": "' + "x" * 489
     assert words["status"] == 500
 
 
+def test_the_limit_is_far_above_any_refusal_and_far_below_what_hurts():
+    assert REFUSAL_LIMIT == 65536
+
+
+def test_a_body_of_exactly_the_limit_that_is_not_json_is_not_called_too_large(monkeypatch):
+    monkeypatch.setattr("urllib.request.urlopen", _Bridge(502, b"<" * REFUSAL_LIMIT))
+    assert _words(_call("desktop.windows", {}))["error"] == "the bridge answered HTTP 502"
+
+
+def test_a_body_that_is_not_text_is_still_reported(monkeypatch):
+    monkeypatch.setattr("urllib.request.urlopen", _Bridge(502, b"\xff\xfe upstream"))
+    assert _words(_call("desktop.windows", {}))["detail"] == "\ufffd\ufffd upstream"
+
+
+def test_a_refusal_without_an_address_has_an_empty_route_not_a_made_up_one():
+    refusal = bridge_refusal(urllib.error.HTTPError(None, 500, "refused", {}, io.BytesIO(b'{"error": "x"}')))
+    assert refusal == {"error": "x", "ok": False, "status": 500, "route": ""}
+
+
+def test_the_wrapped_dispatchers_keep_their_names():
+    assert [dispatch.__name__ for dispatch in _DISPATCHERS] == [
+        "handle_desktop_tool", "handle_desktop_input_tool", "handle_desktop_app_tool"]
+
+
 def test_a_refusal_of_exactly_the_limit_is_still_read_as_what_it_is(monkeypatch):
-    padding = tool_desktop._REFUSAL_LIMIT - len(b'{"error": ""}')
+    padding = REFUSAL_LIMIT - len(b'{"error": ""}')
     monkeypatch.setattr("urllib.request.urlopen", _Bridge(503, b'{"error": "' + b"x" * padding + b'"}'))
     assert _words(_call("desktop.windows", {}))["error"] == "x" * padding
 
@@ -143,12 +167,9 @@ def test_a_refusal_of_exactly_the_limit_is_still_read_as_what_it_is(monkeypatch)
 def test_a_refusal_that_is_not_json_still_says_what_happened(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", _Bridge(502, b"<html>upstream</html>"))
     result = _call("desktop.windows", {})
-    words = _words(result)
     assert result["isError"] is True
-    assert words["ok"] is False
-    assert "502" in words["error"]
-    assert "upstream" in words["detail"]
-    assert words["status"] == 502
+    assert _words(result) == {"error": "the bridge answered HTTP 502", "detail": "<html>upstream</html>",
+                              "ok": False, "status": 502, "route": "/v1/desktop/windows"}
 
 
 def test_a_refusal_that_is_json_but_not_an_object_is_treated_the_same(monkeypatch):
@@ -185,4 +206,4 @@ def test_a_failure_that_is_not_a_refusal_is_not_dressed_up_as_one(monkeypatch):
 
 def test_a_dispatcher_still_passes_on_a_name_that_is_not_its_own():
     assert handle_desktop_tool("browser.open", {}, ctx=_ctx()) is None
-    assert tool_desktop.answers_refusals(lambda name, args, *, ctx: None)("x", {}, ctx=None) is None
+    assert answers_refusals(lambda name, args, *, ctx: None)("x", {}, ctx=None) is None

@@ -4,8 +4,9 @@ from __future__ import annotations
 import urllib.error
 from typing import Any
 
+from arena.mcp.desktop_refusal import bridge_refusal
 from arena.mcp.image_result import error_result, region_box, shot_result
-from arena.mcp.tool_desktop import _bridge_get, bridge_refusal
+from arena.mcp.tool_desktop import _bridge_get
 
 _DEFAULT_MAX_WIDTH = 1280
 _REGION_KEYS = ("x", "y", "width", "height")

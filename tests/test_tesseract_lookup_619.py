@@ -10,6 +10,7 @@ import os
 import shutil
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -110,15 +111,56 @@ def test_tsv_is_asked_for_by_parameter_not_by_a_config_file_that_may_be_missing(
     assert "tsv" not in words
 
 
-def test_a_tesseract_in_the_users_own_bin_directory_is_found_on_posix_too(tmp_path, monkeypatch):
+@pytest.fixture(name="nowhere")
+def _nowhere(tmp_path, monkeypatch):
+    """No tesseract on PATH and every install directory pointed at an empty place under `tmp_path`."""
     monkeypatch.setattr(shutil, "which", lambda name: None)
-    for name in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
-        monkeypatch.setenv(name, str(tmp_path / "none"))
+    monkeypatch.setenv("ProgramFiles", str(tmp_path / "pf"))
+    monkeypatch.setenv("ProgramFiles(x86)", str(tmp_path / "pf86"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
-    binary = tmp_path / "home" / ".local" / "bin" / "tesseract"
+    return tmp_path
+
+
+@pytest.mark.parametrize("place", ["home/.local/bin/tesseract", "home/.local/bin/tesseract.exe",
+                                   "pf/Tesseract-OCR/tesseract.exe", "pf86/Tesseract-OCR/tesseract.exe",
+                                   "local/Programs/Tesseract-OCR/tesseract.exe"])
+def test_every_install_directory_is_looked_in(nowhere, place):
+    """The user's own bin directory under both names, and the three places the Windows installers use."""
+    assert tesseract.find_tesseract() is None
+    binary = nowhere.joinpath(*place.split("/"))
     binary.parent.mkdir(parents=True)
     binary.write_bytes(b"")
     assert tesseract.find_tesseract() == str(binary)
+
+
+def test_the_usual_directories_are_assumed_when_the_environment_does_not_name_them(nowhere, monkeypatch):
+    for name in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
+        monkeypatch.delenv(name)
+    assert tesseract.candidate_paths()[2:] == [
+        Path(r"C:\Program Files") / "Tesseract-OCR" / "tesseract.exe",
+        Path(r"C:\Program Files (x86)") / "Tesseract-OCR" / "tesseract.exe",
+        nowhere / "home" / "AppData" / "Local" / "Programs" / "Tesseract-OCR" / "tesseract.exe",
+    ]
+
+
+def test_a_blank_data_variable_does_not_mean_the_current_directory(installed, tmp_path, monkeypatch):
+    (tmp_path / "eng.traineddata").write_bytes(b"x")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TESSDATA_PREFIX", "  ")
+    assert tesseract.tessdata_beside(str(installed)) == str(installed.parent / "tessdata")
+
+
+@pytest.mark.parametrize(("asked", "written"), [(0, "11"), (None, "11"), (6, "6"), (11, "11")])
+def test_the_page_segmentation_mode_is_the_one_asked_for_or_sparse_text(asked, written):
+    words = tesseract.tesseract_command("tesseract", "shot.png", asked).split()
+    assert [word.strip('"') for word in words[2:5]] == ["stdout", "--psm", written]
+
+
+@pytest.mark.parametrize(("platform", "line"), [("nt", '"a b"'), ("posix", "'a b'")])
+def test_the_shell_is_chosen_by_the_platform_when_the_caller_does_not_say(monkeypatch, platform, line):
+    monkeypatch.setattr(tesseract, "os", SimpleNamespace(name=platform))
+    assert tesseract.command_line(["a b"]) == line
 
 
 _STAND_IN = """import pathlib, sys
@@ -203,6 +245,8 @@ def test_a_windows_command_line_is_written_for_cmd_not_for_sh():
 
 def test_a_trailing_backslash_does_not_swallow_the_closing_quote():
     assert tesseract.command_line(["C:\\data\\"], windows=True) == '"C:\\data\\\\"'
+    assert tesseract.command_line(["C:\\XX\\\\"], windows=True) == '"C:\\XX\\\\\\\\"'
+    assert tesseract.command_line(["C:\\XX"], windows=True) == '"C:\\XX"'
 
 
 def test_a_percent_sign_is_kept_from_cmd_which_expands_names_inside_quotes_too():
@@ -216,7 +260,7 @@ def test_an_empty_argument_stays_an_argument():
 
 
 def test_a_double_quote_is_refused_for_cmd_rather_than_passed_on_broken():
-    with pytest.raises(ValueError, match="double quote"):
+    with pytest.raises(ValueError, match=r"^an argument with a double quote cannot be passed through cmd\.exe$"):
         tesseract.command_line(['a"b'], windows=True)
 
 

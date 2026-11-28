@@ -52,10 +52,10 @@ def _has_english(directory: Path) -> bool:
 
 def _environment_names_data() -> bool:
     # TESSDATA_PREFIX is the data directory itself for tesseract 4 and 5, and its parent for 3.
-    prefix = os.environ.get("TESSDATA_PREFIX", "").strip()
-    if not prefix:
+    prefix = os.environ.get("TESSDATA_PREFIX")
+    if prefix is None or not prefix.strip():
         return False
-    named = Path(prefix).expanduser()
+    named = Path(prefix.strip()).expanduser()
     return _has_english(named) or _has_english(named / "tessdata")
 
 
@@ -109,4 +109,4 @@ def tesseract_command(binary: str, image: str, psm: int) -> str:
     # The parameter, not the `tsv` config file: the file is looked for in the
     # data directory, and where it is missing tesseract prints plain text,
     # which the TSV reader takes for "no words on screen".
-    return command_line([*argv, *TSV_OUTPUT])
+    return command_line(argv + list(TSV_OUTPUT))

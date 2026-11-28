@@ -11,7 +11,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from arena.mcp.tool_desktop import _bridge_call, answers_refusals
+from arena.mcp.desktop_refusal import answers_refusals
+from arena.mcp.tool_desktop import _bridge_call
 from arena.mcp.tool_desktop_sequence import handle_desktop_sequence_tool
 from arena.mcp.tool_utils import text_content
 
