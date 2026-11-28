@@ -280,6 +280,16 @@ TARGETS: dict[str, tuple[str, ...]] = {
         "tests/test_mobile_mirror_stream_params.py",
         "tests/test_mobile_mirror_pipeline_lifecycle.py",
     ),
+    # #619: where tesseract is and how its command line is written for the
+    # platform shell. 0/88; the first run left 20 (install directories other
+    # than Program Files, the defaults, the page mode), each now pinned.
+    "arena/desktop/tesseract.py": (
+        "tests/test_tesseract_lookup_619.py",
+    ),
+    # #620: what a desktop MCP tool returns when its route refuses. 0/31.
+    "arena/mcp/desktop_refusal.py": (
+        "tests/test_desktop_refusals_620.py",
+    ),
 }
 
 
