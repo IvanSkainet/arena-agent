@@ -88,15 +88,24 @@ def test_a_directory_beside_the_binary_without_english_is_not_forced_on_tesserac
     assert tesseract.tessdata_beside(str(installed)) is None
 
 
-@pytest.mark.parametrize("layout", ["", "tessdata"])
-def test_language_data_named_by_the_environment_is_not_overridden(installed, tmp_path, monkeypatch, layout):
+def test_language_data_named_by_the_environment_is_not_overridden(installed, tmp_path, monkeypatch):
     """`--tessdata-dir` outranks TESSDATA_PREFIX inside tesseract, so it is not given when the variable works."""
-    data = tmp_path / "share" / layout
-    data.mkdir(parents=True)
-    (data / "eng.traineddata").write_bytes(b"x")
+    (tmp_path / "share").mkdir()
+    (tmp_path / "share" / "eng.traineddata").write_bytes(b"x")
     monkeypatch.setenv("TESSDATA_PREFIX", str(tmp_path / "share"))
     assert tesseract.tessdata_beside(str(installed)) is None
     assert "--tessdata-dir" not in tesseract.tesseract_command(str(installed), "shot.png", 11)
+
+
+@pytest.mark.parametrize("value", ["{share}", " {share}", "{share} ", "~/data"])
+def test_the_variable_is_judged_by_the_value_tesseract_receives(installed, tmp_path, monkeypatch, value):
+    """Tesseract 5 uses the value as it is: not its `tessdata` child, not trimmed, `~` not expanded."""
+    for data in (tmp_path / "share" / "tessdata", tmp_path / "home" / "data"):
+        data.mkdir(parents=True)
+        (data / "eng.traineddata").write_bytes(b"x")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TESSDATA_PREFIX", value.format(share=tmp_path / "share"))
+    assert tesseract.tessdata_beside(str(installed)) == str(installed.parent / "tessdata")
 
 
 def test_an_environment_that_names_no_data_does_not_hide_the_data_beside_the_binary(installed, tmp_path, monkeypatch):
@@ -147,7 +156,7 @@ def test_the_usual_directories_are_assumed_when_the_environment_does_not_name_th
 def test_a_blank_data_variable_does_not_mean_the_current_directory(installed, tmp_path, monkeypatch):
     (tmp_path / "eng.traineddata").write_bytes(b"x")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("TESSDATA_PREFIX", "  ")
+    monkeypatch.setenv("TESSDATA_PREFIX", "")
     assert tesseract.tessdata_beside(str(installed)) == str(installed.parent / "tessdata")
 
 

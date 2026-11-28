@@ -51,12 +51,11 @@ def _has_english(directory: Path) -> bool:
 
 
 def _environment_names_data() -> bool:
-    # TESSDATA_PREFIX is the data directory itself for tesseract 4 and 5, and its parent for 3.
+    # Tesseract 4 and 5 take the value of TESSDATA_PREFIX, exactly as it is, for
+    # the data directory. So that is what is looked at: not its `tessdata`
+    # child (the layout tesseract 3 used), and not a tidied-up copy of it.
     prefix = os.environ.get("TESSDATA_PREFIX")
-    if prefix is None or not prefix.strip():
-        return False
-    named = Path(prefix.strip()).expanduser()
-    return _has_english(named) or _has_english(named / "tessdata")
+    return bool(prefix) and _has_english(Path(prefix))
 
 
 def tessdata_beside(binary: str) -> str | None:

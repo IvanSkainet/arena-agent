@@ -172,14 +172,14 @@
    "total": 24
   },
   "arena/desktop/tesseract.py": {
-   "fingerprint": "203d0057e3d0a94c0ed2cf0002233d743fc9a5d02a6c1d87a67e8459d6784a5f",
+   "fingerprint": "1b1ddcf2f3faf005de73ab5b9cf851741c1533be0309cd9ba0472bb7ce0b7ff6",
    "reason": "#619/#620 exact run on the PR head; 0 survivors",
    "survived": 0,
    "tests": [
     "tests/test_tesseract_lookup_619.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 88
+   "total": 81
   },
   "arena/exec/client_lifecycle.py": {
    "fingerprint": "8ffe18038c0d242bc00a03f013aadd85cc707282d44ea020f7a54a4bb1212de3",
