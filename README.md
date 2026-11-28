@@ -27,9 +27,9 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 
 | Metric | Value |
 | --- | --- |
-| Runtime code | **122,192** lines across 866 files |
-| Test code | **136,071** lines across 697 files |
-| Test-to-code ratio | **1.11×** |
+| Runtime code | **122,426** lines across 867 files |
+| Test code | **136,686** lines across 698 files |
+| Test-to-code ratio | **1.12×** |
 | CI workflows | **18** |
 | Quality gates (ratchets) | **20** |
 
@@ -38,9 +38,9 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 <!-- END GENERATED METRICS -->
 
 <!-- BEGIN TRAFFIC BADGE -->
-![Unique clones (14 days)](https://img.shields.io/badge/unique%20clones%20(14d)-617-blue)
+![Unique clones (14 days)](https://img.shields.io/badge/unique%20clones%20(14d)-724-blue)
 
-<sub>617 unique cloners over the 14 days to 2026-11-24 (22131 clones total). Daily refresh proposals are opened by `.github/workflows/traffic-badge.yml` and reach README only after normal protected PR review and checks. GitHub keeps a rolling 14-day window. Unique cloners are not verified people and may include automation. Release-download counts also include automation and retries; v4.169.50 reported 349 downloads of one ZIP and 3 of its byte-identical alias, which does not establish a human user count.</sub>
+<sub>724 unique cloners over the 14 days to 2026-11-25 (25411 clones total). Daily refresh proposals are opened by `.github/workflows/traffic-badge.yml` and reach README only after normal protected PR review and checks. GitHub keeps a rolling 14-day window. Unique cloners are not verified people and may include automation. Release-download counts also include automation and retries; v4.169.50 reported 349 downloads of one ZIP and 3 of its byte-identical alias, which does not establish a human user count.</sub>
 <!-- END TRAFFIC BADGE -->
 
 ---
