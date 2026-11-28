@@ -46,29 +46,6 @@ def find_tesseract() -> str | None:
     return next((str(path) for path in candidate_paths() if path.is_file()), None)
 
 
-def _has_english(directory: Path) -> bool:
-    return (directory / "eng.traineddata").is_file()
-
-
-def _environment_names_data() -> bool:
-    # Tesseract 4 and 5 take the value of TESSDATA_PREFIX, exactly as it is, for
-    # the data directory. So that is what is looked at: not its `tessdata`
-    # child (the layout tesseract 3 used), and not a tidied-up copy of it.
-    prefix = os.environ.get("TESSDATA_PREFIX")
-    return bool(prefix) and _has_english(Path(prefix))
-
-
-def tessdata_beside(binary: str) -> str | None:
-    """The language data next to the binary when it has to be named, else None: tesseract finds its own."""
-    # `--tessdata-dir` outranks TESSDATA_PREFIX inside tesseract. So it is given
-    # only when the environment does not already point at usable data, and only
-    # for a directory that has the language desktop OCR reads.
-    if _environment_names_data():
-        return None
-    beside = Path(binary).parent / "tessdata"
-    return str(beside) if _has_english(beside) else None
-
-
 def _quoted(piece: str) -> str:
     # Backslashes are literal to the program unless a quote follows them, so
     # only the ones before the closing quote are doubled.
@@ -100,12 +77,14 @@ def command_line(argv: list[str], *, windows: bool | None = None) -> str:
 
 
 def tesseract_command(binary: str, image: str, psm: int) -> str:
-    """The command that reads `image` and prints TSV, using the language data that came with the binary."""
-    argv = [binary, image, "stdout", "--psm", str(int(psm or 11))]
-    tessdata = tessdata_beside(binary)
-    if tessdata:
-        argv += ["--tessdata-dir", tessdata]
-    # The parameter, not the `tsv` config file: the file is looked for in the
-    # data directory, and where it is missing tesseract prints plain text,
-    # which the TSV reader takes for "no words on screen".
-    return command_line(argv + list(TSV_OUTPUT))
+    """The command that reads `image` and prints TSV."""
+    # No `--tessdata-dir`: it outranks TESSDATA_PREFIX inside tesseract, and
+    # what that variable means differs between tesseract 3 and 4. A tesseract
+    # installed beside its data finds it without being told (checked with the
+    # Windows build, 5.4), so the language data is left to tesseract, as it
+    # was before #619.
+    #
+    # TSV by parameter, not by the `tsv` config file: the file is looked for in
+    # the data directory, and where it is missing tesseract exits 0 and prints
+    # plain text, which the TSV reader takes for "no words on screen".
+    return command_line([binary, image, "stdout", "--psm", str(int(psm or 11))] + list(TSV_OUTPUT))

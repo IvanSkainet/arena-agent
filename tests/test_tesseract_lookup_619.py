@@ -67,50 +67,12 @@ def test_desktop_ocr_and_the_ocr_tools_name_the_same_binary(installed):
     assert result["best_match"]["text"] == "Arena"
 
 
-def test_desktop_ocr_uses_the_language_data_that_came_with_the_binary(installed):
+def test_the_language_data_is_left_to_tesseract_even_when_it_sits_beside_the_binary(installed):
+    """`--tessdata-dir` would outrank TESSDATA_PREFIX, whose meaning differs between tesseract versions."""
+    assert (installed.parent / "tessdata" / "eng.traineddata").is_file()
     commands: list[str] = []
     _read_screen(commands)
-    assert "--tessdata-dir" in commands[0]
-    assert str(installed.parent / "tessdata") in commands[0]
-
-
-def test_a_binary_without_language_data_beside_it_is_left_to_find_its_own(tmp_path, monkeypatch):
-    monkeypatch.delenv("TESSDATA_PREFIX", raising=False)
-    binary = tmp_path / "bin" / "tesseract"
-    binary.parent.mkdir()
-    binary.write_bytes(b"")
-    command = tesseract.tesseract_command(str(binary), str(tmp_path / "shot.png"), 11)
-    assert "--tessdata-dir" not in command
-
-
-def test_a_directory_beside_the_binary_without_english_is_not_forced_on_tesseract(installed):
-    (installed.parent / "tessdata" / "eng.traineddata").rename(installed.parent / "tessdata" / "rus.traineddata")
-    assert tesseract.tessdata_beside(str(installed)) is None
-
-
-def test_language_data_named_by_the_environment_is_not_overridden(installed, tmp_path, monkeypatch):
-    """`--tessdata-dir` outranks TESSDATA_PREFIX inside tesseract, so it is not given when the variable works."""
-    (tmp_path / "share").mkdir()
-    (tmp_path / "share" / "eng.traineddata").write_bytes(b"x")
-    monkeypatch.setenv("TESSDATA_PREFIX", str(tmp_path / "share"))
-    assert tesseract.tessdata_beside(str(installed)) is None
-    assert "--tessdata-dir" not in tesseract.tesseract_command(str(installed), "shot.png", 11)
-
-
-@pytest.mark.parametrize("value", ["{share}", " {share}", "{share} ", "~/data"])
-def test_the_variable_is_judged_by_the_value_tesseract_receives(installed, tmp_path, monkeypatch, value):
-    """Tesseract 5 uses the value as it is: not its `tessdata` child, not trimmed, `~` not expanded."""
-    for data in (tmp_path / "share" / "tessdata", tmp_path / "home" / "data"):
-        data.mkdir(parents=True)
-        (data / "eng.traineddata").write_bytes(b"x")
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("TESSDATA_PREFIX", value.format(share=tmp_path / "share"))
-    assert tesseract.tessdata_beside(str(installed)) == str(installed.parent / "tessdata")
-
-
-def test_an_environment_that_names_no_data_does_not_hide_the_data_beside_the_binary(installed, tmp_path, monkeypatch):
-    monkeypatch.setenv("TESSDATA_PREFIX", str(tmp_path / "nothing-here"))
-    assert tesseract.tessdata_beside(str(installed)) == str(installed.parent / "tessdata")
+    assert "tessdata" not in commands[0]
 
 
 def test_tsv_is_asked_for_by_parameter_not_by_a_config_file_that_may_be_missing(installed):
@@ -153,13 +115,6 @@ def test_the_usual_directories_are_assumed_when_the_environment_does_not_name_th
     ]
 
 
-def test_a_blank_data_variable_does_not_mean_the_current_directory(installed, tmp_path, monkeypatch):
-    (tmp_path / "eng.traineddata").write_bytes(b"x")
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("TESSDATA_PREFIX", "")
-    assert tesseract.tessdata_beside(str(installed)) == str(installed.parent / "tessdata")
-
-
 @pytest.mark.parametrize(("asked", "written"), [(0, "11"), (None, "11"), (6, "6"), (11, "11")])
 def test_the_page_segmentation_mode_is_the_one_asked_for_or_sparse_text(asked, written):
     words = tesseract.tesseract_command("tesseract", "shot.png", asked).split()
@@ -175,10 +130,8 @@ def test_the_shell_is_chosen_by_the_platform_when_the_caller_does_not_say(monkey
 _STAND_IN = """import pathlib, sys
 if not pathlib.Path(sys.argv[1]).is_file():
     sys.exit("no such image: %r" % sys.argv[1:])
-if sys.argv[2:] != ["stdout", "--psm", "11", "--tessdata-dir", sys.argv[-3], "-c", "tessedit_create_tsv=1"]:
+if sys.argv[2:] != ["stdout", "--psm", "11", "-c", "tessedit_create_tsv=1"]:
     sys.exit("unexpected arguments: %r" % sys.argv[1:])
-if not (pathlib.Path(sys.argv[-3]) / "eng.traineddata").is_file():
-    sys.exit("no data in %r" % sys.argv[-3])
 sys.stdout.write(TSV)
 """
 

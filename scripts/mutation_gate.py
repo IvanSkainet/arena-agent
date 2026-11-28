@@ -281,7 +281,7 @@ TARGETS: dict[str, tuple[str, ...]] = {
         "tests/test_mobile_mirror_pipeline_lifecycle.py",
     ),
     # #619: where tesseract is and how its command line is written for the
-    # platform shell. 0/81; the first run left 20 (install directories other
+    # platform shell. 0/68; the first run left 20 (install directories other
     # than Program Files, the defaults, the page mode), each now pinned.
     "arena/desktop/tesseract.py": (
         "tests/test_tesseract_lookup_619.py",
