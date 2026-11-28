@@ -4,7 +4,7 @@ from __future__ import annotations
 import urllib.error
 from typing import Any
 
-from arena.jsonshape import loads_object
+from arena.mcp.desktop_refusal import bridge_refusal
 from arena.mcp.image_result import error_result, region_box, shot_result
 from arena.mcp.tool_desktop import _bridge_get
 
@@ -72,17 +72,7 @@ def handle_desktop_screenshot_tool(name: str, args: dict[str, Any], *, ctx) -> d
     try:
         return _screenshot(ctx, args)
     except urllib.error.HTTPError as exc:
-        return error_result(_refusal(exc))
-
-
-def _refusal(exc: urllib.error.HTTPError) -> dict[str, Any]:
-    """Keep the bridge's own explanation when the screenshot route refuses."""
-    body = exc.read().decode("utf-8", "replace")
-    try:
-        answer = loads_object(body)
-    except ValueError:
-        answer = {}
-    return answer or {"ok": False, "error": f"screenshot failed with HTTP {exc.code}", "detail": body[:500]}
+        return error_result(bridge_refusal(exc))
 
 
 DESKTOP_SCREENSHOT_MCP_TOOLS = [

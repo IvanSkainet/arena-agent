@@ -171,6 +171,16 @@
    "tool": "mutmut 2.5.1",
    "total": 24
   },
+  "arena/desktop/tesseract.py": {
+   "fingerprint": "2acb1284115f89d325a6c704ac152a411bb449d0992c9481bdcb30a6a6c09958",
+   "reason": "PR #629: fallback candidates must be executable; measured with mutmut 2.5.1",
+   "survived": 0,
+   "tests": [
+    "tests/test_tesseract_lookup_619.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 69
+  },
   "arena/exec/client_lifecycle.py": {
    "fingerprint": "8ffe18038c0d242bc00a03f013aadd85cc707282d44ea020f7a54a4bb1212de3",
    "reason": "T66 post-merge timeout-guard test fingerprint refresh; 0 survivors",
@@ -281,6 +291,16 @@
    ],
    "tool": "mutmut 2.5.1",
    "total": 90
+  },
+  "arena/mcp/desktop_refusal.py": {
+   "fingerprint": "b993a2edd17ff7984ed84ef4aba919c91d7654c53d7be3f39f424f33825875b6",
+   "reason": "#619/#620 exact run on the PR head; 0 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_desktop_refusals_620.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 31
   },
   "arena/mcp_client/client.py": {
    "fingerprint": "dbde9f8c802a58cd7a8ec7a146cb63a868e851f3cb3d0ac12fff691776b2a047",

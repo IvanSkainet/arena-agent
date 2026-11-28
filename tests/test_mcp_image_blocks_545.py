@@ -307,7 +307,9 @@ def test_a_bridge_refusal_is_passed_on_in_its_own_words(monkeypatch):
     result = _screen_shot({"display": "HDMI-9"})
 
     assert result["isError"] is True
-    assert _words(result) == {"ok": False, "error": "unknown display 'HDMI-9'", "available": ["DP-1"]}
+    # The route's answer, word for word; the status and the route are added because it did not give them (#620).
+    assert _words(result) == {"ok": False, "error": "unknown display 'HDMI-9'", "available": ["DP-1"],
+                              "status": 404, "route": "/v1/desktop/screenshot"}
 
 
 def test_a_refusal_that_is_not_json_still_says_what_happened(monkeypatch):

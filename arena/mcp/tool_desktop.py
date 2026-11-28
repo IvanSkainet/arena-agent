@@ -7,6 +7,7 @@ import urllib.request
 from typing import Any
 
 from arena.jsonshape import loads_object
+from arena.mcp.desktop_refusal import answers_refusals
 from arena.mcp.tool_utils import text_content
 
 
@@ -42,7 +43,7 @@ def _bridge_get(ctx, path: str, params: dict[str, Any] | None = None) -> dict[st
         return loads_object(resp.read().decode("utf-8", "replace"))
 
 
-
+@answers_refusals
 def handle_desktop_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
     if name == "desktop.displays":
         return text_content(json.dumps(_bridge_get(ctx, "/v1/desktop/displays"), ensure_ascii=False))

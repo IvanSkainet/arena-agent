@@ -1,13 +1,12 @@
 """Desktop OCR parsing and text-target detection helpers."""
 from __future__ import annotations
 
-import shlex
-import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from arena.desktop.availability import MissingTool, unavailable_result
+from arena.desktop.tesseract import find_tesseract, tesseract_command
 from arena.desktop.text_matching import build_ocr_text, find_text_matches, line_groups
 
 
@@ -73,7 +72,8 @@ async def ocr_desktop(
     detect_env,
     audit_fn=None,
 ) -> dict[str, Any]:
-    if shutil.which("tesseract") is None:
+    binary = find_tesseract()
+    if binary is None:
         return unavailable_result(_NO_TESSERACT)
     shot = await capture_screenshot(
         fmt="png",
@@ -102,8 +102,7 @@ async def ocr_desktop(
     tmp = Path(tf.name)
     try:
         tmp.write_bytes(shot["bytes"])
-        cmd = f"tesseract {shlex.quote(str(tmp))} stdout --psm {int(psm or 11)} tsv"
-        result = await desktop_exec(cmd, timeout=20)
+        result = await desktop_exec(tesseract_command(binary, str(tmp), psm), timeout=20)
         if not result.get("ok"):
             return {"ok": False, "error": result.get("stderr") or result.get("error") or "OCR failed"}
         words = parse_tesseract_tsv(result.get("stdout", ""), min_confidence=max(0, int(min_confidence or 40)))

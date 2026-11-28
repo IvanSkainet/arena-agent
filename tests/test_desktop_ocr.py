@@ -88,8 +88,8 @@ def test_find_text_matches_can_prefer_or_filter_active_window_geometry():
 def test_ocr_desktop_shape():
     import arena.desktop.ocr as ocr
 
-    original = ocr.shutil.which
-    ocr.shutil.which = lambda name: "/usr/bin/tesseract" if name == "tesseract" else None
+    original = ocr.find_tesseract
+    ocr.find_tesseract = lambda: "/usr/bin/tesseract"
     try:
         result = asyncio.run(
             ocr_desktop(
@@ -107,7 +107,7 @@ def test_ocr_desktop_shape():
         assert result["prefer_active_window"] is True
         assert result["active_window"]["title"] == "Arena"
     finally:
-        ocr.shutil.which = original
+        ocr.find_tesseract = original
 
 
 
@@ -137,8 +137,8 @@ def _desktop_ctx():
 def test_desktop_ocr_handlers_routes_and_click_text(monkeypatch):
     import arena.desktop.ocr as ocr
 
-    original = ocr.shutil.which
-    ocr.shutil.which = lambda name: "/usr/bin/tesseract" if name == "tesseract" else None
+    original = ocr.find_tesseract
+    ocr.find_tesseract = lambda: "/usr/bin/tesseract"
     try:
         handlers = make_desktop_ocr_handlers(_desktop_ctx())
 
@@ -191,7 +191,7 @@ def test_desktop_ocr_handlers_routes_and_click_text(monkeypatch):
         assert ("POST", "/v1/desktop/find_text") in paths
         assert ("POST", "/v1/desktop/click_text") in paths
     finally:
-        ocr.shutil.which = original
+        ocr.find_tesseract = original
 
 
 

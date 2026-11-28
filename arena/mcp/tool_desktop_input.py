@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from arena.mcp.desktop_refusal import answers_refusals
 from arena.mcp.tool_desktop import _bridge_call
 from arena.mcp.tool_desktop_sequence import handle_desktop_sequence_tool
 from arena.mcp.tool_utils import text_content
@@ -23,6 +24,7 @@ _ROUTES = {
 }
 
 
+@answers_refusals
 def handle_desktop_input_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
     """Dispatch the desktop input tools; anything else is offered to the sequence tool (#616)."""
     path = _ROUTES.get(name)

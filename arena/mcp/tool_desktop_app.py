@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from arena.mcp.desktop_refusal import answers_refusals
 from arena.mcp.image_result import shot_result
 from arena.mcp.tool_desktop import _bridge_call, _bridge_get
 from arena.mcp.tool_desktop_screenshot import handle_desktop_screenshot_tool
@@ -274,6 +275,7 @@ def _shot_answer(result: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]
     return shot_result(result)
 
 
+@answers_refusals
 def handle_desktop_app_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
     handlers = {
         "desktop_app.find": _find,
