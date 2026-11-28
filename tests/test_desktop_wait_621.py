@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import FrozenInstanceError
 
 import pytest
 
@@ -78,6 +79,8 @@ def test_a_request_is_planned_with_its_defaults():
     ({"for": "text", "text": " Loading "}, {"text": "Loading", "state": "present", "region": None, "min_confidence": 40}),
     ({"for": "text", "text": "x", "state": "absent", "min_confidence": 0},
      {"text": "x", "state": "absent", "region": None, "min_confidence": 0}),
+    ({"for": "text", "text": "x", "region": {"x": 0, "y": 0, "width": 2, "height": 1}},
+     {"text": "x", "state": "present", "region": {"x": 0, "y": 0, "width": 2, "height": 1}, "min_confidence": 40}),
     ({"for": "text", "text": "x", "min_confidence": 100},
      {"text": "x", "state": "present", "region": None, "min_confidence": 100}),
 ])
@@ -168,6 +171,18 @@ def test_running_out_of_time_is_an_answer_with_what_was_last_seen():
 def test_the_state_reached_exactly_at_the_deadline_counts():
     result, _ = _run(_plan(timeout_ms=300, poll_ms=300), [Look(False), Look(True)])
     assert (result["happened"], result["waited_ms"], result["polls"]) == (True, 300, 2)
+
+
+def test_a_millisecond_left_is_still_time_to_look_again():
+    result, _ = _run(_plan(timeout_ms=301, poll_ms=300), [Look(False), Look(False), Look(True)])
+    assert (result["happened"], result["waited_ms"], result["polls"]) == (True, 301, 3)
+
+
+def test_a_plan_and_a_look_cannot_be_changed_after_they_are_made():
+    with pytest.raises(FrozenInstanceError):
+        _plan().timeout_ms = 1
+    with pytest.raises(FrozenInstanceError):
+        Look(False).done = True
 
 
 def test_time_spent_looking_is_time_waited():

@@ -5,7 +5,7 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from arena.desktop.text_matching import normalize_text
 
@@ -71,7 +71,11 @@ class Look:
     seen: dict[str, Any] = field(default_factory=dict)
 
 
-Looker = Callable[[], Awaitable[Look]]
+class Looker(Protocol):
+    """One look at the desktop, repeated by `wait_for`; raises `CannotLook` when it could not be made."""
+
+    def __call__(self) -> Awaitable[Look]:
+        """Look once."""
 
 
 def _whole(body: Mapping[str, Any], name: str, default: int, bounds: tuple[int, int]) -> int:

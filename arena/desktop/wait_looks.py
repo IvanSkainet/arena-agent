@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Any
+from typing import Any, Protocol
 
 from arena.desktop.availability import MissingTool, unavailable_result
 from arena.desktop.frame_compare import Frame, compared_as, read_frame
@@ -17,13 +17,19 @@ from arena.desktop.window_catalog import window_candidates
 # which is not the same as "no", and must not be reported as a wait that
 # simply ran out of time.
 
-Region = dict[str, int] | None
 _NO_LISTING = MissingTool(
     "no tool to list windows: install wmctrl or xdotool, or run a desktop whose window list the bridge can read",
     ("wmctrl", "xdotool"))
 _NO_CROP = MissingTool(
     "the capture could not be cut to the region, so it shows the whole desktop: on this host that needs the "
     "Pillow package (pip install Pillow)", ("pillow",))
+
+
+class Capture(Protocol):
+    """Capture the desktop, or the given rectangle of it."""
+
+    def __call__(self, region: Mapping[str, int] | None) -> Awaitable[Mapping[str, Any]]:
+        """Capture once."""
 
 
 def _matching(windows: list[dict[str, Any]], want: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -41,7 +47,7 @@ def _listed(listing: Mapping[str, Any]) -> list[dict[str, Any]]:
     return list(listing.get("windows") or [])
 
 
-def _cut_to(region: Region, result: Mapping[str, Any]) -> None:
+def _cut_to(region: Mapping[str, int] | None, result: Mapping[str, Any]) -> None:
     """Refuse a capture that shows more than the region asked for.
 
     Where the capture tool takes the whole desktop, Pillow cuts the region out
@@ -83,7 +89,7 @@ def window_look(want: Mapping[str, Any], list_windows: Callable[[], Awaitable[Ma
     return in_front if want["state"] == "active" else listed
 
 
-async def _frame(capture: Callable[[Region], Awaitable[Mapping[str, Any]]], region: Region) -> Frame:
+async def _frame(capture: Capture, region: Mapping[str, int] | None) -> Frame:
     shot = await capture(region)
     if not shot.get("ok"):
         raise CannotLook(shot)
@@ -92,7 +98,7 @@ async def _frame(capture: Callable[[Region], Awaitable[Mapping[str, Any]]], regi
     return await asyncio.to_thread(read_frame, shot["bytes"])
 
 
-def screen_look(want: Mapping[str, Any], capture: Callable[[Region], Awaitable[Mapping[str, Any]]],
+def screen_look(want: Mapping[str, Any], capture: Capture,
                 clock: Callable[[], float] = time.monotonic) -> Looker:
     """The picture differs from the first look, or has not differed for `stable_ms`."""
     first: list[Frame] = []
@@ -133,4 +139,4 @@ def text_look(want: Mapping[str, Any],
     return look
 
 
-__all__ = ["Region", "screen_look", "text_look", "window_look"]
+__all__ = ["Capture", "screen_look", "text_look", "window_look"]

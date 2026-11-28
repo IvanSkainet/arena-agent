@@ -50,7 +50,14 @@ def test_a_different_picture_is_a_different_frame():
 
 
 def test_what_follows_the_end_marker_is_not_part_of_the_picture():
-    assert read_frame(png(BLACK) + _chunk(b"IDAT", zlib.compress(WHITE))) == read_frame(png(BLACK))
+    assert read_frame(png(BLACK) + _chunk(b"IHDR", b"\x01" * 13)) == read_frame(png(BLACK))
+
+
+def test_a_file_cut_off_before_its_end_marker_is_read_up_to_its_last_whole_chunk():
+    whole = b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", b"\x00" * 13) + _chunk(b"IDAT", b"")
+    assert read_frame(whole).of == "pixels"
+    # One byte short of a whole chunk: the data chunk is not there, so there is no picture to read.
+    assert read_frame(whole[:-1]).of == "bytes"
 
 
 @pytest.mark.parametrize("broken", [
@@ -247,9 +254,9 @@ def test_a_capture_that_was_not_cut_to_the_region_is_not_watched_instead(until, 
     region = {"x": 0, "y": 0, "width": 10, "height": 10}
     with pytest.raises(CannotLook) as failed:
         _look(screen_look({"until": until, "stable_ms": 1000, "region": region}, capture))
-    assert failed.value.result["unavailable"] == ["pillow"]
-    assert failed.value.result["error"].startswith("the capture could not be cut to the region")
-    assert "pip install Pillow" in failed.value.result["error"]
+    assert failed.value.result == {"ok": False, "unavailable": ["pillow"], "error": (
+        "the capture could not be cut to the region, so it shows the whole desktop: on this host that needs the "
+        "Pillow package (pip install Pillow)")}
     # The same capture is what was asked for when no region was.
     assert _look(screen_look({"until": until, "stable_ms": 1000, "region": None}, capture)).done is False
 

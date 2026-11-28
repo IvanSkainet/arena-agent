@@ -1,19 +1,20 @@
 """POST /v1/desktop/wait: wait on the host for a window, a screen change or text (#621)."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from aiohttp import web
 
 from arena.desktop.availability import failure_response
 from arena.desktop.wait import CannotLook, Looker, WaitError, WaitPlan, plan_wait, wait_for
-from arena.desktop.wait_looks import Region, screen_look, text_look, window_look
+from arena.desktop.wait_looks import screen_look, text_look, window_look
 from arena.desktop.window_catalog import list_desktop_windows
 from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import authed, json_object_body
 
 
-def _edges(region: Region) -> dict[str, int]:
+def _edges(region: Mapping[str, int] | None) -> dict[str, int]:
     """A region as the capture functions take it; nothing for the whole desktop."""
     return {f"region_{name}": value for name, value in (region or {}).items()}
 
@@ -27,7 +28,7 @@ def looker_for(ctx: DesktopHandlerContext, plan: WaitPlan) -> Looker:
     async def windows() -> dict[str, Any]:
         return await list_desktop_windows(**tools, kwin_windows_via_script=ctx.kwin_windows_via_script)
 
-    async def capture(region: Region) -> dict[str, Any]:
+    async def capture(region: Mapping[str, int] | None) -> dict[str, Any]:
         return await ctx.capture_screenshot(fmt="png", **_edges(region), **tools)
 
     async def find_text(want: Any) -> dict[str, Any]:

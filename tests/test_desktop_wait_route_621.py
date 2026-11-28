@@ -220,6 +220,12 @@ def test_a_look_that_failed_is_a_500_in_the_producers_words(desk, body, broken):
     assert desk.recorded == [{}, {"is_error": True, "count_request": False}]
 
 
+def test_a_failure_that_gives_no_reason_is_still_named(desk):
+    desk.listing = {"ok": False}
+    status, answer = post(desk, {"for": "window", "title": "x"})
+    assert (status, answer) == (500, {"ok": False, "error": "the desktop could not be looked at"})
+
+
 def test_a_caller_who_is_not_let_in_starts_no_wait(desk):
     desk.refuse_auth = web.json_response({"error": "unauthorized"}, status=401)
     status, _ = post(desk, {"for": "window", "title": "minecraft"})
