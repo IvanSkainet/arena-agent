@@ -12,6 +12,7 @@ from arena.desktop.ocr_handler import make_desktop_ocr_handlers
 from arena.desktop.screenshot_handler import make_desktop_screenshot_handler
 from arena.desktop.text_action_handler import make_desktop_text_action_handler
 from arena.desktop.text_window_handler import make_desktop_text_window_handler
+from arena.desktop.wait_handler import make_desktop_wait_handler
 from arena.desktop.window_action_handler import make_desktop_window_action_handler
 from arena.desktop.window_handlers import make_desktop_window_handlers
 from arena.handler_context import DesktopHandlerContext
@@ -26,6 +27,7 @@ class DesktopHandlers:
     key: Callable[..., Any]
     mouse: Callable[..., Any]
     sequence: Callable[..., Any]
+    wait: Callable[..., Any]
     windows: Callable[..., Any]
     active_window: Callable[..., Any]
     focus: Callable[..., Any]
@@ -50,6 +52,7 @@ def make_desktop_handlers(ctx: DesktopHandlerContext) -> DesktopHandlers:
         key=key,
         mouse=mouse,
         sequence=make_desktop_sequence_handler(ctx),
+        wait=make_desktop_wait_handler(ctx),
         windows=windows,
         active_window=active_window,
         focus=focus,

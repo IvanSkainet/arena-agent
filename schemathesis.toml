@@ -63,6 +63,10 @@ checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 503]
 include-name = "GET /v1/desktop/screenshot"
 checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 503]
 
+[[operations]]
+include-name = "POST /v1/desktop/wait"
+checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 503]
+
 # One documented 501 (#616). Input sequences have a driver on native Windows
 # only; everywhere else the route says so, and a CI runner is "everywhere
 # else", so a well-formed request gets 501 every time. It is a 501 and not

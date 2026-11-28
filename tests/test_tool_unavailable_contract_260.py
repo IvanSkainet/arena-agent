@@ -76,6 +76,10 @@ TOOL_DEPENDENT_CALLS = [
     ("POST", "/v1/desktop/type", {"text": "a"}, ["ydotool", "wtype", "xdotool"]),
     ("POST", "/v1/desktop/key", {"key": "a"}, ["ydotool", "xdotool"]),
     ("POST", "/v1/desktop/mouse", {"x": 1, "y": 1}, ["ydotool", "xdotool"]),
+    # #621: one route, three kinds of look, each stopped by a different tool.
+    ("POST", "/v1/desktop/wait", {"for": "window", "title": "x", "timeout_ms": 1}, ["wmctrl", "xdotool"]),
+    ("POST", "/v1/desktop/wait", {"for": "screen", "timeout_ms": 1}, ["spectacle", "grim", "scrot"]),
+    ("POST", "/v1/desktop/wait", {"for": "text", "text": "x", "timeout_ms": 1}, ["tesseract"]),
 ]
 
 TOKEN = "unavailable-contract-260"
@@ -93,6 +97,9 @@ WINDOWS_SERVES_THESE_ITSELF = frozenset({
     "/v1/desktop/type",
     "/v1/desktop/key",
     "/v1/desktop/mouse",
+    # Windows lists its windows and captures its screen natively (#621); the
+    # text row is the OCR refusal the rows above already cover there.
+    "/v1/desktop/wait",
 })
 
 
@@ -101,8 +108,8 @@ def _needs_a_tool_here(path: str) -> bool:
     return not (sys.platform == "win32" and path in WINDOWS_SERVES_THESE_ITSELF)
 
 
-def _headless_enough_for(path: str) -> bool:
-    """Whether the screenshot row's expected list holds on this host.
+def _headless_enough_for(path: str, needs: list[str]) -> bool:
+    """Whether the expected list of a row that depends on the session holds on this host.
 
     The capture filters its list by the session: under X11 it drops grim,
     under Wayland it drops scrot, and only with no session at all does it
@@ -110,8 +117,11 @@ def _headless_enough_for(path: str) -> bool:
     tool installed, the row would run and compare against the wrong list --
     cubic caught that on the #260 PR. The session-filtered lists have their
     own test above; this row is about the headless case.
+
+    The window and screen rows of the wait route (#621) are the same case: a
+    desktop session may list its windows with no tool installed (KWin).
     """
-    if path != "/v1/desktop/screenshot":
+    if path not in ("/v1/desktop/screenshot", "/v1/desktop/wait") or needs == ["tesseract"]:
         return True
     return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
@@ -144,7 +154,7 @@ CALLS_FOR_THIS_PLATFORM = [
     call for call in TOOL_DEPENDENT_CALLS
     if _needs_a_tool_here(call[1])
     and _nothing_installed(call[3])
-    and _headless_enough_for(call[1])
+    and _headless_enough_for(call[1], call[3])
 ]
 
 

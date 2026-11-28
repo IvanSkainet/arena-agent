@@ -195,6 +195,15 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_desktop_wait.py",
+    "handlers": [
+      "handle_desktop_wait_tool"
+    ],
+    "tool_names": [
+      "desktop.wait"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_document.py",
     "handlers": [
       "handle_document_tool"
