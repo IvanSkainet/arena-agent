@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from arena.desktop.text_matching import normalize_text
+from arena.handler_errors import BadRequest, BodyFieldError
+from arena.handler_params import body_int
 
 # An agent that needed "the launcher window is up" or "the loading bar has
 # stopped moving" had one way to learn it: sleep, take a screenshot, look,
@@ -40,8 +42,8 @@ _CHOICES: dict[tuple[str, str], tuple[str, ...]] = {
 }
 
 
-class WaitError(ValueError):
-    """The request cannot be planned: the caller's mistake, a 400."""
+class WaitError(BadRequest):
+    """The request cannot be planned: the caller's mistake, which the route decorator answers with a 400."""
 
 
 class CannotLook(Exception):
@@ -78,13 +80,13 @@ class Looker(Protocol):
         """Look once."""
 
 
-def _whole(body: Mapping[str, Any], name: str, default: int, bounds: tuple[int, int]) -> int:
-    """An integer field within its bounds; `true` is not a number."""
-    value = body.get(name, default)
-    low, high = bounds
-    if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
-        raise WaitError(f"'{name}' must be an integer from {low} to {high}")
-    return value
+def _edge(region: Mapping[str, Any], name: str) -> int:
+    """One side of the region, read the way every number in a body is; it cannot be left out."""
+    label = f"region.{name}"
+    number = body_int({label: region[name]}, label, default=None)
+    if number is None:
+        raise BodyFieldError(label, region[name])
+    return number
 
 
 def _words(body: Mapping[str, Any], name: str) -> str:
@@ -111,9 +113,7 @@ def _region(body: Mapping[str, Any]) -> dict[str, int] | None:
         return None
     if not isinstance(region, Mapping) or sorted(region) != sorted(_REGION):
         raise WaitError("'region' must be an object with exactly x, y, width and height")
-    numbers = {name: region[name] for name in _REGION}
-    if any(isinstance(n, bool) or not isinstance(n, int) for n in numbers.values()):
-        raise WaitError("'region' must hold integers")
+    numbers = {name: _edge(region, name) for name in _REGION}
     if numbers["width"] < 1 or numbers["height"] < 1:
         raise WaitError("'region' must have a width and a height of at least 1")
     return numbers
@@ -136,7 +136,7 @@ def _screen(body: Mapping[str, Any], timeout_ms: int) -> dict[str, Any]:
         return want
     # Left out, it is a second -- or the whole timeout when that is shorter.
     usual = max(MIN_POLL_MS, min(DEFAULT_STABLE_MS, timeout_ms))
-    stable_ms = _whole(body, "stable_ms", usual, (MIN_POLL_MS, MAX_TIMEOUT_MS))
+    stable_ms = body_int(body, "stable_ms", default=usual, bounds=(MIN_POLL_MS, MAX_TIMEOUT_MS))
     if stable_ms > timeout_ms:
         raise WaitError("'stable_ms' is longer than 'timeout_ms': the screen could never be still for that long")
     want["stable_ms"] = stable_ms
@@ -148,7 +148,7 @@ def _text(body: Mapping[str, Any], _timeout_ms: int) -> dict[str, Any]:
     if not text:
         raise WaitError("a text wait needs 'text': the words to look for on the screen")
     return {"text": text, "state": _choice(body, "text", "state"), "region": _region(body),
-            "min_confidence": _whole(body, "min_confidence", 40, (0, 100))}
+            "min_confidence": body_int(body, "min_confidence", default=40, bounds=(0, 100))}
 
 
 _WANTS: dict[str, Callable[[Mapping[str, Any], int], dict[str, Any]]] = {
@@ -164,8 +164,10 @@ def plan_wait(body: Mapping[str, Any]) -> WaitPlan:
     unknown = sorted(str(name) for name in body if name not in known)
     if unknown:
         raise WaitError(f"unknown field(s) for a {kind} wait: {', '.join(unknown)}; it takes: {', '.join(known)}")
-    timeout_ms = _whole(body, "timeout_ms", DEFAULT_TIMEOUT_MS, (1, MAX_TIMEOUT_MS))
-    poll_ms = _whole(body, "poll_ms", DEFAULT_POLL_MS, (MIN_POLL_MS, MAX_POLL_MS))
+    # Numbers go through `body_int`, like every number in a request body (#270): a refusal names the field
+    # and the JSON type that arrived, "10" and 10.0 are 10, and null is "not given".
+    timeout_ms = body_int(body, "timeout_ms", default=DEFAULT_TIMEOUT_MS, bounds=(1, MAX_TIMEOUT_MS))
+    poll_ms = body_int(body, "poll_ms", default=DEFAULT_POLL_MS, bounds=(MIN_POLL_MS, MAX_POLL_MS))
     return WaitPlan(kind, timeout_ms, poll_ms, _WANTS[kind](body, timeout_ms))
 
 

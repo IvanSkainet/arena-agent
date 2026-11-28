@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from arena.desktop.wait import FIELDS, MAX_TIMEOUT_MS
 from arena.desktop.wait_schema import wait_request_schema
-from arena.public.error_envelopes import _ERROR_ENVELOPE, _JSON_BODY_ERROR_ENVELOPE
+from arena.public.error_envelopes import _BODY_FIELD_ERROR_ENVELOPE, _ERROR_ENVELOPE
 
 _ANSWER = {
     "type": "object",
@@ -54,7 +54,8 @@ def wait_path_item() -> dict:
             "200": {"description": "The wait ended: `happened` says whether the state was reached",
                     "content": {"application/json": {"schema": _ANSWER}}},
             "400": _refusal("A field is missing, malformed, out of range or does not belong to this kind of "
-                            "wait, or the body is not an object", _JSON_BODY_ERROR_ENVELOPE),
+                            "wait, or the body is not an object. A malformed number is named in `field`",
+                            _BODY_FIELD_ERROR_ENVELOPE),
             "500": _refusal("The desktop could not be looked at: listing windows, capturing the screen or "
                             "reading it failed"),
         },

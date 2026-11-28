@@ -7,7 +7,7 @@ from typing import Any
 from aiohttp import web
 
 from arena.desktop.availability import failure_response
-from arena.desktop.wait import CannotLook, Looker, WaitError, WaitPlan, plan_wait, wait_for
+from arena.desktop.wait import CannotLook, Looker, WaitPlan, plan_wait, wait_for
 from arena.desktop.wait_looks import screen_look, text_look, window_look
 from arena.desktop.window_catalog import list_desktop_windows
 from arena.handler_context import DesktopHandlerContext
@@ -47,11 +47,9 @@ def make_desktop_wait_handler(ctx: DesktopHandlerContext):
     @authed(ctx)
     async def handle_v1_desktop_wait(request: web.Request) -> web.Response:
         body = await json_object_body(request)
-        try:
-            plan = plan_wait(body)
-        except WaitError as exc:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(exc)}, status=400)
+        # A request that cannot be planned raises a `BadRequest`; `authed` answers it with a 400 and does
+        # not count it as an error of the bridge.
+        plan = plan_wait(body)
         try:
             result = await wait_for(plan, looker_for(ctx, plan))
         except CannotLook as exc:

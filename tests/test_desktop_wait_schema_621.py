@@ -7,8 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from arena.desktop.wait import FIELDS, WaitError, plan_wait
+from arena.desktop.wait import FIELDS, plan_wait
 from arena.desktop.wait_schema import wait_request_schema
+from arena.handler_errors import BadRequest
 from arena.mcp.tool_registry import MCP_TOOLS
 from arena.public.openapi import build_openapi_spec
 
@@ -32,7 +33,7 @@ def _taken(kind: str, **fields) -> bool:
     try:
         plan_wait({**BASE[kind], **{key: value for name in fields for key, value in BESIDE.get(name, {}).items()},
                    **fields})
-    except WaitError:
+    except BadRequest:
         return False
     return True
 
@@ -105,7 +106,8 @@ def test_a_region_is_four_whole_numbers_and_nothing_else():
         assert not _taken(kind, region={**whole, "depth": 1})
         for name in region["required"]:
             assert not _taken(kind, region={key: value for key, value in whole.items() if key != name})
-            assert not _taken(kind, region={**whole, name: "5"})
+            assert not _taken(kind, region={**whole, name: 5.5})
+            assert not _taken(kind, region={**whole, name: "five"})
 
 
 def test_what_is_not_described_is_refused_by_the_schema_as_it_is_by_the_planner():

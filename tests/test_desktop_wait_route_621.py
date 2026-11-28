@@ -162,7 +162,8 @@ def test_a_text_wait_reads_the_screen_for_the_words(desk):
 
 @pytest.mark.parametrize(("body", "says"), [
     ({"for": "nothing"}, "'for' must be one of: window, screen, text"),
-    ({"for": "window", "title": "x", "timeout_ms": 60000}, "'timeout_ms' must be an integer from 1 to 45000"),
+    ({"for": "window", "title": "x", "timeout_ms": 60000},
+     "body field 'timeout_ms' must be an integer no greater than 45000, received number"),
     ({"for": "screen", "text": "x"}, "unknown field(s) for a screen wait: text"),
 ])
 def test_a_request_that_cannot_be_planned_is_a_400_and_nothing_is_looked_at(desk, body, says):
@@ -172,7 +173,18 @@ def test_a_request_that_cannot_be_planned_is_a_400_and_nothing_is_looked_at(desk
     assert answer["error"].startswith(says)
     assert desk.asked == []
     assert desk.audited == []
-    assert desk.recorded == [{}, {"is_error": True, "count_request": False}]
+    # The caller's mistake is not this bridge failing (#254): the request is counted, an error is not.
+    assert desk.recorded == [{}]
+
+
+def test_a_refused_number_names_its_field_and_what_arrived(desk):
+    status, answer = post(desk, {"for": "text", "text": "x", "min_confidence": {"at": "least"}})
+    assert status == 400
+    assert answer == {"ok": False, "field": "min_confidence", "received": "object",
+                      "error": "body field 'min_confidence' must be an integer, received object"}
+    status, answer = post(desk, {"for": "screen", "region": {"x": 0, "y": 0, "width": [64], "height": 64}})
+    assert (status, answer["field"], answer["received"]) == (400, "region.width", "array")
+    assert desk.asked == []
 
 
 @pytest.mark.parametrize("sent", [{"data": b"[1, 2]"}, {"data": b"not json"}, {"data": b"true"}])

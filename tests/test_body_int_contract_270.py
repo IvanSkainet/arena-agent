@@ -124,6 +124,18 @@ REFUSED_BEFORE_THE_FIELD = {
 }
 
 
+# One operation, three kinds of request (#621): a field is read only in a
+# request of the kind it belongs to, and the generic filler cannot know which
+# -- `for: "x"` is refused before any number is looked at. So these four are
+# reached with the smallest request of their kind, rather than excused above.
+REACHED_WITH = {
+    ("/v1/desktop/wait", "timeout_ms"): {"for": "window", "title": "x"},
+    ("/v1/desktop/wait", "poll_ms"): {"for": "window", "title": "x"},
+    ("/v1/desktop/wait", "stable_ms"): {"for": "screen", "until": "stable"},
+    ("/v1/desktop/wait", "min_confidence"): {"for": "text", "text": "x"},
+}
+
+
 def _filler(schema: dict, skip: str) -> dict:
     """The required fields of an operation, so the sweep reaches the parse.
 
@@ -311,7 +323,7 @@ async def _sweep(spec, root):
     async with _running_client(root) as client:
         for method, path, field, schema in targets:
             for bad in BAD_NUMBERS:
-                body = _filler(schema, field)
+                body = dict(REACHED_WITH.get((path, field)) or _filler(schema, field))
                 body[field] = bad
                 response = await getattr(client, method)(
                     path, json=body, headers=_auth())

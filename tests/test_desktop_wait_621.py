@@ -20,6 +20,7 @@ from arena.desktop.wait import (
     plan_wait,
     wait_for,
 )
+from arena.handler_errors import BadRequest, BodyFieldError
 
 
 class Clock:
@@ -109,13 +110,6 @@ def test_the_limits_themselves_are_allowed(fields, kept):
     ({"for": "window", "title": 7}, "'title' must be a string"),
     ({"for": "window", "title": "x", "class": None}, "'class' must be a string"),
     ({"for": "window", "title": "x", "state": "gone"}, "'state' must be one of: present, absent, active"),
-    ({"for": "window", "title": "x", "timeout_ms": 0}, "'timeout_ms' must be an integer from 1 to 45000"),
-    ({"for": "window", "title": "x", "timeout_ms": 45001}, "'timeout_ms' must be an integer from 1 to 45000"),
-    ({"for": "window", "title": "x", "timeout_ms": True}, "'timeout_ms' must be an integer from 1 to 45000"),
-    ({"for": "window", "title": "x", "timeout_ms": 1.5}, "'timeout_ms' must be an integer from 1 to 45000"),
-    ({"for": "window", "title": "x", "timeout_ms": "9"}, "'timeout_ms' must be an integer from 1 to 45000"),
-    ({"for": "window", "title": "x", "poll_ms": 99}, "'poll_ms' must be an integer from 100 to 5000"),
-    ({"for": "window", "title": "x", "poll_ms": 5001}, "'poll_ms' must be an integer from 100 to 5000"),
     ({"for": "window", "title": "x", "timeout": 5},
      "unknown field(s) for a window wait: timeout; it takes: for, timeout_ms, poll_ms, title, class, state"),
     ({"for": "window", "title": "x", "text": "y", "region": None},
@@ -124,30 +118,77 @@ def test_the_limits_themselves_are_allowed(fields, kept):
      "unknown field(s) for a screen wait: title; it takes: for, timeout_ms, poll_ms, until, stable_ms, region"),
     ({"for": "screen", "until": "quiet"}, "'until' must be one of: change, stable"),
     ({"for": "screen", "stable_ms": 500}, "'stable_ms' belongs to until: stable"),
-    ({"for": "screen", "until": "stable", "stable_ms": 99}, "'stable_ms' must be an integer from 100 to 45000"),
-    ({"for": "screen", "until": "stable", "stable_ms": 45001}, "'stable_ms' must be an integer from 100 to 45000"),
     ({"for": "screen", "until": "stable", "stable_ms": 501, "timeout_ms": 500},
      "'stable_ms' is longer than 'timeout_ms': the screen could never be still for that long"),
     ({"for": "screen", "until": "stable", "timeout_ms": 99}, "'stable_ms' is longer than 'timeout_ms'"),
     ({"for": "screen", "region": [1, 2, 3, 4]}, "'region' must be an object with exactly x, y, width and height"),
     ({"for": "screen", "region": {"x": 1, "y": 2, "width": 3}}, "'region' must be an object with exactly"),
     ({"for": "screen", "region": {"x": 1, "y": 2, "width": 3, "height": 4, "z": 5}}, "'region' must be an object"),
-    ({"for": "screen", "region": {"x": 1.0, "y": 2, "width": 3, "height": 4}}, "'region' must hold integers"),
-    ({"for": "screen", "region": {"x": 1, "y": 2, "width": True, "height": 4}}, "'region' must hold integers"),
     ({"for": "screen", "region": {"x": 1, "y": 2, "width": 0, "height": 4}},
      "'region' must have a width and a height of at least 1"),
     ({"for": "screen", "region": {"x": 1, "y": 2, "width": 3, "height": 0}}, "'region' must have a width and a height"),
     ({"for": "text"}, "a text wait needs 'text': the words to look for on the screen"),
     ({"for": "text", "text": "   "}, "a text wait needs 'text'"),
     ({"for": "text", "text": "x", "state": "active"}, "'state' must be one of: present, absent"),
-    ({"for": "text", "text": "x", "min_confidence": -1}, "'min_confidence' must be an integer from 0 to 100"),
-    ({"for": "text", "text": "x", "min_confidence": 101}, "'min_confidence' must be an integer from 0 to 100"),
     ({"for": "text", "text": "x", "until": "stable"}, "unknown field(s) for a text wait: until; it takes"),
 ])
 def test_a_request_that_cannot_be_planned_says_why(body, says):
     with pytest.raises(WaitError) as refused:
         plan_wait(body)
     assert str(refused.value).startswith(says)
+
+
+WINDOW = {"for": "window", "title": "x"}
+STILL = {"for": "screen", "until": "stable"}
+WORDS = {"for": "text", "text": "x"}
+BOX = {"x": 1, "y": 2, "width": 3, "height": 4}
+
+
+@pytest.mark.parametrize(("body", "field", "says", "received"), [
+    (WINDOW | {"timeout_ms": 0}, "timeout_ms", "an integer no smaller than 1", "number"),
+    (WINDOW | {"timeout_ms": 45001}, "timeout_ms", "an integer no greater than 45000", "number"),
+    (WINDOW | {"timeout_ms": True}, "timeout_ms", "an integer", "boolean"),
+    (WINDOW | {"timeout_ms": 1.5}, "timeout_ms", "an integer", "number"),
+    (WINDOW | {"timeout_ms": [9]}, "timeout_ms", "an integer", "array"),
+    (WINDOW | {"timeout_ms": "soon"}, "timeout_ms", "an integer", "string"),
+    (WINDOW | {"poll_ms": 99}, "poll_ms", "an integer no smaller than 100", "number"),
+    (WINDOW | {"poll_ms": 5001}, "poll_ms", "an integer no greater than 5000", "number"),
+    (STILL | {"stable_ms": 99}, "stable_ms", "an integer no smaller than 100", "number"),
+    (STILL | {"stable_ms": 45001}, "stable_ms", "an integer no greater than 45000", "number"),
+    (WORDS | {"min_confidence": -1}, "min_confidence", "an integer no smaller than 0", "number"),
+    (WORDS | {"min_confidence": 101}, "min_confidence", "an integer no greater than 100", "number"),
+    ({"for": "screen", "region": BOX | {"x": 1.5}}, "region.x", "an integer", "number"),
+    ({"for": "screen", "region": BOX | {"y": None}}, "region.y", "an integer", "null"),
+    ({"for": "screen", "region": BOX | {"width": True}}, "region.width", "an integer", "boolean"),
+    ({"for": "text", "text": "x", "region": BOX | {"height": ""}}, "region.height", "an integer", "string"),
+])
+def test_a_number_that_cannot_be_used_is_refused_by_name(body, field, says, received):
+    with pytest.raises(BodyFieldError) as refused:
+        plan_wait(body)
+    assert str(refused.value) == f"body field {field!r} must be {says}, received {received}"
+    assert refused.value.details == {"field": field, "received": received}
+
+
+@pytest.mark.parametrize(("body", "read"), [
+    (WINDOW | {"timeout_ms": "9", "poll_ms": 250.0}, (9, 250)),
+    (WINDOW | {"timeout_ms": None, "poll_ms": ""}, (10000, 500)),
+])
+def test_numbers_are_read_the_way_every_body_number_is(body, read):
+    plan = plan_wait(body)
+    assert (plan.timeout_ms, plan.poll_ms) == read
+
+
+def test_the_numbers_of_each_kind_are_read_the_same_way():
+    assert plan_wait(STILL | {"stable_ms": "700"}).want["stable_ms"] == 700
+    assert plan_wait(STILL | {"stable_ms": None, "timeout_ms": 400}).want["stable_ms"] == 400
+    assert plan_wait(WORDS | {"min_confidence": 55.0}).want["min_confidence"] == 55
+    assert plan_wait(WORDS | {"min_confidence": None}).want["min_confidence"] == 40
+    assert plan_wait({"for": "screen", "region": BOX | {"x": "10", "width": 3.0}}).want["region"] == BOX | {"x": 10}
+
+
+def test_a_refusal_is_one_the_route_decorators_answer_with_a_400():
+    assert issubclass(WaitError, BadRequest)
+    assert issubclass(BodyFieldError, BadRequest)
 
 
 def test_what_is_already_true_is_answered_at_the_first_look():
