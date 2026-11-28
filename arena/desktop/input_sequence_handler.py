@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from typing import Any
 
 from aiohttp import web
@@ -48,6 +49,11 @@ class _Desk:
 
 
 _DESK = _Desk()
+_ABANDONED = {
+    "ok": False,
+    "error": "request_cancelled",
+    "message": "the request this sequence belonged to was cancelled",
+}
 _BUSY = {
     "error": "sequence_in_progress",
     "message": "another input sequence is still running on this desktop; wait for it to end",
@@ -80,18 +86,30 @@ def _run_then_free(steps: list[dict[str, Any]], driver: InputDriver, guard: Guar
         _DESK.give_back()
 
 
-async def _run_alone(steps: list[dict[str, Any]], driver: InputDriver, guard: Guard) -> dict[str, Any] | None:
-    """Run the steps off the event loop, or return None while another sequence is running."""
-    if not _DESK.take():
-        return None
+async def _run_admitted(ctx: DesktopHandlerContext, steps: list[dict[str, Any]], driver: InputDriver,
+                        title: str) -> dict[str, Any]:
+    """The desk is this caller's: note the action, run off the event loop, stop if the request is cancelled."""
+    abandoned = threading.Event()
+
+    def should_stop() -> Any:
+        return ctx.control_check() or (_ABANDONED if abandoned.is_set() else None)
+
     try:
-        started = asyncio.get_running_loop().run_in_executor(None, lambda: _run_then_free(steps, driver, guard))
+        # Only now: a request refused as busy sent no input and must not look as if it had.
+        ctx.control_record_agent_action()
+        started = asyncio.get_running_loop().run_in_executor(
+            None, lambda: _run_then_free(steps, driver, Guard(title, should_stop)))
     except BaseException:
         _DESK.give_back()
         raise
-    # Shielded: a caller that goes away must not cancel a run still queued for a
-    # thread, because then nothing would ever give the desk back.
-    return await asyncio.shield(started)
+    try:
+        # Shielded: cancelling a run still queued for a thread would leave nobody to
+        # give the desk back. A run that has started is told to stop instead, and
+        # lets go of what it holds at its next check (within 50 ms).
+        return await asyncio.shield(started)
+    except asyncio.CancelledError:
+        abandoned.set()
+        raise
 
 
 def _refused_plan(exc: SequenceError) -> dict[str, Any]:
@@ -120,10 +138,9 @@ def make_desktop_sequence_handler(ctx: DesktopHandlerContext):
             steps = plan_sequence(body.get("steps"), driver)
         except SequenceError as exc:
             return _refuse(_refused_plan(exc), 400)
-        ctx.control_record_agent_action()
-        result = await _run_alone(steps, driver, Guard(title, ctx.control_check))
-        if result is None:
+        if not _DESK.take():
             return _refuse(_BUSY, 409)
+        result = await _run_admitted(ctx, steps, driver, title)
         status = _STOP_STATUS.get(str(result.get("error")), 200)
         if status != 200:
             ctx.record_request(is_error=True, count_request=False)

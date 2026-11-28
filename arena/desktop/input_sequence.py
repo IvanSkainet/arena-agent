@@ -35,9 +35,11 @@ _SLICE_MS = 50
 #: How a held key or button is named in messages: "key:w", "button:left".
 _KEY = "key:"
 _BUTTON = "button:"
-#: How far a run may fall behind its plan before it is stopped. The plan is
-#: checked in planned milliseconds; a host that sleeps longer than it was asked
-#: to would otherwise hold a key past the limit with nothing to notice.
+#: The limits are checked twice: on the plan, in planned milliseconds, and during
+#: the run, on the clock. A host that sleeps longer than it was asked to would
+#: otherwise hold a key past the limit with nothing to notice. The run-time
+#: check allows this much more than the plan-time one, because a plan at exactly
+#: the limit always takes a little longer than that to execute.
 _GRACE_MS = 2_000
 _DEFAULT_PRESS_MS = 60
 _BUTTONS = ("left", "right", "middle")
@@ -62,8 +64,8 @@ class SequenceError(ValueError):
 class InputDriver(Protocol):
     """What a platform has to provide for a sequence to run on it."""
 
-    def knows_key(self, name: str) -> bool:
-        """Whether `name` is a key this platform can press."""
+    def key_id(self, name: str) -> str | None:
+        """The one name this platform has for the key (`escape` is `esc`), or None if it has no such key."""
 
     def key_down(self, name: str) -> None:
         """Press a key and leave it down."""
@@ -123,9 +125,12 @@ def _key_name(step: dict[str, Any], index: int, driver: InputDriver) -> str:
     if not isinstance(name, str) or not name.strip():
         raise SequenceError(f"step {index}: 'key' must be a key name", index)
     name = name.strip().lower()
-    if not driver.knows_key(name):
+    # One identity per key: `key_down esc` then `key_up escape` is a release, not
+    # two keys, both for the hold limit and for what is let go at the end.
+    key = driver.key_id(name)
+    if key is None:
         raise SequenceError(f"step {index}: unknown key {name!r}", index)
-    return name
+    return key
 
 
 def _button_name(step: dict[str, Any], index: int) -> str:
@@ -312,25 +317,30 @@ class _Run:
         self.wait_until(self.clock.now() + ms / 1000.0)
 
     def wait_until(self, deadline: float) -> None:
-        """Sleep in slices up to a point in time, checking the guards after each slice."""
+        """Sleep in slices up to a point in time; the guards are checked at least once, even if it has passed."""
         while True:
             left = deadline - self.clock.now()
-            if left <= 0:
-                return
-            self.clock.sleep(min(left, _SLICE_MS / 1000.0))
+            if left > 0:
+                self.clock.sleep(min(left, _SLICE_MS / 1000.0))
             self.check()
+            if deadline - self.clock.now() <= 0:
+                return
 
+    # The time of a press is read before the system is asked for it: a thread
+    # stalled inside the call must not start the hold limit late.
     def key_down(self, name: str) -> None:
+        asked = self.clock.now()
         self.driver.key_down(name)
-        self.keys.setdefault(name, self.clock.now())
+        self.keys.setdefault(name, asked)
 
     def key_up(self, name: str) -> None:
         self.driver.key_up(name)
         self.keys.pop(name, None)
 
     def button_down(self, name: str) -> None:
+        asked = self.clock.now()
         self.driver.button_down(name)
-        self.buttons.setdefault(name, self.clock.now())
+        self.buttons.setdefault(name, asked)
 
     def button_up(self, name: str) -> None:
         self.driver.button_up(name)

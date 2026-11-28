@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes as wt
+import threading
 from typing import Any
 
 INPUT_MOUSE = 0
@@ -63,6 +64,13 @@ def _virtual_keys() -> dict[str, int]:
 
 
 VIRTUAL_KEYS = _virtual_keys()
+#: The first name listed for a virtual key is the one the driver answers to.
+_KEY_IDS: dict[int, str] = {}
+for _name, _vk in VIRTUAL_KEYS.items():
+    _KEY_IDS.setdefault(_vk, _name)
+#: A relative cursor move is a read and a write. Two of them at once would both
+#: read the same position, and one delta would be lost with both answering ok.
+_CURSOR = threading.Lock()
 #: Keys whose scan code is shared with the numeric pad and needs the extended bit.
 _EXTENDED = frozenset({0xA3, 0xA5, 0x2E, 0x2D, 0x24, 0x23, 0x21, 0x22, 0x25, 0x26, 0x27, 0x28})
 
@@ -92,8 +100,9 @@ class WindowsInputDriver:
         event.u.mi = MOUSEINPUT(delta[0], delta[1], data & 0xFFFFFFFF, flags, 0, 0)
         self._send(event)
 
-    def knows_key(self, name: str) -> bool:
-        return name in VIRTUAL_KEYS
+    def key_id(self, name: str) -> str | None:
+        vk = VIRTUAL_KEYS.get(name)
+        return None if vk is None else _KEY_IDS[vk]
 
     def key_down(self, name: str) -> None:
         self._key(name, 0)
@@ -121,9 +130,10 @@ class WindowsInputDriver:
         # pointer speed before it reaches the cursor. On a machine with the
         # speed at its lowest, 640 counts moved the cursor 20 pixels.
         here = wt.POINT()
-        if not self._user32.GetCursorPos(ctypes.byref(here)):
-            raise OSError("GetCursorPos failed: the cursor position is not available to this process")
-        self.move_to(here.x + dx, here.y + dy)
+        with _CURSOR:
+            if not self._user32.GetCursorPos(ctypes.byref(here)):
+                raise OSError("GetCursorPos failed: the cursor position is not available to this process")
+            self.move_to(here.x + dx, here.y + dy)
 
     def scroll(self, clicks: int) -> None:
         self._mouse(MOUSEEVENTF_WHEEL, data=clicks * WHEEL_DELTA)

@@ -5,10 +5,8 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import io
 import json
-import re
 import secrets
 import sys
 import threading
@@ -140,7 +138,7 @@ def test_a_second_sequence_is_refused_while_the_first_is_still_running(monkeypat
     """Two at once interleave, and each lets go of the keys the other still holds."""
     slow = _SlowDriver()
     monkeypatch.setattr(input_sequence_handler, "sequence_driver", lambda env: slow)
-    ctx, _ = handler_ctx()
+    ctx, recorded = handler_ctx()
     body = {"require_active_title": "game", "steps": [{"do": "key_down", "key": "w"}]}
 
     async def go():
@@ -151,16 +149,46 @@ def test_a_second_sequence_is_refused_while_the_first_is_still_running(monkeypat
             await asyncio.get_running_loop().run_in_executor(None, slow.pressing.wait, 10)
             second = await client.post("/v1/desktop/sequence", json=body)
             refused = second.status, await second.json()
+            actions_after_the_refusal = recorded.count({"agent_action": True})
             slow.go_on.set()
             finished = await first
             third = await client.post("/v1/desktop/sequence", json=body)
-            return refused, finished.status, third.status
+            return refused, finished.status, third.status, actions_after_the_refusal
 
-    refused, first_status, third_status = asyncio.run(go())
+    refused, first_status, third_status, actions_after_the_refusal = asyncio.run(go())
+    assert actions_after_the_refusal == 1, "the refused request sent no input and must not be recorded as input"
     assert refused[0] == 409
     assert refused[1]["error"] == "sequence_in_progress"
     assert first_status == 200
     assert third_status == 200, "the lock was not released when the first sequence ended"
+
+
+def test_a_cancelled_request_stops_its_sequence_and_lets_go(monkeypatch):
+    """Whoever cancels the handler -- a shutdown, a server that cancels on disconnect -- the key comes up."""
+    driver = Recorder()
+    ctx, _ = handler_ctx()
+    steps = [{"do": "key_down", "key": "w"}, {"do": "wait", "ms": 10_000}, {"do": "tap", "key": "space"}]
+
+    async def go():
+        assert input_sequence_handler._DESK.take()
+        task = asyncio.ensure_future(input_sequence_handler._run_admitted(ctx, steps, driver, "game"))
+        while ("key_down", "w") not in driver.events:
+            await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        for _ in range(200):
+            if ("key_up", "w") in driver.events:
+                break
+            await asyncio.sleep(0.01)
+        await asyncio.sleep(0.05)
+        return input_sequence_handler._DESK.take()
+
+    driver.title = "game"
+    free_again = asyncio.run(go())
+    input_sequence_handler._DESK.give_back()
+    assert driver.events == [("key_down", "w"), ("key_up", "w")]
+    assert free_again, "the desk was not given back after the cancelled run ended"
 
 
 def test_a_run_that_blows_up_still_lets_the_next_one_in(driver, monkeypatch):
@@ -268,11 +296,23 @@ def test_the_tool_posts_the_sequence_and_returns_the_bridge_s_answer(monkeypatch
     assert tool_desktop_sequence.handle_desktop_sequence_tool("desktop.key", {}, ctx=None) is None
 
 
-def test_the_tool_outwaits_the_longest_sequence():
-    """The helper's timeout is a literal in another module; the limit here must stay under it."""
-    waits = [int(found) for found in re.findall(r"timeout=(\d+)", inspect.getsource(tool_desktop_sequence._bridge_call))]
-    assert waits, "the helper no longer states its timeout where this test can read it"
-    assert MAX_TOTAL_MS / 1000 + 10 <= min(waits)
+def test_the_tool_outwaits_the_longest_sequence(monkeypatch):
+    """Measured on the request the tool makes, not read out of the helper's source."""
+    seen = {}
+
+    class _Answer(io.BytesIO):
+        status = 200
+
+    def answer(request, timeout):
+        seen["timeout"] = timeout
+        return _Answer(b'{"ok": true}')
+
+    monkeypatch.setattr("urllib.request.urlopen", answer)
+    ctx = SimpleNamespace(app_config=lambda: {"port": 1, "token": secrets.token_hex(8)})
+    result = tool_desktop_sequence.handle_desktop_sequence_tool(
+        "desktop.sequence", {"steps": [], "require_active_title": "game"}, ctx=ctx)
+    assert json.loads(result["content"][0]["text"]) == {"ok": True}
+    assert seen["timeout"] >= MAX_TOTAL_MS / 1000 + 10
 
 
 def test_the_dispatcher_reaches_the_tool_through_the_desktop_input_handler(monkeypatch):

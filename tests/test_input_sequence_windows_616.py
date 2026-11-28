@@ -90,9 +90,18 @@ def test_a_cursor_the_system_will_not_move_is_an_error(user32):
 def test_the_driver_reads_the_foreground_title_and_knows_its_keys(user32):
     driver = windows_input.WindowsInputDriver(user32)
     assert driver.foreground_title() == "Abyssal Ascent - Minecraft"
-    assert driver.knows_key("f3")
-    assert driver.knows_key("7")
-    assert not driver.knows_key("hyper")
+    assert driver.key_id("f3") == "f3"
+    assert driver.key_id("7") == "7"
+    assert driver.key_id("hyper") is None
+
+
+def test_two_names_for_one_key_are_one_key_and_two_keys_stay_two(user32):
+    driver = windows_input.WindowsInputDriver(user32)
+    assert driver.key_id("escape") == driver.key_id("esc") == "esc"
+    assert driver.key_id("return") == "enter"
+    assert driver.key_id("lshift") == "shift"
+    assert driver.key_id("rshift") == "rshift"
+    assert {driver.key_id(name) for name in windows_input.VIRTUAL_KEYS} <= set(windows_input.VIRTUAL_KEYS)
 
 
 # ---------------------------------------------------------------------
@@ -149,6 +158,16 @@ def test_a_relative_move_of_the_cursor_is_in_pixels_not_in_device_motion(user32,
     _mouse_route({"x": 640, "y": 320, "absolute": False})
     assert user32.sent == [], "SendInput motion is scaled by the pointer speed before it reaches the cursor"
     assert user32.cursor == (640, 320)
+
+
+def test_a_relative_move_reads_and_writes_the_cursor_as_one_step(user32):
+    """Two at once would both read the same position, and one delta would be lost."""
+    user32.cursor = (100, 100)
+    windows_input.WindowsInputDriver(user32).shift_cursor(10, 0)
+    assert user32.cursor == (110, 100)
+    assert user32.cursor_was_read_under_the_lock
+    assert user32.cursor_was_set_under_the_lock
+    assert not windows_input._CURSOR.locked()
 
 
 def test_a_cursor_that_cannot_be_read_is_a_500_and_nothing_moves(user32, monkeypatch):

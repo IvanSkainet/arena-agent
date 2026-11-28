@@ -35,8 +35,9 @@ class Recorder:
             raise OSError("SendInput delivered 0 of 1 events")
         self.events.append(event)
 
-    def knows_key(self, name: str) -> bool:
-        return name in {"w", "space", "shift", "f3", "esc"}
+    def key_id(self, name: str) -> str | None:
+        name = {"escape": "esc"}.get(name, name)
+        return name if name in {"w", "space", "shift", "f3", "esc"} else None
 
     def key_down(self, name: str) -> None:
         self._note("key_down", name)
@@ -104,6 +105,8 @@ class FakeUser32:
         self.deliver = 1
         self.cursor_is_readable = 1
         self.cursor_can_be_set = 1
+        self.cursor_was_read_under_the_lock = False
+        self.cursor_was_set_under_the_lock = False
 
     def SendInput(self, count, pointer, size):  # noqa: N802 -- the Win32 name
         _expect(count == 1, f"SendInput was given {count} events at once")
@@ -116,11 +119,13 @@ class FakeUser32:
         return 0x100 + vk
 
     def SetCursorPos(self, x, y):  # noqa: N802
+        self.cursor_was_set_under_the_lock = windows_input._CURSOR.locked()
         if self.cursor_can_be_set:
             self.cursor = (x, y)
         return self.cursor_can_be_set
 
     def GetCursorPos(self, pointer):  # noqa: N802
+        self.cursor_was_read_under_the_lock = windows_input._CURSOR.locked()
         if self.cursor_is_readable:
             pointer._obj.x, pointer._obj.y = self.cursor
         return self.cursor_is_readable

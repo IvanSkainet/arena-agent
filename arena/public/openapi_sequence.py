@@ -28,6 +28,10 @@ _BAD_REQUEST = {**_JSON_BODY_ERROR_ENVELOPE, "properties": {
 }}
 
 
+_RELEASE = ("The runner then tries to release everything it was holding; `release_failed` lists any key or "
+            "button the system would not let go, which may still be down.")
+
+
 def _refusal(description: str, schema: dict | None = None) -> dict:
     return {"description": description, "content": {"application/json": {"schema": schema or _ERROR_ENVELOPE}}}
 
@@ -46,14 +50,17 @@ def sequence_path_item(title_guard: str, title_conflict: str) -> dict:
             "required": ["steps", "require_active_title"],
         }}}},
         "responses": {
-            "200": {"description": "Every step ran; whatever was still held has been released"},
+            "200": {"description": "Every step ran, and everything still held was released"},
             "400": _refusal("A step is malformed or over a limit, require_active_title is missing, "
                             "or the body is not an object", _BAD_REQUEST),
-            "403": _refusal("Desktop control was paused or revoked; held input has been released"),
-            "409": _refusal(title_conflict + ". Also returned, with error `sequence_in_progress`, while another "
-                            "sequence is still running: one sequence drives the desktop at a time."),
-            "500": _refusal("The system refused an input event, or the host fell more than 2 s behind the plan "
-                            "(`input_overran`); held input has been released"),
+            "403": _refusal("Desktop control was paused or revoked during the run. " + _RELEASE),
+            "409": _refusal(title_conflict + ". " + _RELEASE + " Also returned, with error "
+                            "`sequence_in_progress` and nothing sent, while another sequence is still running: "
+                            "one sequence drives the desktop at a time."),
+            "500": _refusal("The system refused an input event (`input_failed`), or a limit was passed during "
+                            "the run (`input_overran`): the limits are checked on the plan and again on the "
+                            "clock while it runs, where a key down for more than 17 s or a run of more than "
+                            "47 s stops the sequence at its next check. " + _RELEASE),
             "501": _refusal("No input driver for this desktop (native Windows only for now)"),
         },
     }}

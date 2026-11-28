@@ -296,6 +296,46 @@ def test_a_button_the_caller_released_is_not_released_again():
     assert result["released_at_end"] == {"keys": [], "buttons": []}
 
 
+def test_a_key_released_under_its_other_name_is_released():
+    """`esc` and `escape` are one key: sixteen seconds after the release there is nothing to refuse."""
+    steps = [{"do": "key_down", "key": "esc"}, {"do": "key_up", "key": "Escape"}, {"do": "wait", "ms": 16_000}]
+    result, driver, _ = run(steps)
+    assert result["ok"] is True
+    assert driver.events == [("key_down", "esc"), ("key_up", "esc")]
+    assert result["released_at_end"] == {"keys": [], "buttons": []}
+
+
+def test_a_press_that_stalls_inside_the_system_call_counts_from_when_it_was_asked_for():
+    driver, clock = Recorder(), Clock()
+    press = driver.key_down
+
+    def stalled_press(name: str) -> None:
+        press(name)
+        clock.now += MAX_HOLD_MS / 1000 + 3
+
+    driver.key_down = stalled_press
+    result, _, _ = run([{"do": "key_down", "key": "w"}, {"do": "tap", "key": "space"}], driver, clock=clock)
+    assert result["error"] == "input_overran"
+    assert driver.events == [("key_down", "w"), ("key_up", "w")]
+
+
+def test_a_timed_move_that_is_already_late_still_looks_before_each_part():
+    """Every deadline had passed, so nothing slept, so nothing was checked: the rest went to the wrong window."""
+    driver, clock = Recorder(), Clock()
+    send = driver.move_rel
+
+    def lose_focus_while_sending(dx: int, dy: int) -> None:
+        send(dx, dy)
+        driver.title = "Terminal"
+        clock.now += 1.0
+
+    driver.move_rel = lose_focus_while_sending
+    result, _, _ = run([{"do": "move", "dx": 400, "dy": 0, "ms": 32}], driver, clock=clock)
+    assert len(driver.events) == 1
+    assert result["error"] == "input_guard_failed"
+    assert result["active_title"] == "Terminal"
+
+
 def test_absolute_moves_and_the_wheel_reach_the_driver():
     _, driver, _ = run([{"do": "move_to", "x": 1208, "y": 976}, {"do": "scroll", "clicks": -2}])
     assert driver.events == [("move_to", 1208, 976), ("scroll", -2)]
