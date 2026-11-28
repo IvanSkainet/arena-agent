@@ -11,7 +11,8 @@ _ANSWER = {
     "type": "object",
     "properties": {
         "ok": {"type": "boolean"},
-        "happened": {"type": "boolean", "description": "false: the time ran out first. That is an answer, not an error."},
+        "happened": {"type": "boolean",
+                     "description": "false: the time ran out first. That is an answer, not an error."},
         "for": {"type": "string", "enum": list(FIELDS)},
         "waited_ms": {"type": "integer"},
         "polls": {"type": "integer", "description": "How many times the desktop was looked at."},
