@@ -301,6 +301,13 @@ def test_the_tool_passes_its_arguments_on_and_returns_the_answer(bridge):
     assert json.loads(result["content"][0]["text"]) == answer
 
 
+def test_a_title_in_another_alphabet_reaches_the_agent_as_written(bridge):
+    _, answer = bridge
+    answer.update({"ok": True, "happened": True, "for": "window", "window": {"title": "Блокнот"}})
+    result = tool_desktop_wait.handle_desktop_wait_tool("desktop.wait", {"for": "window", "title": "x"}, ctx=None)
+    assert "Блокнот" in result["content"][0]["text"]
+
+
 def test_a_refusal_reaches_the_agent_as_an_error_in_the_bridges_words(bridge):
     _, answer = bridge
     answer.update({"ok": False, "status": 503, "error": "tesseract is not installed", "unavailable": ["tesseract"]})

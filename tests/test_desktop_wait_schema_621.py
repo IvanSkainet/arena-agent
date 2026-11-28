@@ -21,7 +21,7 @@ BASE = {
 #: What a field needs beside it to be taken at all.
 BESIDE = {"stable_ms": {"until": "stable"}}
 SCHEMA = wait_request_schema()
-PROPERTIES = SCHEMA["properties"]
+PROPERTIES = SCHEMA.get("properties", {})
 
 
 def _kinds_taking(name: str) -> list[str]:

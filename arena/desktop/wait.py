@@ -139,7 +139,8 @@ def _screen(body: Mapping[str, Any], timeout_ms: int) -> dict[str, Any]:
     stable_ms = _whole(body, "stable_ms", usual, (MIN_POLL_MS, MAX_TIMEOUT_MS))
     if stable_ms > timeout_ms:
         raise WaitError("'stable_ms' is longer than 'timeout_ms': the screen could never be still for that long")
-    return {**want, "stable_ms": stable_ms}
+    want["stable_ms"] = stable_ms
+    return want
 
 
 def _text(body: Mapping[str, Any], _timeout_ms: int) -> dict[str, Any]:
@@ -179,8 +180,9 @@ async def wait_for(plan: WaitPlan, look: Looker, *, clock: Callable[[], float] =
         waited_ms = round((clock() - started) * 1000)
         left_ms = plan.timeout_ms - waited_ms
         if seen.done or left_ms <= 0:
-            return {"ok": True, "happened": seen.done, "for": plan.kind, "waited_ms": waited_ms, "polls": polls,
-                    **seen.seen}
+            answer = {"ok": True, "happened": seen.done, "for": plan.kind, "waited_ms": waited_ms, "polls": polls}
+            answer.update(seen.seen)
+            return answer
         await sleep(min(plan.poll_ms, left_ms) / 1000)
 
 
