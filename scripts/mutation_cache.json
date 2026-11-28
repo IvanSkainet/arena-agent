@@ -171,6 +171,16 @@
    "tool": "mutmut 2.5.1",
    "total": 24
   },
+  "arena/desktop/frame_compare.py": {
+   "fingerprint": "bf83a3cd920c127b99000f519d9431dbe95bde45466086f367feff3cd41208d3",
+   "reason": "#621 first run; 0/49 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_desktop_wait_looks_621.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 49
+  },
   "arena/desktop/tesseract.py": {
    "fingerprint": "2acb1284115f89d325a6c704ac152a411bb449d0992c9481bdcb30a6a6c09958",
    "reason": "PR #629: fallback candidates must be executable; measured with mutmut 2.5.1",
@@ -180,6 +190,46 @@
    ],
    "tool": "mutmut 2.5.1",
    "total": 69
+  },
+  "arena/desktop/wait.py": {
+   "fingerprint": "fa1d6b0597957430d6879692462b6b469fb64118727be606b4d9c6ccc68a5b17",
+   "reason": "#621 first run; 0/183 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_desktop_wait_621.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 183
+  },
+  "arena/desktop/wait_handler.py": {
+   "fingerprint": "147c2c170a70c18d954d469e584d2a85eb79ec387ce536c33a6c3e2c85e2180a",
+   "reason": "#621 first run; 0/27 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_desktop_wait_route_621.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 27
+  },
+  "arena/desktop/wait_looks.py": {
+   "fingerprint": "639d54deeb70e754815eb9cd9732b5363c8d792fb53274182659a6d999914df9",
+   "reason": "#621 first run; 0/92 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_desktop_wait_looks_621.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 92
+  },
+  "arena/desktop/wait_schema.py": {
+   "fingerprint": "059e78e08e90b13edf8cfca69ba436c2fb7299968deaf18a99b53563e8e24686",
+   "reason": "#621 first run; 0/106 survivors",
+   "survived": 0,
+   "tests": [
+    "tests/test_desktop_wait_schema_621.py"
+   ],
+   "tool": "mutmut 2.5.1",
+   "total": 106
   },
   "arena/exec/client_lifecycle.py": {
    "fingerprint": "8ffe18038c0d242bc00a03f013aadd85cc707282d44ea020f7a54a4bb1212de3",
