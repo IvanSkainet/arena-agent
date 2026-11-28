@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shlex
 import shutil
 import sys
 from pathlib import Path
@@ -30,6 +31,7 @@ def _installed(tmp_path, monkeypatch):
     (root / "tessdata" / "eng.traineddata").write_bytes(b"x")
     binary = root / "tesseract.exe"
     binary.write_bytes(b"")
+    binary.chmod(0o755)
     monkeypatch.setattr(shutil, "which", lambda name: None)
     monkeypatch.setenv("ProgramFiles", str(tmp_path / "Program Files"))
     monkeypatch.setenv("ProgramFiles(x86)", str(tmp_path / "none-x86"))
@@ -102,7 +104,25 @@ def test_every_install_directory_is_looked_in(nowhere, place):
     binary = nowhere.joinpath(*place.split("/"))
     binary.parent.mkdir(parents=True)
     binary.write_bytes(b"")
+    binary.chmod(0o755)
     assert tesseract.find_tesseract() == str(binary)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows has no execute permission to withhold")
+def test_a_file_the_user_may_not_execute_is_passed_over(installed):
+    """A plain file in the user's bin directory is not a tesseract; the next place is asked, as PATH lookup would."""
+    plain = Path.home() / ".local" / "bin" / "tesseract"
+    plain.parent.mkdir(parents=True)
+    plain.write_bytes(b"")
+    plain.chmod(0o644)
+    assert tesseract.find_tesseract() == str(installed)
+    plain.chmod(0o755)
+    assert tesseract.find_tesseract() == str(plain)
+
+
+def test_a_directory_with_the_name_is_passed_over(installed):
+    (Path.home() / ".local" / "bin" / "tesseract").mkdir(parents=True)
+    assert tesseract.find_tesseract() == str(installed)
 
 
 def test_the_usual_directories_are_assumed_when_the_environment_does_not_name_them(nowhere, monkeypatch):
@@ -145,7 +165,8 @@ def _stand_in_program(directory: Path) -> Path:
         program.write_text(f'@"{sys.executable}" "%~dp0stand_in.py" %*\r\n', encoding="utf-8")
         return program
     program = directory / "tesseract"
-    program.write_text(f"#!{sys.executable}\nimport runpy\nrunpy.run_path({str(script)!r}, run_name='__main__')\n",
+    # Not `#!<python>`: the kernel cuts an interpreter path at the first space.
+    program.write_text(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(script))} "$@"\n',
                        encoding="utf-8")
     program.chmod(0o755)
     return program
@@ -169,6 +190,7 @@ def test_path_is_asked_first(installed, tmp_path, monkeypatch):
     on_path = tmp_path / "bin" / "tesseract"
     on_path.parent.mkdir()
     on_path.write_bytes(b"")
+    on_path.chmod(0o755)
     monkeypatch.setattr(shutil, "which", lambda name: str(on_path) if name == "tesseract" else None)
     assert tesseract.find_tesseract() == str(on_path)
     assert tesseract.candidate_paths()[0] == on_path

@@ -172,14 +172,14 @@
    "total": 24
   },
   "arena/desktop/tesseract.py": {
-   "fingerprint": "b41a0fbcadbb72ad20d18de340d3c16c5280f61f605dd6ca3f95c4f5883e6882",
-   "reason": "#619/#620 exact run on the PR head; 0 survivors",
+   "fingerprint": "2acb1284115f89d325a6c704ac152a411bb449d0992c9481bdcb30a6a6c09958",
+   "reason": "PR #629: fallback candidates must be executable; measured with mutmut 2.5.1",
    "survived": 0,
    "tests": [
     "tests/test_tesseract_lookup_619.py"
    ],
    "tool": "mutmut 2.5.1",
-   "total": 68
+   "total": 69
   },
   "arena/exec/client_lifecycle.py": {
    "fingerprint": "8ffe18038c0d242bc00a03f013aadd85cc707282d44ea020f7a54a4bb1212de3",

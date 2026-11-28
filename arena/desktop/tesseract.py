@@ -41,9 +41,17 @@ def candidate_paths() -> list[Path]:
     return unique
 
 
+def _can_be_run(path: Path) -> bool:
+    # PATH only ever names files this user may execute; the fixed places get
+    # the same test, or a plain file left at ~/.local/bin/tesseract would be
+    # chosen and then fail to start instead of being reported as missing.
+    # Windows has no execute bit: there every existing file passes.
+    return path.is_file() and os.access(path, os.X_OK)
+
+
 def find_tesseract() -> str | None:
-    """The tesseract binary to run, or None when there is none."""
-    return next((str(path) for path in candidate_paths() if path.is_file()), None)
+    """The tesseract binary to run, or None when there is none this user can start."""
+    return next((str(path) for path in candidate_paths() if _can_be_run(path)), None)
 
 
 def _quoted(piece: str) -> str:
