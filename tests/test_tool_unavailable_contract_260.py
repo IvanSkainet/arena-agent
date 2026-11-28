@@ -45,6 +45,7 @@ from arena.desktop.input import (  # noqa: E402
     build_type_command,
 )
 from arena.desktop.screenshot import capture_desktop_screenshot  # noqa: E402
+from arena.desktop.tesseract import find_tesseract  # noqa: E402
 
 # An environment dict with every tool absent: what a headless container, a
 # fresh VM or a CI runner actually looks like.
@@ -124,7 +125,21 @@ def _nothing_installed(needs: list[str]) -> bool:
     about the tools themselves, so a row runs wherever the refusal is
     reachable and is skipped exactly where it is not.
     """
-    return not any(shutil.which(tool) for tool in needs)
+    return not any(_installed(tool) for tool in needs)
+
+
+def _installed(tool: str) -> bool:
+    """Ask the way the bridge asks. Tesseract is looked for beyond PATH since #619.
+
+    On a Windows desktop with tesseract in Program Files and not on PATH, the
+    old question (`shutil.which`) said "missing" while desktop OCR found it.
+    The rows below then ran for real: OCR of the screen in front of the
+    owner, and `click_text` on whatever matched. That happened once, on the
+    machine this fix was being verified on.
+    """
+    if tool == "tesseract":
+        return find_tesseract() is not None
+    return shutil.which(tool) is not None
 
 
 CALLS_FOR_THIS_PLATFORM = [
@@ -445,6 +460,17 @@ def test_every_tool_dependent_endpoint_answers_503_with_its_tool_list(tmp_path, 
     assert "error_type" not in payload
 
 
+def test_a_tesseract_outside_path_counts_as_installed(monkeypatch):
+    """The guard on the sweep asks what the bridge asks, so a row never runs where it would act for real."""
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    monkeypatch.setattr(sys.modules[__name__], "find_tesseract", lambda: r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+    assert not _nothing_installed(["tesseract"])
+    assert _nothing_installed(["xdotool"])
+    monkeypatch.setattr(sys.modules[__name__], "find_tesseract", lambda: None)
+    assert _nothing_installed(["tesseract"])
+
+
+@pytest.mark.skipif(_installed("tesseract"), reason="tesseract is installed here: the call would read the real screen")
 def test_resolve_text_target_no_longer_calls_a_missing_tool_a_success():
     """The worst of the nine: it answered 200 with `ok: false`.
 
