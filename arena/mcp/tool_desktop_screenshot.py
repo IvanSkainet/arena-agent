@@ -7,6 +7,7 @@ from typing import Any
 from arena.mcp.desktop_refusal import bridge_refusal
 from arena.mcp.image_result import error_result, region_box, shot_result
 from arena.mcp.tool_desktop import _bridge_get
+from arena.mcp.tool_desktop_wait import handle_desktop_wait_tool
 
 _DEFAULT_MAX_WIDTH = 1280
 _REGION_KEYS = ("x", "y", "width", "height")
@@ -68,7 +69,8 @@ def _screenshot(ctx, args: dict[str, Any]) -> dict[str, Any]:
 def handle_desktop_screenshot_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
     """Dispatch ``desktop.screenshot``; a bridge refusal comes back in its own words."""
     if name != "desktop.screenshot":
-        return None
+        # The other read-only desktop tool that is not a plain route call (#621).
+        return handle_desktop_wait_tool(name, args, ctx=ctx)
     try:
         return _screenshot(ctx, args)
     except urllib.error.HTTPError as exc:

@@ -290,6 +290,27 @@ TARGETS: dict[str, tuple[str, ...]] = {
     "arena/mcp/desktop_refusal.py": (
         "tests/test_desktop_refusals_620.py",
     ),
+    # #621: the desktop wait. The request and the loop (0/183), what a look
+    # is (0/92), how two captures are compared (0/49), the route (0/27) and
+    # the one written description of the request (0/106).
+    # `arena/mcp/tool_desktop_wait.py` is not here yet: two of its 23 mutants
+    # stop the test modules from importing, and mutmut 2.5.1 reads only exit
+    # code 1 as "caught", so it counts them as survivors (#630).
+    "arena/desktop/wait.py": (
+        "tests/test_desktop_wait_621.py",
+    ),
+    "arena/desktop/wait_looks.py": (
+        "tests/test_desktop_wait_looks_621.py",
+    ),
+    "arena/desktop/frame_compare.py": (
+        "tests/test_desktop_wait_looks_621.py",
+    ),
+    "arena/desktop/wait_handler.py": (
+        "tests/test_desktop_wait_route_621.py",
+    ),
+    "arena/desktop/wait_schema.py": (
+        "tests/test_desktop_wait_schema_621.py",
+    ),
 }
 
 

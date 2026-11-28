@@ -296,6 +296,7 @@ ROUTES: list[Route] = [
     ('POST'  , '/v1/desktop/key'                                 , 'handle_v1_desktop_key'                      , 'desktop', None),
     ('POST'  , '/v1/desktop/mouse'                               , 'handle_v1_desktop_mouse'                    , 'desktop', None),
     ('POST'  , '/v1/desktop/sequence'                            , 'handle_v1_desktop_sequence'                 , 'desktop', None),
+    ('POST'  , '/v1/desktop/wait'                                , 'handle_v1_desktop_wait'                     , 'desktop', None),
     ('GET'   , '/v1/desktop/windows'                             , 'handle_v1_desktop_windows'                  , 'desktop', None),
     ('GET'   , '/v1/desktop/active_window'                       , 'handle_v1_desktop_active_window'            , 'desktop', None),
     ('POST'  , '/v1/desktop/focus'                               , 'handle_v1_desktop_focus'                    , 'desktop', None),

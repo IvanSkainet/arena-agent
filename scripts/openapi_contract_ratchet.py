@@ -29,8 +29,8 @@ sys.path.insert(0, str(REPO_ROOT))
 
 # Operations whose 2xx body is described by a schema. Raise this as endpoints
 # get documented; never lower it. Measured at 221d2742 + the three routes
-# documented by #205.
-MIN_SUCCESS_SCHEMAS = 3
+# documented by #205; 4 with the wait route (#621).
+MIN_SUCCESS_SCHEMAS = 4
 
 # A detector that inspects an empty document reports OK forever.
 MIN_OPERATIONS = 60

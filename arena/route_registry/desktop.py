@@ -14,6 +14,7 @@ def register_desktop_routes(app: web.Application, h: Mapping[str, Callable]) -> 
     app.router.add_post("/v1/desktop/key", h["handle_v1_desktop_key"])
     app.router.add_post("/v1/desktop/mouse", h["handle_v1_desktop_mouse"])
     app.router.add_post("/v1/desktop/sequence", h["handle_v1_desktop_sequence"])
+    app.router.add_post("/v1/desktop/wait", h["handle_v1_desktop_wait"])
     app.router.add_get("/v1/desktop/windows", h["handle_v1_desktop_windows"])
     app.router.add_get("/v1/desktop/active_window", h["handle_v1_desktop_active_window"])
     app.router.add_post("/v1/desktop/focus", h["handle_v1_desktop_focus"])

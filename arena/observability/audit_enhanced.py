@@ -39,7 +39,7 @@ _CATEGORY_MAP: list[tuple[list[str], str]] = [
       "desktop_input."], "execute"),
     # read-only
     (["fs.read", "fs.list", "fs.tree", "fs.search", "fs.stat",
-      "desktop.windows", "desktop.displays", "desktop.ocr",
+      "desktop.windows", "desktop.displays", "desktop.ocr", "desktop.wait",
       "desktop.find_text", "desktop_app.find", "desktop_app.screenshot",
       "ship.", "workbench.", "scenario.list", "scenario.records",
       "mission.autopilot_status", "mission.autopilot_list",

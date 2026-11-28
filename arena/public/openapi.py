@@ -11,6 +11,7 @@ from arena.public.error_envelopes import (
     _UNAVAILABLE_ENVELOPE,
 )
 from arena.public.openapi_sequence import sequence_path_item
+from arena.public.openapi_wait import wait_path_item
 
 
 def _text_schema(*, required: bool = False) -> dict:
@@ -126,6 +127,8 @@ _NEEDS_LOCAL_TOOL = {
     ("post", "/v1/desktop/text_action"): _OCR_NEEDS + ("ydotool", "xdotool"),
     ("post", "/v1/desktop/focus"): _OCR_NEEDS,
     ("post", "/v1/desktop/window_action"): _OCR_NEEDS,
+    # #621: a window wait needs a way to list windows, the other two a capture (and OCR).
+    ("post", "/v1/desktop/wait"): _OCR_NEEDS + ("wmctrl", "xdotool", "pillow"),
 }
 
 
@@ -457,6 +460,12 @@ def _with_input_sequence(spec: dict) -> dict:
     return spec
 
 
+def _with_desktop_wait(spec: dict) -> dict:
+    """Add the wait route (#621); its entry lives in `openapi_wait.py`."""
+    spec["paths"]["/v1/desktop/wait"] = wait_path_item()
+    return spec
+
+
 def build_openapi_spec(ctx) -> dict:
     plan_schema, react_schema, reflect_schema = _cognitive_request_schemas()
     spec: dict = {
@@ -554,4 +563,4 @@ def build_openapi_spec(ctx) -> dict:
             {"name": "Events", "description": "Real-time WebSocket event stream"},
         ],
     }
-    return _apply_success_schemas(_apply_universal_responses(_with_input_sequence(spec)))
+    return _apply_success_schemas(_apply_universal_responses(_with_desktop_wait(_with_input_sequence(spec))))

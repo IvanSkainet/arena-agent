@@ -51,6 +51,25 @@ def parse_tesseract_tsv(tsv: str, *, min_confidence: int = 40, max_words: int = 
 _NO_TESSERACT = MissingTool("tesseract is not installed", ("tesseract",))
 
 
+def _floor(min_confidence: int | None) -> int:
+    """The least confidence a word is kept at: 40 when none was asked for, and 0 when 0 was."""
+    # `min_confidence or 40` read an explicit 0 as "not given" and filtered at 40.
+    return 40 if min_confidence is None else max(0, int(min_confidence))
+
+
+def _move_to_desktop(words: list[dict[str, Any]], region_x: int | None, region_y: int | None) -> None:
+    """Word boxes are read in the picture; a capture of a region starts at the region's corner."""
+    if None in (region_x, region_y):
+        return
+    dx = int(region_x or 0)
+    dy = int(region_y or 0)
+    for word in words:
+        word["bbox"]["x"] += dx
+        word["bbox"]["y"] += dy
+        word["center"]["x"] += dx
+        word["center"]["y"] += dy
+
+
 async def ocr_desktop(
     *,
     query: str = "",
@@ -105,15 +124,8 @@ async def ocr_desktop(
         result = await desktop_exec(tesseract_command(binary, str(tmp), psm), timeout=20)
         if not result.get("ok"):
             return {"ok": False, "error": result.get("stderr") or result.get("error") or "OCR failed"}
-        words = parse_tesseract_tsv(result.get("stdout", ""), min_confidence=max(0, int(min_confidence or 40)))
-        if None not in (region_x, region_y):
-            dx = int(region_x or 0)
-            dy = int(region_y or 0)
-            for word in words:
-                word["bbox"]["x"] += dx
-                word["bbox"]["y"] += dy
-                word["center"]["x"] += dx
-                word["center"]["y"] += dy
+        words = parse_tesseract_tsv(result.get("stdout", ""), min_confidence=_floor(min_confidence))
+        _move_to_desktop(words, region_x, region_y)
         matches = []
         if query:
             matches = find_text_matches(
@@ -138,6 +150,8 @@ async def ocr_desktop(
             "prefer_active_window": bool(prefer_active_window),
             "within_active_window": bool(within_active_window),
             "crop_region": shot.get("crop_region"),
+            # What the picture really shows: a wait on a region refuses a capture that was not cut to it (#621).
+            "captured_region": shot.get("captured_region"),
         }
     finally:
         try:
