@@ -21,8 +21,9 @@ def _chunk(kind: bytes, data: bytes) -> bytes:
     return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
 
 
-def png(pixels: bytes, *, size=(2, 2), stamp: bytes = b"", level: int = 6, pieces: int = 1) -> bytes:
-    """A PNG file around `pixels`: an optional time stamp, any compression level, the data in any number of chunks."""
+def png(pixels: bytes, *, size=(2, 2), stamp: bytes = b"", packed_as=(6, 1)) -> bytes:
+    """A PNG file around `pixels`: an optional time stamp; `packed_as` is (compression level, number of chunks)."""
+    level, pieces = packed_as
     header = struct.pack(">IIBBBBB", size[0], size[1], 8, 0, 0, 0, 0)
     packed = zlib.compress(pixels, level)
     step = -(-len(packed) // pieces)
@@ -39,8 +40,8 @@ def test_the_same_picture_in_a_different_file_is_the_same_frame():
     plain = read_frame(png(BLACK))
     assert plain.of == "pixels"
     assert read_frame(png(BLACK, stamp=b"\x07\xea\x0b\x1c\x11\x00\x00")) == plain
-    assert read_frame(png(BLACK, level=0)) == plain
-    assert read_frame(png(BLACK * 40, size=(2, 80), pieces=3)) == read_frame(png(BLACK * 40, size=(2, 80)))
+    assert read_frame(png(BLACK, packed_as=(0, 1))) == plain
+    assert read_frame(png(BLACK * 40, size=(2, 80), packed_as=(6, 3))) == read_frame(png(BLACK * 40, size=(2, 80)))
 
 
 def test_a_different_picture_is_a_different_frame():
@@ -89,12 +90,13 @@ def test_two_frames_are_compared_as_pixels_only_when_both_are(before, after, how
     assert compared_as(Frame("a", before), Frame("b", after)) == how
 
 
-def _windows(*lists, tool="wmctrl"):
+def _windows(*lists, tool="wmctrl", attempts=None):
     """A lister that answers with each list in turn; the last one repeats."""
     given = list(lists)
 
     async def listing():
-        return {"ok": True, "tool": tool, "windows": given.pop(0) if len(given) > 1 else given[0]}
+        return {"ok": True, "tool": tool, "windows": given.pop(0) if len(given) > 1 else given[0],
+                "attempts": attempts}
 
     return listing
 
@@ -157,13 +159,62 @@ def test_a_desktop_whose_windows_cannot_be_listed_is_not_an_empty_desktop(state)
     assert failed.value.result["error"].startswith("no tool to list windows")
 
 
+@pytest.mark.parametrize("attempts", [[], [{"tool": "wmctrl", "ok": False}], [{"tool": "kwin_script", "ok": False},
+                                                                             {"tool": "xdotool", "ok": None}], [{}]])
+def test_a_lister_that_was_tried_and_failed_did_not_list_either(attempts):
+    look = window_look(_want(title="x", state="absent"), _windows([], tool="none", attempts=attempts), _front(None))
+    with pytest.raises(CannotLook) as failed:
+        _look(look)
+    assert failed.value.result["unavailable"] == ["wmctrl", "xdotool"]
+
+
+@pytest.mark.parametrize(("state", "seen"), [
+    ("present", Look(False, {"matches": 0})),
+    ("absent", Look(True, {"matches": 0})),
+    ("active", Look(False, {"active_window": None})),
+])
+def test_a_lister_that_ran_and_found_no_window_is_an_empty_desktop(state, seen):
+    """wmctrl on a session with no windows: the catalog names no tool, and lists the run among its attempts."""
+    ran = [{"tool": "kwin_script", "ok": False}, {"tool": "wmctrl", "ok": True, "stderr": ""}]
+    look = window_look(_want(title="x", state=state), _windows([], tool="none", attempts=ran), _front(None))
+    assert _look(look) == seen
+
+
+BARE = {"id": "0x1", "title": "Abyssal Ascent - Minecraft", "pid": "7", "geometry": {"width": 800, "height": 600}}
+
+
+@pytest.mark.parametrize("state", ["present", "absent", "active"])
+def test_a_class_is_refused_where_the_window_list_has_no_classes(state):
+    """Else `absent` is true at once and `present` never, with the window on the screen all the while."""
+    look = window_look(_want(state=state, **{"class": "glfw"}), _windows([GAME, BARE]), _front(BARE))
+    with pytest.raises(CannotLook) as failed:
+        _look(look)
+    assert failed.value.result == {"ok": False, "error": (
+        "the window list on this host does not say which class a window has, so 'class' cannot be matched here: "
+        "wait by 'title' instead")}
+
+
+def test_a_title_alone_is_matched_on_a_window_list_with_no_classes():
+    look = window_look(_want(title="minecraft"), _windows([BARE]), _front(None))
+    assert _look(look) == Look(True, {"matches": 1, "window": BARE})
+
+
+def test_a_class_is_read_from_either_place_a_window_record_keeps_it():
+    kwin = {"id": "k", "title": "Notes", "resource_class": "org.kde.kate", "geometry": {"width": 9, "height": 9}}
+    look = window_look(_want(**{"class": "kate"}), _windows([GAME, kwin]), _front(None))
+    assert _look(look) == Look(True, {"matches": 1, "window": kwin})
+    # No window at all has no class to miss.
+    assert _look(window_look(_want(**{"class": "kate"}), _windows([]), _front(None))) == Look(False, {"matches": 0})
+
+
 @pytest.mark.parametrize("state", ["present", "absent", "active"])
 def test_a_listing_that_failed_is_handed_on_as_it_is(state):
     async def listing():
         return {"ok": False, "error": "EnumWindows failed", "windows": []}
 
+    look = window_look(_want(title="x", state=state), listing, _front(None))
     with pytest.raises(CannotLook) as failed:
-        _look(window_look(_want(title="x", state=state), listing, _front(None)))
+        _look(look)
     assert failed.value.result == {"ok": False, "error": "EnumWindows failed", "windows": []}
 
 
@@ -215,7 +266,7 @@ def test_a_capture_that_is_not_a_picture_says_it_was_compared_as_bytes():
 
 def test_the_screen_is_stable_once_it_has_not_changed_for_long_enough():
     now = [50.0]
-    screen = Screen(png(BLACK), png(WHITE), png(WHITE), png(WHITE, level=1))
+    screen = Screen(png(BLACK), png(WHITE), png(WHITE), png(WHITE, packed_as=(1, 1)))
     look = screen_look({"until": "stable", "stable_ms": 1000, "region": None}, screen, clock=lambda: now[0])
     seen = []
     for at in (50.0, 50.5, 51.0, 51.499, 51.5):

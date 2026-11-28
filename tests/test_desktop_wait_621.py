@@ -7,9 +7,11 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
+from arena.desktop import wait
 from arena.desktop.wait import (
     DEFAULT_POLL_MS,
     DEFAULT_TIMEOUT_MS,
+    LOOK_GRACE_MS,
     MAX_POLL_MS,
     MAX_TIMEOUT_MS,
     MIN_POLL_MS,
@@ -90,15 +92,15 @@ def test_each_kind_of_wait_takes_its_own_fields(body, want):
     assert plan_wait(body).want == want
 
 
-@pytest.mark.parametrize(("fields", "kept"), [
+@pytest.mark.parametrize(("fields", "expected"), [
     ({"timeout_ms": 1}, (1, DEFAULT_POLL_MS)),
     ({"timeout_ms": MAX_TIMEOUT_MS}, (MAX_TIMEOUT_MS, DEFAULT_POLL_MS)),
     ({"poll_ms": MIN_POLL_MS}, (DEFAULT_TIMEOUT_MS, MIN_POLL_MS)),
     ({"poll_ms": MAX_POLL_MS}, (DEFAULT_TIMEOUT_MS, MAX_POLL_MS)),
 ])
-def test_the_limits_themselves_are_allowed(fields, kept):
+def test_the_limits_themselves_are_allowed(fields, expected):
     plan = _plan(**fields)
-    assert (plan.timeout_ms, plan.poll_ms) == kept
+    assert (plan.timeout_ms, plan.poll_ms) == expected
 
 
 @pytest.mark.parametrize(("body", "says"), [
@@ -124,9 +126,6 @@ def test_the_limits_themselves_are_allowed(fields, kept):
     ({"for": "screen", "region": [1, 2, 3, 4]}, "'region' must be an object with exactly x, y, width and height"),
     ({"for": "screen", "region": {"x": 1, "y": 2, "width": 3}}, "'region' must be an object with exactly"),
     ({"for": "screen", "region": {"x": 1, "y": 2, "width": 3, "height": 4, "z": 5}}, "'region' must be an object"),
-    ({"for": "screen", "region": {"x": 1, "y": 2, "width": 0, "height": 4}},
-     "'region' must have a width and a height of at least 1"),
-    ({"for": "screen", "region": {"x": 1, "y": 2, "width": 3, "height": 0}}, "'region' must have a width and a height"),
     ({"for": "text"}, "a text wait needs 'text': the words to look for on the screen"),
     ({"for": "text", "text": "   "}, "a text wait needs 'text'"),
     ({"for": "text", "text": "x", "state": "active"}, "'state' must be one of: present, absent"),
@@ -161,6 +160,12 @@ BOX = {"x": 1, "y": 2, "width": 3, "height": 4}
     ({"for": "screen", "region": BOX | {"y": None}}, "region.y", "an integer", "null"),
     ({"for": "screen", "region": BOX | {"width": True}}, "region.width", "an integer", "boolean"),
     ({"for": "text", "text": "x", "region": BOX | {"height": ""}}, "region.height", "an integer", "string"),
+    ({"for": "screen", "region": BOX | {"width": 0}}, "region.width", "an integer no smaller than 1", "number"),
+    ({"for": "screen", "region": BOX | {"height": 0}}, "region.height", "an integer no smaller than 1", "number"),
+    ({"for": "screen", "region": BOX | {"width": 1000001}}, "region.width", "an integer no greater than 1000000",
+     "number"),
+    ({"for": "screen", "region": BOX | {"x": -1000001}}, "region.x", "an integer no smaller than -1000000", "number"),
+    ({"for": "screen", "region": BOX | {"y": 10 ** 30}}, "region.y", "an integer no greater than 1000000", "number"),
 ])
 def test_a_number_that_cannot_be_used_is_refused_by_name(body, field, says, received):
     with pytest.raises(BodyFieldError) as refused:
@@ -169,13 +174,13 @@ def test_a_number_that_cannot_be_used_is_refused_by_name(body, field, says, rece
     assert refused.value.details == {"field": field, "received": received}
 
 
-@pytest.mark.parametrize(("body", "read"), [
+@pytest.mark.parametrize(("body", "expected"), [
     (WINDOW | {"timeout_ms": "9", "poll_ms": 250.0}, (9, 250)),
     (WINDOW | {"timeout_ms": None, "poll_ms": ""}, (10000, 500)),
 ])
-def test_numbers_are_read_the_way_every_body_number_is(body, read):
+def test_numbers_are_read_the_way_every_body_number_is(body, expected):
     plan = plan_wait(body)
-    assert (plan.timeout_ms, plan.poll_ms) == read
+    assert (plan.timeout_ms, plan.poll_ms) == expected
 
 
 def test_the_numbers_of_each_kind_are_read_the_same_way():
@@ -184,6 +189,12 @@ def test_the_numbers_of_each_kind_are_read_the_same_way():
     assert plan_wait(WORDS | {"min_confidence": 55.0}).want["min_confidence"] == 55
     assert plan_wait(WORDS | {"min_confidence": None}).want["min_confidence"] == 40
     assert plan_wait({"for": "screen", "region": BOX | {"x": "10", "width": 3.0}}).want["region"] == BOX | {"x": 10}
+
+
+def test_a_region_may_start_left_of_or_above_the_main_display_and_be_one_pixel():
+    far = {"x": -1000000, "y": 1000000, "width": 1, "height": 1000000}
+    assert plan_wait({"for": "screen", "region": far}).want["region"] == far
+    assert list(plan_wait({"for": "screen", "region": dict(reversed(far.items()))}).want["region"]) == list(BOX)
 
 
 def test_a_refusal_is_one_the_route_decorators_answer_with_a_400():
@@ -245,8 +256,9 @@ def test_a_look_that_cannot_be_made_is_not_a_timeout():
     async def look() -> Look:
         raise CannotLook({"ok": False, "error": "no display", "unavailable": ["grim"]})
 
+    plan = _plan()
     with pytest.raises(CannotLook) as failed:
-        asyncio.run(wait_for(_plan(), look))
+        asyncio.run(wait_for(plan, look))
     assert failed.value.result == {"ok": False, "error": "no display", "unavailable": ["grim"]}
     assert str(failed.value) == "no display"
     assert str(CannotLook({"ok": False})) == "the desktop could not be looked at"
@@ -261,3 +273,51 @@ def test_the_real_clock_and_sleep_are_the_defaults():
     result = asyncio.run(wait_for(_plan(timeout_ms=2000, poll_ms=100), look))
     assert (result["happened"], result["polls"]) == (True, 2)
     assert 90 <= result["waited_ms"] < 1500
+
+
+def test_each_look_is_given_the_time_left_and_a_fixed_grace_after_it(monkeypatch):
+    """The answer comes within `timeout_ms + LOOK_GRACE_MS`, however long a producer would take."""
+    limits: list[float] = []
+
+    async def within(running, seconds):
+        limits.append(seconds)
+        return await running
+
+    monkeypatch.setattr(wait, "_within", within)
+    result, _ = _run(_plan(timeout_ms=1000, poll_ms=400), [Look(False)], look_costs=0.1)
+    assert result["polls"] == 3
+    # Read before each look: 0, 500 and 1000 ms into a wait of 1000 ms.
+    assert limits == pytest.approx([11.0, 10.5, 10.0])
+    assert LOOK_GRACE_MS == 10_000
+    assert MAX_TIMEOUT_MS + LOOK_GRACE_MS < 60_000
+
+
+def test_a_look_still_running_when_the_grace_is_over_is_abandoned_and_is_not_a_timeout(monkeypatch):
+    stopped: list[str] = []
+
+    async def look() -> Look:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            stopped.append("cancelled")
+        return Look(True)
+
+    monkeypatch.setattr(wait, "LOOK_GRACE_MS", 30)
+    plan = _plan(timeout_ms=1)
+    with pytest.raises(CannotLook) as failed:
+        asyncio.run(wait_for(plan, look))
+    assert failed.value.result == {"ok": False, "error": (
+        "a look at the desktop was still running 30 ms after the time to wait was up, and was abandoned")}
+    assert failed.value.__suppress_context__ is True
+    assert stopped == ["cancelled"]
+
+
+def test_a_look_that_ends_inside_the_grace_is_answered_as_it_was_seen(monkeypatch):
+    async def look() -> Look:
+        await asyncio.sleep(0.05)
+        return Look(True, {"matches": 1})
+
+    monkeypatch.setattr(wait, "LOOK_GRACE_MS", 5000)
+    result = asyncio.run(wait_for(_plan(timeout_ms=1), look))
+    assert (result["happened"], result["polls"], result["matches"]) == (True, 1, 1)
+    assert result["waited_ms"] >= 50

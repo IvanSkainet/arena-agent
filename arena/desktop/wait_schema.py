@@ -11,6 +11,7 @@ from arena.desktop.wait import (
     MAX_POLL_MS,
     MAX_TIMEOUT_MS,
     MIN_POLL_MS,
+    REGION_BOUNDS,
 )
 
 # Two copies of this were two chances to describe a field the planner does
@@ -25,8 +26,9 @@ def _region() -> dict[str, Any]:
             "screen, text: look at this rectangle only, in desktop pixels. Default: the whole desktop. A host that "
             "cannot cut its capture to a region (no Pillow, where the capture tool takes the whole desktop) is "
             "refused and does not watch the whole desktop instead."),
-        "properties": {name: {"type": "integer"} for name in ("x", "y", "width", "height")},
-        "required": ["x", "y", "width", "height"],
+        "properties": {name: {"type": "integer", "minimum": least, "maximum": most}
+                       for name, (least, most) in REGION_BOUNDS.items()},
+        "required": list(REGION_BOUNDS),
         "additionalProperties": False,
     }
 
@@ -42,7 +44,9 @@ def wait_request_schema() -> dict[str, Any]:
             "poll_ms": {"type": "integer", "minimum": MIN_POLL_MS, "maximum": MAX_POLL_MS,
                         "default": DEFAULT_POLL_MS, "description": "Pause between looks."},
             "title": {"type": "string", "description": "window: words from the window title."},
-            "class": {"type": "string", "description": "window: words from the window class."},
+            "class": {"type": "string", "description": (
+                "window: words from the window class. Refused with a 500 where the host's window list "
+                "has no classes (wmctrl, xdotool).")},
             "state": {"type": "string", "enum": ["present", "absent", "active"], "default": "present",
                       "description": "window: present, absent or active (in front). text: present or absent."},
             "until": {"type": "string", "enum": ["change", "stable"], "default": "change",

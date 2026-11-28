@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from arena.desktop.wait import FIELDS, plan_wait
+from arena.desktop.wait import FIELDS, REGION_BOUNDS, plan_wait
 from arena.desktop.wait_schema import wait_request_schema
 from arena.handler_errors import BadRequest
 from arena.mcp.tool_registry import MCP_TOOLS
@@ -98,8 +98,9 @@ def test_words_are_strings(name):
 def test_a_region_is_four_whole_numbers_and_nothing_else():
     region = PROPERTIES["region"]
     assert region["type"] == "object"
-    assert region["required"] == ["x", "y", "width", "height"]
-    assert region["properties"] == {name: {"type": "integer"} for name in region["required"]}
+    assert region["required"] == ["x", "y", "width", "height"] == list(REGION_BOUNDS)
+    assert {name: described["type"] for name, described in region["properties"].items()} == dict.fromkeys(
+        region["required"], "integer")
     whole = dict.fromkeys(region["required"], 5)
     for kind in _kinds_taking("region"):
         assert _taken(kind, region=whole)
@@ -108,6 +109,20 @@ def test_a_region_is_four_whole_numbers_and_nothing_else():
             assert not _taken(kind, region={key: value for key, value in whole.items() if key != name})
             assert not _taken(kind, region={**whole, name: 5.5})
             assert not _taken(kind, region={**whole, name: "five"})
+
+
+@pytest.mark.parametrize("name", ["x", "y", "width", "height"])
+def test_each_side_of_a_region_has_the_limits_the_planner_has(name):
+    described = PROPERTIES["region"]["properties"][name]
+    assert set(described) == {"type", "minimum", "maximum"}
+    whole = dict.fromkeys(PROPERTIES["region"]["required"], 5)
+    for kind in _kinds_taking("region"):
+        assert _taken(kind, region={**whole, name: described["minimum"]})
+        assert _taken(kind, region={**whole, name: described["maximum"]})
+        assert not _taken(kind, region={**whole, name: described["minimum"] - 1})
+        assert not _taken(kind, region={**whole, name: described["maximum"] + 1})
+    # A region is at least one pixel, and may lie left of or above the main display.
+    assert described["minimum"] == (1 if name in ("width", "height") else -described["maximum"])
 
 
 def test_what_is_not_described_is_refused_by_the_schema_as_it_is_by_the_planner():
@@ -135,4 +150,4 @@ def test_the_route_and_the_tool_both_use_it():
 def test_the_wording_changes_only_on_purpose():
     """The descriptions are read by a model deciding what to send. After a deliberate change, record the new digest."""
     written = json.dumps(SCHEMA, sort_keys=True, ensure_ascii=False).encode("utf-8")
-    assert hashlib.sha256(written).hexdigest() == "c64a9f5d8e0d8ee7aa6a670bfbbecd05ac94e67982e4416b187b6ffae809e27e"
+    assert hashlib.sha256(written).hexdigest() == "d02d925e90a5a1d70e4bc83308abcea8492b5c494b744b6e41af59ba9ba89539"

@@ -19,16 +19,27 @@ from arena.handler_params import body_int
 # This module is the request and the loop. What a look *is* -- listing
 # windows, comparing two captures, reading the screen -- is in `wait_looks`.
 
-#: Under the 60 s the MCP tools wait for the bridge, with room for a last look.
+#: Under the 60 s the MCP tools wait for the bridge, with room for a last look (`LOOK_GRACE_MS`).
 MAX_TIMEOUT_MS = 45_000
 DEFAULT_TIMEOUT_MS = 10_000
 MIN_POLL_MS = 100
 MAX_POLL_MS = 5_000
 DEFAULT_POLL_MS = 500
 DEFAULT_STABLE_MS = 1_000
+#: How long after the time is up a look that is still running is waited for. A look is a producer's own
+#: work -- a listing, a capture, a reading -- and one that hangs must not hold the request past what the
+#: caller's own HTTP timeout allows: the answer comes within `timeout_ms + LOOK_GRACE_MS`.
+LOOK_GRACE_MS = 10_000
 
 _COMMON = ("for", "timeout_ms", "poll_ms")
-_REGION = ("x", "y", "width", "height")
+#: Further than any desktop reaches, and well inside what the capture calls take as a C int.
+REGION_FAR = 1_000_000
+#: The least and the most each side of a region may be. A display left of or above the main one has
+#: negative corners; a region has at least one pixel.
+REGION_BOUNDS: dict[str, tuple[int, int]] = {
+    "x": (-REGION_FAR, REGION_FAR), "y": (-REGION_FAR, REGION_FAR),
+    "width": (1, REGION_FAR), "height": (1, REGION_FAR),
+}
 #: What each kind of wait may be told, besides the common fields.
 FIELDS: dict[str, tuple[str, ...]] = {
     "window": ("title", "class", "state"),
@@ -83,7 +94,7 @@ class Looker(Protocol):
 def _edge(region: Mapping[str, Any], name: str) -> int:
     """One side of the region, read the way every number in a body is; it cannot be left out."""
     label = f"region.{name}"
-    number = body_int({label: region[name]}, label, default=None)
+    number = body_int({label: region[name]}, label, default=None, bounds=REGION_BOUNDS[name])
     if number is None:
         raise BodyFieldError(label, region[name])
     return number
@@ -111,12 +122,9 @@ def _region(body: Mapping[str, Any]) -> dict[str, int] | None:
     region = body.get("region")
     if region is None:
         return None
-    if not isinstance(region, Mapping) or sorted(region) != sorted(_REGION):
+    if not isinstance(region, Mapping) or sorted(region) != sorted(REGION_BOUNDS):
         raise WaitError("'region' must be an object with exactly x, y, width and height")
-    numbers = {name: _edge(region, name) for name in _REGION}
-    if numbers["width"] < 1 or numbers["height"] < 1:
-        raise WaitError("'region' must have a width and a height of at least 1")
-    return numbers
+    return {name: _edge(region, name) for name in REGION_BOUNDS}
 
 
 def _window(body: Mapping[str, Any], _timeout_ms: int) -> dict[str, Any]:
@@ -171,13 +179,28 @@ def plan_wait(body: Mapping[str, Any]) -> WaitPlan:
     return WaitPlan(kind, timeout_ms, poll_ms, _WANTS[kind](body, timeout_ms))
 
 
+#: Runs a look under a time limit. A name of its own so that a test can see the limit a look was given.
+_within = asyncio.wait_for
+
+
+async def _one(look: Looker, seconds: float) -> Look:
+    """One look, abandoned when it is still running after `seconds`."""
+    try:
+        return await _within(look(), seconds)
+    except asyncio.TimeoutError:
+        raise CannotLook({"ok": False, "error": (
+            f"a look at the desktop was still running {LOOK_GRACE_MS} ms after the time to wait was up, "
+            "and was abandoned")}) from None
+
+
 async def wait_for(plan: WaitPlan, look: Looker, *, clock: Callable[[], float] = time.monotonic,
                    sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep) -> dict[str, Any]:
     """Look until the state is there or the time is up; the last look is at the deadline, not before it."""
     started = clock()
+    give_up = started + (plan.timeout_ms + LOOK_GRACE_MS) / 1000
     polls = 0
     while True:
-        seen = await look()
+        seen = await _one(look, give_up - clock())
         polls += 1
         waited_ms = round((clock() - started) * 1000)
         left_ms = plan.timeout_ms - waited_ms
@@ -188,5 +211,6 @@ async def wait_for(plan: WaitPlan, look: Looker, *, clock: Callable[[], float] =
         await sleep(min(plan.poll_ms, left_ms) / 1000)
 
 
-__all__ = ["DEFAULT_POLL_MS", "DEFAULT_STABLE_MS", "DEFAULT_TIMEOUT_MS", "FIELDS", "MAX_POLL_MS", "MAX_TIMEOUT_MS",
-           "MIN_POLL_MS", "CannotLook", "Look", "Looker", "WaitError", "WaitPlan", "plan_wait", "wait_for"]
+__all__ = ["DEFAULT_POLL_MS", "DEFAULT_STABLE_MS", "DEFAULT_TIMEOUT_MS", "FIELDS", "LOOK_GRACE_MS", "MAX_POLL_MS",
+           "MAX_TIMEOUT_MS", "MIN_POLL_MS", "REGION_BOUNDS", "REGION_FAR", "CannotLook", "Look", "Looker",
+           "WaitError", "WaitPlan", "plan_wait", "wait_for"]

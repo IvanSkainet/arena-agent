@@ -11,11 +11,11 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from arena.desktop import ocr, wait_handler
+from arena.desktop import ocr, wait, wait_handler
 from arena.mcp import tool_desktop_wait
 from arena.mcp.tool_desktop_app import handle_desktop_app_tool
 from arena.mcp.tool_registry import MCP_TOOLS
-from arena.observability.audit_enhanced import classify_action
+from arena.observability.audit_enhanced import classify_action, enrich_event
 from arena.public.openapi import build_openapi_spec
 from arena.route_registry.registry import ROUTES
 from tests._live_bridge import auth_header, json_payload, running_client
@@ -27,6 +27,12 @@ PICTURE = b"BM first"
 class Desk:
     """A handler context whose producers remember how they were asked and answer what the test set."""
 
+    #: Set by a test that wants the request turned away at the door.
+    refuse_auth: web.Response | None = None
+    desktop_exec = object()
+    detect_desktop_env = dict
+    kwin_windows_via_script = object()
+
     def __init__(self) -> None:
         """A desktop with one window, a screen that never changes and a reader that finds nothing."""
         self.recorded: list[dict] = []
@@ -36,10 +42,6 @@ class Desk:
         self.shot: dict = {"ok": True, "bytes": PICTURE, "encoding": "png"}
         self.read: dict = {"ok": True, "matches": [], "word_count": 3}
         self.front: dict | None = GAME
-        self.refuse_auth: web.Response | None = None
-        self.desktop_exec = object()
-        self.detect_desktop_env = dict
-        self.kwin_windows_via_script = object()
 
     def require_auth(self, _request):
         return self.refuse_auth
@@ -107,7 +109,7 @@ def test_a_window_that_is_there_is_answered_at_once_and_noted_once(desk):
     assert body["waited_ms"] < 500
     assert desk.asked == [("windows", {"desktop_exec": desk.desktop_exec, "detect_env": desk.detect_desktop_env,
                                        "kwin_windows_via_script": desk.kwin_windows_via_script})]
-    assert desk.audited == [{"type": "desktop_wait", "for": "window", "happened": True,
+    assert desk.audited == [{"type": "desktop.wait", "for": "window", "happened": True,
                              "waited_ms": body["waited_ms"], "polls": 1}]
     assert desk.recorded == [{}]
 
@@ -139,7 +141,9 @@ def test_a_screen_wait_captures_the_region_as_png_without_an_audit_record_per_lo
     assert all(asked == ("capture", {
         "fmt": "png", "region_x": 10, "region_y": 20, "region_width": 300, "region_height": 200,
         "desktop_exec": desk.desktop_exec, "detect_env": desk.detect_desktop_env}) for asked in desk.asked)
-    assert [record["type"] for record in desk.audited] == ["desktop_wait"]
+    assert [record["type"] for record in desk.audited] == ["desktop.wait"]
+    # As the record is written, not as a name typed into the test: the digest counts it among the reads.
+    assert enrich_event(desk.audited[0])["action_category"] == "read"
 
 
 def test_the_whole_desktop_is_captured_when_no_region_is_given(desk):
@@ -282,6 +286,31 @@ def test_the_route_is_registered_and_documented():
     assert answer["required"] == ["ok", "happened", "for", "waited_ms", "polls"]
 
 
+@pytest.mark.parametrize(("body", "names"), [
+    ({"for": "window"}, set()),
+    ({"for": "window", "title": "x", "nope": 1}, set()),
+    ({"for": "window", "title": "x", "timeout_ms": "soon"}, {"field", "received"}),
+    ({"for": "screen", "region": {"x": 1, "y": 2, "width": 0, "height": 4}}, {"field", "received"}),
+    ([], {"received"}),
+    ("window", {"received"}),
+])
+def test_every_refusal_the_route_gives_fits_the_400_the_document_describes(desk, body, names):
+    """Three shapes share the status; a schema that required `field` described one of them."""
+    ctx = SimpleNamespace(version="test", hostname=lambda: "h", bridge_port=lambda: 8765)
+    described = build_openapi_spec(ctx)["paths"]["/v1/desktop/wait"]["post"]["responses"]["400"]
+    schema = described["content"]["application/json"]["schema"]
+    assert sorted(schema["required"]) == ["error", "ok"]
+    assert {"field", "received"} <= set(schema["properties"])
+    assert "JSON object" in described["description"]
+    status, answer = post(desk, body)
+    assert status == 400
+    assert set(schema["required"]) <= set(answer)
+    assert set(answer) - {"ok", "error"} == names
+    assert set(answer) <= set(schema["properties"])
+    if names:
+        assert answer["received"] in schema["properties"]["received"]["enum"]
+
+
 def test_the_tool_is_listed_and_only_reads():
     tool = next(tool for tool in MCP_TOOLS if tool["name"] == "desktop.wait")
     assert tool["inputSchema"]["required"] == ["for"]
@@ -352,3 +381,74 @@ def test_the_real_reader_says_which_region_its_picture_shows(monkeypatch):
     assert result["crop_region"] == {"x": 1, "y": 2, "width": 3, "height": 4}
     assert "captured_region" in result
     assert result["captured_region"] is None
+
+
+TSV = "\n".join(["level\tpage\tblock\tpar\tline\tword\tleft\ttop\twidth\theight\tconf\ttext",
+                 "5\t1\t1\t1\t1\t1\t10\t20\t30\t12\t0\tghost",
+                 "5\t1\t1\t1\t1\t2\t50\t20\t30\t12\t39.5\tfaint",
+                 "5\t1\t1\t1\t1\t3\t90\t20\t30\t12\t40\tclear"])
+
+
+@pytest.mark.parametrize(("asked", "kept"), [
+    ({"min_confidence": 0}, ["ghost", "faint", "clear"]),
+    ({"min_confidence": None}, ["clear"]),
+    ({}, ["clear"]),
+    ({"min_confidence": -5}, ["ghost", "faint", "clear"]),
+    ({"min_confidence": 40}, ["clear"]),
+    ({"min_confidence": 41}, []),
+])
+def test_the_real_reader_keeps_words_at_the_confidence_asked_for_and_zero_means_zero(monkeypatch, asked, kept):
+    """`min_confidence: 0` is in the range a wait documents; the reader used to read it as 40."""
+    async def capture(**_kwargs):
+        return {"ok": True, "bytes": b"picture"}
+
+    async def run(_command, timeout):
+        assert timeout
+        return {"ok": True, "stdout": TSV}
+
+    monkeypatch.setattr(ocr, "find_tesseract", lambda: "tesseract")
+    result = asyncio.run(ocr.ocr_desktop(capture_screenshot=capture, desktop_exec=run, detect_env=dict, **asked))
+    assert [word["text"] for word in result["words"]] == kept
+
+
+def test_the_real_reader_puts_the_words_of_a_region_where_they_are_on_the_desktop(monkeypatch):
+    async def capture(**_kwargs):
+        return {"ok": True, "bytes": b"picture"}
+
+    async def run(_command, timeout):
+        assert timeout
+        return {"ok": True, "stdout": TSV}
+
+    monkeypatch.setattr(ocr, "find_tesseract", lambda: "tesseract")
+    read = {"capture_screenshot": capture, "desktop_exec": run, "detect_env": dict}
+    moved = asyncio.run(ocr.ocr_desktop(region_x=100, region_y=200, region_width=300, region_height=50, **read))
+    whole = asyncio.run(ocr.ocr_desktop(**read))
+    assert [(word["bbox"]["x"], word["bbox"]["y"]) for word in whole["words"]] == [(90, 20)]
+    assert [(word["bbox"]["x"], word["bbox"]["y"]) for word in moved["words"]] == [(190, 220)]
+    assert moved["words"][0]["center"]["x"] - whole["words"][0]["center"]["x"] == 100
+    assert moved["words"][0]["center"]["y"] - whole["words"][0]["center"]["y"] == 200
+    # Only one of the two corners given: nothing is moved.
+    half = asyncio.run(ocr.ocr_desktop(region_x=100, **read))
+    assert half["words"][0]["bbox"] == whole["words"][0]["bbox"]
+
+
+def test_a_listing_that_hangs_is_given_up_on_and_answered_as_a_failure_of_the_look(desk, monkeypatch):
+    async def hangs(**_kwargs):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(wait_handler, "list_desktop_windows", hangs)
+    monkeypatch.setattr(wait, "LOOK_GRACE_MS", 40)
+    status, body = post(desk, {"for": "window", "title": "minecraft", "timeout_ms": 1})
+    assert status == 500
+    assert body["ok"] is False
+    assert "still running 40 ms after the time to wait was up" in body["error"]
+    assert "unavailable" not in body
+    assert desk.audited == []
+
+
+def test_a_class_asked_of_a_window_list_without_classes_is_a_failure_and_not_a_wrong_answer(desk):
+    desk.listing = {"ok": True, "tool": "wmctrl", "windows": [{"id": "0x1", "title": "Abyssal Ascent - Minecraft"}]}
+    status, body = post(desk, {"for": "window", "class": "glfw", "state": "absent", "timeout_ms": 1})
+    assert status == 500
+    assert "'class' cannot be matched here" in body["error"]
+    assert post(desk, {"for": "window", "title": "minecraft", "timeout_ms": 1})[1]["happened"] is True

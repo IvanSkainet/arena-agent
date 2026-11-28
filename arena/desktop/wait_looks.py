@@ -32,15 +32,33 @@ class Capture(Protocol):
         """Capture once."""
 
 
+_NO_CLASS = ("the window list on this host does not say which class a window has, so 'class' cannot be "
+             "matched here: wait by 'title' instead")
+#: Where a window record says its class. The wmctrl and xdotool listings have neither.
+_CLASS_KEYS = frozenset({"class", "resource_class"})
+
+
 def _matching(windows: list[dict[str, Any]], want: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The windows that fit; `CannotLook` when a class is asked for and a window does not say its own."""
+    # Matching a class against a record that has none finds nothing: "present"
+    # would never come true and "absent" would be true at once, window or not.
+    if want["class"] and not all(_CLASS_KEYS & window.keys() for window in windows):
+        raise CannotLook({"ok": False, "error": _NO_CLASS})
     return window_candidates(windows, title=want["title"], class_contains=want["class"])
+
+
+def _was_asked(listing: Mapping[str, Any]) -> bool:
+    """Whether some tool did answer, even though the listing names none."""
+    # wmctrl that ran and printed no window is an empty desktop, and the
+    # catalog reports it as `tool: none` with the run among its `attempts`.
+    return any(attempt.get("ok") for attempt in listing.get("attempts") or [])
 
 
 def _listed(listing: Mapping[str, Any]) -> list[dict[str, Any]]:
     """The windows of a listing, or `CannotLook` when nothing listed them."""
     if not listing.get("ok"):
         raise CannotLook(listing)
-    if listing.get("tool") == "none":
+    if listing.get("tool") == "none" and not _was_asked(listing):
         # "No windows" from a desktop with no way to list them would make
         # every wait for a window to go away succeed at once.
         raise CannotLook(unavailable_result(_NO_LISTING))
@@ -48,13 +66,11 @@ def _listed(listing: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def _cut_to(region: Mapping[str, int] | None, result: Mapping[str, Any]) -> None:
-    """Refuse a capture that shows more than the region asked for.
-
-    Where the capture tool takes the whole desktop, Pillow cuts the region out
-    of it; without Pillow the whole picture comes back, with nothing in
-    `captured_region`. Watching that instead would answer for a place the
-    caller did not ask about.
-    """
+    """Refuse a capture that shows more than the region asked for."""
+    # Where the capture tool takes the whole desktop, Pillow cuts the region
+    # out of it; without Pillow the whole picture comes back, with nothing in
+    # `captured_region`. Watching that instead would answer for a place the
+    # caller did not ask about.
     if region and not result.get("captured_region"):
         raise CannotLook(unavailable_result(_NO_CROP))
 

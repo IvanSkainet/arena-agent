@@ -3,10 +3,11 @@
 # is one long literal.
 from __future__ import annotations
 
-from arena.desktop.wait import FIELDS, MAX_TIMEOUT_MS
+from arena.desktop.wait import FIELDS, LOOK_GRACE_MS, MAX_TIMEOUT_MS
 from arena.desktop.wait_schema import wait_request_schema
-from arena.public.error_envelopes import _BODY_FIELD_ERROR_ENVELOPE, _ERROR_ENVELOPE
+from arena.public.error_envelopes import _ERROR_ENVELOPE
 
+_JSON = "application/json"
 _ANSWER = {
     "type": "object",
     "properties": {
@@ -32,7 +33,7 @@ _ANSWER = {
 
 
 def _refusal(description: str, schema: dict | None = None) -> dict:
-    return {"description": description, "content": {"application/json": {"schema": schema or _ERROR_ENVELOPE}}}
+    return {"description": description, "content": {_JSON: {"schema": schema or _ERROR_ENVELOPE}}}
 
 
 def wait_path_item() -> dict:
@@ -42,21 +43,26 @@ def wait_path_item() -> dict:
         "description": (
             "One call instead of a sleep-and-screenshot loop. The bridge looks at the desktop every `poll_ms` "
             f"until the state is there or `timeout_ms` (at most {MAX_TIMEOUT_MS}) has passed, and looks once more "
-            "at the deadline. Read-only: it sends no input and works while desktop control is paused. "
+            f"at the deadline; a look still running {LOOK_GRACE_MS} ms after that is abandoned and answered "
+            "with a 500. Read-only: it sends no input and works while desktop control is paused. "
             "`for: screen` with `until: change` compares against the first look, so a change that finished "
             "before the call is not seen; `until: stable` has no such gap. A capture shows what the capture "
             "tool sees: on Windows an application in exclusive full screen is captured as a picture that does "
             "not change (#618), so `screen` and `text` waits cannot watch it. Fields that do not belong to the "
             "chosen `for` are refused."),
         "tags": ["Desktop"],
-        "requestBody": {"content": {"application/json": {"schema": wait_request_schema()}}},
+        "requestBody": {"content": {_JSON: {"schema": wait_request_schema()}}},
         "responses": {
             "200": {"description": "The wait ended: `happened` says whether the state was reached",
-                    "content": {"application/json": {"schema": _ANSWER}}},
-            "400": _refusal("A field is missing, malformed, out of range or does not belong to this kind of "
-                            "wait, or the body is not an object. A malformed number is named in `field`",
-                            _BODY_FIELD_ERROR_ENVELOPE),
+                    "content": {_JSON: {"schema": _ANSWER}}},
+            # No schema here: three refusals share this status -- a field of this route (`error` alone), a
+            # malformed number (`field`, `received`) and a body that is not an object (`received`) -- and
+            # the builder writes the one envelope in which `field` and `received` are both optional.
+            "400": {"description": "A field is missing, malformed, out of range or does not belong to this "
+                                   "kind of wait"},
             "500": _refusal("The desktop could not be looked at: listing windows, capturing the screen or "
-                            "reading it failed"),
+                            "reading it failed; a look was still running "
+                            f"{LOOK_GRACE_MS} ms after the time was up; or `class` was asked for where the "
+                            "window list has no classes"),
         },
     }}

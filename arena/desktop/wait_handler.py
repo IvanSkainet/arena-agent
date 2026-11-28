@@ -54,7 +54,8 @@ def make_desktop_wait_handler(ctx: DesktopHandlerContext):
             result = await wait_for(plan, looker_for(ctx, plan))
         except CannotLook as exc:
             return failure_response(ctx, exc.result, "the desktop could not be looked at")
-        ctx.audit({"type": "desktop_wait", "for": plan.kind, "happened": result["happened"],
+        # The name the audit digest files under "read" (`audit_enhanced`), as the MCP tool is called.
+        ctx.audit({"type": "desktop.wait", "for": plan.kind, "happened": result["happened"],
                    "waited_ms": result["waited_ms"], "polls": result["polls"]})
         return ctx.cors_json_response(result)
 

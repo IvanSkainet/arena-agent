@@ -109,7 +109,7 @@ def _needs_a_tool_here(path: str) -> bool:
 
 
 def _headless_enough_for(path: str, needs: list[str]) -> bool:
-    """Whether the expected list of a row that depends on the session holds on this host.
+    """Whether the screenshot row's expected list holds on this host.
 
     The capture filters its list by the session: under X11 it drops grim,
     under Wayland it drops scrot, and only with no session at all does it
@@ -117,10 +117,9 @@ def _headless_enough_for(path: str, needs: list[str]) -> bool:
     tool installed, the row would run and compare against the wrong list --
     cubic caught that on the #260 PR. The session-filtered lists have their
     own test above; this row is about the headless case.
-
-    The window and screen rows of the wait route (#621) are the same case: a
-    desktop session may list its windows with no tool installed (KWin).
     """
+    # The window and screen rows of the wait route (#621) are the same case: a
+    # desktop session may list its windows with no tool installed (KWin).
     if path not in ("/v1/desktop/screenshot", "/v1/desktop/wait") or needs == ["tesseract"]:
         return True
     return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
